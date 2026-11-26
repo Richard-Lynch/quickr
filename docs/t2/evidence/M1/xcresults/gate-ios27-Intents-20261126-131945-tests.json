@@ -1,0 +1,156 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "EBDB3CEF-02BD-410D-A9D4-FCB0CE6C50E4",
+   "deviceName": "quickR iOS27 t2-m1-gate-f08e14",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "24A434",
+   "osVersion": "27.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "durationInSeconds": 8.839962005615234,
+         "name": "testLogEntryIntentLogsAnOption()",
+         "nodeIdentifier": "IntentResolutionTests/testLogEntryIntentLogsAnOption()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.426908016204834,
+         "name": "testLogEntryIntentRunsInTheApp()",
+         "nodeIdentifier": "IntentResolutionTests/testLogEntryIntentRunsInTheApp()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.2298970222473145,
+         "name": "testQuestionOptionEntityResolves()",
+         "nodeIdentifier": "IntentResolutionTests/testQuestionOptionEntityResolves()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.534904956817627,
+         "name": "testRepeatLastEntryIntentRelogsTheLatest()",
+         "nodeIdentifier": "IntentResolutionTests/testRepeatLastEntryIntentRelogsTheLatest()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.2589099407196045,
+         "name": "testTopicEntityResolvesInTheApp()",
+         "nodeIdentifier": "IntentResolutionTests/testTopicEntityResolvesInTheApp()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.246303081512451,
+         "name": "testWhatsDueIntentListsTheDueTopics()",
+         "nodeIdentifier": "IntentResolutionTests/testWhatsDueIntentListsTheDueTopics()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "IntentResolutionTests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.050917983055114746,
+         "name": "testLogTopicInShortcuts()",
+         "nodeIdentifier": "IntentSpikeTests/testLogTopicInShortcuts()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.03864097595214844,
+         "name": "testProcessingBudget()",
+         "nodeIdentifier": "IntentSpikeTests/testProcessingBudget()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.048277974128723145,
+         "name": "testPromptingUnderAppIntentsTesting()",
+         "nodeIdentifier": "IntentSpikeTests/testPromptingUnderAppIntentsTesting()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04334700107574463,
+         "name": "testPromptsInShortcuts()",
+         "nodeIdentifier": "IntentSpikeTests/testPromptsInShortcuts()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.03670907020568848,
+         "name": "testShortcutsAppExploration()",
+         "nodeIdentifier": "IntentSpikeTests/testShortcutsAppExploration()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        }
+       ],
+       "name": "IntentSpikeTests",
+       "nodeType": "Test Suite",
+       "result": "Skipped"
+      }
+     ],
+     "name": "QuickRIntentsTests",
+     "nodeType": "UI test bundle",
+     "result": "Passed"
+    }
+   ],
+   "name": "Intents",
+   "nodeType": "Test Plan",
+   "result": "Passed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}

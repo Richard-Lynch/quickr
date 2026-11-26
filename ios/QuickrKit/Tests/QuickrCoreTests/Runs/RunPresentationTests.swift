@@ -162,9 +162,11 @@ import Testing
     static let tiktok = TopicTimer(steps: [], laps: lapTypes)
     static let typedSteps = TopicTimer(steps: steps, laps: lapTypes)
 
-    /// One row of the active-surfaces.md §1.2 table. Rows 1–3 (idle: no `RunState`), 11 (queued
-    /// reopen: I1-WRITES' "resuming" projection) and 14 (busy: I1-WRITES' cooldown) are not
-    /// expressible through `actions(_:status:timer:now:)` alone.
+    /// One row of the active-surfaces.md §1.2 table. Rows 1–3 (idle) are the topic's last run
+    /// seen closed: `start`, plus row 13's `reopen` while it is resumable (a topic with no run
+    /// doesn't call `actions`). Rows 11 (queued reopen: I1-WRITES' "resuming" projection) and 14
+    /// (busy: I1-WRITES' cooldown) are not expressible through `actions(_:status:timer:now:)`
+    /// alone.
     struct ActionRow: Sendable, CustomTestStringConvertible {
         var row: String
         var events: [RunEvent]
@@ -201,8 +203,9 @@ import Testing
         let discard = action(.discard, .destructive)
         let revert = action(.revert, .destructive)
         let lap = action(.lap(nextTypeLabel: nil), .primary)
-        let reopenOverflow = action(.reopen(target: UUID(uuidString: stopId)!), .overflow)
-        let reopen2 = action(.reopen(target: UUID(uuidString: stop2Id)!), .overflow)
+        let start = action(.start, .primary)
+        let reopen1 = action(.reopen(target: UUID(uuidString: stopId)!), .secondary)
+        let reopen2 = action(.reopen(target: UUID(uuidString: stop2Id)!), .secondary)
         let window = 15 * minute
         return [
             ActionRow(
@@ -253,10 +256,10 @@ import Testing
                 expected: [lap, stopS, resume, discard]),
             ActionRow(
                 row: "9 timer nil, running", events: [], folded: plain, timer: nil,
-                expected: [action(.next(label: "Next"), .primary), stopS, pause, discard]),
+                expected: [action(.next(label: ""), .primary), stopS, pause, discard]),
             ActionRow(
                 row: "9 timer nil, paused", events: [p], folded: plain, timer: nil,
-                expected: [action(.next(label: "Next"), .primary), stopS, resume, discard]),
+                expected: [action(.next(label: ""), .primary), stopS, resume, discard]),
             ActionRow(
                 row: "10 reopened, step open: revert instead of discard", events: [stop, reopen], folded: plain,
                 timer: plain,
@@ -275,29 +278,38 @@ import Testing
                 folded: lapsOnly, timer: lapsOnly, expected: [lap, stopS, pause, revert]),
             ActionRow(
                 row: "10 reopened, timer nil", events: [stop, reopen], folded: plain, timer: nil,
-                expected: [action(.next(label: "Next"), .primary), stopS, pause, revert]),
+                expected: [action(.next(label: ""), .primary), stopS, pause, revert]),
             ActionRow(
                 row: "12 finishing", events: [stop], folded: plain, status: .finishing, timer: plain,
                 expected: [action(.addDetails, .primary), discard]),
             ActionRow(
-                row: "13 stopped, within the window: reopen(terminalId) in overflow", events: [stop],
-                folded: plain, timer: plain, now: 5 + window, expected: [reopenOverflow]),
+                row: "1–3, 13 stopped, within the window: start, reopen(terminalId) secondary", events: [stop],
+                folded: plain, timer: plain, now: 5 + window, expected: [start, reopen1]),
             ActionRow(
-                row: "13 stopped, timer nil: reopen still offered", events: [stop], folded: plain, timer: nil,
-                now: 5, expected: [reopenOverflow]),
+                row: "1, 13 stopped, timer nil: start, reopen still offered", events: [stop], folded: plain,
+                timer: nil, now: 5, expected: [start, reopen1]),
             ActionRow(
-                row: "13 stopped, past the window: nothing", events: [stop], folded: plain, timer: plain,
-                now: 5 + window + 1, expected: []),
+                row: "3, 13 stopped, laps only: start, reopen", events: [stop], folded: lapsOnly,
+                timer: lapsOnly, now: 5, expected: [start, reopen1]),
+            ActionRow(
+                row: "2, 13 stopped, past the window: start only", events: [stop], folded: plain, timer: plain,
+                now: 5 + window + 1, expected: [start]),
             ActionRow(
                 row: "13 re-stopped after a reopen: reopen names the new stop", events: [stop, reopen, stop2],
-                folded: plain, timer: plain, now: 8, expected: [reopen2]),
+                folded: plain, timer: plain, now: 8, expected: [start, reopen2]),
             ActionRow(
                 row: "13 reverted (discard after a reopen): the stop is the terminal again",
                 events: [stop, reopen, revertDiscard], folded: plain, timer: plain, now: 8,
-                expected: [reopenOverflow]),
+                expected: [start, reopen1]),
             ActionRow(
-                row: "13 discarded", events: [RunEvent(id: "d", type: .discard, at: 5)], folded: plain,
-                timer: plain, expected: []),
+                row: "2 stopped without a terminal: start only", events: [], folded: plain, status: .stopped,
+                timer: plain, expected: [start]),
+            ActionRow(
+                row: "2 discarded: start only", events: [RunEvent(id: "d", type: .discard, at: 5)], folded: plain,
+                timer: plain, expected: [start]),
+            ActionRow(
+                row: "2 discarded with a terminal still set: start only (only a stopped run reopens)",
+                events: [stop], folded: plain, status: .discarded, timer: plain, now: 5, expected: [start]),
         ]
     }()
 
@@ -311,20 +323,25 @@ import Testing
         #expect(actions.allSatisfy { $0.enabled })
     }
 
-    @Test("Exactly one primary while a run is open or finishing; Stop is never primary")
+    @Test("Exactly one primary in every state; Stop is never primary; start only when closed")
     func onePrimary() throws {
         for row in Self.actionRows {
             let state = try Self.fold(row.events, timer: row.folded)
             let status = row.status ?? state.status
             let actions = RunPresentation.actions(
                 state, status: status, timer: row.timer, now: RunInstant.date(row.now))
-            if status.isOpen || status == .finishing {
-                #expect(actions.count { $0.role == .primary } == 1, "\(row.row)")
-            } else {
-                #expect(!actions.contains { $0.role == .primary }, "\(row.row): a closed run has no primary")
-            }
+            #expect(actions.count { $0.role == .primary } == 1, "\(row.row)")
             #expect(!actions.contains { $0.kind == .stop && $0.role == .primary }, "\(row.row)")
-            #expect(!actions.contains { $0.kind == .start }, "\(row.row): idle rows 1–3 are the surface's")
+            let closed = status == .stopped || status == .discarded
+            #expect(
+                actions.first?.kind == .start || !closed, "\(row.row): a closed run is idle, start is its primary")
+            #expect(actions.contains { $0.kind == .start } == closed, "\(row.row): start only for a closed run")
+            #expect(
+                actions.filter { $0.id == "reopen" }.allSatisfy { $0.role == .secondary },
+                "\(row.row): reopen is secondary")
+            #expect(
+                actions.filter { $0.id == "revert" || $0.id == "discard" }.allSatisfy { $0.role == .destructive },
+                "\(row.row): revert and discard are destructive")
             #expect(
                 !(actions.contains { $0.kind == .discard } && actions.contains { $0.kind == .revert }),
                 "\(row.row): revert replaces discard")
@@ -455,15 +472,47 @@ import Testing
         #expect(line(stopped, 6_000) == nil)
     }
 
-    @Test("resumable stays false here: the latest-stop and open-run rules are I1-WRITES' (store context)")
-    func resumableIsWrites() throws {
-        let now = Date()
-        let entry = Entry(
-            id: UUID(), topicId: UUID(), version: 1, revision: 1, source: "ios", channel: .ios, capturedAt: now,
-            createdAt: now, updatedAt: now, answers: [:],
-            timing: Timing(
-                startedAt: 0, endedAt: 5, activeMs: 5, pausedMs: 0, complete: true, edited: false, segments: [],
-                skipped: [], pauses: []))
-        #expect(RunPresentation.resumable(entry, now: now) == false)
+    private static func timedEntry(endedAt: Int, startedAt: Int? = nil, edited: Bool = false, timed: Bool = true)
+        -> Entry
+    {
+        let at = RunInstant.date(endedAt)
+        return Entry(
+            id: UUID(), topicId: UUID(), version: 1, revision: 2, source: "ios", channel: .ios, capturedAt: at,
+            createdAt: at, updatedAt: at, answers: [:],
+            timing: timed
+                ? Timing(
+                    startedAt: startedAt ?? endedAt - 60_000, endedAt: endedAt, activeMs: 60_000, pausedMs: 0,
+                    complete: true, edited: edited, segments: [], skipped: [], pauses: [], terminalId: "s1")
+                : nil)
+    }
+
+    @Test("R18 · resumable (OQ-1): an unedited timed entry within 15 minutes of its stop; answers don't count")
+    func resumableWindow() throws {
+        let stop = 1_800_000_000_000
+        let window = RunPresentation.reopenWindowMs
+        let entry = Self.timedEntry(endedAt: stop)
+        #expect(RunPresentation.resumable(entry, now: RunInstant.date(stop)))
+        #expect(RunPresentation.resumable(entry, now: RunInstant.date(stop + window)))
+        #expect(!RunPresentation.resumable(entry, now: RunInstant.date(stop + window + 1)), "after 15 minutes")
+        // A TimingEdit blocks it; answers, notes and meta changes (the revision) don't.
+        #expect(!RunPresentation.resumable(Self.timedEntry(endedAt: stop, edited: true), now: RunInstant.date(stop)))
+        var answered = entry
+        answered.revision = 5
+        answered.notes = "later"
+        #expect(RunPresentation.resumable(answered, now: RunInstant.date(stop + 1)))
+        // An untimed entry has no run.
+        #expect(!RunPresentation.resumable(Self.timedEntry(endedAt: stop, timed: false), now: RunInstant.date(stop)))
+    }
+
+    @Test("R18 · resumable from the entry detail: within 7 days of the run's start (OQ-1)")
+    func resumableFromDetail() throws {
+        let start = 1_800_000_000_000
+        let entry = Self.timedEntry(endedAt: start + 60_000, startedAt: start)
+        let week = RunPresentation.entryReopenWindowMs
+        #expect(week == 7 * 24 * 3600 * 1000)
+        #expect(RunPresentation.resumableFromDetail(entry, now: RunInstant.date(start + week)))
+        #expect(!RunPresentation.resumableFromDetail(entry, now: RunInstant.date(start + week + 1)))
+        let edited = Self.timedEntry(endedAt: start + 60_000, startedAt: start, edited: true)
+        #expect(!RunPresentation.resumableFromDetail(edited, now: RunInstant.date(start + 1)))
     }
 }

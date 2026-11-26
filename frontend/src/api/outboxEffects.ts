@@ -17,7 +17,9 @@ import {
   type EntryCreatePayload,
   type RunEventPayload,
 } from '../lib/outbox/kinds';
+import { getOutboxSnapshot } from '../lib/outbox/client';
 import type { Outbox } from '../lib/outbox/outbox';
+import { getAckedSnapshot } from '../lib/runs/acked';
 import { noticeFor, pushRunNotice } from '../lib/runs/notices';
 import { dueAfterLogging } from '../lib/schedule';
 import type { OutboxEvent, OutboxItem } from '../lib/outbox/types';
@@ -119,6 +121,14 @@ function bumpRun(qc: QueryClient, item: OutboxItem<RunEventPayload>, delta: 1 | 
   if (item.payload.makes_entry) bumpTopicFor(qc, item.payload.topic, item.payload.event.at, delta);
 }
 
+/** Whether an event id is this device's: queued here, or acked here lately. */
+function thisDevices(): (id: string) => boolean {
+  const ids = new Set(
+    [...getOutboxSnapshot().items, ...getAckedSnapshot()].map((i) => i.id.toLowerCase()),
+  );
+  return (id) => ids.has(id.toLowerCase());
+}
+
 const runEvent: KindEffects<RunEventPayload> = {
   onEnqueue(qc, item) {
     bumpRun(qc, item, 1);
@@ -130,12 +140,13 @@ const runEvent: KindEffects<RunEventPayload> = {
       return;
     }
     const { run, entry } = parsed.data;
-    upsertServerRun(qc, run);
+    const ack = { type: item.payload.event.type, applied: parsed.data.event.effect === 'applied' };
+    upsertServerRun(qc, run, { ack });
     // A start the server had already (§8.1): the run is the server's, maybe stopped with
     // its entry; pull the rest, after the upsert (setting the data clears an invalidation).
     if (verified) void invalidateOperations(qc, ['listRuns']);
     // A void tap the user should hear about (§11.4).
-    const notice = noticeFor(item, parsed.data);
+    const notice = noticeFor(item, parsed.data, { mine: thisDevices() });
     if (notice) pushRunNotice(notice);
     if (entry) {
       prependEntry(qc, item.payload.topic, entry);

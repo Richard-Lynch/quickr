@@ -1,4 +1,4 @@
-"""``getTopicTiming`` (docs/specs/timers.md §9.2): :mod:`app.services.timing_stats` over a
+"""``getTopicTiming`` (docs/specs/timers.md §9.2, timers2.md §7.4): :mod:`app.services.timing_stats` over a
 topic's entries in range. The math lives there; this module only loads its inputs."""
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from app.models import Entry, TopicVersion
 from app.schemas.api import (
     EntryFilters,
     TimingLaps,
+    TimingLapTypeStats,
     TimingPaused,
     TimingSeriesPoint,
     TimingStepStats,
@@ -77,6 +78,17 @@ def _out(t: timing_stats.TopicTiming) -> TopicTiming:
             )
             for s in t.steps
         ],
+        lap_types=[
+            TimingLapTypeStats(
+                key=s.key,
+                label=s.label,
+                laps=s.laps,
+                best_ms=s.best_ms,
+                median_ms=s.median_ms,
+                mean_ms=s.mean_ms,
+            )
+            for s in t.lap_types
+        ],
         laps=TimingLaps(
             runs_with_laps=t.laps.runs_with_laps, median_ms=t.laps.median_ms, mean_ms=t.laps.mean_ms
         ),
@@ -90,6 +102,7 @@ def _out(t: timing_stats.TopicTiming) -> TopicTiming:
                 paused_ms=p.paused_ms,
                 complete=p.complete,
                 steps=dict(p.steps),
+                lap_types=dict(p.lap_types),
             )
             for p in t.series
         ],

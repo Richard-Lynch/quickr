@@ -955,8 +955,10 @@ a pre-v2 timing).
 
 - A **`reopen`** projects a local run in state **resuming**, built from the
   entry's timing: closed segments = the timing's segments, pauses = its pauses,
-  status `running`, an open segment that continues the last one from
-  `reopen.at`. The entry is hidden as above. Clients MAY show "Resuming…"
+  status `running`, the last segment open again from its start, and the gap
+  from the stop to the reopen a pause carrying the stop's id, as the fold makes
+  it (so the projection does not jump when the ack lands). The entry is hidden
+  as above. Clients MAY show "Resuming…"
   without controls until the ack replaces the projection with the server's
   `RunOut`.
 - A **`remove`** projects **no run**: the entry stays visible with its timing
@@ -991,8 +993,10 @@ server answers `no_target`). **And an event enqueued after a pending `reopen` of
 the same run waits for that reopen** (the precedent is a finish waiting for the
 run's stops, `kinds.ts:160-169`): otherwise a retrying reopen would let a later
 lap reach a still-stopped server run and come back `after_stop` with a notice,
-only to flip to applied when the reopen lands. Both outboxes implement both
-rules: the PWA in `kinds.ts` `waitsFor` (`kinds.ts:142-170`), iOS as two more
+only to flip to applied when the reopen lands. **A reopen also waits for its
+run's pending `finish` enqueued before it**, so a retrying finish is not
+overtaken and refused with 409 `run_open` (milestone review P2-1). Both outboxes
+implement these rules: the PWA in `kinds.ts` `waitsFor` (`kinds.ts:142-170`), iOS as two more
 cases of the outbox.md §7.1 extension in v1 §8.1. Cases
 `lap-waits-for-pending-reopen` on both (R16, §12.4). No new coalescing. A
 `target` is the id of an event in the local view (queued or acked) or in the
@@ -1338,7 +1342,9 @@ originating device with `live_activity: true`). `register`
   `quickr.alert.{run_id}.*` on stop, discard, and when the run leaves the local
   view. Requests whose instant is already past are not scheduled (an alert
   missed while the app was dead is missed; the Live Activity countdown covered
-  it).
+  it). An alert whose `at_ms` is 0 (its instant is the segment start) is never
+  fired, on either client. Taps on the Live Activity and through intents
+  re-plan alerts like in-app taps (the scheduler runs from those handlers too).
 - `LocalNotificationRequest` gains `interruptionLevel` (default `.active`) and
   `fireAt: Date?`; `SystemNotificationCenter.add` uses
   `UNTimeIntervalNotificationTrigger(timeInterval: max(1, fireAt − now))` for
@@ -1346,7 +1352,9 @@ originating device with `live_activity: true`). `register`
   unchanged). `FakeNotificationCenter` records both.
 - **Foreground**: `NotificationResponder.willPresent` presents alerts with
   `.banner, .sound`; the app plays `QuickrHaptic.alert` (new case) and the run
-  screen shows the alert label inline for 10 s (`RunPresentation.alertLine`).
+  screen shows the alert label inline for 10 s. That label is run-screen state
+  (`AppEnvironment.runAlerts.label(runId:)`), not `RunPresentation.alertLine`,
+  which stays the persistent next-alert line and is nil when none remain.
 - **Accepted limitation (OQ-11)**: when another device taps Lap while this phone
   is locked, this phone's pending alerts are stale until it wakes (a Live
   Activity push runs no app code). The Live Activity countdown is correct
@@ -1367,7 +1375,10 @@ same maths as §9.1) and `src/components/runs/RunAlerts.tsx` mounted in
   `AudioContext` created and resumed on the Start/Lap tap (`useRunActions`
   `guarded`), and `registration.showNotification` when permission is `granted`;
 - only while the page is open (requirement); a global **mute** toggle in App
-  settings (`localStorage`, default on).
+  settings (`localStorage`). Alerts are **not muted by default**: the tone
+  sounds until the user mutes it (the user asked for a reminder beep). Muted
+  alerts show the toast only. One tab fires each alert (the fired record is
+  shared across tabs).
 
 ### 9.3 Notices (v1 §11.4 additions)
 
@@ -1380,6 +1391,13 @@ same maths as §9.1) and `src/components/runs/RunAlerts.tsx` mounted in
 
 `reverted` is shown only when the reverted reopen was this device's and the
 discard another's; `stale` stays silent.
+
+**Known gap (#228, deferred to a `t2-followup`):** notices come from acks, so
+`reverted` reaches the reopening device only when the other device's discard
+lands before this device's reopen is acked. When the reopen was acked first,
+the feed later sends only a run deletion and no notice is shown. Mitigation in
+T2: the tile returns to "Saved" with the entry visible, and later taps on the
+run get the `after_stop` notice.
 
 ## 10. Client ports checklist
 
@@ -1430,8 +1448,8 @@ then offers plain Next/Lap, as v1's `steps_unknown`).
 - **On-screen primary** = **Lap** when the open segment is a lap **or no named
   step remains** (`next_step == null`), labelled with the next lap type's label
   when `timer.laps` is non-empty ("Lap → Rest") and plain "Lap" otherwise; else
-  **Next: {step}**. **Stop is never primary**: Stop, Pause and Resume are
-  secondary; Skip, Reopen, Discard are overflow.
+  **Next: {step}**. **Stop is never primary**: Stop, Pause, Resume and Reopen
+  are secondary; Skip, Discard are overflow.
 - **Auto** (the Action button, the Control, the small widget, Siri) is a
   separate rule: `timer.laps` non-empty → Auto = the on-screen primary (idle →
   Start); `timer.laps` empty → v1 §11.1's Auto (idle → Start; a named step
@@ -1581,7 +1599,7 @@ rule.
 | R15 | `RunOverlay`: a queued reopen opens the run locally (entry hidden, §5.3); a queued remove relabels at once; a discard queued after a reopen on a run with no entry shows discarded and projects no optimistic entry; `overlay` without the version leaves laps untyped                                                                                                                                                                                                                                                            | host  |
 | R16 | Outbox: reopen/remove wait for the start and for their pending `target` item (a failed target holds nothing); an event enqueued after a pending reopen waits for it (`lap-waits-for-pending-reopen`); K6 drops a never-sent run with its remove items; `k6-not-on-revert`: a discard after a queued reopen is appended, nothing dropped, the optimistic entry stays; `no_target`/`not_stopped`/`reverted` acks and their notices, the `reverted` notice on the reopening device only (two-device test)                            | host  |
 | R17 | `RunAlertPlan`: plan from open segment, paused → none, cap 8, identifiers, time-sensitive; scheduler compares identifier + `fireAt` + content against `FakeNotificationCenter` and replaces a request whose `fireAt` moved (pause/resume, a corrected time) under the same identifier; cancel-all on stop/discard; a Live Activity push is not a trigger                                                                                                                                                                          | host  |
-| R18 | `RunPresentation.actions(_:status:timer:now:)`: Lap primary when the open segment is a lap or no step remains (labelled with the next lap type when typed), Next otherwise, Stop never primary, Reopen/Discard overflow; Auto = the primary when `timer.laps` is non-empty, v1's Auto (… → Stop) when empty; `resumable` 15 min / 7 days rules                                                                                                                                                                                    | host  |
+| R18 | `RunPresentation.actions(_:status:timer:now:)`: Lap primary when the open segment is a lap or no step remains (labelled with the next lap type when typed), Next otherwise, Stop never primary, Reopen secondary, Discard destructive; Auto = the primary when `timer.laps` is non-empty, v1's Auto (… → Stop) when empty; `resumable` 15 min / 7 days rules                                                                                                                                                                      | host  |
 | R19 | Builder models: lap types, variables and alerts drafts; `DraftValidation` paths; `timerChanges` text; `BuilderUIVectorTests` new sections                                                                                                                                                                                                                                                                                                                                                                                         | host  |
 | R20 | `LiveActivityReconcileTests`: a reopen this device made requests an activity (`startFor`); one made elsewhere waits for push-to-start                                                                                                                                                                                                                                                                                                                                                                                             | host  |
 | R21 | UI test (`RunUITests`): start, lap, stop, Resume from the saved state, lap, stop; the entry shows three laps and one pause. **Run by M2** (the Resume control lives in M2-owned files); M1's sim WP keeps R22 and the resurrection tests (R14)                                                                                                                                                                                                                                                                                    | sim   |

@@ -1,0 +1,223 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "37467AE0-F858-45C0-BA28-431CF163C24C",
+   "deviceName": "quickR iOS-26-0 t2-m1-gate-f08e14",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "23A343",
+   "osVersion": "26.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "durationInSeconds": 10.417213916778564,
+         "name": "testAChipLogReachesTheServerAndUndoRemovesIt()",
+         "nodeIdentifier": "EndToEndUITests/testAChipLogReachesTheServerAndUndoRemovesIt()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 13.59813106060028,
+         "name": "testAnEntryRecordedOfflineSyncsOnReconnect()",
+         "nodeIdentifier": "EndToEndUITests/testAnEntryRecordedOfflineSyncsOnReconnect()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.08869099617004395,
+         "name": "testDemoChipAndUndo()",
+         "nodeIdentifier": "EndToEndUITests/testDemoChipAndUndo()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.053524017333984375,
+         "name": "testDemoOfflineThenSync()",
+         "nodeIdentifier": "EndToEndUITests/testDemoOfflineThenSync()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04191100597381592,
+         "name": "testDemoSameAsLast()",
+         "nodeIdentifier": "EndToEndUITests/testDemoSameAsLast()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "durationInSeconds": 22.333518981933594,
+         "name": "testLinksOpenTheRecordScreenBySlugOrId()",
+         "nodeIdentifier": "EndToEndUITests/testLinksOpenTheRecordScreenBySlugOrId()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 7.130230069160461,
+         "name": "testSameAsLastOffersTheEntryLoggedOnTheWeb()",
+         "nodeIdentifier": "EndToEndUITests/testSameAsLastOffersTheEntryLoggedOnTheWeb()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "EndToEndUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 13.821329951286316,
+         "name": "testADeleteReachesTheServerAfterTheHold()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testADeleteReachesTheServerAfterTheHold()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 10.241623997688293,
+         "name": "testAnEditOnThePhoneReachesTheServer()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testAnEditOnThePhoneReachesTheServer()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 9.653613924980164,
+         "name": "testAWebEditReachesThePhone()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testAWebEditReachesThePhone()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 19.69513499736786,
+         "name": "testUndoingADeleteKeepsTheEntryOnTheServer()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testUndoingADeleteKeepsTheEntryOnTheServer()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "EntriesEndToEndUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 9.796973943710327,
+         "name": "testA_OneQuestionChoice_and_F_Undo()",
+         "nodeIdentifier": "TapCountUITests/testA_OneQuestionChoice_and_F_Undo()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.248106956481934,
+         "name": "testB_OneQuestionNumber()",
+         "nodeIdentifier": "TapCountUITests/testB_OneQuestionNumber()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 16.869974970817566,
+         "name": "testC_FourQuestionMixed()",
+         "nodeIdentifier": "TapCountUITests/testC_FourQuestionMixed()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 11.887712955474854,
+         "name": "testD_SameAsLastTime()",
+         "nodeIdentifier": "TapCountUITests/testD_SameAsLastTime()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.837260007858276,
+         "name": "testE_FromANotification()",
+         "nodeIdentifier": "TapCountUITests/testE_FromANotification()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 8.483988046646118,
+         "name": "testG_Offline()",
+         "nodeIdentifier": "TapCountUITests/testG_Offline()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "TapCountUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      }
+     ],
+     "name": "QuickRUITests",
+     "nodeType": "UI test bundle",
+     "result": "Passed"
+    }
+   ],
+   "name": "UI",
+   "nodeType": "Test Plan",
+   "result": "Passed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}

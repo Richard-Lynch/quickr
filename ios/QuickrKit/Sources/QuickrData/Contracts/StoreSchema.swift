@@ -23,7 +23,7 @@ public enum StoreSchema {
     public static let migrations: [(identifier: String, statements: [String])] =
         [
             ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4), ("v5", v5), ("v6", v6),
-        ] + t2m3Migrations  // T2-M3: registered at the merge (t2-plan.md "iOS store migrations")
+        ] + t2m1Migrations + t2m3Migrations  // T2-M1, T2-M3: registered at the merge, M1 first (t2-plan.md "iOS store migrations")
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
@@ -31,7 +31,8 @@ public enum StoreSchema {
     static let v1ServerLayerTables = ["topic", "topic_version", "entry", "tombstone"]
     /// Every server-layer table, each with a `stage_` copy. Migrations list their tables
     /// literally, so adding one here never changes a shipped migration.
-    public static let serverLayerTables = v1ServerLayerTables + ["run", "run_alias"]
+    public static let serverLayerTables =
+        v1ServerLayerTables + ["run", "run_alias"] + t2m1ServerLayerTables  // T2-M1: registered at the merge
     public static let stageTables = serverLayerTables.map { "stage_\($0)" }
     public static let tables =
         serverLayerTables + ["sync_state"] + stageTables

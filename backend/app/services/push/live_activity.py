@@ -131,8 +131,9 @@ def content_state(
 
     ``lap_type`` is the segment's lap type and ``lap_count`` the closed laps. ``next_label`` is
     what Next would start in a step, and in a lap the lap type the next lap would have (null when
-    laps are untyped). ``alert_at`` (Unix seconds) and ``alert_label`` are the open segment's next
-    alert (:func:`next_alert`); null while paused, once closed, or when none remain.
+    laps are untyped), never a step still pending. ``alert_at`` (Unix seconds) and
+    ``alert_label`` are the open segment's next alert (:func:`next_alert`); null while paused,
+    once closed, or when none remain.
     """
     steps = [] if timer is None else timer.steps
     laps = [] if timer is None else timer.laps
@@ -154,7 +155,8 @@ def content_state(
     else:
         seg, kind, step, label, seg_started_at, lap_type = 0, "lap", None, "", started_at, None
     next_label = None
-    if open_seg is not None and state["next_step"] is not None:
+    # In a lap, never the pending step: a lap opened mid-steps names the next lap's type (§8.1).
+    if open_seg is not None and kind == "step" and state["next_step"] is not None:
         next_label = truncate(steps[keys.index(state["next_step"])].label, MAX_LABEL_LENGTH)
     elif open_seg is not None and kind == "lap" and state.get("next_lap_type") is not None:
         lap_labels = {lap.key: lap.label for lap in laps}
@@ -188,7 +190,7 @@ def content_state(
         "ended_at": None if ended_at is None else _seconds(ended_at),
         "active_ms": sum(s["active_ms"] for s in segments) if ended_at is not None else None,
         "lap_type": lap_type,
-        "lap_count": state.get("lap_count"),
+        "lap_count": run_fold.stored_lap_count(state),
         "alert_at": None if alert is None else _seconds(alert[0]),
         "alert_label": None if alert is None else truncate(alert[1], MAX_LABEL_LENGTH),
     }

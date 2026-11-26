@@ -185,3 +185,26 @@ describe('run.event kind', () => {
     expect(verdict).toMatchObject({ outcome: 'ok', data: { event: { effect: 'applied' } } });
   });
 });
+
+describe('run.event reopen and remove requests (G2)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const kind = OUTBOX_KINDS[RUN_EVENT]!;
+
+  it('sends the target, null included; never the entry snapshot or lap types', () => {
+    const reopen = runItem('reopen', { id: 'o1', run: 'r1', at: T0 + 1000, target: 's1' });
+    reopen.payload.laps = [{ key: 'run', label: 'Run' }];
+    expect(kind.toRequest(reopen).body).toEqual({
+      type: 'reopen',
+      at: '2026-10-24T08:00:01Z',
+      target: 's1',
+      id: 'o1',
+    });
+    const preV2 = runItem('reopen', { id: 'o2', run: 'r1', at: T0 + 1000, target: null });
+    expect(kind.toRequest(preV2).body).toMatchObject({ type: 'reopen', target: null });
+    const remove = runItem('remove', { id: 'x1', run: 'r1', at: T0 + 1000, target: 'p1' });
+    expect(kind.toRequest(remove)).toMatchObject({
+      url: '/api/v1/runs/r1/events',
+      body: { type: 'remove', target: 'p1', id: 'x1' },
+    });
+  });
+});

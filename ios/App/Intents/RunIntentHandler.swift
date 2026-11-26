@@ -52,6 +52,9 @@ extension AppEnvironment {
         }
         var result = try await writes.perform(request)
         await liveActivities.reconcile(startFor: result.started ? result.topicId : nil)
+        // T2-M1 (M1-REVIEW P1-2, timers2.md §9.1): the run alerts too, while the hold is held.
+        if result.wrote { await rescheduleRunAlerts(store, session: session) }
+        // end T2-M1
         if result.wrote {
             // Outdated: kept for the updated build (client-versions.md §4.1). A flush that meets
             // the 426 first makes this result say so too.

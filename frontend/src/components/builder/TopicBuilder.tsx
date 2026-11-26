@@ -1,7 +1,8 @@
 import { useState, type ComponentProps, type ReactNode } from 'react';
 import { FormProvider, type UseFormReturn } from 'react-hook-form';
 
-import type { HistoricStep, TopicDraft } from '../../lib/builder';
+import type { Limits } from '../../client';
+import type { TimerHistory, TopicDraft } from '../../lib/builder';
 import { Segmented } from '../ui/Segmented';
 import { FormPreview } from './FormPreview';
 import { QuestionsEditor } from './QuestionsEditor';
@@ -16,8 +17,10 @@ interface Props<TOut> {
   defaultExpanded: 'all' | 'new';
   onSubmit: NonNullable<ComponentProps<'form'>['onSubmit']>;
   actions: ReactNode;
-  /** Every step key the topic's versions have used (the steps editor's key rule). */
-  stepHistory?: readonly HistoricStep[];
+  /** Every step and lap-type key the topic's versions have used (the timer editor's key rule). */
+  timerHistory?: TimerHistory;
+  /** The server's limits (the timer editor's caps); the fallback snapshot when absent. */
+  limits?: Limits;
 }
 
 /**
@@ -31,7 +34,8 @@ export function TopicBuilder<TOut>({
   defaultExpanded,
   onSubmit,
   actions,
-  stepHistory,
+  timerHistory,
+  limits,
 }: Props<TOut>) {
   const [pane, setPane] = useState<'edit' | 'preview'>('edit');
   return (
@@ -58,7 +62,7 @@ export function TopicBuilder<TOut>({
           >
             {header}
             <QuestionsEditor defaultExpanded={defaultExpanded} />
-            <TimerEditor history={stepHistory ?? []} />
+            <TimerEditor history={timerHistory} limits={limits} />
             {footer}
           </div>
           <aside

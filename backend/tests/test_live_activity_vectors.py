@@ -111,6 +111,11 @@ TIMERS_IN: dict[str, dict[str, Any]] = {
             {"key": "walk", "label": "Walk"},
         ],
     },
+    # Steps and lap types: a lap opened while a step is still pending (timers2.md §8.1).
+    "steps_and_laps": {
+        "steps": [{"key": "warmup", "label": "Warmup"}, {"key": "cooldown", "label": "Cooldown"}],
+        "laps": [{"key": "run", "label": "Run"}, {"key": "rest", "label": "Rest"}],
+    },
     # The longest labels a topic can have (steps 200, lap types and alerts 64), all four-byte code
     # points: the payload carries 64 of each.
     "long": {
@@ -373,6 +378,15 @@ def build() -> dict[str, Any]:
             [START, ev(1, "lap", 60, seg=0), ev(2, "lap", 120, seg=1)],
             revision=3,
         ),
+        # A typed lap opened in Warmup, with Cooldown still pending: in a lap, next_label is the
+        # next lap's type (Rest), never the pending step (timers2.md §8.1).
+        case(
+            "typed_lap_mid_steps",
+            "update",
+            "steps_and_laps",
+            [START, ev(1, "lap", 60, seg=0)],
+            revision=2,
+        ),
         # A 300 s pause inside Run 1 moves its alerts 300 s later.
         case(
             "update_alert_pending",
@@ -472,7 +486,7 @@ CASE_NAMES = {
     "end_discarded_finishing",
     # timers2.md §8.2
     "update_tiktok_lap", "update_alert_pending", "update_alert_paused", "start_renamed_laps",
-    "update_reopened",
+    "update_reopened", "typed_lap_mid_steps",
     "payload_budget_truncation", "payload_budget_terminal",
     # T2-M3: appearance.md §15
     "start_longest_labels_with_appearance",
@@ -566,6 +580,10 @@ def test_content_state_values() -> None:
     # Half way (450 s) has passed 480 s into Run 2; Time (900 s) is next.
     assert (tiktok["alert_at"], tiktok["alert_label"]) == (t0 + 120 + 900, "Time")
 
+    mid = by_name["typed_lap_mid_steps"]["content-state"]
+    assert (mid["label"], mid["lap_type"], mid["lap_count"], mid["step_index"]) == ("Run 1", "run", 0, None)
+    assert mid["next_label"] == "Rest"  # the next lap's type, not the pending step "Cooldown"
+
     pending = by_name["update_alert_pending"]["content-state"]
     assert pending["paused_ms_in_seg"] == 300_000
     assert (pending["alert_at"], pending["alert_label"]) == (t0 + 300 + 450, "Half way")
@@ -658,6 +676,24 @@ def test_budget_cases() -> None:
     assert len(state["label"]) == la.BUDGET_LABEL_LENGTH
     assert aps["alert"] == {"title": "", "body": state["label"]}
     assert terminal["bytes"] <= doc["meta"]["budget"]["fixed_bound"] < 1800  # timers2.md §8.2
+
+
+# --- next_label (timers2.md §8.1) -------------------------------------------------------------
+
+
+def test_next_label_in_a_lap_is_never_the_pending_step() -> None:
+    """In a lap, ``next_label`` is the next lap's type label, and null when laps are untyped, even
+    while a step is still pending; in a step it is the next step's label."""
+    typed = TIMERS["steps_and_laps"]
+    in_step = la.content_state(RUN, 1, state_of(typed, [START]), typed, now=NOW_MS)
+    assert (in_step["label"], in_step["next_label"]) == ("Warmup", "Cooldown")
+    lapped = [START, ev(1, "lap", 60, seg=0)]
+    in_lap = la.content_state(RUN, 2, state_of(typed, lapped), typed, now=NOW_MS)
+    assert (in_lap["label"], in_lap["next_label"]) == ("Run 1", "Rest")
+    untyped = TIMERS["three"]
+    lap = la.content_state(RUN, 2, state_of(untyped, lapped), untyped, now=NOW_MS)
+    assert state_of(untyped, lapped)["next_step"] == "breakfast"  # a step is still pending
+    assert (lap["label"], lap["lap_type"], lap["next_label"]) == ("Lap 1", None, None)
 
 
 # --- alert_at (timers2.md §8.1, §9.1) -------------------------------------------------------
@@ -822,3 +858,14 @@ def test_budget_skips_missing_fields_on_an_update() -> None:
     body = la.payload("update", state, timestamp=TIMESTAMP)
     assert la.shrink(body, "topic_name") == body
     assert "attributes" not in la.shrink(body, "terminal")["aps"]
+
+
+def test_lap_count_falls_back_to_the_lap_segments_on_a_state_stored_before_fold_v4() -> None:
+    """M1-REVIEW P3-4: a state stored before fold v4 has no ``lap_count``; the push counts its
+    closed lap segments rather than sending null."""
+    events = [START, ev(1, "lap", 60, seg=0), ev(2, "lap", 120, seg=1)]
+    state = state_of(TIMERS["tiktok"], events)
+    assert state["lap_count"] == 2
+    v3 = {k: v for k, v in state.items() if k != "lap_count"}
+    pushed = la.content_state(RUN, 3, v3, TIMERS["tiktok"], now=T0 + 130_000)
+    assert pushed["lap_count"] == 2

@@ -1,0 +1,112 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "F032354B-FF5D-425C-9FEC-33F15C9746C6",
+   "deviceName": "quickR iOS-26-0 t2-m1-alerts-ios-ce6507",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "23A343",
+   "osVersion": "26.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "durationInSeconds": 0.007211923599243164,
+         "name": "theHoldIsReleasedBeforeTheTaskEnds()",
+         "nodeIdentifier": "NotificationResponderTests/theHoldIsReleasedBeforeTheTaskEnds()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 0.007233142852783203,
+         "name": "expiryBeforeTheWorkFinishesAtOnceAndOnlyOnce()",
+         "nodeIdentifier": "NotificationResponderTests/expiryBeforeTheWorkFinishesAtOnceAndOnlyOnce()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 0.004815101623535156,
+         "name": "aResponseBecomesTheHandlersInput()",
+         "nodeIdentifier": "NotificationResponderTests/aResponseBecomesTheHandlersInput()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 0.004900217056274414,
+         "name": "expiryDuringTheWorkFinishesAtOnceAndCancelsIt()",
+         "nodeIdentifier": "NotificationResponderTests/expiryDuringTheWorkFinishesAtOnceAndCancelsIt()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 0.07338237762451172,
+         "name": "aTapToFixOpensTheRecordScreenWithItsTextOnce()",
+         "nodeIdentifier": "NotificationResponderTests/aTapToFixOpensTheRecordScreenWithItsTextOnce()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 0.0047338008880615234,
+         "name": "expiryAfterTheWorkChangesNothing()",
+         "nodeIdentifier": "NotificationResponderTests/expiryAfterTheWorkChangesNothing()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "NotificationResponderTests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 0.00728607177734375,
+         "name": "aSecondAlertRestartsTheTenSecondsAndAReminderChangesNothing()",
+         "nodeIdentifier": "RunAlertPresenceTests/aSecondAlertRestartsTheTenSecondsAndAReminderChangesNothing()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 0.004774808883666992,
+         "name": "runAlertsAreBannersWithSound()",
+         "nodeIdentifier": "RunAlertPresenceTests/runAlertsAreBannersWithSound()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 0.004815101623535156,
+         "name": "anAlertBumpsTheHapticAndShowsItsLabelOnItsRunFor10Seconds()",
+         "nodeIdentifier": "RunAlertPresenceTests/anAlertBumpsTheHapticAndShowsItsLabelOnItsRunFor10Seconds()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "RunAlertPresenceTests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      }
+     ],
+     "name": "QuickRTests",
+     "nodeType": "Unit test bundle",
+     "result": "Passed"
+    }
+   ],
+   "name": "Unit",
+   "nodeType": "Test Plan",
+   "result": "Passed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}

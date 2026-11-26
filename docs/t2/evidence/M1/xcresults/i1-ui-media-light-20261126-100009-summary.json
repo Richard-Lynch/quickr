@@ -1,0 +1,52 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "45A3C7C5-4EB9-4F77-B85F-86FB876A836B",
+        "deviceName" : "quickR iOS-26-0 t2-m1-ui-ios-8a9778",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 1,
+      "passedTests" : 2,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "Media · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 1,
+  "finishTime" : 1795687412.632,
+  "passedTests" : 2,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795687212.238,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 3,
+      "testIdentifierString" : "T2M1MediaUITests/testTimerEditorsAtTheLargestTextSize()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/T2M1MediaUITests/testTimerEditorsAtTheLargestTextSize",
+      "testName" : "testTimerEditorsAtTheLargestTextSize()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 3
+}

@@ -1,0 +1,11 @@
+**Findings**
+
+- **P2 — The remote-remove test does not reliably wait for the laps to reach the server.** [RunUITests+T2M1.swift:89](/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/RunUITests+T2M1.swift:89) waits for “Saved on this device” to be absent. That succeeds immediately if the queued-state indicator has not appeared yet, even while a lap write is still in flight. The remote control can consequently select the second lap before the third has arrived, or fail to find the second. Wait for a positive server-side acknowledgement that all three lap events have arrived before issuing the remove.
+
+- **P2 — The resurrection test can race the stop acknowledgement.** [RunUITests+T2M1.swift:51](/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/RunUITests+T2M1.swift:51) waits for the locally updated tile and an entry row, but neither establishes that the fake server has processed the stop. Reopen can therefore reach the fake server while the run is still open and be refused. Synchronize with the server’s stopped state before invoking the remote control.
+
+- **P2 — The media notification test depends on fresh system permission state.** [T2M1MediaUITests.swift:39](/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/T2M1MediaUITests.swift:39) requires both the app’s “Allow reminders” button and the system permission prompt. After a successful run, authorization persists and the app displays `notifications.allowed` instead, so a repeat Media-plan run fails. Reset notification authorization as part of the test setup or handle an already-authorized simulator.
+
+The expected TikTok labels and the selected second lap boundary agree with §3.2 and §6.4. The new controls and overlay are DEBUG-only and gated by launch arguments; the test-plan selection keeps the permission-dependent media tests out of the UI plan. I found no retry that masks a failed assertion.
+
+This is a static review; I did not run the simulator plans, so I cannot establish the required passing run, non-zero Unit test count, or xcresult evidence from the diff.

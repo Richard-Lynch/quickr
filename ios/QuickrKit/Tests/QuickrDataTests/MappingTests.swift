@@ -192,7 +192,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
     @Test func unknownFeedKindsAreSkipped() throws {
         let deletion =
             #"{"kind":"entry","seq":3,"id":"\#(UUID().wireString)","topic_id":"\#(UUID().wireString)","#
-            + #""deleted_at":"2026-06-01T12:00:00Z"}"#
+            + #""deleted_at":"2026-06-01T12:00:00Z","revision":null}"#
         let json = """
             {"items":[{"kind":"comment","seq":1,"comment":{"text":"hi"}}],
              "deleted":[{"kind":"comment","seq":2,"id":"c1","topic_id":"t1","deleted_at":"2026-06-01T12:00:00Z"},
@@ -206,6 +206,30 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(itemCount == 0)
         #expect(deletedSeqs == [3])
         #expect(next == 3)
+    }
+
+    /// timers2.md §5.2 (sync-protocol.md F3): a deletion carries `revision`, the run's revision in
+    /// the page's snapshot, or null (topic cascade, other kinds). The key is required.
+    @Test func aFeedDeletionDecodesItsRevision() throws {
+        func deletion(_ kind: String, _ revision: String?) -> Data {
+            let tail = revision.map { #","revision":\#($0)}"# } ?? "}"
+            return Data(
+                (#"{"kind":"\#(kind)","seq":3,"id":"\#(UUID().wireString)","topic_id":"\#(UUID().wireString)","#
+                    + #""deleted_at":"2026-06-01T12:00:00Z""# + tail).utf8)
+        }
+        let decoder = WireCoding.decoder()
+        #expect(try decoder.decode(FeedDeletionDTO.self, from: deletion("run", "4")).revision == 4)
+        #expect(try decoder.decode(FeedDeletionDTO.self, from: deletion("run", "null")).revision == nil)
+        #expect(try decoder.decode(FeedDeletionDTO.self, from: deletion("entry", "null")).revision == nil)
+        #expect(throws: DecodingError.self) {
+            try decoder.decode(FeedDeletionDTO.self, from: deletion("run", nil))
+        }
+        // The shipped fixture: a stopped run's deletion carries its revision.
+        let body = try #require(try Fixtures.api("listChanges.run_deletion").body)
+        let page = try ChangePageDTO.decode(body, using: decoder)
+        let runs = page.deleted.filter { $0.kind == .run }
+        #expect(!runs.isEmpty)
+        #expect(runs.allSatisfy { $0.revision != nil })
     }
 
     /// A known kind that doesn't decode still fails the page (sync-protocol.md §2.2).

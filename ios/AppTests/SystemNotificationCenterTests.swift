@@ -114,4 +114,42 @@ import UserNotifications
         }
         #expect(back.first { $0.id == spec.id } == spec)
     }
+
+    // T2-M1 (timers2.md §9.1, §12.3 R23)
+    /// R23: a run alert as the system gets it (`SystemNotificationCenter.systemRequest`, what `add`
+    /// hands `UNUserNotificationCenter`): `fireAt` an interval trigger counted from now, time
+    /// sensitive, with sound and the `quickr` info, which the snapshot reads its instant back from.
+    /// Not through the real centre's pending list: without notification permission (a test host
+    /// can't be granted it) the system lists none. Delivery is on the device checklist.
+    @Test func aRunAlertIsATimeSensitiveIntervalRequest() throws {
+        let now = Date(timeIntervalSince1970: 1_767_225_600)
+        let fireAtMs = RunInstant.milliseconds(now) + 90_000
+        let runId = UUID().wireString
+        let request = LocalNotificationRequest(
+            id: "\(RunAlerts.identifierPrefix(runId: runId))0.halfway", title: "TikTok", body: "Halfway · Run 1",
+            threadIdentifier: "topic-r23",
+            quickr: QuickrNotificationInfo(
+                kind: RunAlerts.kind, origin: .local, serverId: Self.server, topicId: UUID().wireString, runId: runId,
+                alertLabel: "Halfway", fireAtMs: fireAtMs, serverFireAtMs: fireAtMs),
+            sound: true, fireAt: Date(timeIntervalSince1970: TimeInterval(fireAtMs) / 1000),
+            interruptionLevel: RunAlerts.interruptionLevel)
+        let system = SystemNotificationCenter.systemRequest(request, now: now)
+        #expect(system.identifier == request.id)
+        let trigger = try #require(system.trigger as? UNTimeIntervalNotificationTrigger)
+        #expect(trigger.timeInterval == 90)
+        #expect(!trigger.repeats)
+        #expect(system.content.interruptionLevel == .timeSensitive)
+        #expect(system.content.sound != nil)
+        #expect(system.content.threadIdentifier == "topic-r23")
+        let info = try #require(SystemNotificationCenter.quickr(system.content.userInfo))
+        #expect(info.fireAtMs == fireAtMs)
+        #expect(info.alertLabel == "Halfway")
+        // A reminder without `fireAt` keeps its calendar trigger and the default level.
+        let reminder = SystemNotificationCenter.systemRequest(
+            LocalNotificationRequest(id: "due", title: "Water", body: "Due", fireDate: now.addingTimeInterval(600)),
+            now: now)
+        #expect(reminder.trigger is UNCalendarNotificationTrigger)
+        #expect(reminder.content.interruptionLevel == .active)
+    }
+    // end T2-M1
 }

@@ -57,7 +57,42 @@ extension BuilderEditing {
             set: { self.setStepLabel(id, $0) })
     }
 
-    /// The Timed switch. Off keeps the steps (unsent), so switching it back on restores them.
+    /// A lap type's label; a new one's key follows it, with the topic's timer history.
+    public func lapTypeLabelBinding(_ id: DraftLapType.ID) -> Binding<String> {
+        Binding(
+            get: { self.draft.lapTypeIndex(of: id).map { self.draft.laps[$0].label } ?? "" },
+            set: { self.setLapTypeLabel(id, $0) })
+    }
+
+    /// A variable's name, lowercased as it is typed.
+    public func variableNameBinding(_ id: DraftVariable.ID) -> Binding<String> {
+        Binding(
+            get: { self.draft.variableIndex(of: id).map { self.draft.variables[$0].name } ?? "" },
+            set: { self.draft.setVariableName(id, $0) })
+    }
+
+    /// A variable's duration text (`m:ss` or `h:mm:ss`).
+    public func variableDurationBinding(_ id: DraftVariable.ID) -> Binding<String> {
+        Binding(
+            get: { self.draft.variableIndex(of: id).map { self.draft.variables[$0].duration } ?? "" },
+            set: { self.draft.setVariableDuration(id, $0) })
+    }
+
+    /// An alert's label; a new one's key follows it.
+    public func alertLabelBinding(_ item: TimerItemID, _ id: DraftAlert.ID) -> Binding<String> {
+        Binding(
+            get: { self.draft.alerts(of: item).first { $0.id == id }?.label ?? "" },
+            set: { self.setAlertLabel(item, id, $0) })
+    }
+
+    /// An alert's expression, as typed.
+    public func alertAtBinding(_ item: TimerItemID, _ id: DraftAlert.ID) -> Binding<String> {
+        Binding(
+            get: { self.draft.alerts(of: item).first { $0.id == id }?.at ?? "" },
+            set: { self.draft.setAlertAt(item, id, $0) })
+    }
+
+    /// The Timed switch. Off keeps the timer's lists (unsent), so switching it back on restores them.
     public var timedBinding: Binding<Bool> {
         Binding(get: { self.draft.timed }, set: { self.draft.timed = $0 })
     }

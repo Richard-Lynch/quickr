@@ -2,15 +2,21 @@ import Foundation
 import QuickrCore
 import QuickrData
 
-/// A timed version on the fake server: its steps, and whether it has a required question.
+/// A timed version on the fake server: its steps, its lap types (timers2.md §1.1), and whether
+/// it has a required question.
 struct FakeTimer: Sendable {
     var steps: [TopicTimer.Step]
     var requiresAnswers = false
+    var laps: [TopicTimer.LapType] = []
+
+    var timer: TopicTimer { TopicTimer(steps: steps, laps: laps) }
 }
 
-/// A run on the fake server: its events in arrival order, folded with the real `RunFold` after
-/// every event, as `services/runs.py` does (timers.md §3–§4). `finish` and a finishing run's
-/// discard are decided outside the fold (§3.6, §3.7).
+/// A run on the fake server: its events in arrival order, folded with the real `RunFold` (v4)
+/// after every event, as `services/runs.py` does (timers.md §3–§4, timers2.md §3–§4). `finish` and
+/// a finishing run's discard are decided outside the fold (§3.6, §3.7). A reopen while the topic
+/// has another open run is 409 `conflict` (timers2.md §4.2); a discard that reverts the reopen of
+/// a run with no entry leaves it `discarded` (§4.1).
 struct FakeRun: Sendable {
     var id: String
     var topicId: UUID
@@ -43,7 +49,9 @@ struct FakeRun: Sendable {
             state: RunState(
                 status: status, startedAt: state.startedAt, endedAt: state.endedAt, open: state.open,
                 nextStep: state.nextStep, pausedSince: state.pausedSince, segments: state.segments,
-                skipped: state.skipped, pauses: state.pauses, effects: effects),
+                skipped: state.skipped, pauses: state.pauses, effects: effects,
+                terminalId: status == .discarded ? nil : state.terminalId, nextLapType: state.nextLapType,
+                lapCount: state.lapCount, reopenId: state.reopenId),
             aliases: aliases)
     }
 
@@ -60,6 +68,21 @@ extension FakeServer {
 
     func run(_ id: String) -> FakeRun? { with { $0.runs[$0.runAliases[id] ?? id] } }
 
+    /// Another device's event (timers2.md §6.2, two devices): recorded on the server directly, so
+    /// this harness's store learns of it only through its own acks and pulls. Returns the status.
+    @discardableResult
+    func recordElsewhere(
+        _ runId: String, _ type: RunEventType, at: Int, target: String? = nil, seg: Int? = nil,
+        id: String = UUID().wireString
+    ) -> Int {
+        let event = RunEventInDTO(
+            id: id, type: type.rawValue, at: RunInstant.format(at), seg: seg, target: target)
+        let request = HTTPRequest(
+            method: .post, url: Self.base.appending(path: "/api/v1/runs/\(runId)/events"),
+            body: try! WireCoding.encoder().encode(event), timeout: .seconds(15))
+        return with { Self.recordRunEvent(runId, request, &$0) }.status
+    }
+
     /// `POST /runs/{run_id}/events` (timers.md §3.2–§3.7).
     static func recordRunEvent(_ pathId: String, _ request: HTTPRequest, _ state: inout State) -> HTTPResponse {
         guard let data = request.body, let body = try? WireCoding.decoder().decode(RunEventInDTO.self, from: data),
@@ -70,7 +93,8 @@ extension FakeServer {
         if state.deletedRuns.contains(path) { return problem(409, "run_deleted", "the run's topic was deleted") }
         let target = state.runAliases[path] ?? path
         let event = RunEvent(
-            id: eventId, type: type, at: at, seg: body.seg, step: body.step, pauseId: body.pauseId?.lowercased())
+            id: eventId, type: type, at: at, seg: body.seg, step: body.step, pauseId: body.pauseId?.lowercased(),
+            target: body.target?.lowercased())
 
         if var run = state.runs[target] {
             if let stored = run.bodies[eventId] {
@@ -78,6 +102,7 @@ extension FakeServer {
                 let same =
                     stored.type == body.type && RunInstant.parse(stored.at) == at && stored.seg == body.seg
                     && stored.step == body.step && stored.pauseId?.lowercased() == body.pauseId?.lowercased()
+                    && stored.target?.lowercased() == body.target?.lowercased()
                     && (type != .start || body.topicId?.lowercased() == run.topicId.wireString)
                 guard same else {
                     return problem(409, "event_conflict", "already recorded with different content")
@@ -85,6 +110,12 @@ extension FakeServer {
                 return result(run, eventId, status: 200, state)
             }
             guard type != .start else { return problem(409, "event_conflict", "a start of another run") }
+            if type == .reopen,
+                state.runs.values.contains(where: { $0.id != run.id && $0.topicId == run.topicId && $0.status.isOpen })
+            {
+                // timers2.md §4.2 (A15): nothing stored.
+                return problem(409, "conflict", "the topic has another open run")
+            }
             switch (type, run.status) {
             case (.finish, .running), (.finish, .paused):
                 return problem(409, "run_open", "stop the run first")
@@ -190,14 +221,24 @@ extension FakeRun {
     }
 
     /// The fold of every event, then the server's status (§3.5): a stop makes the entry unless the
-    /// version has a required question and the stop carried no answers (finishing).
+    /// version has a required question and the stop carried no answers (finishing). A reopen
+    /// clears a decided status; a discard reverting the reopen of a run with no entry discards it
+    /// (timers2.md §4.1).
     mutating func refold() {
-        guard let folded = try? RunFold.fold(runId: id, steps: timer.steps, events: events.map(\.event)) else { return }
+        guard let folded = try? RunFold.fold(runId: id, timer: timer.timer, events: events.map(\.event)) else {
+            return
+        }
+        let reverted = events.contains { $0.event.type == .reopen && folded.effects[$0.event.id] == .void(.reverted) }
+        if folded.status.isOpen {
+            decidedStatus = nil
+        } else if reverted, folded.status == .stopped, entry == nil, decidedStatus == nil {
+            decidedStatus = .discarded
+        }
         state = folded
         if let decidedStatus {
             status = decidedStatus
         } else if folded.status == .stopped {
-            let stop = events.first { $0.event.type == .stop && folded.effects[$0.event.id] == .applied }
+            let stop = events.first { $0.event.id == folded.terminalId }
             let stopAnswers = stop.flatMap { bodies[$0.event.id]?.answers }
             status = entry != nil || stopAnswers != nil || !timer.requiresAnswers ? .stopped : .finishing
         } else {

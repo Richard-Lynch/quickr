@@ -120,6 +120,7 @@ EXPECTED: dict[str, int] = {
     "unarchiveTopic": 200,
     "deleteTopic": 204,
     "publishTopicVersion": 201,
+    "publishTopicVersion.timer_v2": 201,  # Timer v2: lap types, variables, alerts (timers2.md §1)
     "checkTopicVersion": 200,
     "createEntry": 201,
     "createEntry.widget": 201,
@@ -143,6 +144,8 @@ EXPECTED: dict[str, int] = {
     "recordRunEvent.stop": 200,  # no answers, and v2 has required questions: finishing
     "recordRunEvent.finish": 200,  # the finishing run's entry is created
     "recordRunEvent.discard": 200,  # an open run
+    "recordRunEvent.reopen": 200,  # the finished run, its stop (timers2.md §4)
+    "recordRunEvent.remove": 200,  # the finished run's pause, a late merge (timers2.md §4)
     "registerLiveActivity.start": 201,
     "registerLiveActivity.update": 201,  # for the open run
     "deleteLiveActivity": 204,
@@ -310,6 +313,8 @@ async def live_activity(client: httpx.AsyncClient) -> None:
 SETUP: dict[str, Setup] = {
     **{name: run_until(name) for name, _ in RUN_TAPS},
     "recordRunEvent.discard": run_until("recordRunEvent.next"),  # an open run
+    "recordRunEvent.reopen": finished,
+    "recordRunEvent.remove": finished,
     "createTopic": nothing,
     "updateTopic": topic,
     "archiveTopic": topic,

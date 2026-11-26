@@ -21,6 +21,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "start"
         }
       ],

@@ -18,7 +18,7 @@ from app.services.timer_expr import MAX_LENGTH, MAX_MS, ExprError, evaluate
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
 
 PATH = FIXTURES_DIR / "timer-expr-vectors.json"
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 T = {"t": 60_000}
 HOUR = {"t": 3_600_000}
@@ -95,6 +95,14 @@ CASES |= {
     "compound_duration_is_syntax": ("1m30s", NONE),
     "number_trailing_dot": ("1.s", NONE),
     "number_leading_dot": ("t*.5", T),
+    # An unknown character's detail is Python's repr() of it (the 422 message every port shows).
+    "unknown_char_quote": ("t+'", T),
+    "unknown_char_backslash": ("t+\\", T),
+    "unknown_char_printable": ("t+\u00e9", T),
+    "unknown_char_control": ("t+\x01", T),
+    "unknown_char_zero_width": ("t+\u200b", T),
+    "unknown_char_line_separator": ("t+\u2028", T),
+    "unknown_char_astral": ("t+\U0001f600", T),
     # An unexpected token is reported at its start, whatever follows it.
     "unexpected_token_at_its_start": ("t 1.s", T),
     # Binary doubles, left to right: 0.57*100 is 56.99999999999999, so the first is 3419999.
@@ -116,11 +124,18 @@ def spec_cases() -> dict[str, str | None]:
 
 
 def outcome(name: str) -> dict[str, Any]:
+    """``{ms}`` or ``{error, pos}``."""
+    return {k: v for k, v in expected(name).items() if k != "message"}
+
+
+def expected(name: str) -> dict[str, Any]:
+    """``{ms}`` or ``{error, pos, message}``; ``message`` is ``str(ExprError)``, the 422 message
+    of timers2.md §1.3 (``"{code} at {pos}: {detail}"``)."""
     text, variables = CASES[name]
     try:
         return {"ms": evaluate(text, variables)}
     except ExprError as e:
-        return {"error": e.code, "pos": e.pos}
+        return {"error": e.code, "pos": e.pos, "message": str(e)}
 
 
 def build() -> dict[str, Any]:
@@ -147,7 +162,9 @@ def build() -> dict[str, Any]:
                 "(1, 1000, 60000, 3600000); the same operations in the same order on every "
                 "platform; intermediates are never rounded; the result is truncated toward zero "
                 "to whole ms.",
-                "expected is {ms} or {error, pos}; pos is the 0-based character offset of the "
+                "expected is {ms} or {error, pos, message}; message is the server's 422 text, "
+                '"{code} at {pos}: {detail}" (the detail spells an unknown character with Python\'s '
+                "repr()); pos is the 0-based character offset of the "
                 "token the error is reported at: syntax at the offending character (end of input "
                 "for an unexpected end), unknown_variable at the identifier, type and div_zero "
                 "at the operator, negative at 0, too_long at max_length for text longer than "
@@ -168,7 +185,7 @@ def build() -> dict[str, Any]:
             ],
         },
         "cases": [
-            {"name": name, "expr": text, "variables": variables, "expected": outcome(name)}
+            {"name": name, "expr": text, "variables": variables, "expected": expected(name)}
             for name, (text, variables) in CASES.items()
         ],
     }
