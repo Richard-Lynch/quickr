@@ -19,7 +19,8 @@ import {
   TOPIC_ID,
   type Harness,
 } from '../../test/runUi';
-import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown } from './useRunActions';
+import { tapCooldownOn, type TapClock } from '../../test/tapClock';
+import { RUN_TAP_COOLDOWN_MS } from './useRunActions';
 
 let h: Harness | null = null;
 
@@ -263,7 +264,7 @@ describe('double taps, within one render (review H1): `expect` only, cooldown of
     h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    const clock = tapCooldownOn();
     fireEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
     // The screen caught up: the same button now says Lap (the last step), and every control
     // is disabled while the cooldown lasts (active-surfaces.md §2.2, §9). A tap is ignored.
@@ -277,9 +278,10 @@ describe('double taps, within one render (review H1): `expect` only, cooldown of
     await sent(h, 2);
     await settle();
     expect(types(h)).toEqual(['start', 'next']);
-    await waitFor(() => expect(screen.getByTestId('run-primary')).toBeEnabled(), {
-      timeout: RUN_TAP_COOLDOWN_MS * 2,
-    });
+    clock.advance(RUN_TAP_COOLDOWN_MS - 1);
+    expect(screen.getByTestId('run-primary')).toBeDisabled();
+    clock.advance(1);
+    await waitFor(() => expect(screen.getByTestId('run-primary')).toBeEnabled());
     fireEvent.click(screen.getByTestId('run-primary'));
     await sent(h, 3);
     expect(types(h)).toEqual(['start', 'next', 'lap']);
@@ -299,18 +301,27 @@ describe('double taps, within one render (review H1): `expect` only, cooldown of
 
 /** A real double tap: two clicks ~100 ms apart, the screen re-rendered in between. */
 const GAP_MS = 100;
-const gap = () => new Promise((r) => setTimeout(r, GAP_MS));
+/**
+ * The cooldown's clock in these tests: a loaded machine stretches the real time between two
+ * `userEvent.click`s past the cooldown (#188), so the pair is GAP_MS apart on this one.
+ */
+let clock: TapClock;
+const gap = () => {
+  clock.advance(GAP_MS);
+  return new Promise((r) => setTimeout(r, GAP_MS));
+};
 
 describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
   it('Next twice advances once', async () => {
     h = renderRunApp('/t/morning/record', timedTopic());
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    clock = tapCooldownOn();
     await userEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
     await gap();
     // The button has moved on; the second tap of the pair lands on it.
     await userEvent.click(await screen.findByRole('button', { name: 'Next: Teeth' }));
+    await sent(h, 2);
     await settle();
     expect(types(h)).toEqual(['start', 'next']);
   });
@@ -319,11 +330,12 @@ describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
     h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    clock = tapCooldownOn();
     await userEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
     await gap();
     // The primary under the finger is Lap now; Stop is never there (§1.2).
     await userEvent.click(await screen.findByRole('button', { name: 'Lap' }));
+    await sent(h, 2);
     await settle();
     expect(types(h)).toEqual(['start', 'next']);
   });
@@ -332,20 +344,22 @@ describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
     h = renderRunApp('/t/morning/record', timedTopic());
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    clock = tapCooldownOn();
     await userEvent.click(await screen.findByRole('button', { name: 'Pause' }));
     await gap();
     await userEvent.click(await screen.findByRole('button', { name: 'Resume' }));
+    await sent(h, 2);
     await settle();
     expect(types(h)).toEqual(['start', 'pause']);
   });
 
   it('Start then a quick tap on the Next that replaced it starts only', async () => {
     h = renderRunApp('/t/morning/record', timedTopic());
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    clock = tapCooldownOn();
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await gap();
     await userEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
+    await sent(h, 1);
     await settle();
     expect(types(h)).toEqual(['start']);
   });
@@ -357,13 +371,14 @@ describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
     await waitFor(() => expect(start).toBeEnabled());
     await userEvent.click(start);
     await sent(h, 1);
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    clock = tapCooldownOn();
     // The open run's tile is the active card (a new element in "Active now").
     const card = await screen.findByTestId('active-card');
     await userEvent.click(within(card).getByRole('button', { name: 'Stop Morning' }));
     await gap();
     // The run is saved at Stop: Start replaces it under the finger.
     await userEvent.click(await screen.findByRole('button', { name: 'Start Morning' }));
+    await sent(h, 2);
     await settle();
     expect(types(h)).toEqual(['start', 'stop']);
   });
@@ -377,16 +392,16 @@ describe('the cooldown across surfaces', () => {
     await screen.findByText('Morning', { selector: '[aria-label="Running"] strong' });
     const next = within(bar()).getByRole('button', { name: 'Next: Breakfast · Morning' });
     await waitFor(() => expect(next).toBeEnabled());
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    const clock = tapCooldownOn();
     fireEvent.click(next);
     // Straight to the panel, inside the bar's cooldown: its controls say so.
     fireEvent.click(within(bar()).getByRole('link'));
     const primary = await screen.findByTestId('run-primary');
     expect(primary).toBeDisabled();
     await sent(h, 1);
-    await waitFor(() => expect(screen.getByTestId('run-primary')).toBeEnabled(), {
-      timeout: RUN_TAP_COOLDOWN_MS * 2,
-    });
+    expect(screen.getByTestId('run-primary')).toBeDisabled();
+    clock.advance(RUN_TAP_COOLDOWN_MS);
+    await waitFor(() => expect(screen.getByTestId('run-primary')).toBeEnabled());
   });
 });
 

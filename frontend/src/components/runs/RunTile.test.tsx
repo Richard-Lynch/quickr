@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { outbox } from '../../lib/outbox/client';
-import { setRunTapCooldown } from './useRunActions';
+import { RUN_TAP_COOLDOWN_MS } from './useRunActions';
 import {
   RUN_ID,
   renderRunApp,
@@ -16,6 +16,7 @@ import {
   TOPIC_ID,
   type Harness,
 } from '../../test/runUi';
+import { tapCooldownOn } from '../../test/tapClock';
 
 let h: Harness | null = null;
 
@@ -247,7 +248,7 @@ describe('the running bar', () => {
     h = renderRunApp('/t/morning', timedTopic(), (s) => seedRun(s));
     const next = await screen.findByTestId('bar-primary');
     await waitFor(() => expect(next).toBeEnabled());
-    setRunTapCooldown(60_000);
+    const clock = tapCooldownOn();
     await userEvent.click(next);
     await sent(h, 1);
     // The primary under the finger is the next step's now, and off until the cooldown ends.
@@ -255,6 +256,8 @@ describe('the running bar', () => {
       expect(screen.getByTestId('bar-primary')).toHaveAccessibleName('Next: Teeth · Morning'),
     );
     expect(screen.getByTestId('bar-primary')).toBeDisabled();
+    clock.advance(RUN_TAP_COOLDOWN_MS);
+    await waitFor(() => expect(screen.getByTestId('bar-primary')).toBeEnabled());
   });
 });
 

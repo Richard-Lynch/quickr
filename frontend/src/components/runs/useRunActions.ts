@@ -50,8 +50,16 @@ export type FinishResult =
 export const RUN_TAP_COOLDOWN_MS = 450;
 
 let cooldownMs = RUN_TAP_COOLDOWN_MS;
-/** When each topic's run controls were last tapped (device ms), by lowercase topic id. */
+/**
+ * Monotonic ms since the page loaded. Not `Date.now()`: a device clock set back would leave
+ * every later tap inside the cooldown, and the controls dead, until it caught up (#188).
+ */
+const monotonic = () => performance.now();
+let clock: () => number = monotonic;
+/** When each topic's run controls were last tapped (`clock` ms), by lowercase topic id. */
 const lastTap = new Map<string, number>();
+/** Each cooling topic's timer that ends its cooldown, by lowercase topic id. */
+const coolEnds = new Map<string, number>();
 
 /** Who re-reads `isCooling`: told when a cooldown starts and when it ends. */
 const coolListeners = new Set<() => void>();
@@ -59,26 +67,64 @@ const notifyCooling = () => {
   for (const l of coolListeners) l();
 };
 
-/** Tests: another cooldown (0 turns it off), and forget earlier taps. */
-export function setRunTapCooldown(ms: number): void {
+/**
+ * Tests: another cooldown (0 turns it off), and forget earlier taps. `now` replaces the
+ * clock, so a test's double tap is a fixed time apart however slow the machine is (#188);
+ * after moving it, `runTapClockMoved` re-reads every cooldown, as its end timer would.
+ */
+export function setRunTapCooldown(ms: number, now: () => number = monotonic): void {
   cooldownMs = ms;
+  clock = now;
   lastTap.clear();
+  for (const t of coolEnds.values()) window.clearTimeout(t);
+  coolEnds.clear();
   notifyCooling();
+}
+
+/** Tests: the clock given to `setRunTapCooldown` moved. */
+export function runTapClockMoved(): void {
+  notifyCooling();
+}
+
+/** How long `topicId`'s cooldown has left, in ms; 0 when it isn't cooling. */
+function coolLeft(topicId: string): number {
+  const last = lastTap.get(topicId.toLowerCase());
+  if (last === undefined) return 0;
+  const since = clock() - last;
+  // A clock behind the tap (one that isn't monotonic) ends the cooldown, never extends it.
+  return since >= 0 && since < cooldownMs ? cooldownMs - since : 0;
 }
 
 /** Whether `topicId`'s controls are inside a cooldown now. */
 function isCooling(topicId: string): boolean {
-  const last = lastTap.get(topicId.toLowerCase());
-  return last !== undefined && Date.now() - last < cooldownMs;
+  return coolLeft(topicId) > 0;
+}
+
+/**
+ * Re-read the cooldowns when `id`'s ends. The timer runs on the clock's time: one that fires
+ * a little early waits out the rest rather than leaving the controls off.
+ */
+function scheduleCoolEnd(id: string, after: number): void {
+  window.clearTimeout(coolEnds.get(id));
+  coolEnds.set(
+    id,
+    window.setTimeout(() => {
+      coolEnds.delete(id);
+      const left = coolLeft(id);
+      if (left > 0) scheduleCoolEnd(id, left);
+      else notifyCooling();
+    }, after),
+  );
 }
 
 /** Whether a tap on `topicId`'s controls now is inside its cooldown; if not, it starts one. */
 function coolingDown(topicId: string): boolean {
   if (isCooling(topicId)) return true;
-  lastTap.set(topicId.toLowerCase(), Date.now());
+  const id = topicId.toLowerCase();
+  lastTap.set(id, clock());
   if (cooldownMs > 0) {
     notifyCooling();
-    window.setTimeout(notifyCooling, cooldownMs);
+    scheduleCoolEnd(id, cooldownMs);
   }
   return false;
 }
