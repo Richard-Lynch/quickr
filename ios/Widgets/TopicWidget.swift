@@ -48,7 +48,8 @@ struct TopicProvider: AppIntentTimelineProvider {
         let topic = shown.first?.topic
         let dates = WidgetTimeline.entryDates(for: topic.map { [$0.topic] } ?? [], now: now, skew: topic?.skew ?? 0)
         let entries = WidgetTimeline.entries(dates, changes: shown.map { ($0.from, $0.topic) })
-        let alert = shown.last?.topic?.runDisplay?.alert.map { Date(timeIntervalSince1970: $0.at) }
+        // The last entry's pending alert, which no entry follows (the cap, or past `horizon`).
+        let alert = entries.last?.value?.runDisplay?.alert.map { Date(timeIntervalSince1970: $0.at) }
         return Timeline(
             entries: entries.map { TopicEntry(date: $0.date, topic: $0.value) },
             policy: .after(WidgetTimeline.reloadDate(after: entries.map(\.date), now: now, alert: alert)))

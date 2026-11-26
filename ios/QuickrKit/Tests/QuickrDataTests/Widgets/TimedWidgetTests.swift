@@ -271,6 +271,21 @@ import Testing
         #expect(still.count == 1, "no alert is pending while paused")
     }
 
+    /// An alert passing changes what the reader returns but not the fingerprints: the topic
+    /// widget's timeline already follows it, and a Control doesn't show it, so no reload is spent.
+    @Test func anAlertPassingSpendsNoReload() async throws {
+        let h = try OutboxHarness()
+        try await Self.restLap(h)
+        let reader = WidgetReader(store: h.store)
+        let before = try await reader.dueList(now: Make.t0.addingTimeInterval(959))
+        let after = try await reader.dueList(now: Make.t0.addingTimeInterval(961))
+        let shownBefore = try #require(before.first { $0.id == h.topic.id })
+        let shownAfter = try #require(after.first { $0.id == h.topic.id })
+        #expect(shownBefore.run != shownAfter.run)
+        #expect(WidgetFingerprint(before) == WidgetFingerprint(after))
+        #expect(ControlFingerprint(before) == ControlFingerprint(after))
+    }
+
     /// Paused: the headline stays, the alert line goes (it cannot fire while paused).
     @Test func aPausedLapHidesTheAlert() async throws {
         let h = try OutboxHarness()

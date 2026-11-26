@@ -137,6 +137,12 @@ import Testing
         let entries = WidgetTimeline.entries(dates, changes: [(now, "before"), (change, "after")])
         #expect(entries.map(\.date) == [dates[0], dates[1], change, dates[2]])
         #expect(entries.map(\.value) == ["before", "before", "after", "after"])
+        // A change past the cap is dropped with the later dates: the last entry keeps the value
+        // before it, whose pending alert the reload then follows (`reloadDate(alert:)`).
+        let full = (0..<WidgetTimeline.maxEntries).map { now.addingTimeInterval(Double($0) * 60) }
+        let capped = WidgetTimeline.entries(full, changes: [(now, "before"), (now.addingTimeInterval(1e6), "after")])
+        #expect(capped.count == WidgetTimeline.maxEntries)
+        #expect(capped.last?.value == "before")
         let unchanged = WidgetTimeline.entries(dates, changes: [(now, "only")])
         #expect(unchanged.map(\.date) == dates)
         #expect(unchanged.allSatisfy { $0.value == "only" })

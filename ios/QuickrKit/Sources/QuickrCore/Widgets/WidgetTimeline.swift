@@ -71,7 +71,8 @@ public enum WidgetTimeline {
 /// (`WidgetCenter.reloadAllTimelines`). Covers each active topic's identity, questions, schedule,
 /// last entry and last quick answer, its queued and failed counts and the run it shows (its
 /// content state, which changes with each tap, not as it ticks), and the store's skew; due
-/// state itself follows from these and the clock, which the timelines already handle.
+/// state itself follows from these and the clock, which the timelines already handle, as they
+/// do the run's pending alert (`alert_at` moves on as each passes: not compared).
 public struct WidgetFingerprint: Sendable, Hashable {
     struct Topic: Sendable, Hashable {
         var id: UUID
@@ -104,7 +105,7 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 currentVersion: $0.topic.currentVersion, schedule: $0.topic.schedule,
                 scheduleUpdatedAt: $0.topic.scheduleUpdatedAt, lastCapturedAt: $0.topic.lastCapturedAt,
                 entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed,
-                scope: $0.scope, run: $0.run, updateRequired: $0.updateRequired)
+                scope: $0.scope, run: $0.run?.withoutAlert, updateRequired: $0.updateRequired)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }
@@ -112,8 +113,8 @@ public struct WidgetFingerprint: Sendable, Hashable {
 
 /// What a topic's Control shows and does (`TopicControl`): its name, whether it logs and what
 /// (questions version, last answer, the run a timer Control advances), and the store its action
-/// is pinned to. Not "queued" or the
-/// schedule: a Control doesn't show them, so they don't spend its reloads.
+/// is pinned to. Not "queued", the schedule or the run's pending alert: a Control doesn't show
+/// them, so they don't spend its reloads.
 public struct ControlFingerprint: Sendable, Hashable {
     struct Topic: Sendable, Hashable {
         var id: UUID
@@ -131,9 +132,21 @@ public struct ControlFingerprint: Sendable, Hashable {
         self.topics = topics.map {
             Topic(
                 id: $0.topic.id, name: $0.topic.name, status: $0.topic.status,
-                currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope, run: $0.run)
+                currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope,
+                run: $0.run?.withoutAlert)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+}
+
+extension RunActivityState {
+    /// The state without its pending alert, which changes with time alone (the next after the
+    /// instant it's read for), not with a tap.
+    fileprivate var withoutAlert: RunActivityState {
+        var state = self
+        state.alertAt = nil
+        state.alertLabel = nil
+        return state
     }
 }
 
