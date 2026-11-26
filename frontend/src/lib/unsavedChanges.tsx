@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type ReactNode } from 'react';
-import { useBlocker, useLocation, type BlockerFunction } from 'react-router';
+import { useBlocker, useLocation, type BlockerFunction, type NavigateFunction } from 'react-router';
 
 import { ConfirmSheet } from '../components/ui/Sheet';
 
@@ -25,21 +25,26 @@ interface Options {
   message?: ReactNode;
 }
 
-/** Navigations allowed through once (see `keepsPageState`), by id. */
+/** Navigations allowed through once (see `navigateKeepingPage`), by id. */
 const pageKeepers = new Set<string>();
 
 /**
- * Navigation state for one URL change that keeps the page and its forms mounted (the topic's slug
- * changed elsewhere and the route follows it): the guard lets that navigation through, once. The
- * id is spent then, so a later back/forward to the same history entry is guarded as usual.
+ * Navigate (replacing the entry) to a URL that keeps the page and its forms mounted (the topic's
+ * slug changed elsewhere and the route follows it): the guard lets this one navigation through.
+ * The id is spent when it's over, so a later back/forward to that history entry is guarded as
+ * usual, whether or not a guard looked at it this time.
  */
-export function keepsPageState(): { keepsPage: string } {
+export async function navigateKeepingPage(navigate: NavigateFunction, to: string): Promise<void> {
   const id = `${String(Date.now())}-${String(Math.random())}`;
   pageKeepers.add(id);
-  return { keepsPage: id };
+  try {
+    await navigate(to, { replace: true, state: { keepsPage: id } });
+  } finally {
+    pageKeepers.delete(id);
+  }
 }
 
-/** Whether `state` is a `keepsPageState` not yet used; uses it up. */
+/** Whether `state` is a `navigateKeepingPage` navigation's, still under way; uses it up. */
 export function takeKeepsPage(state: unknown): boolean {
   return (
     typeof state === 'object' &&

@@ -1,21 +1,46 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { createMemoryRouter, Link, RouterProvider, useNavigate } from 'react-router';
+import {
+  createMemoryRouter,
+  Link,
+  RouterProvider,
+  useNavigate,
+  type NavigateFunction,
+} from 'react-router';
 import { describe, expect, it } from 'vitest';
 
 import {
   hasUnsavedChanges,
-  keepsPageState,
+  navigateKeepingPage,
   shouldBlockNavigation,
   takeKeepsPage,
   useUnsavedChangesGuard,
 } from './unsavedChanges';
 
-describe('keepsPageState', () => {
-  it('lets one navigation through, then never again (a later back to that entry is guarded)', () => {
-    const state = keepsPageState();
-    expect(takeKeepsPage(state)).toBe(true);
+describe('navigateKeepingPage', () => {
+  it('lets its navigation through once, and never after it (a later back to that entry)', async () => {
+    let state: unknown;
+    const taken: boolean[] = [];
+    await navigateKeepingPage(
+      ((_to: string, opts: { state: unknown }) => {
+        state = opts.state;
+        taken.push(takeKeepsPage(state), takeKeepsPage(state));
+      }) as NavigateFunction,
+      '/t/lifting',
+    );
+    expect(taken).toEqual([true, false]);
+    expect(takeKeepsPage(state)).toBe(false);
+  });
+
+  it('spends the id even when no guard looked at the navigation', async () => {
+    let state: unknown;
+    await navigateKeepingPage(
+      ((_to: string, opts: { state: unknown }) => {
+        state = opts.state;
+      }) as NavigateFunction,
+      '/t/lifting',
+    );
     expect(takeKeepsPage(state)).toBe(false);
     expect(takeKeepsPage({ keepsPage: 'made-up' })).toBe(false);
     expect(takeKeepsPage(null)).toBe(false);

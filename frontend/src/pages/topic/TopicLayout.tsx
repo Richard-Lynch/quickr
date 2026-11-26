@@ -22,7 +22,7 @@ import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { TopicGlyph } from '../../components/ui/TopicGlyph';
 import { topicStyle } from '../../lib/appearance';
-import { keepsPageState } from '../../lib/unsavedChanges';
+import { navigateKeepingPage } from '../../lib/unsavedChanges';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { describeSchedule, dueView } from '../../lib/schedule';
@@ -73,10 +73,7 @@ function useFollowRename(
     if (!found) return;
     qc.setQueryData(getTopicQueryKey({ path: { ref: found.slug } }), found);
     const rest = location.pathname.slice(`/t/${ref}`.length);
-    void navigate(`/t/${found.slug}${rest}${location.search}`, {
-      replace: true,
-      state: keepsPageState(),
-    });
+    void navigateKeepingPage(navigate, `/t/${found.slug}${rest}${location.search}`);
   }, [found, qc, navigate, location.pathname, location.search, ref]);
   // Only a 404 by id too means it's gone; a failed lookup keeps the page as it was.
   if (!lost || (byId.isError && isNotFound(byId.error))) return null;
