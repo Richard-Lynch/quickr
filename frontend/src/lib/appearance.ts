@@ -174,9 +174,13 @@ export function checkIcon(
   return emoji ? { ok: true, value: v } : { ok: false, message: 'Enter an emoji, not text' };
 }
 
-/** `str.casefold()` near enough: upper-casing first folds ß → SS → ss as Python does. */
+/**
+ * `str.casefold()` near enough, per code point: upper-casing first folds ß → SS → ss as Python
+ * does. Dotless ı is the one common letter where that round trip differs (it would become i;
+ * Python keeps ı), so it is left alone. M3-DB's `tags[]` vectors pin the cases that matter.
+ */
 function fold(s: string): string {
-  return s.toUpperCase().toLowerCase();
+  return Array.from(s, (c) => (c === '\u{131}' ? c : c.toUpperCase().toLowerCase())).join('');
 }
 
 // Python's `str.isspace()` set (what `str.strip()` and `split()` use) is Unicode White_Space.

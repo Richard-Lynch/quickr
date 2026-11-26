@@ -227,6 +227,8 @@ describe('checkTags', () => {
   it('refuses a casefold duplicate at its index, not dropping it', () => {
     expect(checkTags(['Gym', 'run', 'gym'])).toMatchObject({ ok: false, index: 2 });
     expect(checkTags(['Straße', 'STRASSE'])).toMatchObject({ ok: false, index: 1 });
+    // Python: 'ı'.casefold() == 'ı' != 'i'.
+    expect(checkTags(['ı', 'i'])).toEqual({ ok: true, value: ['ı', 'i'] });
   });
 
   it('refuses an eleventh tag on the list, not a tag', () => {

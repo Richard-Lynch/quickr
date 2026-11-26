@@ -389,7 +389,12 @@ describe('appearance schemas', () => {
 
   it('turns a draft into the wire Appearance, storing the normalised emoji and tags', () => {
     expect(
-      appearance.parse({ color: 'teal', icon: ' \u{263A} ', tags: [' gym ', 'a  b'] }),
+      appearance.parse({
+        color: 'teal',
+        icon: ' \u{263A} ',
+        tags: [' gym ', 'a  b'],
+        tagInput: '',
+      }),
     ).toEqual({
       color: 'teal',
       icon: { kind: 'emoji', value: '\u{263A}\u{FE0F}' },
@@ -403,13 +408,25 @@ describe('appearance schemas', () => {
   });
 
   it('puts icon and tag errors on their paths', () => {
-    expect(issues(appearance.safeParse({ color: null, icon: 'abc', tags: [] }))).toEqual(['icon']);
-    expect(issues(appearance.safeParse({ color: null, icon: '', tags: ['a', 'A'] }))).toEqual([
-      'tags.1',
-    ]);
+    expect(
+      issues(appearance.safeParse({ color: null, icon: 'abc', tags: [], tagInput: '' })),
+    ).toEqual(['icon']);
+    expect(
+      issues(appearance.safeParse({ color: null, icon: '', tags: ['a', 'A'], tagInput: '' })),
+    ).toEqual(['tags.1']);
     const eleven = Array.from({ length: 11 }, (_, i) => `t${String(i)}`);
-    expect(issues(appearance.safeParse({ color: null, icon: '', tags: eleven }))).toEqual(['tags']);
-    expect(issues(appearance.safeParse({ color: 'mauve', icon: '', tags: [] }))).toEqual(['color']);
+    expect(
+      issues(appearance.safeParse({ color: null, icon: '', tags: eleven, tagInput: '' })),
+    ).toEqual(['tags']);
+    expect(
+      issues(appearance.safeParse({ color: 'mauve', icon: '', tags: [], tagInput: '' })),
+    ).toEqual(['color']);
+  });
+
+  it('refuses text left in the tag input (one the editor could not add)', () => {
+    const r = appearance.safeParse({ color: null, icon: '', tags: [], tagInput: 'x'.repeat(30) });
+    expect(issues(r)).toEqual(['tagInput']);
+    expect(appearance.parse({ color: null, icon: '', tags: [], tagInput: '  ' }).tags).toEqual([]);
   });
 
   it('uses the server’s limits when GET /limits carries them', () => {
@@ -417,7 +434,9 @@ describe('appearance schemas', () => {
       ...FALLBACK_LIMITS,
       max_tags: 1,
     } as typeof FALLBACK_LIMITS);
-    expect(tight.safeParse({ color: null, icon: '', tags: ['a', 'b'] }).success).toBe(false);
+    expect(tight.safeParse({ color: null, icon: '', tags: ['a', 'b'], tagInput: '' }).success).toBe(
+      false,
+    );
   });
 
   it('sends appearance on create only when it isn’t the default', () => {
@@ -428,7 +447,7 @@ describe('appearance schemas', () => {
     expect(plain).toMatchObject({ name: 'Gym', timer: null });
     const themed = schema.parse({
       ...base,
-      appearance: { color: 'red', icon: '🏃', tags: ['sport'] },
+      appearance: { color: 'red', icon: '🏃', tags: ['sport'], tagInput: '' },
     });
     expect(themed.appearance).toEqual({
       color: 'red',
@@ -441,7 +460,7 @@ describe('appearance schemas', () => {
     const r = makeTopicDraftAppearanceSchema().safeParse({
       ...emptyTopicDraft(),
       schedule,
-      appearance: { color: null, icon: 'x', tags: [] },
+      appearance: { color: null, icon: 'x', tags: [], tagInput: '' },
     });
     expect(issues(r)).toEqual(expect.arrayContaining(['name', 'appearance.icon']));
   });
@@ -451,7 +470,7 @@ describe('appearance schemas', () => {
       name: 'Gym',
       slug: 'gym',
       description: '',
-      appearance: { color: 'blue', icon: '', tags: ['x'.repeat(25)] },
+      appearance: { color: 'blue', icon: '', tags: ['x'.repeat(25)], tagInput: '' },
     });
     expect(issues(r)).toEqual(['appearance.tags.0']);
   });
@@ -479,7 +498,10 @@ describe('appearanceChanges', () => {
 });
 
 describe('builderFieldFor appearance paths', () => {
-  const draft = { ...emptyTopicDraft(), appearance: { color: null, icon: '', tags: ['a', 'b'] } };
+  const draft = {
+    ...emptyTopicDraft(),
+    appearance: { color: null, icon: '', tags: ['a', 'b'], tagInput: '' },
+  };
 
   it('maps the server’s dotted paths onto the Appearance card', () => {
     expect(builderFieldFor('appearance.color', draft)).toBe('appearance.color');

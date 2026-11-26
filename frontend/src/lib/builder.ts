@@ -1012,11 +1012,15 @@ import {
   type TopicCreateBody,
 } from './topicAppearanceSeam';
 
-/** The Appearance card's state: `icon` is the emoji field's text (`''` for none). */
+/**
+ * The Appearance card's state: `icon` is the emoji field's text (`''` for none); `tagInput` the tag
+ * being typed, which must be added or cleared before the form submits.
+ */
 export interface AppearanceDraft {
   color: ColorName | null;
   icon: string;
   tags: string[];
+  tagInput: string;
 }
 
 export interface TopicDraft {
@@ -1025,31 +1029,40 @@ export interface TopicDraft {
 }
 
 export function appearanceDraftOf(a: Appearance | null): AppearanceDraft {
-  return { color: a?.color ?? null, icon: a?.icon?.value ?? '', tags: [...(a?.tags ?? [])] };
+  return {
+    color: a?.color ?? null,
+    icon: a?.icon?.value ?? '',
+    tags: [...(a?.tags ?? [])],
+    tagInput: '',
+  };
 }
 
 /** An Appearance draft → the wire `Appearance`, with `checkIcon`/`checkTags` and the limits. */
 export function makeAppearanceSchema(limits: Limits = FALLBACK_LIMITS) {
   const l = appearanceLimitsOf(limits);
-  return z.object({
-    color: z
-      .enum(COLOR_NAMES)
-      .nullable()
-      .refine((c) => c === null || l.color_names.includes(c), 'Pick one of the colours'),
-    icon: z.string().transform((v, ctx): Appearance['icon'] => {
-      if (v.trim() === '') return null;
-      const r = checkIcon(v.trim(), l.max_icon_length);
-      if (r.ok) return { kind: 'emoji', value: r.value };
-      ctx.addIssue({ code: 'custom', message: r.message });
-      return z.NEVER;
-    }),
-    tags: z.array(z.string()).transform((tags, ctx) => {
-      const r = checkTags(tags, { maxTags: l.max_tags, maxLength: l.max_tag_length });
-      if (r.ok) return r.value;
-      ctx.addIssue({ code: 'custom', message: r.message, path: r.index < 0 ? [] : [r.index] });
-      return z.NEVER;
-    }),
-  });
+  return z
+    .object({
+      color: z
+        .enum(COLOR_NAMES)
+        .nullable()
+        .refine((c) => c === null || l.color_names.includes(c), 'Pick one of the colours'),
+      icon: z.string().transform((v, ctx): Appearance['icon'] => {
+        if (v.trim() === '') return null;
+        const r = checkIcon(v.trim(), l.max_icon_length);
+        if (r.ok) return { kind: 'emoji', value: r.value };
+        ctx.addIssue({ code: 'custom', message: r.message });
+        return z.NEVER;
+      }),
+      tags: z.array(z.string()).transform((tags, ctx) => {
+        const r = checkTags(tags, { maxTags: l.max_tags, maxLength: l.max_tag_length });
+        if (r.ok) return r.value;
+        ctx.addIssue({ code: 'custom', message: r.message, path: r.index < 0 ? [] : [r.index] });
+        return z.NEVER;
+      }),
+      // The editor adds a valid tag on Enter, comma or blur, so text left here is one it refused.
+      tagInput: z.string().refine((v) => v.trim() === '', 'Fix this tag or clear it'),
+    })
+    .transform(({ color, icon, tags }): Appearance => ({ color, icon, tags }));
 }
 
 /**

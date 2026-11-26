@@ -204,6 +204,27 @@ describe('TopicMetaFields appearance (new topic)', () => {
     expect(screen.queryByRole('list', { name: 'Current tags' })).toBeNull();
   });
 
+  it('blocks Create while the tag input holds a tag it refused', async () => {
+    const { user, onValid } = renderNewTopic();
+    await user.type(screen.getByLabelText('Name'), 'Gym');
+    await user.type(tagInput(), 'x'.repeat(30));
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    expect(await screen.findByText('At most 24 characters')).toBeInTheDocument();
+    expect(onValid).not.toHaveBeenCalled();
+    await user.clear(tagInput());
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(onValid).toHaveBeenCalledTimes(1));
+  });
+
+  it('adds the typed tag when the field loses focus', async () => {
+    const { user, onValid } = renderNewTopic();
+    await user.type(screen.getByLabelText('Name'), 'Gym');
+    await user.type(tagInput(), 'legs');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(onValid).toHaveBeenCalledTimes(1));
+    expect(onValid.mock.calls[0]?.[0]?.appearance?.tags).toEqual(['legs']);
+  });
+
   it('adds the complete parts of a pasted list and keeps the rest', async () => {
     const { user } = renderNewTopic();
     await user.click(tagInput());

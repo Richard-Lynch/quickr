@@ -61,7 +61,7 @@ export function SettingsPage() {
       <TopBar back={`/t/${topic.slug}`} title="Topic settings" />
       <Page className="mx-auto max-w-2xl gap-6">
         <MetaForm
-          key={`${topic.name}\n${topic.slug}\n${topic.description}\n${JSON.stringify(appearanceOf(topic))}`}
+          key={`${topic.name}\n${topic.slug}\n${topic.description}`}
           topic={topic}
           onDirty={(meta) => setDirty((d) => (d.meta === meta ? d : { ...d, meta }))}
           allowNavigation={guard.allowNavigation}
@@ -121,7 +121,10 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
         body: { ...body, expected_revision: topic.revision },
       });
       toast({ title: 'Saved' });
-      // The form remounts with the saved values (keyed by them).
+      // The appearance isn't in the form's key (its optimistic patch would remount the form
+      // mid-save and drop a 422's field errors), so take the saved values here; a name, slug or
+      // description change still remounts it with them.
+      form.reset({ ...v, appearance: appearanceDraftOf(appearanceOf(updated)) });
       onDirty(false);
       allowNavigation();
       if (updated.slug !== topic.slug)

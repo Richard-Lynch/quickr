@@ -203,9 +203,12 @@ function EmojiField() {
   );
 }
 
-/** The tags error to show: the list's own (too many) or the first tag's, with that tag's index. */
+/**
+ * The tags error to show: the list's own (too many) or the refused text's, else the first tag's,
+ * with that tag's index.
+ */
 function tagsError(errors: FieldErrors, tags: readonly string[]) {
-  const own = fieldError(errors, 'appearance.tags');
+  const own = fieldError(errors, 'appearance.tags') ?? fieldError(errors, 'appearance.tagInput');
   if (own) return { message: own, index: -1 };
   for (const i of tags.keys()) {
     const message = fieldError(errors, `appearance.tags.${String(i)}`);
@@ -217,10 +220,11 @@ function tagsError(errors: FieldErrors, tags: readonly string[]) {
 function TagsField() {
   const { value, set, errors } = useAppearance();
   const limits = appearanceLimitsOf(useLimits());
-  const [text, setText] = useState('');
   const [local, setLocal] = useState<string | null>(null);
   const id = useId();
   const tags = value.tags;
+  const text = value.tagInput;
+  const setText = (v: string) => set('tagInput', v);
   const server = tagsError(errors, tags);
   const error = local ?? server.message;
 
