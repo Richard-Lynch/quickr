@@ -3,11 +3,12 @@ import QuickrCore
 import QuickrTestSupport
 import Testing
 
-/// timers.md §10.4: the Live Activity payloads the server sends (shared/fixtures/
+/// timers.md §10.4, timers2.md §8: the Live Activity payloads the server sends (shared/fixtures/
 /// live-activity-vectors.json, generated from backend/app/services/push/live_activity.py by
 /// `make vectors`). Each `content-state` decodes into `RunActivityState` and each start's
-/// `attributes` into `RunActivityAttributes`; each case's run, folded here, builds the same
-/// content state (`RunActivityContent`), so the app's local updates show what the pushes show.
+/// `attributes` into `RunActivityAttributes`; each case's run, folded here over its timer set at
+/// the push's instant, builds the same content state (`RunActivityContent`), so the app's local
+/// updates show what the pushes show.
 @Suite struct LiveActivityVectorTests {
     struct Vectors: Decodable {
         struct Meta: Decodable {
@@ -15,12 +16,27 @@ import Testing
             var maxLabelLength: Int
             var staleSeconds: Double
             var dismissSeconds: Double
+            var maxBytes: Int
+            var timestamp: Int
+            var budget: Budget
+
+            struct Budget: Decodable {
+                var labelLength: Int
+                var steps: [String]
+
+                enum CodingKeys: String, CodingKey {
+                    case steps
+                    case labelLength = "label_length"
+                }
+            }
 
             enum CodingKeys: String, CodingKey {
+                case timestamp, budget
                 case attributesType = "attributes_type"
                 case maxLabelLength = "max_label_length"
                 case staleSeconds = "stale_seconds"
                 case dismissSeconds = "dismiss_seconds"
+                case maxBytes = "max_bytes"
             }
         }
 
@@ -48,21 +64,35 @@ import Testing
             var aps: Aps
         }
 
+        /// The server's truncation steps on this body (timers2.md §8.2), at `limit` bytes.
+        struct Budget: Decodable {
+            var limit: Int
+            var steps: [String]
+        }
+
         struct Case: Decodable {
             var name: String
             var event: String
-            var steps: String
+            var timer: String
+            var topicName: String
             var run: Run
             var payload: Payload
+            var bytes: Int
+            var budget: Budget?
+
+            enum CodingKeys: String, CodingKey {
+                case name, event, timer, run, payload, bytes, budget
+                case topicName = "topic_name"
+            }
         }
 
         var meta: Meta
-        var stepSets: [String: [RunWire.Step]]
+        var timerSets: [String: TopicTimer]
         var cases: [Case]
 
         enum CodingKeys: String, CodingKey {
             case meta, cases
-            case stepSets = "step_sets"
+            case timerSets = "timer_sets"
         }
     }
 
@@ -77,6 +107,28 @@ import Testing
         return found.payload.aps.contentState
     }
 
+    /// The server's budget steps (live_activity.py `shrink`) on a state and its attributes: the
+    /// app never truncates (its local updates don't go through APNs), so the vectors say what was.
+    static func fitted(
+        _ state: RunActivityState, _ attributes: RunActivityAttributes?, steps: [String], length: Int
+    ) -> (RunActivityState, RunActivityAttributes?) {
+        var state = state
+        var attributes = attributes
+        for step in steps {
+            switch step {
+            case "alert_label": state.alertLabel = state.alertLabel.map { RunActivityContent.truncate($0, length) }
+            case "next_label": state.nextLabel = state.nextLabel.map { RunActivityContent.truncate($0, length) }
+            case "label": state.label = RunActivityContent.truncate(state.label, length)
+            case "topic_name": attributes?.topicName = RunActivityContent.truncate(attributes?.topicName ?? "", length)
+            default:  // terminal
+                state.nextLabel = nil
+                state.alertLabel = nil
+                attributes?.topicName = ""
+            }
+        }
+        return (state, attributes)
+    }
+
     @Test func constantsMatchTheServer() throws {
         let meta = try Self.load().meta
         let type = String(describing: RunActivityAttributes.self)
@@ -84,6 +136,8 @@ import Testing
         #expect(meta.maxLabelLength == RunActivityContent.maxLabelLength)
         #expect(meta.staleSeconds == RunActivityContent.staleSeconds)
         #expect(meta.dismissSeconds == RunActivityContent.dismissSeconds)
+        #expect(meta.budget.steps == ["alert_label", "next_label", "label", "topic_name", "terminal"])
+        #expect(RunActivityContent.version == 1)
     }
 
     @Test func everyEventIsCovered() throws {
@@ -91,19 +145,34 @@ import Testing
         #expect(events == ["start", "update", "end"])
     }
 
+    /// timers2.md §8.2's cases are all there.
+    @Test func theTimers2CasesArePresent() throws {
+        let names = Set(try Self.load().cases.map(\.name))
+        let wanted: Set = [
+            "update_tiktok_lap", "update_alert_pending", "update_alert_paused", "start_renamed_laps",
+            "update_reopened", "start_longest_labels", "payload_budget_truncation", "payload_budget_terminal",
+        ]
+        #expect(wanted.isSubset(of: names))
+    }
+
     @Test func everyCaseBuildsTheServersContentState() throws {
         let vectors = try Self.load()
+        let now = vectors.meta.timestamp * 1000
         var ran: [String] = []
         for c in vectors.cases {
-            let steps = try #require(vectors.stepSets[c.steps], "\(c.name): unknown step set").map(\.domain)
+            let timer = try #require(vectors.timerSets[c.timer], "\(c.name): unknown timer set")
             let events = try c.run.events.map { try $0.domain() }
             let runId = try #require(events.first?.id)
-            let folded = try RunFold.fold(runId: runId, steps: steps, events: events)
+            let folded = try RunFold.fold(runId: runId, timer: timer, events: events)
             let status = try #require(c.run.status.map { RunStatus(rawValue: $0) } ?? folded.status, "\(c.name)")
-            let built = RunActivityContent.state(
-                runId: runId, revision: c.run.revision, status: status, state: folded, steps: steps)
+            let state = RunActivityContent.state(
+                runId: runId, revision: c.run.revision, status: status, state: folded, timer: timer, now: now)
+            let (built, _) = Self.fitted(
+                state, nil, steps: c.budget?.steps ?? [], length: vectors.meta.budget.labelLength)
             let sent = c.payload.aps.contentState
             #expect(built == sent, "\(c.name)")
+            #expect(c.bytes <= (c.budget?.limit ?? vectors.meta.maxBytes), "\(c.name)")
+            #expect(c.bytes <= vectors.meta.maxBytes, "\(c.name)")
             ran.append(c.name)
         }
         #expect(ran.count == vectors.cases.count)
@@ -112,29 +181,107 @@ import Testing
     @Test func startsCarryTheAttributes() throws {
         let vectors = try Self.load()
         let starts = vectors.cases.filter { $0.event == "start" }
-        #expect(starts.count == 2)
+        #expect(starts.count == 5)
         for c in starts {
             let sent = try #require(c.payload.aps.attributes, "\(c.name)")
             let type = c.payload.aps.attributesType
             #expect(type == "RunActivityAttributes")
             let topicId = try #require(UUID(uuidString: sent.topicId))
-            let longName = String(repeating: "T", count: 200)
-            let name = c.name == "start_longest_labels" ? longName : "Morning routine"
-            let built = RunActivityContent.attributes(serverId: sent.serverId, topicId: topicId, topicName: name)
+            let attributes = RunActivityContent.attributes(
+                serverId: sent.serverId, topicId: topicId, topicName: c.topicName)
+            let (_, built) = Self.fitted(
+                c.payload.aps.contentState, attributes, steps: c.budget?.steps ?? [],
+                length: vectors.meta.budget.labelLength)
             #expect(built == sent, "\(c.name)")
-            let length = built.topicName.unicodeScalars.count
+            let length = sent.topicName.unicodeScalars.count
             #expect(length <= RunActivityContent.maxLabelLength)
         }
     }
 
-    /// What the app encodes decodes as the server's: no field renamed or dropped.
+    /// What the app encodes is the server's content state: every key, nulls included, with the
+    /// same values (no field renamed, dropped or added).
     @Test func contentStateRoundTrips() throws {
-        for c in try Self.load().cases {
+        let raw = try #require(
+            try JSONSerialization.jsonObject(with: Fixtures.data(Self.file)) as? [String: Any])
+        let cases = try #require(raw["cases"] as? [[String: Any]])
+        let decoded = try Self.load().cases
+        #expect(cases.count == decoded.count)
+        for (object, c) in zip(cases, decoded) {
+            let payload = try #require(object["payload"] as? [String: Any])
+            let aps = try #require(payload["aps"] as? [String: Any])
+            let sentJSON = try #require(aps["content-state"] as? NSDictionary)
             let sent = c.payload.aps.contentState
             let data = try JSONEncoder().encode(sent)
             let again = try JSONDecoder().decode(RunActivityState.self, from: data)
             #expect(again == sent, "\(c.name)")
+            let encoded = try #require(try JSONSerialization.jsonObject(with: data) as? NSDictionary)
+            #expect(Set(encoded.allKeys as? [String] ?? []) == Set(sentJSON.allKeys as? [String] ?? []), "\(c.name)")
+            #expect(encoded == sentJSON, "\(c.name)")
         }
+    }
+
+    /// The timers2.md §8.1 fields, as the server fills them.
+    @Test func lapAndAlertFields() throws {
+        let t0 = try #require(RunInstant.parse("2026-10-23T08:00:00Z"))
+        let lap = try Self.state("update_tiktok_lap")
+        #expect(lap.lapType == "run")
+        #expect(lap.lapCount == 2)
+        #expect(lap.nextLabel == "Rest")
+        #expect(lap.stepIndex == nil)
+        #expect(lap.alertAt == RunActivityContent.seconds(t0) + 120 + 900)
+        #expect(lap.alertLabel == "Time")
+
+        let paused = try Self.state("update_alert_paused")
+        #expect(paused.alertAt == nil)
+        #expect(paused.alertLabel == nil)
+
+        let pending = try Self.state("update_alert_pending")
+        #expect(pending.alertAt == RunActivityContent.seconds(t0) + 300 + 450)
+
+        let reopened = try Self.state("update_reopened")
+        #expect(reopened.pausedMsInSeg == 100_000)
+        #expect(reopened.alertAt == RunActivityContent.seconds(t0) + 60 + 100 + 600)
+    }
+
+    /// A v1 push (no timers2 fields) still decodes, and a local state never carries a server-only
+    /// key it didn't set: `steps_unknown` stays out unless set.
+    @Test func aV1PushDecodes() throws {
+        let v1 = """
+            {"v":1,"run_id":"r","revision":1,"status":"running","started_at":1,"seg":0,"seg_started_at":1,
+             "label":"Lap 1","step_index":null,"step_count":0,"next_label":null,"paused_at":null,
+             "paused_ms_before_seg":0,"paused_ms_in_seg":0,"ended_at":null,"active_ms":null}
+            """
+        let state = try JSONDecoder().decode(RunActivityState.self, from: Data(v1.utf8))
+        #expect(state.lapType == nil)
+        #expect(state.lapCount == nil)
+        #expect(state.alertAt == nil)
+        #expect(state.alertLabel == nil)
+        let encoded = try #require(
+            try JSONSerialization.jsonObject(with: JSONEncoder().encode(state)) as? [String: Any])
+        #expect(encoded["steps_unknown"] == nil)
+        #expect(encoded["alert_at"] is NSNull)
+    }
+
+    /// The local fold fills `alert_at` from active time, and leaves it nil without an instant.
+    @Test func localStateAlertFollowsActiveTime() throws {
+        let vectors = try Self.load()
+        let timer = try #require(vectors.timerSets["tiktok"])
+        let start = RunEvent(id: "r", type: .start, at: 0)
+        let pause = RunEvent(id: "p", type: .pause, at: 100_000)
+        let resume = RunEvent(id: "q", type: .resume, at: 220_000, pauseId: "p")
+        func content(_ events: [RunEvent], now: Int?) throws -> RunActivityState {
+            let folded = try RunFold.fold(runId: "r", timer: timer, events: events)
+            return RunActivityContent.state(
+                runId: "r", revision: 1, status: folded.status, state: folded, timer: timer, now: now)
+        }
+        let before = try content([start], now: 10_000)
+        #expect(before.alertAt == 450)
+        #expect(before.alertLabel == "Half way")
+        #expect(try content([start, pause], now: 200_000).alertAt == nil)
+        #expect(try content([start, pause, resume], now: 230_000).alertAt == 450 + 120)
+        #expect(try content([start], now: 450_000).alertLabel == "Time")
+        #expect(try content([start], now: 900_000).alertAt == nil)
+        #expect(try content([start], now: nil).alertAt == nil)
     }
 
     @Test func truncateCountsScalarsAndKeepsTheEllipsis() {
