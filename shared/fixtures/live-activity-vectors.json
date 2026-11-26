@@ -601,6 +601,66 @@
       "topic_name": "Morning routine"
     },
     {
+      "bytes": 472,
+      "event": "update",
+      "name": "typed_lap_mid_steps",
+      "payload": {
+        "aps": {
+          "content-state": {
+            "active_ms": null,
+            "alert_at": null,
+            "alert_label": null,
+            "ended_at": null,
+            "label": "Run 1",
+            "lap_count": 0,
+            "lap_type": "run",
+            "next_label": "Rest",
+            "paused_at": null,
+            "paused_ms_before_seg": 0,
+            "paused_ms_in_seg": 0,
+            "revision": 2,
+            "run_id": "0a000000-0000-4000-8000-000000000000",
+            "seg": 1,
+            "seg_started_at": 1792742460.0,
+            "started_at": 1792742400.0,
+            "status": "running",
+            "step_count": 2,
+            "step_index": null,
+            "v": 1
+          },
+          "event": "update",
+          "stale-date": 1792757400,
+          "timestamp": 1792743000
+        }
+      },
+      "run": {
+        "events": [
+          {
+            "at": "2026-10-23T08:00:00Z",
+            "id": "0a000000-0000-4000-8000-000000000000",
+            "pause_id": null,
+            "seg": null,
+            "step": null,
+            "target": null,
+            "type": "start"
+          },
+          {
+            "at": "2026-10-23T08:01:00Z",
+            "id": "0e000000-0000-4000-8000-000000000001",
+            "pause_id": null,
+            "seg": 0,
+            "step": null,
+            "target": null,
+            "type": "lap"
+          }
+        ],
+        "revision": 2,
+        "status": null
+      },
+      "timer": "steps_and_laps",
+      "topic_name": "Morning routine"
+    },
+    {
       "bytes": 491,
       "event": "update",
       "name": "update_alert_pending",
@@ -1497,6 +1557,33 @@
         }
       ],
       "steps": [],
+      "variables": []
+    },
+    "steps_and_laps": {
+      "laps": [
+        {
+          "alerts": [],
+          "key": "run",
+          "label": "Run"
+        },
+        {
+          "alerts": [],
+          "key": "rest",
+          "label": "Rest"
+        }
+      ],
+      "steps": [
+        {
+          "alerts": [],
+          "key": "warmup",
+          "label": "Warmup"
+        },
+        {
+          "alerts": [],
+          "key": "cooldown",
+          "label": "Cooldown"
+        }
+      ],
       "variables": []
     },
     "three": {

@@ -33,9 +33,9 @@ public struct LocalRun: Sendable, Hashable, Identifiable {
     /// Whether the pinned version has any question (Stop then opens the answers form, §11.2);
     /// nil when the version isn't stored.
     public var hasQuestions: Bool?
-    /// The pinned version's timer (steps and lap types, timers2.md §1.1); nil when that version
-    /// isn't stored here, or is untimed.
-    public var timer: TopicTimer? = nil
+    /// The pinned version's timer (steps, lap types and their alerts, timers2.md §1.1), for
+    /// `RunPresentation`; nil exactly when `steps` is (an untimed stored version has no steps).
+    public var timer: TopicTimer?
     /// A reopen queued from the run's entry while no run row is here (timers2.md §5.3): the run is
     /// projected from the entry's timing, "Resuming…" without controls, until the ack replaces it
     /// with the server's run. It takes no tap but its revert (a discard).
@@ -329,8 +329,8 @@ public enum RunOverlay {
 /// transaction.
 final class VersionBook {
     struct Info {
-        /// The version's timer (steps and lap types, the fold's input); nil when not stored or
-        /// untimed.
+        /// The version's timer (steps and lap types, the fold's input); nil exactly when `steps`
+        /// is (not stored). An untimed stored version has no steps and no lap types.
         var timer: TopicTimer?
         var steps: [TopicTimer.Step]?
         var requiresAnswers: Bool?
@@ -353,8 +353,8 @@ final class VersionBook {
         var info = Info()
         if let row {
             let timer = try (row["timer_json"] as String?).map { try StoreJSON.decode(TopicTimer.self, $0) }
-            info.timer = timer
-            info.steps = timer?.steps ?? []
+            info.timer = timer ?? TopicTimer(steps: [])
+            info.steps = info.timer?.steps
             let questions = try StoreJSON.decode([QuestionDTO].self, row["questions_json"]).toDomain()
             info.requiresAnswers = questions.contains(where: \.required)
             info.hasQuestions = !questions.isEmpty
