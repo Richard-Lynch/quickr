@@ -238,6 +238,16 @@ _sim_resources_ok() {
   return 0
 }
 
+# Settings ▸ General ▸ AutoFill & Passwords ▸ AutoFill Passwords and Passkeys, off, on a booted
+# test simulator (it persists in the device). The app labels the service-token fields for Password
+# AutoFill (DEVICE-DAY §6), so with it on iOS offers "Save Password?" after a UI test types a
+# token, seconds later and over whatever the test taps next (#60, #89). Off, iOS never offers:
+# the app is unchanged, and the device check covers AutoFill itself.
+sim_autofill_off() {
+  xcrun simctl spawn "$1" defaults write com.apple.WebUI AutoFillPasswords -bool NO >/dev/null 2>&1 \
+    || warn "could not turn Password AutoFill off on $1: iOS may offer to save typed tokens over UI tests"
+}
+
 sim_boot() {
   local udid="$1" cap="${IOS_SIM_CAP:-2}" booted count announced=0 lock_status tickets ahead position
   local last_position=0 trapped=0
@@ -285,6 +295,7 @@ sim_boot() {
       fi
       exec 8>&-
       (( trapped )) && _sim_untrap_ticket
+      sim_autofill_off "$udid"
       return 0
     fi
     if [[ "${IOS_SIM_WAIT:-0}" != 1 ]]; then

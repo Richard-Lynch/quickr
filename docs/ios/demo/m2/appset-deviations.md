@@ -32,4 +32,6 @@ deliberate differences:
    asks "Save Password?" when a secure field with text goes away, whatever its
    content type. The secret is a Cloudflare service token kept in quickR's own
    Keychain, not a login, so the token sheet empties the field before it closes
-   (on Save and on Cancel). `SettingsUITests` runs past the sheet on iOS 26 and 27.
+   (on Save and on Cancel). The test simulators have Password AutoFill off
+   (`ios/scripts/common.sh` `sim_autofill_off`), so `SettingsUITests` never meets
+   the offer.

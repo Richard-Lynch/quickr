@@ -2,6 +2,11 @@ import XCTest
 
 /// Onboarding and Settings on a clean slate (`-QuickrUITest`: a fresh store and defaults, an
 /// in-memory Keychain, and a fake quickR server at https://quickr.test).
+///
+/// The token fields are labelled for Password AutoFill, so iOS would offer "Save Password?" over
+/// the screen seconds after a token is typed. The scripts' simulators have AutoFill off
+/// (common.sh `sim_autofill_off`, run by every boot), so it never shows here; on a simulator that
+/// didn't boot through them, turn it off in Settings first.
 final class SettingsUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -52,7 +57,6 @@ final class SettingsUITests: XCTestCase {
         secret.tap()
         secret.typeText("very-secret")
         app.buttons["token.save"].tap()
-        dismissSavePasswordOffer(app)
         let shown = app.descendants(matching: .any)["settings.accessClientId"]
         XCTAssertTrue(shown.waitForExistence(timeout: 5))
         XCTAssertTrue(shown.label.contains("abc123.access"), shown.label)
@@ -68,9 +72,7 @@ final class SettingsUITests: XCTestCase {
         XCTAssertTrue(version.exists)
     }
 
-    /// The token fields are labelled for AutoFill (Client ID as the username, Secret as the
-    /// password), so iOS may offer to save them as the sheet goes: Cancel still saves nothing in
-    /// quickR, whatever the user answers to the offer.
+    /// Cancel saves nothing in quickR.
     @MainActor
     func testCancellingTheTokenSheetSavesNothing() {
         let app = launch()
@@ -86,13 +88,11 @@ final class SettingsUITests: XCTestCase {
         secret.tap()
         secret.typeText("very-secret")
         app.buttons["token.cancel"].tap()
-        dismissSavePasswordOffer(app)
         XCTAssertTrue(app.buttons["settings.addToken"].waitForExistence(timeout: 5), "closed, no token saved")
         XCTAssertFalse(app.descendants(matching: .any)["settings.accessClientId"].exists)
     }
 
-    /// Onboarding with a service token: it connects with it (the fake server takes any), and iOS
-    /// may offer to save it as the server step goes.
+    /// Onboarding with a service token: it connects with it (the fake server takes any).
     @MainActor
     func testOnboardingWithAServiceToken() {
         let app = launch()
@@ -109,34 +109,12 @@ final class SettingsUITests: XCTestCase {
         secret.tap()
         secret.typeText("very-secret")
         app.buttons["server.connect"].tap()
-        dismissSavePasswordOffer(app)
         finishOnboarding(app)
         XCTAssertTrue(app.staticTexts["home.wordmark"].waitForExistence(timeout: 15))
         app.buttons["home.settings"].tap()
         let shown = app.descendants(matching: .any)["settings.accessClientId"]
         XCTAssertTrue(shown.waitForExistence(timeout: 10))
         XCTAssertTrue(shown.label.contains("abc123.access"), shown.label)
-    }
-
-    /// Dismisses iOS's "Save Password?" offer (AutoFill, for the token fields) if it shows within
-    /// `seconds`, in the app or above it (SpringBoard): saving it is the user's choice, and a test
-    /// declines it. Only that offer's Not Now: the innermost element holding its title.
-    @MainActor
-    private func dismissSavePasswordOffer(_ app: XCUIApplication, within seconds: TimeInterval = 3) {
-        let title = NSPredicate(format: "label == 'Save Password?'")
-        let places = [app, XCUIApplication(bundleIdentifier: "com.apple.springboard")]
-        let deadline = Date().addingTimeInterval(seconds)
-        repeat {
-            for place in places where place.staticTexts.matching(title).firstMatch.exists {
-                // Matches come outermost first: the last one holding the title is the offer itself.
-                let offer = place.descendants(matching: .any).containing(title).allElementsBoundByIndex.last
-                if let notNow = offer?.buttons["Not Now"], notNow.exists {
-                    notNow.tap()
-                    return
-                }
-            }
-            usleep(200_000)
-        } while Date() < deadline
     }
 
     /// At the largest accessibility text size, onboarding still fits: the address and Connect are
