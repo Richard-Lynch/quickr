@@ -23,3 +23,30 @@ The state comparison tests verify title, icon, and enabled state, but do not exe
    the running tile, which is what shows an open run's primary on `t2/m2` now. When `origin/t2/m2`
    gains #165, this branch merges it, moves the registration to the active card, and the topics
    page tests run against the real card.
+
+---
+
+## Round 2 (Codex, after the round-1 fixes)
+
+1. **P2 — Typed Lap buttons fail label-in-name accessibility.** [RunTile.tsx:121](/Users/richie/code/quickr-worktrees/t2-m2-fbar/frontend/src/components/runs/RunTile.tsx:121) and [RunningBar.tsx:99](/Users/richie/code/quickr-worktrees/t2-m2-fbar/frontend/src/components/runs/RunningBar.tsx:99) use `actionLabel` for the accessible name. For a typed lap, the visible title is “Lap → Rest” but the accessible name is “Lap, then Rest · Morning”. Speech-control users cannot reliably activate the button by saying its visible label. Keep the visible wording in the accessible name, while retaining any pronunciation help needed for the arrow.
+
+2. **P2 — The temporary running tile can make long primary labels disproportionately tall.** [RunTile.tsx:75](/Users/richie/code/quickr-worktrees/t2-m2-fbar/frontend/src/components/runs/RunTile.tsx:75) fixes the action to 5.25rem, and [line 130](/Users/richie/code/quickr-worktrees/t2-m2-fbar/frontend/src/components/runs/RunTile.tsx:130) now wraps the full step or lap-type name within that narrow column. A long name, especially at enlarged text sizes, can expand the whole topic card to many lines. The bar’s round-one fix addresses its own layout, but the same labels now appear in the tile without a layout that can accommodate them. Cover the tile at narrow width and enlarged text as well.
+
+3. **P2 — The acceptance tests do not cover the typed-lap primary.** [RunTile.test.tsx:242](/Users/richie/code/quickr-worktrees/t2-m2-fbar/frontend/src/components/runs/RunTile.test.tsx:242) compares panel and bar for several states, but every Lap fixture is untyped. F2-BAR specifically calls for the next lap-type label, and this leaves its visible title, accessible name, icon and dispatch unverified on both surfaces. Add a typed-lap case when the model supplies that state; the current model explicitly stubs the label as null.
+
+The round-one registry integration finding remains conditional on PR #165: the current tile registers correctly, but the active cards must take over registration when merged. I did not run the tests; this review was performed in a read-only workspace.
+## Resolution (f2-bar, round 2)
+
+1. **Stands (spec).** active-surfaces.md §1.3 sets the accessible name of `lap("Rest")` to
+   "Lap, then Rest", the same on iOS VoiceOver and the PWA, and the run panel's `RunControls`
+   already uses it through `actionLabel`. The bar and tile reuse that helper so all surfaces say
+   the same thing; the name begins with the visible "Lap", so "click Lap" still matches. Changing
+   it is a spec change for the lead, not this WP.
+2. **Stands (temporary surface).** The running tile's primary exists only until #165 lands: from
+   then an open run's tile is the active card, and this branch drops the tile's open-run branch
+   when it merges #165. Before then the 5.25rem column wraps the title, as its "Add details"
+   already does.
+3. **Deferred to M1, issue filed.** `actions()` stubs `lap.nextTypeLabel` as null until
+   `RunState.next_lap_type` exists (T2-M1 F1-CORE), so no typed-lap state can be built yet. The
+   comparison test reads both surfaces from the model, so it covers the label as soon as M1
+   supplies it; adding the row is #173.
