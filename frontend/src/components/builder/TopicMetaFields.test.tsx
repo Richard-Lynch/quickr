@@ -355,7 +355,10 @@ describe('SettingsPage appearance PATCH', () => {
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(patches()[0]?.body).toEqual({ appearance: { color: 'blue' }, expected_revision: 7 });
-    expect(await screen.findByText('Changed')).toBeInTheDocument();
+    // This stub can't be re-read (GET 404s).
+    expect(
+      await screen.findByText('This topic was changed elsewhere. Try again.'),
+    ).toBeInTheDocument();
   });
 
   it('puts the server’s 422 paths on the matching field', async () => {
@@ -533,7 +536,7 @@ describe('SettingsPage saves on one topic', () => {
     await act(() => qc.refetchQueries());
     expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Save details' }));
-    expect(await screen.findByText(/^Colour changed elsewhere/)).toBeInTheDocument();
+    expect(await screen.findByText(/^The colour was changed elsewhere/)).toBeInTheDocument();
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
   });
 
@@ -573,7 +576,7 @@ describe('SettingsPage saves on one topic', () => {
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     expect(
       await screen.findByText(
-        'Colour changed elsewhere. Your edit is still here: save again to keep it.',
+        'The colour was changed elsewhere. Your edit is still here; save again to keep it.',
       ),
     ).toBeInTheDocument();
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
@@ -617,7 +620,7 @@ describe('SettingsPage saves on one topic', () => {
     // /topics/gym, which is gone.
     server.external({ slug: 'lifting', appearance: { ...appearance, color: 'green' } });
     await user.click(screen.getByRole('button', { name: 'Save details' }));
-    expect(await screen.findByText(/^Colour changed elsewhere/)).toBeInTheDocument();
+    expect(await screen.findByText(/^The colour was changed elsewhere/)).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe('/t/lifting/settings'));
     expect(screen.queryByText('Topic not found')).toBeNull();
     expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
@@ -637,11 +640,76 @@ describe('SettingsPage saves on one topic', () => {
     server.external({ slug: 'lifting' });
     server.failIdLookups(2); // the form's refetch and the layout's lookup
     await user.click(screen.getByRole('button', { name: 'Save details' }));
-    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    expect(
+      await screen.findByText('This topic was changed elsewhere. Try again.'),
+    ).toBeInTheDocument();
     await waitFor(() => expect(server.paths.filter((p) => p.endsWith(topic.id))).toHaveLength(3));
     expect(screen.queryByText('Topic not found')).toBeNull();
     expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
     expect(router.state.location.pathname).toBe('/t/gym/settings');
+  });
+
+  it('names every field changed elsewhere, in form order', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('button', { name: 'Remove tag morning' }));
+    await user.click(screen.getByRole('button', { name: 'Remove emoji' }));
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Gymnasium');
+    server.external({
+      name: 'Lifting',
+      appearance: { color: 'red', icon: { kind: 'emoji', value: '🏋️' }, tags: ['strength'] },
+    });
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(
+      await screen.findByText(
+        'The name, emoji and tags were changed elsewhere. Your edits are still here; save again to keep them.',
+      ),
+    ).toBeInTheDocument();
+    expect(server.details).toHaveLength(1);
+  });
+
+  it('re-sends when a field was changed elsewhere to the value being sent', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ appearance: { ...appearance, color: 'blue' } }); // unseen, same colour
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+  });
+
+  it('counts only the fields the save sends: an edit that trims away is no conflict', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.type(await screen.findByLabelText('Name'), ' '); // "Gym " is sent as nothing
+    await user.click(screen.getByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' }); // unseen
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+  });
+
+  it('says so when the topic can’t be re-read after a 409', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' });
+    server.failIdLookups(1);
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(
+      await screen.findByText('This topic was changed elsewhere. Try again.'),
+    ).toBeInTheDocument();
+    expect(server.details).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
   });
 
   it('keeps re-sending over two unrelated writes in a row', async () => {
@@ -674,7 +742,7 @@ describe('SettingsPage saves on one topic', () => {
     server.beforeDetails(write(1), write(2), write(3), write(4));
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     expect(
-      await screen.findByText('This topic is busy with other changes. Try again.'),
+      await screen.findByText('This topic keeps changing elsewhere. Try again in a moment.'),
     ).toBeInTheDocument();
     expect(server.details.map((d) => d.expected_revision)).toEqual([7, 8, 9]);
     expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
