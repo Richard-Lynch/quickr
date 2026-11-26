@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { FormProvider, useForm, type FieldPath } from 'react-hook-form';
+import { FormProvider, useForm, useWatch, type FieldPath } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
 
@@ -13,7 +13,11 @@ import {
   useUpdateTopicSchedule,
 } from '../../api/mutations';
 import { invalidateTopicData } from '../../api/queryClient';
-import { deleteTopicMutation, getTopicQueryKey } from '../../client/@tanstack/react-query.gen';
+import {
+  deleteTopicMutation,
+  getTopicOptions,
+  getTopicQueryKey,
+} from '../../client/@tanstack/react-query.gen';
 import type { TopicDetail } from '../../client';
 import { Page, TopBar } from '../../components/AppShell';
 import { AppearanceFields } from '../../components/builder/AppearanceFields';
@@ -44,6 +48,60 @@ type MetaValues = z.input<MetaSchema>;
 type MetaOutput = z.output<MetaSchema>;
 
 const META_FIELDS = new Set(['name', 'slug', 'description']);
+
+/** The details form's fields, each compared on its own. */
+const DETAIL_FIELDS = [
+  'name',
+  'slug',
+  'description',
+  'appearance.color',
+  'appearance.icon',
+  'appearance.tags',
+] as const;
+type DetailField = (typeof DETAIL_FIELDS)[number];
+
+function fieldOf(v: MetaValues, f: DetailField): unknown {
+  if (f === 'appearance.color') return v.appearance.color;
+  if (f === 'appearance.icon') return v.appearance.icon;
+  if (f === 'appearance.tags') return v.appearance.tags;
+  return v[f];
+}
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** The fields where `current` differs from `base` (what the user has edited). */
+function editedFields(current: MetaValues, base: MetaValues): DetailField[] {
+  return DETAIL_FIELDS.filter((f) => !sameValue(fieldOf(current, f), fieldOf(base, f)));
+}
+
+function changedAny(a: MetaValues, b: MetaValues, fields: readonly DetailField[]): boolean {
+  return fields.some((f) => !sameValue(fieldOf(a, f), fieldOf(b, f)));
+}
+
+function pick(
+  v: MetaValues,
+  fields: readonly DetailField[],
+): Partial<Record<DetailField, unknown>> {
+  return Object.fromEntries(fields.map((f) => [f, fieldOf(v, f)]));
+}
+
+/** What the form shows: a topic's values, with the user's edits (`keep`) put back on top. */
+interface Shown {
+  topic: TopicDetail;
+  keep: Partial<Record<DetailField, unknown>>;
+}
+
+/** The PATCH body for the form's (valid) values against `from`; `null` when nothing changed. */
+function detailsChanges(from: TopicDetail, v: MetaOutput): TopicUpdateBody | null {
+  const changed = appearanceChanges(appearanceOf(from), v.appearance);
+  const body: TopicUpdateBody = {
+    ...(v.name !== from.name ? { name: v.name } : {}),
+    ...(v.slug !== from.slug ? { slug: v.slug } : {}),
+    ...(v.description !== from.description ? { description: v.description } : {}),
+    ...(changed ? { appearance: changed } : {}),
+  };
+  return Object.keys(body).length > 0 ? body : null;
+}
 
 function metaValuesOf(t: TopicDetail): MetaValues {
   return {
@@ -95,6 +153,7 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
   const { toast } = useToast();
   const limits = useLimits();
   const schema = useMemo(() => makeTopicMetaAppearanceSchema(limits), [limits]);
+  const qc = useQueryClient();
   const [banner, setBanner] = useState<string | null>(null);
   const update = useUpdateTopicMeta();
   const form = useForm<MetaValues, unknown, MetaOutput>({
@@ -104,38 +163,68 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
   const e = form.formState.errors;
   const { isDirty, isSubmitting } = form.formState;
   useEffect(() => onDirty(isDirty), [isDirty, onDirty]);
-  // The topic the form's values came from: a save diffs against it and sends its revision, so a
-  // change made elsewhere meanwhile is refused (409) rather than overwritten. The form isn't keyed
-  // by the topic's values (the optimistic patch would remount it mid-save and a failure would lose
-  // the edits and the 422's field errors); a clean form takes a newer topic instead.
+  // `base` is the topic a save diffs against and whose revision it sends. A newer topic (this
+  // client's own schedule or archive save, a refetch, the feed) becomes the base unless it changed
+  // a field the user is editing: the fields they haven't touched take its values and their edits
+  // stay. Only an edit that a newer topic also changed keeps the old base, so the save gets 409
+  // instead of overwriting the other change. The form isn't keyed by the topic's values: the
+  // optimistic patch would remount it mid-save, and a failure would lose the edits and the 422's
+  // field errors.
+  const values = useWatch({ control: form.control }) as MetaValues;
   const [base, setBase] = useState(topic);
-  if (topic !== base && !isDirty && !isSubmitting) setBase(topic);
-  useEffect(() => form.reset(metaValuesOf(base)), [base, form]);
+  const [shown, setShown] = useState<Shown>({ topic, keep: {} });
+  if (topic !== base && !isSubmitting) {
+    const edited = editedFields(values, metaValuesOf(base));
+    if (!changedAny(metaValuesOf(base), metaValuesOf(topic), edited)) {
+      setBase(topic);
+      setShown({ topic, keep: pick(values, edited) });
+    }
+  }
+  useEffect(() => {
+    form.reset(metaValuesOf(shown.topic));
+    for (const [f, v] of Object.entries(shown.keep))
+      form.setValue(f as DetailField, v as never, { shouldDirty: true });
+  }, [shown, form]);
 
   const onSubmit = form.handleSubmit(async (v) => {
     setBanner(null);
-    const from = base;
-    const changed = appearanceChanges(appearanceOf(from), v.appearance);
-    const body: TopicUpdateBody = {
-      ...(v.name !== from.name ? { name: v.name } : {}),
-      ...(v.slug !== from.slug ? { slug: v.slug } : {}),
-      ...(v.description !== from.description ? { description: v.description } : {}),
-      ...(changed ? { appearance: changed } : {}),
-    };
-    if (Object.keys(body).length === 0) {
+    const body = detailsChanges(base, v);
+    if (!body) {
       toast({ title: 'Nothing to save', tone: 'info' });
       return;
     }
-    try {
-      const updated = await update.mutateAsync({
+    const save = (from: TopicDetail) =>
+      update.mutateAsync({
         path: { ref: topic.slug },
         body: { ...body, expected_revision: from.revision },
       });
+    try {
+      let updated: TopicDetail;
+      try {
+        updated = await save(base);
+      } catch (err) {
+        // A change this form hasn't seen (another device, before the feed brought it): when it
+        // left the edited fields alone, send the same edits on its revision, once.
+        if (mapApiError(err).code !== 'stale_revision') throw err;
+        let fresh: TopicDetail;
+        try {
+          fresh = await qc.query({
+            ...getTopicOptions({ path: { ref: topic.slug } }),
+            staleTime: 0,
+          });
+        } catch {
+          throw err; // no fresh copy to check against: report the conflict as it is
+        }
+        const sent = editedFields(form.getValues(), metaValuesOf(base));
+        if (changedAny(metaValuesOf(base), metaValuesOf(fresh), sent)) throw err;
+        updated = await save(fresh);
+      }
       toast({ title: 'Saved' });
       setBase(updated);
+      setShown({ topic: updated, keep: {} });
       onDirty(false);
       allowNavigation();
-      if (updated.slug !== from.slug)
+      if (updated.slug !== base.slug)
         void navigate(`/t/${updated.slug}/settings`, { replace: true });
     } catch (err) {
       const mapped = mapApiError(err);
