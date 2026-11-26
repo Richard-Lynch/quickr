@@ -20,6 +20,7 @@ import {
   type StartResult,
   type TapBody,
   type TapExpect,
+  type TapOptions,
   type TapType,
 } from '../../lib/runs/actions';
 import { useToast } from '../ui/Toast';
@@ -159,6 +160,8 @@ export interface RunActions {
     type: TapType,
     body?: TapBody,
     expect?: TapExpect,
+    /** A reopen's or remove's entry, for a run not in the local view (timers2.md §5.3). */
+    opts?: Pick<TapOptions, 'entry' | 'target'>,
   ) => Promise<OutboxItem<RunEventPayload> | null>;
   /**
    * Send the run's answers as `finish` (§3.6) and wait briefly for the server. Throws the
@@ -268,10 +271,12 @@ export function useRunActions(): RunActions {
           ? Promise.resolve(null)
           : guarded(() => startRun(deps, ctx, startOpts)),
       // A discard is confirmed in a sheet first: no double tap to guard (as on iOS).
-      tap: (runId, ctx, type, body, expect) =>
+      tap: (runId, ctx, type, body, expect, opts = {}) =>
         type !== 'discard' && coolingDown(ctx.topic.id)
           ? Promise.resolve(null)
-          : guarded(() => tapRun(deps, runId, ctx, type, body, expect ? { expect } : {})),
+          : guarded(() =>
+              tapRun(deps, runId, ctx, type, body, expect ? { ...opts, expect } : opts),
+            ),
       finish,
     };
   }, [qc, toast, busy]);

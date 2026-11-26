@@ -21,6 +21,7 @@ import { Icon } from '../ui/Icon';
 import { ConfirmSheet } from '../ui/Sheet';
 import { runTimer } from './context';
 import { Duration, useServerNow } from './RunClock';
+import type { ReopenOffer } from './reopen';
 import { actionLabel, RunControls } from './RunControls';
 import {
   actions as runActions,
@@ -44,6 +45,7 @@ export function RunPanel({
   actions,
   onStopped,
   onDiscarded,
+  onReverted,
 }: {
   run: LocalRun;
   /** The run's own version's context; null while it isn't known (controls wait). */
@@ -59,6 +61,8 @@ export function RunPanel({
   /** The stop is queued. `totalMs` is the run's active time at the tap. */
   onStopped: (run: LocalRun, item: OutboxItem<RunEventPayload>, totalMs: number) => void;
   onDiscarded: () => void;
+  /** Undo resume…: the discard of a reopened run, queued; the stop and its entry stay. */
+  onReverted: () => void;
 }) {
   const paused = run.status === 'paused';
   const now = useServerNow(!paused);
@@ -70,11 +74,13 @@ export function RunPanel({
   const open = run.state.open;
   const head = headline(run.state, run.status, timer);
   const alert = alertLine(run.state, timer, now);
-  const list = runActions(run.state, run.status, timer, now);
-  // An open run with no actions is a queued reopen before its ack (§1.2 row 11, timers2.md
-  // §5.3): the header says so and there are no controls until the server answers.
-  const resuming = list.length === 0;
+  // A reopen queued from the entry, not acked yet (§1.2 row 11, timers2.md §5.3): the header
+  // says "Resuming…" and there are no controls until the server answers.
+  const resuming = run.resuming;
+  // A reopened run's destructive action is `revert` ("Undo resume…", row 10), from M1's model.
+  const list = resuming ? [] : runActions(run.state, run.status, timer, now);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [confirmRevert, setConfirmRevert] = useState(false);
   const cooling = useRunCooldown(run.topic_id);
 
   // Captured at render: a second tap before the screen catches up targets what it saw.
@@ -100,13 +106,13 @@ export function RunPanel({
       case 'discard':
         setConfirmDiscard(true);
         return;
-      // Not an open run's (§1.2 rows 2, 12, 13). `revert` (row 10) is pending T2-M1
-      // (F1-OUTBOX): `actions` never returns it until the reopen event and its revert tap
-      // exist; its "Undo resume…" confirmation lands with them.
+      case 'revert':
+        setConfirmRevert(true);
+        return;
+      // Not an open run's (§1.2 rows 2, 12, 13).
       case 'start':
       case 'addDetails':
       case 'reopen':
-      case 'revert':
         return;
     }
   };
@@ -178,6 +184,24 @@ export function RunPanel({
         title="Discard this run?"
         body="Its times won’t be saved. This can’t be undone."
         confirmLabel="Discard"
+        cancelLabel="Keep timing"
+        danger
+        busy={actions.busy}
+      />
+      {/* A revert is the run's discard after its reopen (timers2.md §3.4): the server restores
+          the stop, and the outbox doesn't drop the queue for it (K6, §5.5). */}
+      <ConfirmSheet
+        open={confirmRevert}
+        onClose={() => setConfirmRevert(false)}
+        onConfirm={() => {
+          void tap('discard').then((item) => {
+            setConfirmRevert(false);
+            if (item) onReverted();
+          });
+        }}
+        title="Undo the resume?"
+        body="The run goes back to how it was when you stopped it, and its entry stays saved."
+        confirmLabel="Undo resume"
         cancelLabel="Keep timing"
         danger
         busy={actions.busy}
@@ -291,17 +315,6 @@ function Row({
   );
 }
 
-/**
- * Resume of the topic's last stop, offered under Start while that entry is `resumable`
- * (active-surfaces.md §6.3): its active time, and the tap that reopens it.
- */
-export interface ReopenOffer {
-  /** The topic's name, for the accessible name (§1.3). */
-  topic: string;
-  totalMs: number;
-  onReopen: () => void;
-}
-
 /** Idle: the topic's steps, and Start (with Resume under it while the last stop is resumable). */
 export function RunStart({
   steps,
@@ -346,7 +359,7 @@ export function RunStart({
           <Button
             size="lg"
             variant="primary"
-            className="flex-1 sm:flex-none"
+            className="w-full sm:w-auto"
             disabled={disabled}
             loading={busy}
             icon={<Icon name="play" strokeWidth={2.4} />}

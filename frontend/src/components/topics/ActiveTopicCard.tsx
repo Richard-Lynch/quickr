@@ -67,9 +67,8 @@ export function cardTint(topic: CardTopic): {
 /**
  * Whether the run is a queued `reopen` the server hasn't acked (the "Resuming…" projection,
  * timers2.md §5.3): the card shows "Resuming…" and no controls until the ack (§3.3, §6.3).
- * Pending M1: the local view has no such projection yet, so no run is resuming.
  */
-export const isResuming: (run: LocalRun) => boolean = () => false;
+export const isResuming = (run: Pick<LocalRun, 'resuming'>): boolean => run.resuming;
 
 /**
  * The controls row's buttons: 56 px, as `Button size="lg"`, tinted or semantic per §6.2. A long

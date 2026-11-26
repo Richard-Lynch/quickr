@@ -1,11 +1,14 @@
 /** The active card's layout (active-surfaces.md §6.2) from its run and its controls. */
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { outbox } from '../../lib/outbox/client';
 import type { LocalRun } from '../../lib/runs/localView';
 import type { OpenSegment } from '../../lib/runs/types';
+import { lapTopic, reopens, seedStopped } from '../../test/resume';
+import { renderRunApp, type Harness } from '../../test/runUi';
 import {
   ActiveTopicCard,
   cardTint,
@@ -241,15 +244,66 @@ describe('the active card', () => {
     expect(within(card).getByRole('link', { name: 'Morning' })).toBeInTheDocument();
   });
 
-  it('no run is resuming yet: M1 has no queued-reopen projection (pending M1, see the PR)', () => {
-    // When M1's local view projects a queued, unacked `reopen`, `isResuming` reads it and
-    // this expectation flips for such a run; the card's side is the test above.
+  it('isResuming reads the local view’s "resuming" projection (timers2.md §5.3)', () => {
     expect(isResuming(runOf())).toBe(false);
+    expect(isResuming({ ...runOf(), resuming: true })).toBe(true);
   });
 
   it('reads M1’s headline: the open segment’s label, nothing extra with nothing open', () => {
     expect(within(renderCard(runOf(), controlsOf())).getByTestId('card-status')).toHaveTextContent(
       /^Running · Shower$/,
     );
+  });
+});
+
+describe('the Resuming card on the topics page (§3.3, §6.3; timers2.md §5.3)', () => {
+  let h: Harness | null = null;
+  /** The harness's fake server (the test has rendered the app). */
+  const server = () => {
+    if (!h) throw new Error('no harness');
+    return h.server;
+  };
+  afterEach(async () => {
+    await h?.teardown();
+    h = null;
+  });
+
+  it('a tile’s Resume, not acked yet: "Resuming…" and no controls row, then the open layout on the ack', async () => {
+    let hold = true;
+    h = renderRunApp('/', lapTopic(), (s) => seedStopped(s, 114_000, 10_000));
+    server().override = (body) =>
+      body.type === 'reopen' && hold ? new Response('{}', { status: 503 }) : undefined;
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('run-reopen'));
+
+    const card = await screen.findByTestId('active-card');
+    await waitFor(() =>
+      expect(within(card).getByTestId('card-status')).toHaveTextContent(/^Resuming…/),
+    );
+    expect(within(card).queryAllByRole('button')).toEqual([]);
+    expect(screen.queryByTestId('run-reopen')).toBeNull();
+
+    hold = false;
+    const item = (await outbox.list()).find((i) => i.status === 'pending');
+    await outbox.retry(item?.id ?? '');
+    expect(await screen.findByTestId('card-primary')).toBeInTheDocument();
+    expect(screen.getByTestId('card-stop')).toBeInTheDocument();
+    expect(screen.getByTestId('card-status')).toHaveTextContent(/^Running/);
+  });
+
+  it('the card’s stop toast offers Resume, aimed at that stop', async () => {
+    h = renderRunApp('/', lapTopic());
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start Morning' }));
+    await user.click(await screen.findByTestId('card-stop'));
+    const saved = await screen.findByText(/^Saved Morning: \d+:\d\d$/);
+    await waitFor(() => expect(server().events()).toHaveLength(2));
+    const stop = server().events()[1];
+    await user.click(
+      within(saved.closest<HTMLElement>('[role]') ?? saved).getByRole('button', { name: 'Resume' }),
+    );
+    await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
+    expect(reopens(server())[0]?.target).toBe(stop?.id);
+    expect(await screen.findByTestId('active-card')).toBeInTheDocument();
   });
 });
