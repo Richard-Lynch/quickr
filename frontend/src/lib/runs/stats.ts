@@ -1,13 +1,31 @@
 /**
- * Timing stats: best, median and mean run times, per step, laps and pauses (timers.md §9.1).
+ * Timing stats: best, median and mean run times, per step, per lap type, laps and pauses
+ * (timers.md §9.1, timers2.md §7.4).
  *
  * A port of backend/app/services/timing_stats.py, the model behind the timing charts;
  * `shared/fixtures/timing-stats-vectors.json` is the contract. Every duration is active
  * time in integer milliseconds. Best, median and mean of run totals count complete runs
- * only; per-step stats, laps, pauses and the series count every timed run. Untimed entries
- * (`timing` null) count toward nothing here.
+ * only; per-step stats, lap types, laps, pauses and the series count every timed run.
+ * Untimed entries (`timing` null) count toward nothing here. Step buckets and lap-type
+ * buckets are keyed separately: the shared key namespace of timers2.md §1.1 is per timer,
+ * not per topic, so a lap type whose key equals a historic step's never joins that step's
+ * bucket, nor the other way round.
  */
-import type { SeriesPoint, StepStats, Summary, TimerStep, Timing, TopicTiming } from './types';
+import type {
+  FoldTimer,
+  LapTypeStats,
+  SeriesPoint,
+  StepStats,
+  Summary,
+  Timing,
+  TopicTiming,
+} from './types';
+
+function push(map: Map<string, number[]>, key: string, value: number): void {
+  const values = map.get(key);
+  if (values) values.push(value);
+  else map.set(key, [value]);
+}
 
 export interface TimedEntry {
   entry_id: string;
@@ -36,28 +54,48 @@ export function summary(values: readonly number[]): Summary {
   return { best_ms: best(values), median_ms: median(values), mean_ms: mean(values) };
 }
 
-/** Each step key's label in the latest version that has it. */
-export function stepLabels(
-  versions: ReadonlyMap<number, readonly TimerStep[] | null>,
+/** A topic's versions: each version number's timer, null when that version isn't timed. */
+export type TimerVersions = ReadonlyMap<number, FoldTimer | null>;
+
+/** Each key's label in the latest version that has it, over `pick`'s list of each timer. */
+function latestLabels(
+  versions: TimerVersions,
+  pick: (t: FoldTimer) => readonly { key: string; label: string }[] | undefined,
 ): Map<string, string> {
   const labels = new Map<string, string>();
   for (const n of [...versions.keys()].sort((a, b) => a - b)) {
-    for (const step of versions.get(n) ?? []) labels.set(step.key, step.label);
+    const timer = versions.get(n);
+    for (const item of (timer && pick(timer)) ?? []) labels.set(item.key, item.label);
   }
   return labels;
+}
+
+/** Each step key's label in the latest version that has it. */
+export const stepLabels = (versions: TimerVersions) => latestLabels(versions, (t) => t.steps);
+
+/** Each lap-type key's label in the latest version that has it. */
+export const lapTypeLabels = (versions: TimerVersions) => latestLabels(versions, (t) => t.laps);
+
+/** The current version's keys first, in its order, then the rest by key (code points). */
+function ordered(current: readonly string[], seen: ReadonlySet<string>): string[] {
+  return [
+    ...current.filter((k) => seen.has(k)),
+    ...[...seen].filter((k) => !current.includes(k)).sort(),
+  ];
 }
 
 /**
  * Timing stats over `entries` (already filtered to the range).
  *
- * `versions` maps each version number of the topic to its steps (null when that version
- * isn't timed). `steps` lists only keys seen in range (done or skipped): the current
- * version's first, in step order, then the rest by key. A key keeps the label of the
- * latest version that has it, else its latest segment's.
+ * `versions` maps each version number of the topic to its timer (null when that version
+ * isn't timed). `steps` and `lap_types` list only keys seen in range (done or skipped
+ * steps; lap types with a lap segment): the current version's first, in its order, then
+ * the rest by key. A key keeps the label of the latest version that has it, else (steps)
+ * its latest segment's.
  */
 export function timingStats(
   entries: readonly TimedEntry[],
-  versions: ReadonlyMap<number, readonly TimerStep[] | null>,
+  versions: TimerVersions,
   currentVersion: number,
 ): TopicTiming {
   const timed = entries
@@ -71,25 +109,32 @@ export function timingStats(
             ? 1
             : 0,
     );
-  const current = (versions.get(currentVersion) ?? []).map((s) => s.key);
+  const currentTimer = versions.get(currentVersion) ?? null;
+  const current = (currentTimer?.steps ?? []).map((s) => s.key);
+  const currentTypes = (currentTimer?.laps ?? []).map((t) => t.key);
   const labels = stepLabels(versions);
-  const latestLabels = new Map<string, string>(); // a key in no version: its latest segment's label
+  const typeLabels = lapTypeLabels(versions);
+  const segmentLabels = new Map<string, string>(); // a key in no version: its latest segment's label
 
   const done = new Map<string, number[]>();
   const skipped = new Map<string, number>();
+  const typed = new Map<string, number[]>();
   const lapTotals: number[] = [];
   const paused: number[] = [];
   const series: SeriesPoint[] = [];
   for (const e of timed) {
     const t = e.timing;
     const steps: Record<string, number> = {};
+    const byType: Record<string, number> = {};
     for (const s of t.segments) {
-      if (s.step === null) continue;
-      steps[s.step] = s.active_ms;
-      const durations = done.get(s.step);
-      if (durations) durations.push(s.active_ms);
-      else done.set(s.step, [s.active_ms]);
-      latestLabels.set(s.step, s.label);
+      if (s.step !== null) {
+        steps[s.step] = s.active_ms;
+        push(done, s.step, s.active_ms);
+        segmentLabels.set(s.step, s.label);
+      } else if (s.lap_type !== null) {
+        push(typed, s.lap_type, s.active_ms);
+        byType[s.lap_type] = (byType[s.lap_type] ?? 0) + s.active_ms;
+      }
     }
     for (const key of t.skipped) skipped.set(key, (skipped.get(key) ?? 0) + 1);
     const laps = t.segments.filter((s) => s.kind === 'lap').map((s) => s.active_ms);
@@ -103,14 +148,11 @@ export function timingStats(
       paused_ms: t.paused_ms,
       complete: t.complete,
       steps,
+      lap_types: byType,
     });
   }
 
-  const seen = new Set([...done.keys(), ...skipped.keys()]);
-  const order = [
-    ...current.filter((k) => seen.has(k)),
-    ...[...seen].filter((k) => !current.includes(k)).sort(),
-  ];
+  const order = ordered(current, new Set([...done.keys(), ...skipped.keys()]));
   const complete = timed.filter((e) => e.timing.complete).map((e) => e.timing.active_ms);
   return {
     runs: timed.length,
@@ -118,12 +160,21 @@ export function timingStats(
     total: summary(complete),
     steps: order.map((key): StepStats => ({
       key,
-      label: labels.get(key) || (latestLabels.get(key) ?? key),
+      label: labels.get(key) || (segmentLabels.get(key) ?? key),
       current: current.includes(key),
       done: done.get(key)?.length ?? 0,
       skipped: skipped.get(key) ?? 0,
       ...summary(done.get(key) ?? []),
     })),
+    lap_types: ordered(currentTypes, new Set(typed.keys())).map((key): LapTypeStats => {
+      const durations = typed.get(key) ?? [];
+      return {
+        key,
+        label: typeLabels.get(key) ?? key,
+        laps: durations.length,
+        ...summary(durations),
+      };
+    }),
     laps: {
       runs_with_laps: lapTotals.length,
       median_ms: median(lapTotals),

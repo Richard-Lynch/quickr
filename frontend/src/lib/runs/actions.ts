@@ -70,7 +70,11 @@ export interface RunTapDeps {
   offset?: () => number;
 }
 
-export type TapType = Exclude<RunEventType, 'start'>;
+/**
+ * A tap after the start. `reopen` and `remove` fold (fold v4) but aren't taps yet: the API
+ * takes them from M1-RUNS and F1-OUTBOX adds them here.
+ */
+export type TapType = Exclude<RunEventType, 'start' | 'reopen' | 'remove'>;
 
 /** `tapRun` was given the context of another version than the run's own. */
 export class RunVersionMismatch extends Error {
