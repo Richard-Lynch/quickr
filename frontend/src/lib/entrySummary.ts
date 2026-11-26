@@ -5,7 +5,7 @@
  * `backend/app/services/summary.py`, pinned to the same text by
  * `shared/fixtures/entry-summary-vectors.json` (`entrySummary.vectors.test.ts`).
  */
-import type { EntryOut, TimerOutput as Timer, Timing, TimingSegment } from '../client';
+import type { EntryOut, TimerOutput as Timer, Timing } from '../client';
 import type { Question } from './questions';
 import { fmtDuration } from './runs/format';
 
@@ -55,7 +55,11 @@ export function entrySummary(
  */
 export function timingSummary(timing: Timing, timer: Timer | null): string {
   const laps = timing.segments.filter((s) => s.kind === 'lap');
-  return timingLine(timing.active_ms, laps.map(lapType), declaredLapTypes(timer));
+  return timingLine(
+    timing.active_ms,
+    laps.map((s) => s.lap_type),
+    timer?.laps.map((lt) => [lt.key, lt.label]) ?? [],
+  );
 }
 
 /**
@@ -163,17 +167,4 @@ function optionLabel(q: Extract<Question, { type: 'enum' }>, value: string): str
 
 function lapCount(n: number): string {
   return n === 1 ? `${n} lap` : `${n} laps`;
-}
-
-// Lap types are M1's (timers2.md: `TimingSegment.lap_type`, `Timer.laps`), not in the
-// generated client yet, so they are read as optional fields, as the reference reads them
-// with `getattr`; until M1 lands every lap reads as untyped. M4-STATS turns these into plain
-// field access when it adds the typed vectors; until then `timingLine`'s tests carry the rule.
-function lapType(segment: TimingSegment): string | null {
-  return (segment as { lap_type?: string | null }).lap_type ?? null;
-}
-
-function declaredLapTypes(timer: Timer | null): [string, string][] {
-  const laps = (timer as { laps?: readonly { key: string; label: string }[] } | null)?.laps;
-  return laps?.map((lt) => [lt.key, lt.label]) ?? [];
 }

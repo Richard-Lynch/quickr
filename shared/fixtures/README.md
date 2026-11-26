@@ -595,8 +595,8 @@ against. Generator version 3.
   [content-display.md](../../docs/specs/content-display.md) §1.2.
 - `question_sets`: name → the entry's version's questions (API shape, in order);
   `timer_sets`: name → the topic's current `Timer`, or `null` for an untimed
-  topic. The `tiktok` and `renamed` sets and the typed-lap cases arrive with
-  M1's lap types (M4-STATS).
+  topic. `tiktok` (lap types `run`, `rest`) and `renamed` (`cig`) declare M1's
+  lap types; a typed lap segment carries its `lap_type` (timers2.md §3.2).
 - `cases[]`: `{name, questions, timer, answers, timing, expected}`: `questions`
   and `timer` name a set; `answers` are wire `AnswerOut` objects, `timing` a wire
   `Timing` or `null`; `expected` is

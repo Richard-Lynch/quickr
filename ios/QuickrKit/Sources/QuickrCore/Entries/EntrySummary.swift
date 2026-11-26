@@ -40,7 +40,9 @@ public enum EntrySummary {
     /// seen), the untyped remainder last. Pauses, steps and skips are not shown.
     public static func timingLine(_ timing: Timing, timer: TopicTimer?) -> String {
         let laps = timing.segments.filter { $0.kind == .lap }
-        return timingLine(activeMs: timing.activeMs, lapTypes: laps.map(lapType), declared: declaredLapTypes(timer))
+        return timingLine(
+            activeMs: timing.activeMs, lapTypes: laps.map(\.lapType),
+            declared: timer?.laps.map { (key: $0.key, label: $0.label) } ?? [])
     }
 
     /// The timing part from the active time, each lap's type (nil when untyped) and the timer's
@@ -185,11 +187,4 @@ public enum EntrySummary {
     }
 
     private static func laps(_ n: Int) -> String { n == 1 ? "\(n) lap" : "\(n) laps" }
-
-    // Lap types are M1's (timers2.md: `TimingSegment.lap_type`, `Timer.laps`), not in the Swift
-    // models yet, so every lap reads as untyped. When M1 lands these become `segment.lapType` and
-    // `timer?.laps.map { ($0.key, $0.label) } ?? []`, and M4-STATS adds the typed vectors.
-    private static func lapType(_ segment: RunSegment) -> String? { nil }
-
-    private static func declaredLapTypes(_ timer: TopicTimer?) -> [(key: String, label: String)] { [] }
 }

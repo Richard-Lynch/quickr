@@ -1,12 +1,11 @@
 """The entry summary line (docs/specs/content-display.md §1.2): one test per rule of the
-timing part, ``answer_text`` and ``truncate``, and the typed-lap branch of the timing part
-ahead of M1's models (the vectors pin the whole line: ``test_entry_summary_vectors.py``)."""
+timing part (typed laps included), ``answer_text`` and ``truncate`` (the vectors pin the
+whole line: ``test_entry_summary_vectors.py``)."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from pydantic import TypeAdapter
@@ -92,14 +91,18 @@ def test_step_segments_are_not_laps() -> None:
 
 
 def _typed(laps: list[str | None], declared: list[tuple[str, str]] | None) -> str:
-    """The timing part for lap segments carrying M1's ``lap_type`` and a timer declaring
-    ``laps``; stand-ins until the models have the fields (M4-STATS swaps in the real ones)."""
-    segments = [SimpleNamespace(kind="lap", lap_type=t) for t in laps]
-    timing = cast("Timing", SimpleNamespace(active_ms=760_000, segments=segments))
+    """The timing part of a 12:40 run whose lap segments carry ``laps`` as their
+    ``lap_type``, under a timer declaring ``declared`` lap types (None: untimed now)."""
+    t = lap_timing(*[10_000] * len(laps)).model_copy(update={"active_ms": 760_000})
+    t = t.model_copy(
+        update={
+            "segments": [s.model_copy(update={"lap_type": k}) for s, k in zip(t.segments, laps, strict=True)]
+        }
+    )
     timer = None
     if declared is not None:
-        timer = cast("Timer", SimpleNamespace(laps=[SimpleNamespace(key=k, label=v) for k, v in declared]))
-    return timing_summary(timing, timer)
+        timer = Timer.model_validate({"steps": [], "laps": [{"key": k, "label": v} for k, v in declared]})
+    return timing_summary(t, timer)
 
 
 def test_typed_laps_are_counted_per_type_in_declared_order() -> None:

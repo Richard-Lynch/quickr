@@ -7,12 +7,13 @@ print the same text for the same answers, timing, questions and timer.
 ``QUICKR_UPDATE_VECTORS=1`` (``make vectors``) rewrites the file; otherwise the committed
 file must match.
 
-The typed-lap cases of §1.3 need M1's ``TimingSegment.lap_type`` and ``Timer.laps``;
-M4-STATS adds them (:data:`DEFERRED`) and the ``tiktok`` / ``renamed`` timer sets with them.
+The typed-lap cases of §1.3 use M1's ``TimingSegment.lap_type`` and ``Timer.laps``
+(timers2.md §1, §3.2): the ``tiktok`` and ``renamed`` timer sets declare lap types.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -77,21 +78,23 @@ QUESTION_SETS: dict[str, list[dict[str, Any]]] = {
 }
 
 STEP_LABELS = {"pour": "Pour", "drink": "Drink"}
+# Lap type labels a segment is named after; `swim` and `walk` are declared by no timer set
+# (a type a later version removed), so the summary falls back to the key.
+LAP_TYPE_LABELS = {"run": "Run", "rest": "Rest", "cig": "Cig", "swim": "Swim", "walk": "Walk"}
 
-# `plain` and `stepped` are today's `Timer` (steps only); M4-STATS adds `tiktok` and
-# `renamed`, whose lap types come from M1.
+
+def _lap_types(*keys: str) -> list[dict[str, str]]:
+    return [{"key": k, "label": LAP_TYPE_LABELS[k]} for k in keys]
+
+
+# `plain` and `stepped` have no lap types (v1's shape); `tiktok` alternates two and
+# `renamed` renames laps (timers2.md §1).
 TIMER_SETS: dict[str, dict[str, Any] | None] = {
     "none": None,
     "plain": {"steps": []},
     "stepped": {"steps": [{"key": k, "label": v} for k, v in STEP_LABELS.items()]},
-}
-
-# The cases §1.3 names that this generator can't express until M1's lap types land.
-DEFERRED: dict[str, str] = {
-    "timing_tiktok": "M4-STATS",
-    "timing_renamed": "M4-STATS",
-    "timing_mixed_typed_untyped": "M4-STATS",
-    "timing_lap_type_not_in_timer": "M4-STATS",
+    "tiktok": {"steps": [], "laps": _lap_types("run", "rest")},
+    "renamed": {"steps": [], "laps": _lap_types("cig")},
 }
 
 # Every case content-display.md §1.3 lists, in its order.
@@ -150,24 +153,34 @@ def _overlap(start: int, end: int, pauses: list[tuple[int, int]]) -> int:
     return sum(max(0, min(end, p_end) - max(start, p_start)) for p_start, p_end in pauses)
 
 
-def timing(parts: list[tuple[str | None, int]], pauses: list[tuple[int, int]] | None = None) -> Timing:
-    """A finished run from its segments: ``parts`` is each segment's step key (None for a
-    lap) and its wall duration in ms, in order; ``pauses`` are ``(start, end)`` offsets from
-    the run's start."""
+def timing(parts: Sequence[tuple[str | None, int]], pauses: list[tuple[int, int]] | None = None) -> Timing:
+    """A finished run from its segments: ``parts`` is each segment's key (a step key, a lap
+    type key, or None for an untyped lap) and its wall duration in ms, in order; ``pauses``
+    are ``(start, end)`` offsets from the run's start. A typed lap is labelled with its
+    per-type ordinal ("Run 2"), an untyped one "Lap n"."""
     pauses = pauses or []
     segments: list[TimingSegment] = []
     at = 0
-    laps = 0
-    for step, duration in parts:
+    seen: dict[str | None, int] = {}
+    for key, duration in parts:
+        step = key if key in STEP_LABELS else None
+        lap_type = key if key in LAP_TYPE_LABELS else None
         if step is None:
-            laps += 1
+            seen[lap_type] = seen.get(lap_type, 0) + 1
+        if step is not None:
+            label = STEP_LABELS[step]
+        elif lap_type is not None:
+            label = f"{LAP_TYPE_LABELS[lap_type]} {seen[lap_type]}"
+        else:
+            label = lap_label(seen[None])
         end = at + duration
         paused = _overlap(at, end, pauses)
         segments.append(
             TimingSegment(
                 kind="lap" if step is None else "step",
                 step=step,
-                label=lap_label(laps) if step is None else STEP_LABELS[step],
+                label=label,
+                lap_type=lap_type,
                 started_at=T0 + timedelta(milliseconds=at),
                 ended_at=T0 + timedelta(milliseconds=end),
                 active_ms=end - at - paused,
@@ -232,6 +245,7 @@ def case(
 
 def cases() -> list[dict[str, Any]]:
     stepped = timing([("pour", 300 * S), ("drink", 460 * S)])
+    tiktok = timing([("run", 130 * S), ("rest", 120 * S)] * 2 + [("run", 130 * S), ("rest", 130 * S)])
     hour_plus = timing([(None, 3600 * S), (None, 123 * S)])
     paused = timing([(None, 400 * S), (None, 480 * S)], pauses=[(100 * S, 220 * S)])
     collapsed = "walked \n\n  the\t dog\r\n"
@@ -243,6 +257,61 @@ def cases() -> list[dict[str, Any]]:
         case("timing_only_no_laps", "none", "stepped", [], stepped, "12:40"),
         case("timing_one_lap", "none", "plain", [], ONE_LAP, "12:40 · 1 lap"),
         case("timing_three_laps", "none", "plain", [], THREE_LAPS, "12:40 · 3 laps"),
+        case("timing_tiktok", "none", "tiktok", [], tiktok, "12:40 · Run 3 · Rest 3"),
+        case(
+            "timing_renamed",
+            "none",
+            "renamed",
+            [],
+            timing([("cig", 60 * S), ("cig", 185 * S)]),
+            "4:05 · Cig 2",
+        ),
+        # Untyped laps from before the version that added the types, then typed ones: the
+        # untyped remainder comes last.
+        case(
+            "timing_mixed_typed_untyped",
+            "none",
+            "tiktok",
+            [],
+            timing([(None, 200 * S), (None, 160 * S), ("run", 150 * S), ("rest", 100 * S), ("run", 150 * S)]),
+            "12:40 · Run 2 · Rest 1 · 2 laps",
+        ),
+        # The current timer no longer declares the run's lap types: the key is the label.
+        case(
+            "timing_lap_type_not_in_timer",
+            "none",
+            "plain",
+            [],
+            timing([("run", 300 * S), ("rest", 160 * S), ("run", 300 * S)]),
+            "12:40 · run 2 · rest 1",
+        ),
+        # Declared types in the timer's order (not the run's), then undeclared ones as first seen.
+        case(
+            "timing_lap_types_declared_then_first_seen",
+            "none",
+            "renamed",
+            [],
+            timing(
+                [("walk", 100 * S), ("cig", 200 * S), ("swim", 160 * S), ("cig", 200 * S), ("walk", 100 * S)]
+            ),
+            "12:40 · Cig 2 · walk 2 · swim 1",
+        ),
+        case(
+            "timing_declared_order_not_run_order",
+            "none",
+            "tiktok",
+            [],
+            timing([("rest", 100 * S), ("run", 300 * S), ("rest", 60 * S), ("run", 300 * S)]),
+            "12:40 · Run 2 · Rest 2",
+        ),
+        case(
+            "timing_typed_laps_untimed_topic",
+            "weight",
+            "none",
+            [a("weight", 72)],
+            tiktok,
+            "12:40 · run 3 · rest 3 · Weight: 72 kg",
+        ),
         case("timing_hour_plus", "none", "plain", [], hour_plus, "1:02:03 · 2 laps"),
         case("timing_paused_ignored", "none", "plain", [], paused, "12:40 · 2 laps"),
         case(
@@ -478,14 +547,11 @@ def test_entry_summary_vectors_match_committed() -> None:
 
 
 def test_vectors_cover_the_spec() -> None:
-    """Every case §1.3 names exists, except the typed-lap ones M4-STATS adds (listed in
-    :data:`DEFERRED`, which must shrink as they land); names are unique."""
+    """Every case §1.3 names exists; names are unique."""
     names = [c["name"] for c in cases()]
     assert len(names) == len(set(names))
-    missing = [n for n in SPEC_CASES if n not in names and n not in DEFERRED]
+    missing = [n for n in SPEC_CASES if n not in names]
     assert not missing, f"§1.3 cases without a vector: {missing}"
-    premature = [n for n in DEFERRED if n in names]
-    assert not premature, f"deferred cases now present; drop them from DEFERRED: {premature}"
     assert len(names) >= 20
 
 
