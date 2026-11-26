@@ -32,14 +32,17 @@ from app.schemas.limits import (
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
     LIVE_ACTIVITY_TOKEN_PATTERN,
+    MAX_ALERTS,
     MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
     MAX_DESCRIPTION_LENGTH,
     MAX_DEVICE_NAME_LENGTH,
     MAX_ENUM_OPTIONS,
+    MAX_EXPR_LENGTH,
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
+    MAX_LAP_TYPES,
     MAX_META_ENTRIES,
     MAX_META_KEY_LENGTH,
     MAX_META_VALUE_LENGTH,
@@ -48,6 +51,7 @@ from app.schemas.limits import (
     MAX_PUSH_KEY_LENGTH,
     MAX_QUESTIONS,
     MAX_RUN_EVENTS,
+    MAX_SHORT_LABEL_LENGTH,
     MAX_SOURCE_LENGTH,
     MAX_STEPS,
     MAX_STR_LENGTH,
@@ -55,6 +59,8 @@ from app.schemas.limits import (
     MAX_TOPIC_NAME_LENGTH,
     MAX_UNIT_LENGTH,
     MAX_USER_AGENT_LENGTH,
+    MAX_VAR_NAME_LENGTH,
+    MAX_VARIABLES,
     SCHEDULE_MAX_TIMES,
     SLUG_PATTERN,
     TIME_PATTERN,
@@ -532,20 +538,38 @@ class EntryUpdate(StrictModel):
 
 
 class TimingSegment(StrictModel):
-    """One segment of a finished run: a named step's time, or an unnamed lap's."""
+    """One segment of a finished run: a named step's time, or a lap's (typed or not)."""
 
     kind: Literal["step", "lap"]
     step: str | None = Field(description="The step's key; null for a lap.")
-    label: str = Field(description="The step's label in the run's version, or 'Lap n'.")
+    label: str = Field(description="The step's label in the run's version, or the lap's ('Lap n', 'Run 2').")
     started_at: datetime
     ended_at: datetime
     active_ms: int
     paused_ms: int = Field(description="Its overlap with the run's pauses.")
+    lap_type: str | None = Field(
+        default=None, description="The lap type's key (timers2.md §3.2); null for a step or an untyped lap."
+    )
+    event_id: UUID | None = Field(
+        default=None,
+        description="The next or lap event that opened the segment; null for the first segment (the start "
+        "opened it), on a pre-v2 stored timing and after an edit (timers2.md §3.3).",
+    )
+    opened_by: Literal["start", "next", "lap", "skip"] | None = Field(
+        default=None,
+        description="The type of the event named by event_id ('start' for the first segment); null on a "
+        "pre-v2 stored timing and after an edit.",
+    )
 
 
 class TimingPause(StrictModel):
     start: datetime
     end: datetime
+    id: UUID | None = Field(
+        default=None,
+        description="The pause event's id (a gap pause carries its stop's id); null on a pre-v2 stored "
+        "timing and after an edit.",
+    )
 
 
 class Timing(StrictModel):
@@ -561,6 +585,11 @@ class Timing(StrictModel):
     segments: list[TimingSegment] = Field(description="In time order.")
     skipped: list[str] = Field(description="Skipped step keys, in step order.")
     pauses: list[TimingPause]
+    terminal_id: UUID | None = Field(
+        default=None,
+        description="The applied stop that closed the run (a reopen names it); null on a pre-v2 stored "
+        "timing. Kept by an edit.",
+    )
 
 
 class EntryOut(StrictModel):
@@ -795,6 +824,15 @@ class Limits(StrictModel):
     schedule_max_times: int = SCHEDULE_MAX_TIMES
     interval_min_minutes: int = INTERVAL_MIN_MINUTES
     interval_max_minutes: int = INTERVAL_MAX_MINUTES
+    # T2-M1: Timer v2 (docs/specs/timers2.md §1.2)
+    max_steps: int = MAX_STEPS
+    max_lap_types: int = MAX_LAP_TYPES
+    max_variables: int = MAX_VARIABLES
+    max_alerts: int = MAX_ALERTS
+    max_expr_length: int = MAX_EXPR_LENGTH
+    max_var_name_length: int = MAX_VAR_NAME_LENGTH
+    max_short_label_length: int = MAX_SHORT_LABEL_LENGTH
+    # end T2-M1
 
 
 # ---------------------------------------------------------------------------
@@ -1162,6 +1200,9 @@ class RunOpenSegment(StrictModel):
     step: str | None
     label: str
     started_at: datetime
+    lap_type: str | None = Field(
+        default=None, description="The lap type's key; null for a step or an untyped lap."
+    )
 
 
 class RunState(StrictModel):
@@ -1179,6 +1220,16 @@ class RunState(StrictModel):
     skipped: list[str]
     pauses: list[TimingPause] = Field(description="Ended pauses; an open one is paused_since.")
     effects: dict[str, RunEventEffect] = Field(description="Each event's effect, by lowercase event id.")
+    terminal_id: UUID | None = Field(
+        default=None,
+        description="The applied stop that closed the run; null while open, after a reopen and for a "
+        "discarded run (timers2.md §3.3).",
+    )
+    next_lap_type: str | None = Field(
+        default=None,
+        description="The type of the lap a `lap` tap would open now; null when untyped or the run is closed.",
+    )
+    lap_count: int = Field(default=0, description="Closed lap segments.")
 
 
 class RunOut(StrictModel):

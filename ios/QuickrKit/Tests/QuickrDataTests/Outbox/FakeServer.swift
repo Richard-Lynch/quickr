@@ -549,7 +549,7 @@ private struct WireTopic: Encodable {
         try c.encode(topic.schedule.map(ScheduleDTO.init), forKey: .schedule)
         try c.encode(topic.scheduleUpdatedAt, forKey: .scheduleUpdatedAt)
         try c.encodeNil(forKey: .due)
-        try c.encode(topic.timer, forKey: .timer)
+        try c.encode(topic.timer.map(TopicTimerDTO.init), forKey: .timer)
         // T2-M4: the server always sends `last_entry` (content-display.md §2); the client doesn't read it.
         try c.encodeNil(forKey: .lastEntry)
         // end T2-M4

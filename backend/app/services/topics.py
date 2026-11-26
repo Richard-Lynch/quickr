@@ -481,7 +481,9 @@ async def _report(
     """``check_compatibility`` compares questions only. With the draft's timer, a timer change
     with no question changes is still a change, so the report's "no changes" error goes."""
     report = check_compatibility(await _history(db, topic), questions)
-    if not with_timer or report.changes or timer == (await get_version(db, topic)).timer:
+    # Compared normalised: a stored v1 timer and its v2 form are the same timer.
+    current = dump_timer(parse_timer((await get_version(db, topic)).timer))
+    if not with_timer or report.changes or timer == current:
         return report
     # With no question changes, "no changes to publish" is the report's only issue without a
     # question; an error on a question (a type change of a historic key, say) still blocks.

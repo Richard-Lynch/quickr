@@ -3,7 +3,7 @@ import { useState } from 'react';
 
 import { mapApiError } from '../../api/errors';
 import { useUpdateEntry } from '../../api/mutations';
-import type { EntryOut, Step, Timing, TimingEdit } from '../../client';
+import type { EntryOut, StepInput as Step, Timing, TimingEdit } from '../../client';
 import { getEntryOptions, getEntryQueryKey } from '../../client/@tanstack/react-query.gen';
 import { formatDateTime } from '../../lib/dates';
 import { spokenDuration, timingRows } from '../../lib/entryTiming';

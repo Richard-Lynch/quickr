@@ -19,6 +19,7 @@ import { memoryAckedStore, setAckedStore } from '../lib/runs/acked';
 import { clearRunNotices, memoryNoticeStore, setNoticeStore } from '../lib/runs/notices';
 import { resetServerOffset } from '../lib/runs/serverClock';
 import type { TimerStep } from '../lib/runs/types';
+import { normalTimer } from './timer';
 import { RecordPage } from '../pages/topic/RecordPage';
 import { TopicLayout } from '../pages/topic/TopicLayout';
 import { TopicsPage } from '../pages/TopicsPage';
@@ -66,7 +67,7 @@ export function timedTopic(opts: { steps?: TimerStep[] | null; questions?: Quest
     schedule: null,
     schedule_updated_at: null,
     due: null,
-    timer: steps === null ? null : { steps },
+    timer: steps === null ? null : normalTimer({ steps }),
     last_entry: null,
     questions,
   };
@@ -74,7 +75,7 @@ export function timedTopic(opts: { steps?: TimerStep[] | null; questions?: Quest
     {
       version: 1,
       questions,
-      timer: steps === null ? null : { steps },
+      timer: steps === null ? null : normalTimer({ steps }),
       change_note: '',
       created_at: '2026-10-01T00:00:00Z',
       entry_count: 0,

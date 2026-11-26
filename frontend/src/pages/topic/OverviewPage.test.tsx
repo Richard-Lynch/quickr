@@ -16,11 +16,12 @@ import entriesRaw from '../../../../shared/fixtures/api/listEntries.json?raw';
 import seriesRaw from '../../../../shared/fixtures/api/getQuestionSeries.json?raw';
 import enumSeriesRaw from '../../../../shared/fixtures/api/getQuestionSeries.enum.json?raw';
 import vectorsRaw from '../../../../shared/fixtures/timing-stats-vectors.json?raw';
-import type { EntryPage, QuestionSeries, TopicDetail, TopicStats, TopicTiming } from '../../client';
+import type { EntryPage, QuestionSeries, TimerInput, TopicDetail, TopicStats, TopicTiming } from '../../client';
 import { client } from '../../client/client.gen';
 import { activityStrip, localDay, localMidnight } from '../../components/charts/timingModels';
 import { ToastProvider } from '../../components/ui/Toast';
 import { browserTimeZone } from '../../lib/dates';
+import { normalTimer } from '../../test/timer';
 import { OverviewPage } from './OverviewPage';
 
 const timingFixture = (JSON.parse(timingRaw) as { body: TopicTiming }).body;
@@ -57,19 +58,16 @@ const topic: TopicDetail = {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const versionWith = (timer: { steps: { key: string; label: string }[] } | null) => ({
+const versionWith = (timer: TimerInput | null) => ({
   version: 1,
   questions: [],
-  timer,
+  timer: timer && normalTimer(timer),
   change_note: '',
   created_at: '2026-10-01T00:00:00Z',
   entry_count: 4,
 });
 
-function stubServer(
-  timing: TopicTiming,
-  timer: { steps: { key: string; label: string }[] } | null = null,
-) {
+function stubServer(timing: TopicTiming, timer: TimerInput | null = null) {
   const paths: string[] = [];
   vi.stubGlobal(
     'fetch',

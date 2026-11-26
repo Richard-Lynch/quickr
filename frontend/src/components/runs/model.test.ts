@@ -4,15 +4,24 @@ import { describe, expect, it } from 'vitest';
 import { T0, ev, runItem, serverRun } from '../../test/runs';
 import { fold } from '../../lib/runs/fold';
 import { localRuns } from '../../lib/runs/localView';
-import type { RunEvent, TimerStep } from '../../lib/runs/types';
+import type { EntryOut } from '../../client';
+import type { RunEvent, RunStatus, Timer, TimerStep } from '../../lib/runs/types';
 import {
+  actions,
   activeMs,
+  alertLine,
   checklist,
+  headline,
   laps,
   pendingTimedEntries,
   primaryAction,
+  primaryActionV1,
+  resumable,
   segmentMs,
   skipTarget,
+  type RunAction,
+  type RunActionKind,
+  type RunActionRole,
 } from './model';
 
 const STEPS: TimerStep[] = [
@@ -21,7 +30,7 @@ const STEPS: TimerStep[] = [
   { key: 'teeth', label: 'Teeth' },
 ];
 const s = (n: number) => T0 + n * 1000;
-const run = (events: RunEvent[], steps = STEPS) => ({ state: fold('r1', steps, events) });
+const run = (events: RunEvent[], steps = STEPS) => ({ state: fold('r1', { steps }, events) });
 const start = ev('r1', 'start', T0);
 
 describe('the timers', () => {
@@ -64,23 +73,26 @@ describe('the timers', () => {
   });
 });
 
-describe('the primary button (§11.1)', () => {
+describe('the v1 primary button (§11.1; M2 removes it)', () => {
   it('is "Next: {next step}" while a named step remains', () => {
-    expect(primaryAction(run([start]), STEPS)).toEqual({ type: 'next', label: 'Next: Breakfast' });
+    expect(primaryActionV1(run([start]), STEPS)).toEqual({
+      type: 'next',
+      label: 'Next: Breakfast',
+    });
   });
 
   it('is Stop on the last step', () => {
     const r = run([start, ev('n1', 'next', s(1), { seg: 0 }), ev('n2', 'next', s(2), { seg: 1 })]);
-    expect(primaryAction(r, STEPS)).toEqual({ type: 'stop', label: 'Stop' });
+    expect(primaryActionV1(r, STEPS)).toEqual({ type: 'stop', label: 'Stop' });
   });
 
   it('is Stop with no steps (laps of a plain stopwatch)', () => {
-    expect(primaryAction(run([start], []), [])).toEqual({ type: 'stop', label: 'Stop' });
+    expect(primaryActionV1(run([start], []), [])).toEqual({ type: 'stop', label: 'Stop' });
   });
 
   it('after a lap between steps, still names the next step', () => {
     const r = run([start, ev('l1', 'lap', s(1), { seg: 0 })]);
-    expect(primaryAction(r, STEPS).label).toBe('Next: Breakfast');
+    expect(primaryActionV1(r, STEPS).label).toBe('Next: Breakfast');
   });
 });
 
@@ -158,8 +170,220 @@ describe('steps not known here (null)', () => {
   const r = run([start]);
 
   it('offers plain Next (a step may be left), no Skip, and no step list', () => {
-    expect(primaryAction(r, null)).toEqual({ type: 'next', label: 'Next' });
+    expect(primaryActionV1(r, null)).toEqual({ type: 'next', label: 'Next' });
     expect(skipTarget(r, null)).toBeNull();
     expect(checklist(r.state, null)).toEqual([]);
+  });
+});
+
+describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md §1.2)', () => {
+  // Rows 1–3 (idle: an idle topic has no RunState), 10 (after a reopen), 11 (queued reopen) and
+  // 14 (busy) need v2 state and are not expressible yet (T2-M1: I1-CORE / F1-OUTBOX / F1-CORE);
+  // row 13 is pinned as today's model yields it (`resumable` is false until then: `[]`).
+  const TIMER: Timer = { steps: STEPS };
+  const LAPS_ONLY: Timer = { steps: [] };
+  const a = (kind: RunActionKind, role: RunActionRole): RunAction => ({
+    kind,
+    role,
+    enabled: true,
+    id: kind.type,
+  });
+  const n1 = ev('n1', 'next', s(1), { seg: 0 });
+  const n2 = ev('n2', 'next', s(2), { seg: 1 });
+  const n3 = ev('n3', 'next', s(3), { seg: 2 });
+  const l1 = ev('l1', 'lap', s(1), { seg: 0 });
+  const p = ev('p', 'pause', s(4));
+  const x = ev('x', 'stop', s(5));
+  const stop = a({ type: 'stop' }, 'secondary');
+  const pause = a({ type: 'pause' }, 'secondary');
+  const resume = a({ type: 'resume' }, 'secondary');
+  const discard = a({ type: 'discard' }, 'destructive');
+  const lap = a({ type: 'lap', nextTypeLabel: null }, 'primary');
+  const next = (label: string) => a({ type: 'next', label }, 'primary');
+  const skip = (label: string) => a({ type: 'skip', label }, 'overflow');
+
+  interface Row {
+    row: string;
+    events: RunEvent[];
+    steps?: TimerStep[];
+    status?: RunStatus;
+    timer: Timer | null;
+    expected: RunAction[];
+  }
+  const rows: Row[] = [
+    {
+      row: '4 step open, a step remains, running',
+      events: [],
+      timer: TIMER,
+      expected: [next('Breakfast'), stop, pause, skip('Shower'), discard],
+    },
+    {
+      row: '5 lap open, a step still pending, running',
+      events: [l1],
+      timer: TIMER,
+      expected: [lap, stop, pause, skip('Breakfast'), discard],
+    },
+    {
+      row: '5 lap open, no step pending, running',
+      events: [n1, n2, n3],
+      timer: TIMER,
+      expected: [lap, stop, pause, discard],
+    },
+    {
+      row: '6 last step open, running',
+      events: [n1, n2],
+      timer: TIMER,
+      expected: [lap, stop, pause, skip('Teeth'), discard],
+    },
+    {
+      row: '7 no steps, running (the stopwatch)',
+      events: [],
+      steps: [],
+      timer: LAPS_ONLY,
+      expected: [lap, stop, pause, discard],
+    },
+    {
+      row: '8 paused, step open',
+      events: [p],
+      timer: TIMER,
+      expected: [next('Breakfast'), stop, resume, skip('Shower'), discard],
+    },
+    {
+      row: '8 paused, lap open',
+      events: [l1, p],
+      timer: TIMER,
+      expected: [lap, stop, resume, skip('Breakfast'), discard],
+    },
+    {
+      row: '8 paused, last step open',
+      events: [n1, n2, p],
+      timer: TIMER,
+      expected: [lap, stop, resume, skip('Teeth'), discard],
+    },
+    {
+      row: '8 paused, no steps',
+      events: [p],
+      steps: [],
+      timer: LAPS_ONLY,
+      expected: [lap, stop, resume, discard],
+    },
+    {
+      row: '9 timer null, running',
+      events: [],
+      timer: null,
+      expected: [next('Next'), stop, pause, discard],
+    },
+    {
+      row: '9 timer null, paused',
+      events: [p],
+      timer: null,
+      expected: [next('Next'), stop, resume, discard],
+    },
+    {
+      row: '12 finishing',
+      events: [x],
+      status: 'finishing',
+      timer: TIMER,
+      expected: [a({ type: 'addDetails' }, 'primary'), discard],
+    },
+    {
+      row: '13 stopped, not resumable today (stub half)',
+      events: [x],
+      status: 'stopped',
+      timer: TIMER,
+      expected: [],
+    },
+    { row: '13 discarded', events: [x], status: 'discarded', timer: TIMER, expected: [] },
+  ];
+  const of = (r: Row) => {
+    const state = fold('r1', { steps: r.steps ?? STEPS }, [start, ...r.events]);
+    return { state, status: r.status ?? state.status };
+  };
+
+  it.each(rows)('$row', (r) => {
+    const { state, status } = of(r);
+    const got = actions(state, status, r.timer, T0);
+    expect(got).toEqual(r.expected);
+    expect(got.every((x) => x.enabled)).toBe(true);
+  });
+
+  it('has exactly one primary while open or finishing, never Stop, in display order', () => {
+    const rank: Record<RunActionRole, number> = {
+      primary: 0,
+      secondary: 1,
+      overflow: 2,
+      destructive: 3,
+    };
+    for (const r of rows) {
+      if (r.status === 'stopped' || r.status === 'discarded') continue;
+      const { state, status } = of(r);
+      const got = actions(state, status, r.timer, T0);
+      expect(
+        got.filter((x) => x.role === 'primary'),
+        r.row,
+      ).toHaveLength(1);
+      expect(
+        got.some((x) => x.kind.type === 'stop' && x.role === 'primary'),
+        r.row,
+      ).toBe(false);
+      const ranks = got.map((x) => rank[x.role]);
+      expect(ranks, r.row).toEqual([...ranks].sort((u, v) => u - v));
+    }
+  });
+
+  it('primaryAction is the primary of actions while the run is open, else null', () => {
+    for (const r of rows) {
+      const { state, status } = of(r);
+      const want =
+        status === 'running' || status === 'paused'
+          ? (actions(state, status, r.timer, T0).find((x) => x.role === 'primary') ?? null)
+          : null;
+      expect(primaryAction(state, status, r.timer, T0), r.row).toEqual(want);
+    }
+  });
+
+  it('never returns start, reopen or revert today (no idle state, no reopen event yet)', () => {
+    for (const r of rows) {
+      const { state, status } = of(r);
+      const kinds = actions(state, status, r.timer, T0).map((x) => x.kind.type);
+      expect(kinds, r.row).not.toContain('start');
+      expect(kinds, r.row).not.toContain('reopen');
+      expect(kinds, r.row).not.toContain('revert');
+    }
+  });
+
+  it('headline: the open segment’s label today; Running/Paused when nothing is open; no counter', () => {
+    expect(headline(fold('r1', { steps: STEPS }, [start]), 'running', TIMER)).toEqual({
+      text: 'Shower',
+      counter: null,
+    });
+    expect(headline(fold('r1', { steps: STEPS }, [start, l1]), 'running', null)).toEqual({
+      text: 'Lap 1',
+      counter: null,
+    });
+    const stopped = fold('r1', { steps: STEPS }, [start, x]);
+    expect(headline(stopped, 'finishing', TIMER)).toEqual({ text: 'Running', counter: null });
+    expect(headline(stopped, 'paused', TIMER)).toEqual({ text: 'Paused', counter: null });
+  });
+
+  it('alertLine is null and resumable false until I1-CORE / F1-CORE fill them', () => {
+    expect(alertLine(fold('r1', { steps: STEPS }, [start]), TIMER, T0)).toBeNull();
+    const now = new Date(T0).toISOString();
+    const entry: EntryOut = {
+      id: 'r1',
+      topic_id: 'topic-1',
+      version: 1,
+      revision: 1,
+      source: 'ui',
+      channel: 'ui',
+      captured_at: now,
+      created_at: now,
+      updated_at: now,
+      notes: '',
+      meta: {},
+      answers: [],
+      timing: null,
+    };
+    expect(resumable(entry, T0)).toBe(false);
   });
 });

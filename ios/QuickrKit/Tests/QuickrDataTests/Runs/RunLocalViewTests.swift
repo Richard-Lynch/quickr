@@ -238,7 +238,7 @@ import Testing
         let run = try #require(try h.localRun(id))
         #expect(run.status == .running)
         let pauses: [RunPause] = run.state.pauses
-        #expect(pauses == [RunPause(start: ms(120), end: ms(150))])
+        #expect(pauses == [RunPause(start: ms(120), end: ms(150), id: pauseId)], "the pause carries its event id (v4)")
         let labels: [String] = run.state.segments.map(\.label)
         #expect(labels == ["Shower", "Breakfast"], "the server's labels, the open step closed by the lap")
         let breakfast = try #require(run.state.segments.last)
