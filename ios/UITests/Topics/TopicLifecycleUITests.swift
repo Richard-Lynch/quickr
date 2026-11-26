@@ -75,7 +75,8 @@ final class TopicLifecycleUITests: XCTestCase {
         XCTAssertTrue(tabs.waitForExistence(timeout: 10))
         tabs.buttons["Entries"].tap()
         let rows = app.descendants(matching: .any).matching(
-            NSPredicate(format: "identifier BEGINSWITH 'entry.' AND identifier != 'entry.delete'"))
+            // The rows only: not `entry.delete`, nor a row's `entry.<id>.summary`/`.timing`.
+            NSPredicate(format: "identifier MATCHES %@", "^entry\\.[0-9a-fA-F-]{36}$"))
         XCTAssertTrue(screen.waits(for: { rows.count == 2 }), "two entries, synced (\(rows.count))")
         let older = rows.matching(NSPredicate(format: "label CONTAINS 'Version 1'"))
         XCTAssertEqual(older.count, 1, "exactly one row is marked as an older version")
