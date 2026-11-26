@@ -103,7 +103,7 @@ function RunningItem({ run }: { run: LocalRun }) {
           disabled={primary.disabled}
           onClick={primary.onTap}
           data-testid="bar-primary"
-          className="ml-auto inline-flex min-h-11 max-w-full shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-1.5 text-left text-sm leading-tight font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:transform-none"
+          className="ml-auto inline-flex min-h-11 max-w-full shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-1.5 text-left text-sm leading-tight font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:active:scale-none"
         >
           <Icon
             name={actionIcon(primary.action.kind)}
