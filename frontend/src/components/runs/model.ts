@@ -50,7 +50,8 @@ const labelOf = (steps: readonly TimerStep[], key: string | null): string | null
 
 export type RunActionKind =
   | { type: 'start' }
-  | { type: 'next'; label: string }
+  /** `label`: the step it opens ("Next: {label}"); null when the steps are unknown, a plain "Next". */
+  | { type: 'next'; label: string | null }
   | { type: 'lap'; nextTypeLabel: string | null }
   | { type: 'skip'; label: string }
   | { type: 'pause' }
@@ -88,7 +89,7 @@ const action = (kind: RunActionKind, role: RunActionRole): RunAction => ({
  * destructive last (active-surfaces.md §1.1). The on-screen primary rule (timers2.md §10):
  * Lap when the open segment is a lap or no named step remains, else Next with the step it
  * opens; Stop is never primary. `timer === null` (steps unknown) is the v1 fallback: a plain
- * `next("Next")` and no `skip`, no `lap`.
+ * `next` with a null label and no `skip`, no `lap`.
  *
  * T2-M1 stub half: `lap.nextTypeLabel` is null until `RunState.next_lap_type` exists
  * (F1-CORE); `reopen`/`revert` are never returned until the reopen event lands (F1-OUTBOX);
@@ -123,7 +124,7 @@ export function actions(
   const nextLabel = labelOf(steps ?? [], state.next_step);
   const primary: RunAction =
     steps === null
-      ? action({ type: 'next', label: 'Next' }, 'primary')
+      ? action({ type: 'next', label: null }, 'primary')
       : open?.kind === 'lap' || nextLabel === null
         ? action({ type: 'lap', nextTypeLabel: null }, 'primary')
         : action({ type: 'next', label: nextLabel }, 'primary');
