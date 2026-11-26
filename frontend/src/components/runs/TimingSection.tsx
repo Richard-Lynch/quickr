@@ -6,6 +6,7 @@ import { useUpdateEntry } from '../../api/mutations';
 import type { EntryOut, Step, Timing, TimingEdit } from '../../client';
 import { getEntryOptions, getEntryQueryKey } from '../../client/@tanstack/react-query.gen';
 import { formatDateTime } from '../../lib/dates';
+import { spokenDuration, timingRows } from '../../lib/entryTiming';
 import { fmtDuration } from '../../lib/runs/format';
 import { Button } from '../ui/Button';
 import { Badge, Card } from '../ui/Card';
@@ -23,7 +24,10 @@ interface Props {
 
 /**
  * A timed entry's times on its edit page (timers.md §11.1, §11.5): start, end, total and
- * paused time, each segment, the skipped steps, and Edit times. The edit is a PATCH with
+ * paused time, each segment and, in the same list, the pauses between the segments they fall
+ * in (content-display.md §3.2, `timingRows`), the skipped steps, and Edit times. Rows are
+ * `entry.timing.segment.<i>` and `entry.timing.pause.<i>`, 0-based in `timing.segments` and
+ * `timing.pauses`. The edit is a PATCH with
  * `timing` and `expected_revision`, online like every other PWA entry edit (`useUpdateEntry`);
  * the server's 422 field errors show on the fields they name.
  *
@@ -121,20 +125,46 @@ export function TimingSection({ entry, steps }: Props) {
         ) : null}
       </div>
       <ol className="flex flex-col divide-y divide-dashed divide-line" aria-label="Segments">
-        {timing.segments.map((s, i) => (
-          <li key={`${String(i)}-${s.started_at}`} className="flex items-baseline gap-3 py-1.5">
-            <span className="w-5 shrink-0 font-mono text-xs text-muted">{i + 1}</span>
-            <span className={s.kind === 'lap' ? 'flex-1 text-ink-soft italic' : 'flex-1'}>
-              {s.kind === 'step' && s.step ? label(s.step) : s.label}
-            </span>
-            {s.paused_ms > 0 ? (
-              <span className="text-xs text-muted">{fmtDuration(s.paused_ms)} paused</span>
-            ) : null}
-            <span className="font-mono text-sm font-semibold tabular">
-              {fmtDuration(s.active_ms)}
-            </span>
-          </li>
-        ))}
+        {timingRows(timing).map((row) =>
+          row.kind === 'pause' ? (
+            <li
+              key={`pause-${String(row.index)}`}
+              className="flex items-center gap-3 py-1.5 text-sm text-muted"
+              data-testid={`entry.timing.pause.${String(row.index)}`}
+              aria-label={`Paused, ${spokenDuration(row.ms)}`}
+            >
+              <span className="grid w-5 shrink-0 place-items-start" aria-hidden>
+                <Icon name="pause" className="size-3.5" />
+              </span>
+              <span className="flex-1">
+                Paused · <span className="font-mono tabular">{fmtDuration(row.ms)}</span>
+              </span>
+            </li>
+          ) : (
+            <li
+              key={`segment-${String(row.index)}`}
+              className="flex items-baseline gap-3 py-1.5"
+              data-testid={`entry.timing.segment.${String(row.index)}`}
+            >
+              <span className="w-5 shrink-0 font-mono text-xs text-muted">{row.index + 1}</span>
+              <span
+                className={row.segment.kind === 'lap' ? 'flex-1 text-ink-soft italic' : 'flex-1'}
+              >
+                {row.segment.kind === 'step' && row.segment.step
+                  ? label(row.segment.step)
+                  : row.segment.label}
+              </span>
+              {row.segment.paused_ms > 0 ? (
+                <span className="text-xs text-muted">
+                  {fmtDuration(row.segment.paused_ms)} paused
+                </span>
+              ) : null}
+              <span className="font-mono text-sm font-semibold tabular">
+                {fmtDuration(row.segment.active_ms)}
+              </span>
+            </li>
+          ),
+        )}
       </ol>
       {timing.skipped.length > 0 ? (
         <p className="text-sm text-muted">Skipped: {timing.skipped.map(label).join(', ')}</p>
