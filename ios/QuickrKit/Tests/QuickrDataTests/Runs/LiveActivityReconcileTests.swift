@@ -104,6 +104,93 @@ import Testing
         #expect(all.isEmpty)
     }
 
+    // MARK: - Lap types and alerts (I2-LA-FIELDS)
+
+    /// A stored v2 version of `T` (version 2): no steps, lap types Run then Rest, Rest's "Go"
+    /// alert 15 minutes in.
+    static func storeLapTypes(_ h: OutboxHarness) throws {
+        let timer = TopicTimer(
+            steps: [],
+            laps: [
+                TopicTimer.LapType(key: "run", label: "Run"),
+                TopicTimer.LapType(
+                    key: "rest", label: "Rest",
+                    alerts: [TopicTimer.Alert(key: "go", label: "Go", at: "15m", atMs: 900_000)]),
+            ])
+        let questions = Make.questions.map { question in
+            var question = question
+            question.required = false
+            return question
+        }
+        let row = TopicVersion(version: 2, questions: questions, timer: timer, createdAt: Make.t0)
+        let topicId = h.topic.id
+        try h.write { db in _ = try ServerLayer.insert(db, version: row, id: UUID(), topicId: topicId) }
+    }
+
+    @Test("I2-LA-FIELDS · the snapshot carries the pinned timer: lap type, next lap type and the alert")
+    func lapTypesAndAlertFromThePinnedTimer() async throws {
+        let rig = try await Rig.make()
+        try Self.storeLapTypes(rig.h)
+        let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
+        rig.h.wall.advance(by: 60)
+        _ = try await rig.h.runs().lap(runId: runId)
+        let snapshot = try #require(try await RunActivitySnapshot.read(rig.h.store))
+        let timer: TopicTimer? = snapshot.timers[runId]
+        #expect(timer?.laps.map(\.key) == ["run", "rest"])
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let activity = try #require(await rig.center.all().first)
+        let state = activity.state
+        #expect(state.label == "Rest 1")
+        let lapType: String? = state.lapType
+        #expect(lapType == "rest")
+        let lapCount: Int? = state.lapCount
+        #expect(lapCount == 1)
+        let nextLabel: String? = state.nextLabel
+        #expect(nextLabel == "Run")
+        // Rest from 60 s, "Go" 15 minutes in; `now` is 600 s.
+        let alertAt: Double? = state.alertAt
+        #expect(alertAt == Make.t0.timeIntervalSince1970 + 960)
+        let alertLabel: String? = state.alertLabel
+        #expect(alertLabel == "Go")
+        let display = RunActivityDisplay(state: state, topicName: rig.h.topic.name)
+        #expect(display.headline == "Rest 1 · lap 2")
+        let lapCounter: String? = display.lapCounter
+        #expect(lapCounter == "L2")
+        #expect(display.title(for: .lap) == "Lap → Run")
+        // The same view again: nothing to do.
+        await rig.activities.reconcile()
+        let updates = await rig.center.updates
+        #expect(updates == 0)
+    }
+
+    @Test("I2-LA-FIELDS · a pause drops the alert from the activity, and a resume brings it back")
+    func pauseDropsTheAlert() async throws {
+        let rig = try await Rig.make()
+        try Self.storeLapTypes(rig.h)
+        let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
+        rig.h.wall.advance(by: 60)
+        _ = try await rig.h.runs().lap(runId: runId)
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        rig.h.wall.advance(by: 30)
+        _ = try await rig.h.runs().pause(runId: runId)
+        await rig.activities.reconcile()
+        let paused = try #require(await rig.center.all().first).state
+        #expect(paused.status == "paused")
+        let pausedAlert: Double? = paused.alertAt
+        #expect(pausedAlert == nil)
+        let lapType: String? = paused.lapType
+        #expect(lapType == "rest")
+        rig.h.wall.advance(by: 30)
+        _ = try await rig.h.runs().resume(runId: runId)
+        await rig.activities.reconcile()
+        let resumed = try #require(await rig.center.all().first).state
+        // 30 s paused inside the rest: "Go" moves 30 s later.
+        let resumedAlert: Double? = resumed.alertAt
+        #expect(resumedAlert == Make.t0.timeIntervalSince1970 + 990)
+        let updates = await rig.center.updates
+        #expect(updates == 2)
+    }
+
     // MARK: - Updates
 
     @Test("R8 · an activity whose content differs from the view is updated to it")
