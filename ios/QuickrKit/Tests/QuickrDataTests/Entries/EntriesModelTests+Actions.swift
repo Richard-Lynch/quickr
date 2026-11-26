@@ -74,6 +74,8 @@ extension EntriesModelTests {
     /// `RunActions` over the store's `RunWrites`, recording each tap (type, run id, target).
     final class Recorder: Sendable {
         let taps = Mutex<[(RunTapType, String, RunTapTarget)]>([])
+        /// Runs inside each tap, before it is written (the enqueue in flight).
+        let duringTap = Mutex<(@Sendable () async -> Void)?>(nil)
 
         @MainActor func actions(_ store: LocalStore) -> RunActions {
             let writes = RunWrites(store: store, origin: .app)
@@ -83,6 +85,7 @@ extension EntriesModelTests {
                         start: { topic, version in try await writes.start(topic: topic, version: version) },
                         tap: { [self] type, runId, target in
                             self.taps.withLock { $0.append((type, runId, target)) }
+                            if let during = self.duringTap.withLock({ $0 }) { await during() }
                             return try await writes.tap(type, runId: runId, target: target)
                         })
                 }, cooldown: .zero)
@@ -174,9 +177,19 @@ extension EntriesModelTests {
         defer { observing.cancel() }
         try await eventually("the outbox is read") { await MainActor.run { !model.removeQueued } }
 
+        // Held from the tap: while the remove is being enqueued (Codex r3), then queued.
+        let heldInFlight = Mutex<Bool?>(nil)
+        recorder.duringTap.withLock {
+            $0 = { [model] in
+                let held = await MainActor.run { model.holdsEditTimes && !model.removeQueued }
+                heldInFlight.withLock { $0 = held }
+            }
+        }
         let rows = EntryTimingModel.rows(try #require(model.entry.entry.timing))
+        #expect(!model.holdsEditTimes)
         #expect(await model.remove(try #require(model.removeAction(rows[1]))))
-        #expect(model.removeQueued, "held at once, before the observation catches up")
+        #expect(heldInFlight.withLock { $0 } == true, "held while the enqueue is in flight")
+        #expect(model.removeQueued && model.holdsEditTimes, "held at once, before the observation catches up")
         w.session.refresh.poke()
         try await eventually("the queued remove is seen") { await MainActor.run { model.removeQueued } }
         // A detail opened later reads it before it shows (no Edit times before the first
@@ -191,6 +204,7 @@ extension EntriesModelTests {
         try await store.writer.write { db in try db.execute(sql: "UPDATE outbox_item SET state = 'failed'") }
         w.session.refresh.poke()
         try await eventually("not while refused") { await MainActor.run { !model.removeQueued } }
+        #expect(!model.holdsEditTimes)
     }
 
     /// Review R8: a Remove or Resume run that isn't enqueued says so, in the PWA's words.

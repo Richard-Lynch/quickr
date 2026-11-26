@@ -98,8 +98,8 @@ public final class EditModel: EntryDetailsEditing {
     public let timerLapTypes: [TopicTimer.LapType]
     /// The open Edit times sheet.
     public var timingEditor: TimingEditModel?
-    /// One of the run's removes is queued (`EntryActionsModel.removeQueued`, content-display.md
-    /// §3.2): Edit times waits for its ack, since saving times would void it (`run_edited`). An
+    /// One of the run's removes is being enqueued or is queued (`EntryActionsModel.holdsEditTimes`,
+    /// content-display.md §3.2): Edit times waits for its ack, since saving times would void it (`run_edited`). An
     /// open sheet that isn't saving closes, and a save is refused.
     public var removeQueued = false {
         didSet { if removeQueued, timingEditor?.isSaving == false { timingEditor = nil } }

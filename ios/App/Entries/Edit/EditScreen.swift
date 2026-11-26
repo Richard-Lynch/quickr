@@ -44,7 +44,7 @@ struct EditScreen: View {
                     if open { environment.router.replaceTop(with: .run(ref)) }
                 }
                 // A queued Remove holds Edit times back until its ack (saving times would void it).
-                .onChange(of: actions.removeQueued, initial: true) { _, queued in model.removeQueued = queued }
+                .onChange(of: actions.holdsEditTimes, initial: true) { _, held in model.removeQueued = held }
                 // The entry as the store shows it, as it changes: a timed entry's times (and an
                 // open Edit times sheet's staleness), a queued remove's re-projection (A14), or
                 // answers changed elsewhere.
@@ -160,7 +160,7 @@ struct EditScreen: View {
                 entry: viewEntry, store: store, refresh: session.refresh, runActions: environment.runActions)
             // A remove queued earlier holds Edit times back from the first frame.
             try await actions.readQueuedRemove()
-            model.removeQueued = actions.removeQueued
+            model.removeQueued = actions.holdsEditTimes
             // A Remove or Resume run that wasn't enqueued says so (the PWA's toasts).
             let toasts = environment.entryToasts.center
             actions.onRefused = { message in _ = toasts.show(Toast(message, tone: .danger)) }

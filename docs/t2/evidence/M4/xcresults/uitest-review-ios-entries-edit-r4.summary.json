@@ -3,7 +3,7 @@
     {
       "device" : {
         "architecture" : "arm64",
-        "deviceId" : "158E7362-76FE-4B97-A065-9E0C8793E688",
+        "deviceId" : "EFC6B809-6761-4DEA-819D-7AFA2DE71D00",
         "deviceName" : "quickR iOS-26-0 t2-m4-review-ios-2081bf",
         "modelName" : "iPhone 17",
         "osBuildNumber" : "23A343",
@@ -23,7 +23,7 @@
   "environmentDescription" : "UI · Built with macOS 27.0.1",
   "expectedFailures" : 0,
   "failedTests" : 0,
-  "finishTime" : 1795726205.557,
+  "finishTime" : 1795726966.803,
   "passedTests" : 22,
   "result" : "Passed",
   "runtimeWarnings" : [
@@ -61,7 +61,7 @@
     }
   ],
   "skippedTests" : 0,
-  "startTime" : 1795725658.968,
+  "startTime" : 1795726664.869,
   "statistics" : [
 
   ],
@@ -70,11 +70,7 @@
   ],
   "title" : "Test - QuickR",
   "topInsights" : [
-    {
-      "category" : "Longest Test Runs",
-      "impact" : "47% of duration",
-      "text" : "1 longest test run with outlier durations exceeding 175.84s (three standard deviations)"
-    }
+
   ],
   "totalTestCount" : 22
 }

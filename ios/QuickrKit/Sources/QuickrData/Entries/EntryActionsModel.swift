@@ -16,8 +16,9 @@ import QuickrCore
 ///   and hides the entry (OQ-14): the screen goes to the run.
 /// - **The topic's local runs** (`observe()`): Resume is hidden while the topic has a locally open
 ///   or finishing run (A15), and `isOpenHere` says the entry is itself such a run (OQ-14: the
-///   detail redirects to the run). `removeQueued` says one of the entry's removes is still
-///   queued: Edit times waits for it, since a timing edit would void it (`run_edited`).
+///   detail redirects to the run). `holdsEditTimes` says one of the entry's removes is being
+///   enqueued or still queued: Edit times waits for it, since a timing edit would void it
+///   (`run_edited`).
 /// - **Refused here** (nothing enqueued): `onRefused` gets what to tell the user, the PWA's
 ///   words ("That can’t be removed now", "This run can’t be resumed now").
 @MainActor @Observable
@@ -34,6 +35,10 @@ public final class EntryActionsModel {
     /// A remove of the entry's run is queued (pending, in flight or uncertain): Edit times waits
     /// for its ack, as saving times over the projection would void it (`run_edited`).
     public private(set) var removeQueued = false
+    /// A Remove tapped here is being enqueued.
+    public private(set) var removing = false
+    /// Edit times waits: a remove is being enqueued or is queued (an edit would void it).
+    public var holdsEditTimes: Bool { removing || removeQueued }
     /// Told what to say when a Remove or Resume run wasn't enqueued (the screen shows a toast).
     @ObservationIgnored public var onRefused: (@MainActor (String) -> Void)?
 
@@ -131,6 +136,8 @@ public final class EntryActionsModel {
     public func remove(_ remove: EntryTimingModel.Remove) async -> Bool {
         var sent = false
         if remove.enabled, entry.entry.timing.map({ Self.targets($0).contains(remove.target) }) == true {
+            removing = true
+            defer { removing = false }
             sent =
                 await runActions.remove(runId: entry.entry.id.wireString, topicId: topicId, target: remove.target)
                 != nil
