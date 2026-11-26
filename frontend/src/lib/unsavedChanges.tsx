@@ -25,23 +25,39 @@ interface Options {
   message?: ReactNode;
 }
 
-/**
- * Navigation state for a URL change that keeps the page and its forms mounted (the topic's slug
- * changed elsewhere and the route follows it): the guard lets it through.
- */
-export const KEEPS_PAGE = { keepsPage: true } as const;
+/** Navigations allowed through once (see `keepsPageState`), by id. */
+const pageKeepers = new Set<string>();
 
-const keepsPage = (state: unknown) =>
-  typeof state === 'object' && state !== null && 'keepsPage' in state && state.keepsPage === true;
+/**
+ * Navigation state for one URL change that keeps the page and its forms mounted (the topic's slug
+ * changed elsewhere and the route follows it): the guard lets that navigation through, once. The
+ * id is spent then, so a later back/forward to the same history entry is guarded as usual.
+ */
+export function keepsPageState(): { keepsPage: string } {
+  const id = `${String(Date.now())}-${String(Math.random())}`;
+  pageKeepers.add(id);
+  return { keepsPage: id };
+}
+
+/** Whether `state` is a `keepsPageState` not yet used; uses it up. */
+export function takeKeepsPage(state: unknown): boolean {
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    'keepsPage' in state &&
+    typeof state.keepsPage === 'string' &&
+    pageKeepers.delete(state.keepsPage)
+  );
+}
 
 /** Pure part of the blocker decision (unit-tested). Search/hash-only changes pass. */
 export function shouldBlockNavigation(
   isDirty: boolean,
   skip: boolean,
   current: { pathname: string },
-  next: { pathname: string; state?: unknown },
+  next: { pathname: string },
 ): boolean {
-  return isDirty && !skip && current.pathname !== next.pathname && !keepsPage(next.state);
+  return isDirty && !skip && current.pathname !== next.pathname;
 }
 
 /**
@@ -60,7 +76,8 @@ export function useUnsavedChangesGuard(
 
   const shouldBlock = useCallback<BlockerFunction>(
     ({ currentLocation, nextLocation }) =>
-      shouldBlockNavigation(isDirty, skip.current, currentLocation, nextLocation),
+      shouldBlockNavigation(isDirty, skip.current, currentLocation, nextLocation) &&
+      !takeKeepsPage(nextLocation.state),
     [isDirty],
   );
   const blocker = useBlocker(shouldBlock);

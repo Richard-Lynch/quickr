@@ -6,10 +6,21 @@ import { describe, expect, it } from 'vitest';
 
 import {
   hasUnsavedChanges,
-  KEEPS_PAGE,
+  keepsPageState,
   shouldBlockNavigation,
+  takeKeepsPage,
   useUnsavedChangesGuard,
 } from './unsavedChanges';
+
+describe('keepsPageState', () => {
+  it('lets one navigation through, then never again (a later back to that entry is guarded)', () => {
+    const state = keepsPageState();
+    expect(takeKeepsPage(state)).toBe(true);
+    expect(takeKeepsPage(state)).toBe(false);
+    expect(takeKeepsPage({ keepsPage: 'made-up' })).toBe(false);
+    expect(takeKeepsPage(null)).toBe(false);
+  });
+});
 
 describe('shouldBlockNavigation', () => {
   const a = { pathname: '/a' };
@@ -19,7 +30,6 @@ describe('shouldBlockNavigation', () => {
     expect(shouldBlockNavigation(false, false, a, b)).toBe(false);
     expect(shouldBlockNavigation(true, true, a, b)).toBe(false);
     expect(shouldBlockNavigation(true, false, a, { pathname: '/a' })).toBe(false);
-    expect(shouldBlockNavigation(true, false, a, { ...b, state: KEEPS_PAGE })).toBe(false);
   });
 });
 

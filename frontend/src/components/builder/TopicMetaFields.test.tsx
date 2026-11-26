@@ -386,12 +386,14 @@ describe('SettingsPage saves on one topic', () => {
    * PATCH whose `expected_revision` isn't current gets 409 `stale_revision`. `external` changes the
    * topic as another device would. `beforeDetails` queues one step per details PATCH, run before the
    * server handles it: another device's write in between, or a reply that replaces the server's.
+   * `failIdLookups` makes lookups by id fail for a while.
    */
   function fakeServer() {
     let current: TopicDetail = { ...topic };
     const details: Record<string, unknown>[] = [];
     const paths: string[] = [];
     const steps: (() => Response | undefined)[] = [];
+    let failIdGets = 0;
     const isCurrent = (path: string) =>
       path === `/api/v1/topics/${current.id}` || path === `/api/v1/topics/${current.slug}`;
     vi.stubGlobal(
@@ -401,6 +403,10 @@ describe('SettingsPage saves on one topic', () => {
         const body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
         const path = new URL(input.url).pathname;
         paths.push(`${input.method} ${path}`);
+        if (input.method === 'GET' && path === `/api/v1/topics/${current.id}` && failIdGets > 0) {
+          failIdGets--;
+          return json(500, { code: 'internal', detail: 'Server error', errors: [] });
+        }
         if (input.method === 'GET' && isCurrent(path)) return json(200, current);
         if (input.method !== 'PATCH' || !isCurrent(path))
           return json(404, { code: 'not_found', detail: 'not found', errors: [] });
@@ -441,7 +447,11 @@ describe('SettingsPage saves on one topic', () => {
       current = { ...current, ...patch, revision: current.revision + 1 };
     };
     const beforeDetails = (...more: (() => Response | undefined)[]) => steps.push(...more);
-    return { details, paths, external, beforeDetails };
+    /** The next `n` GETs by id answer 500. */
+    const failIdLookups = (n: number) => {
+      failIdGets = n;
+    };
+    return { details, paths, external, beforeDetails, failIdLookups };
   }
 
   /** The topic comes from the query cache, as in TopicLayout, so this page's own saves reach it. */
@@ -618,6 +628,20 @@ describe('SettingsPage saves on one topic', () => {
       { appearance: { color: 'blue' }, expected_revision: 7 },
       { appearance: { color: 'blue' }, expected_revision: 8 },
     ]);
+  });
+
+  it('keeps the form when the app layout can’t look up a renamed topic by id', async () => {
+    const server = fakeServer();
+    const { user, router } = renderSettings({ layout: 'app' });
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ slug: 'lifting' });
+    server.failIdLookups(2); // the form's refetch and the layout's lookup
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    await waitFor(() => expect(server.paths.filter((p) => p.endsWith(topic.id))).toHaveLength(3));
+    expect(screen.queryByText('Topic not found')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    expect(router.state.location.pathname).toBe('/t/gym/settings');
   });
 
   it('keeps re-sending over two unrelated writes in a row', async () => {

@@ -22,7 +22,7 @@ import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { TopicGlyph } from '../../components/ui/TopicGlyph';
 import { topicStyle } from '../../lib/appearance';
-import { KEEPS_PAGE } from '../../lib/unsavedChanges';
+import { keepsPageState } from '../../lib/unsavedChanges';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { describeSchedule, dueView } from '../../lib/schedule';
@@ -51,8 +51,8 @@ const isNotFound = (error: unknown) => {
 /**
  * A slug changed elsewhere makes a refetch of `/t/<old slug>` 404 while the query still holds the
  * topic. Look it up by its id and move the route to the new slug (seeding its cache, so the page
- * stays mounted); meanwhile return the topic last loaded. `null` when there's nothing to follow,
- * or the topic is gone by id too (deleted): the caller shows the error.
+ * stays mounted); meanwhile, and while the lookup fails, return the topic last loaded. `null` when
+ * there's nothing to follow, or the topic is gone by id too (deleted): the caller shows the error.
  */
 function useFollowRename(
   ref: string,
@@ -75,10 +75,11 @@ function useFollowRename(
     const rest = location.pathname.slice(`/t/${ref}`.length);
     void navigate(`/t/${found.slug}${rest}${location.search}`, {
       replace: true,
-      state: KEEPS_PAGE,
+      state: keepsPageState(),
     });
   }, [found, qc, navigate, location.pathname, location.search, ref]);
-  if (!lost || byId.isError) return null;
+  // Only a 404 by id too means it's gone; a failed lookup keeps the page as it was.
+  if (!lost || (byId.isError && isNotFound(byId.error))) return null;
   return found ?? last;
 }
 
