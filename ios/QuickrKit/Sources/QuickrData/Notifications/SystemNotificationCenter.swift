@@ -47,6 +47,16 @@ public struct SystemNotificationCenter: NotificationCenterProtocol {
     }
 
     public func add(_ request: LocalNotificationRequest) async throws {
+        // T2-M1 (timers2.md §9.1, OQ-6)
+        try await center.add(Self.systemRequest(request, now: Date()))
+        // end T2-M1
+    }
+
+    // T2-M1 (timers2.md §9.1, §12.3 R23)
+    /// The request `add` hands the system: the content (sound, `quickr` info, interruption level)
+    /// and `trigger(_:now:)`'s trigger. Public so the app's tests can check it on the simulator,
+    /// where the system lists no pending request for an app without notification permission.
+    public static func systemRequest(_ request: LocalNotificationRequest, now: Date) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = request.title
         content.body = request.body
@@ -58,12 +68,10 @@ public struct SystemNotificationCenter: NotificationCenterProtocol {
         {
             content.userInfo = ["quickr": object]
         }
-        // T2-M1 (timers2.md §9.1, OQ-6)
-        content.interruptionLevel = Self.level(request.interruptionLevel)
-        let trigger = Self.trigger(request, now: Date())
-        try await center.add(UNNotificationRequest(identifier: request.id, content: content, trigger: trigger))
-        // end T2-M1
+        content.interruptionLevel = level(request.interruptionLevel)
+        return UNNotificationRequest(identifier: request.id, content: content, trigger: trigger(request, now: now))
     }
+    // end T2-M1
 
     // T2-M1 (timers2.md §9.1)
     /// `fireAt`: an interval trigger, at least 1 s (the system's minimum). Otherwise `fireDate`'s
