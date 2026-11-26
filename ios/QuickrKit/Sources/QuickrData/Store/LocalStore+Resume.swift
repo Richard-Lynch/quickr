@@ -77,3 +77,47 @@ extension LocalStore {
         StoreObservation.values(in: writer, refresh: refresh) { db in try ResumableRun.latest(db, topicId: topicId) }
     }
 }
+
+// MARK: - The stop toast's offer
+
+extension ResumableRun {
+    /// Holds the stop toast's Resume to the offer (active-surfaces.md §3.2): runs while `isShown`,
+    /// and calls `dismiss` once the offer lapses: `offers` (`LocalStore.observeResumable` with the
+    /// session's refresh stream, so another process's start or stop counts) names another run or
+    /// none, fails or ends, or the run's own window closes (`isOffered(at: now())`, from its stop,
+    /// re-read every `tick`). Returns without dismissing when the toast went by itself.
+    @MainActor
+    public static func watchOffer(
+        runId: String, offers: AsyncThrowingStream<ResumableRun?, any Error>, now: @escaping @MainActor () -> Int,
+        isShown: @escaping @MainActor () -> Bool, dismiss: @MainActor () -> Void, tick: Duration = .seconds(1),
+        sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
+    ) async {
+        let watch = OfferWatch()
+        let observing = Task { @MainActor in
+            do {
+                for try await offer in offers {
+                    guard isShown() else { return }
+                    guard let offer, offer.runId == runId.lowercased() else { break }
+                    watch.offer = offer
+                }
+            } catch {
+                // The store closed or failed: eligibility can't be shown any more.
+            }
+            if !Task.isCancelled { watch.lapsed = true }
+        }
+        while isShown(), !watch.lapsed {
+            if let offer = watch.offer, !offer.isOffered(at: now()) {
+                watch.lapsed = true
+                break
+            }
+            do { try await sleep(tick) } catch { break }
+        }
+        observing.cancel()
+        if watch.lapsed, isShown() { dismiss() }
+    }
+}
+
+@MainActor private final class OfferWatch {
+    var offer: ResumableRun?
+    var lapsed = false
+}

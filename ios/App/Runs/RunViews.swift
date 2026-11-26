@@ -157,31 +157,17 @@ func showStopOutcome(
     }
 }
 
-/// Dismisses the stop toast `toast` once its Resume is no longer offered: the store's latest stop
-/// isn't `runId` any more, or OQ-1's window closes (on the run clock). Ends with the toast.
+/// Dismisses the stop toast `toast` once its Resume lapses (`ResumableRun.watchOffer`): the store's
+/// latest stop isn't `runId` any more, its observation fails, or the run's window closes on the run
+/// clock. Ends with the toast.
 @MainActor
 private func watchResume(toast id: Int, runId: String, topicId: UUID, store: LocalStore, in environment: AppEnvironment)
 {
     let (toasts, ticker) = (environment.toasts, environment.runTicker)
-    let shown = { toasts.items.contains { $0.id == id } }
-    let watch = Task { @MainActor in
-        do {
-            for try await latest in store.observeResumable(topicId: topicId) {
-                guard shown() else { return }
-                if latest?.runId != runId { return toasts.dismiss(id) }
-            }
-        } catch {
-            // The store closed: the toast's tap re-checks, and does nothing.
-        }
-    }
+    let offers = store.observeResumable(topicId: topicId, refresh: environment.session?.refresh.stream())
     Task { @MainActor in
-        // The window, from the stop: at most 15 minutes, ended early when the toast goes.
-        let closes = RunInstant.milliseconds(Date()) + ticker.offsetMs + RunPresentation.reopenWindowMs
-        while shown() {
-            if RunInstant.milliseconds(Date()) + ticker.offsetMs > closes { break }
-            try? await Task.sleep(for: .seconds(1))
-        }
-        watch.cancel()
-        if shown() { toasts.dismiss(id) }
+        await ResumableRun.watchOffer(
+            runId: runId, offers: offers, now: { RunInstant.milliseconds(Date()) + ticker.offsetMs },
+            isShown: { toasts.items.contains { $0.id == id } }, dismiss: { toasts.dismiss(id) })
     }
 }
