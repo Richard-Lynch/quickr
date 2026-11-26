@@ -202,6 +202,10 @@ function statusOf(
   requiresAnswers: boolean,
   entry: boolean,
 ): RunStatus {
+  // An open run is open, whatever came before: a reopen reverted by a discard stays void
+  // `reverted` after a later reopen opens the run again (vector
+  // reopen-revert-then-reopen-again).
+  if (state.status === 'running' || state.status === 'paused') return state.status;
   if (reverted(state, events) || (state.status === 'discarded' && reopened(state, events))) {
     // A revert (timers2.md §4.1): the fold restores the stop, but a reopened finishing run
     // (no entry) is thrown away by the server (§5.3, A15).
