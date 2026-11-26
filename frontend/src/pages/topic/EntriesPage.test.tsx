@@ -4,7 +4,7 @@
  * entry of a timed topic, and the desktop table's Timing column.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,6 +38,8 @@ const TIMED = '6f1c0000-0000-4000-8000-0000000000e1';
 const UNTIMED = '6f1c0000-0000-4000-8000-0000000000e2';
 const OLD = '6f1c0000-0000-4000-8000-0000000000e3';
 const RUN = '6f1c0000-0000-4000-8000-0000000000f1';
+/** The removable timing's event ids: this, then the segment's index. */
+const EVENT = '6f1c0000-0000-4000-8000-0000000000d';
 
 const reps: Question = {
   type: 'int',
@@ -168,7 +170,8 @@ const old = entry(OLD, {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-function stubServer(items: EntryOut[], versionsUp = true) {
+/** `versionsUp`: false fails the versions request; a promise answers it when it settles. */
+function stubServer(items: EntryOut[], versionsUp: boolean | Promise<void> = true) {
   const page: EntryPage = { items, total: items.length, offset: 0, limit: 25 };
   vi.stubGlobal(
     'fetch',
@@ -176,16 +179,21 @@ function stubServer(items: EntryOut[], versionsUp = true) {
       const path = new URL(input.url).pathname;
       if (path.endsWith('/entries')) return Promise.resolve(json(200, page));
       if (path.endsWith('/versions'))
-        return Promise.resolve(
-          versionsUp
-            ? json(200, versions)
-            : json(500, { code: 'internal', detail: 'down', errors: [] }),
-        );
+        return typeof versionsUp === 'boolean'
+          ? Promise.resolve(
+              versionsUp
+                ? json(200, versions)
+                : json(500, { code: 'internal', detail: 'down', errors: [] }),
+            )
+          : versionsUp.then(() => json(200, versions));
       if (path.endsWith('/runs')) return Promise.resolve(json(200, []));
       return Promise.resolve(json(404, { code: 'not_found', detail: 'not found', errors: [] }));
     }),
   );
 }
+
+/** The rendered page's query client (to wait on a query's state, or refetch). */
+let qc: QueryClient;
 
 function renderPage() {
   const router = createMemoryRouter(
@@ -198,10 +206,9 @@ function renderPage() {
     ],
     { initialEntries: ['/t/intervals/entries'] },
   );
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+    <QueryClientProvider client={qc}>
       <ToastProvider>
         <RouterProvider router={router} />
       </ToastProvider>
@@ -332,14 +339,137 @@ describe('EntriesPage rows', () => {
   });
 
   it('leave out a queued answer that doesn’t fit while its version’s questions are not in', async () => {
-    // The versions request fails: the current questions stand in, and v1's list answer to a
-    // question that is now an int is dropped rather than read as a number.
+    // The versions request fails: the current questions type the answers for the grid, and
+    // v1's list answer to a question that is now an int is dropped rather than read as a
+    // number; the summary line shows only the timing until v1's questions are known.
     queued = queueRun({ reps: ['a', 'b'] });
     stubServer([untimed], false);
     renderPage();
     const pending = await screen.findByRole('list', { name: 'Not yet synced' });
     expect(within(pending).getByTestId('entry-summary').textContent).toBe('2:00');
     expect(within(pending).getByTestId('entry-timing').textContent).toBe('2:00');
+  });
+});
+
+/** 12:40 over three laps, each boundary a `lap` event (removable, content-display.md §3.2). */
+const removable = entry(TIMED, {
+  timing: timed.timing && {
+    ...timed.timing,
+    segments: timed.timing.segments.map((x, i) => ({
+      ...x,
+      event_id: `${EVENT}${String(i)}`,
+      opened_by: i === 0 ? 'start' : 'lap',
+    })),
+  },
+});
+
+/** A v1 entry with timing: its answer is v1's "Count". */
+const oldTimed = entry(OLD, {
+  version: 1,
+  captured_at: '2026-10-21T08:00:00Z',
+  answers: [{ key: 'reps', type: 'int', value: 9 }],
+  timing: timed.timing,
+});
+
+describe('EntriesPage A14 projection', () => {
+  it('shows a row’s chip with its queued remove applied, marked Waiting to sync', async () => {
+    // Remove lap 2's boundary: its time joins lap 1, so 12:40 over two laps.
+    queued = [runItem('remove', { id: 'x1', run: TIMED, at: T0, target: `${EVENT}1`, steps: [] })];
+    stubServer([removable, untimed]);
+    renderPage();
+    const [timedRow, untimedRow] = (await cards()) as [HTMLElement, HTMLElement];
+    expect(within(timedRow).getByTestId('entry-timing').textContent).toBe('12:40 · 2 laps');
+    expect(within(timedRow).getByRole('img', { name: '12 minutes 40 seconds, 2 laps' })).toBe(
+      within(timedRow).getByTestId('entry-timing'),
+    );
+    expect(within(timedRow).getByTestId('entry-summary').textContent).toBe(
+      '12:40 · 2 laps · Reps: 12',
+    );
+    expect(within(timedRow).getByTestId('entry-pending').textContent).toBe(' Waiting to sync');
+    expect(within(untimedRow).queryByTestId('entry-pending')).toBeNull();
+    // The table's Timing cell too.
+    const [, tableRow] = within(screen.getByRole('table')).getAllByRole('row') as [
+      HTMLElement,
+      HTMLElement,
+    ];
+    const [, timingCell] = within(tableRow).getAllByRole('cell') as [HTMLElement, HTMLElement];
+    expect(within(timingCell).getByTestId('entry-timing').textContent).toBe('12:40 · 2 laps');
+    expect(within(timingCell).getByTestId('entry-pending')).toBeInTheDocument();
+  });
+
+  it('gives way to the server’s entry on the ack', async () => {
+    queued = [runItem('remove', { id: 'x1', run: TIMED, at: T0, target: `${EVENT}1`, steps: [] })];
+    stubServer([removable]);
+    renderPage();
+    const [queuedRow] = (await cards()) as [HTMLElement];
+    expect(within(queuedRow).getByTestId('entry-pending')).toBeInTheDocument();
+    // The ack: the item leaves the outbox and the server's entry (revision bumped) is listed.
+    const segments = removable.timing?.segments ?? [];
+    const [first, , third] = segments;
+    if (!first || !third) throw new Error('fixture');
+    const acked = entry(TIMED, {
+      revision: 2,
+      timing: removable.timing && {
+        ...removable.timing,
+        segments: [{ ...first, ended_at: '2026-10-23T08:08:00Z', active_ms: 480_000 }, third],
+      },
+    });
+    queued = [];
+    stubServer([acked]);
+    await act(() => qc.invalidateQueries());
+    await waitFor(() => {
+      expect(screen.queryAllByTestId('entry-pending')).toHaveLength(0);
+    });
+    const [ackedRow] = (await cards()) as [HTMLElement];
+    expect(within(ackedRow).getByTestId('entry-timing').textContent).toBe('12:40 · 2 laps');
+  });
+
+  it('shows the server’s timing, unmarked, with no remove queued for the run', async () => {
+    queued = [
+      runItem('remove', { id: 'x1', run: UNTIMED, at: T0, target: `${EVENT}1`, steps: [] }),
+    ];
+    stubServer([removable]);
+    renderPage();
+    const [timedRow] = (await cards()) as [HTMLElement];
+    expect(within(timedRow).getByTestId('entry-timing').textContent).toBe('12:40 · 3 laps');
+    expect(within(timedRow).queryByTestId('entry-pending')).toBeNull();
+  });
+});
+
+describe('EntriesPage summaries before the entry’s version is known (§1.2)', () => {
+  const summaries = (rows: HTMLElement[]) =>
+    rows.map((r) => within(r).queryByTestId('entry-summary')?.textContent ?? null);
+
+  it('show only the timing part while the versions are loading, then the version’s labels', async () => {
+    let answer: () => void = () => undefined;
+    stubServer(
+      [timed, oldTimed, old],
+      new Promise<void>((r) => {
+        answer = r;
+      }),
+    );
+    renderPage();
+    // v1 renamed nothing yet known: "Reps" (the current label) would mislabel v1's answer.
+    expect(summaries(await cards())).toEqual(['12:40 · 3 laps · Reps: 12', '12:40 · 3 laps', null]);
+    answer();
+    await screen.findByRole('columnheader', { name: 'Felt' });
+    expect(summaries(await cards())).toEqual([
+      '12:40 · 3 laps · Reps: 12',
+      '12:40 · 3 laps · Count: 9',
+      'Count: 9',
+    ]);
+  });
+
+  it('keep showing only the timing part when the versions can’t be listed', async () => {
+    stubServer([timed, oldTimed, old], false);
+    renderPage();
+    const rows = await cards();
+    // Once the versions query has failed (retries are off), not while it is loading.
+    await waitFor(() => {
+      const [query] = qc.getQueryCache().findAll({ queryKey: [{ _id: 'listTopicVersions' }] });
+      expect(query?.state.status).toBe('error');
+    });
+    expect(summaries(rows)).toEqual(['12:40 · 3 laps · Reps: 12', '12:40 · 3 laps', null]);
   });
 });
 

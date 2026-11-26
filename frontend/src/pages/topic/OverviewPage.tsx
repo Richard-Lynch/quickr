@@ -412,6 +412,24 @@ const cellDate = new Intl.DateTimeFormat(undefined, {
   month: 'short',
   timeZone: 'UTC',
 });
+/** A week column's Monday, as the iOS strip names it ("3 Nov"; a calendar date, no zone). */
+const weekDate = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
+  timeZone: 'UTC',
+});
+
+/** Each week column as a screen reader reads it: "Week of 3 Nov: 5 entries", oldest first. */
+function spokenWeeks(cells: readonly { day: string; count: number }[]): string[] {
+  const weeks: string[] = [];
+  for (let i = 0; i < cells.length; i += 7) {
+    const week = cells.slice(i, i + 7);
+    const count = week.reduce((a, c) => a + c.count, 0);
+    const monday = weekDate.format(new Date(`${week[0]?.day ?? ''}T00:00:00Z`));
+    weeks.push(`Week of ${monday}: ${plural(count, 'entry', 'entries')}`);
+  }
+  return weeks;
+}
 
 /**
  * Entries per local day over the last 12 Monday-started weeks (content-display.md §4.2), from
@@ -465,28 +483,37 @@ function Activity({ slug }: { slug: string }) {
       ) : !strip ? (
         <Skeleton className="mt-3 h-28 max-w-md" />
       ) : (
-        <div
-          role="img"
-          aria-label={caption ?? 'Activity'}
-          className="mt-3 grid max-w-md grid-flow-col grid-cols-12 grid-rows-7 gap-1"
-        >
-          {Array.from({ length: ACTIVITY_WEEKS * 7 }, (_, i) => {
-            const cell = strip.cells[i];
-            if (!cell) return <span key={i} className="aspect-square" />;
-            return (
-              <span
-                key={cell.day}
-                data-testid="activity-cell"
-                data-day={cell.day}
-                data-count={cell.count}
-                title={`${cellDate.format(new Date(`${cell.day}T00:00:00Z`))}: ${plural(cell.count, 'entry', 'entries')}`}
-                className={`aspect-square rounded-[3px] ${LEVEL_CLASS[activityLevel(cell.count)]} ${
-                  cell.day === today ? 'outline-2 outline-offset-1 outline-ink' : ''
-                }`}
-              />
-            );
-          })}
-        </div>
+        <>
+          {/* Screen readers get the strip a week column at a time (as iOS's chart descriptor);
+              the cells are drawn for the eye only. */}
+          <ul className="sr-only" aria-label={caption ?? 'Activity'}>
+            {spokenWeeks(strip.cells).map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+          <div
+            aria-hidden
+            data-testid="activity-grid"
+            className="mt-3 grid max-w-md grid-flow-col grid-cols-12 grid-rows-7 gap-1"
+          >
+            {Array.from({ length: ACTIVITY_WEEKS * 7 }, (_, i) => {
+              const cell = strip.cells[i];
+              if (!cell) return <span key={i} className="aspect-square" />;
+              return (
+                <span
+                  key={cell.day}
+                  data-testid="activity-cell"
+                  data-day={cell.day}
+                  data-count={cell.count}
+                  title={`${cellDate.format(new Date(`${cell.day}T00:00:00Z`))}: ${plural(cell.count, 'entry', 'entries')}`}
+                  className={`aspect-square rounded-[3px] ${LEVEL_CLASS[activityLevel(cell.count)]} ${
+                    cell.day === today ? 'outline-2 outline-offset-1 outline-ink' : ''
+                  }`}
+                />
+              );
+            })}
+          </div>
+        </>
       )}
     </Card>
   );

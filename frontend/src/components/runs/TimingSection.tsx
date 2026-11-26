@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 
 import { mapApiError } from '../../api/errors';
@@ -212,6 +212,9 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
     ctx ? removeControl(row, timing) : ({ kind: 'none' } as const);
   // Every row keeps the Remove column when any row has one, so the durations line up.
   const removeColumn = rows.some((r) => controlOf(r).kind !== 'none');
+  // A disabled button shows no tooltip (nor on touch): a muted note under the rows says why,
+  // and each disabled Remove is described by it.
+  const disabledWhyId = useId();
   const removeButton = (row: TimingRow, name: string) => {
     const control = controlOf(row);
     if (control.kind === 'none')
@@ -226,11 +229,8 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
         size="sm"
         data-testid={testId}
         disabled={control.kind === 'disabled' || tapping !== null}
-        title={
-          control.kind === 'disabled'
-            ? 'This lap starts at a step boundary: change it with Edit times'
-            : `Remove ${name}`
-        }
+        title={control.kind === 'disabled' ? undefined : `Remove ${name}`}
+        aria-describedby={control.kind === 'disabled' ? disabledWhyId : undefined}
         className="-my-1.5 hover:bg-danger-soft hover:text-danger"
         onClick={() => {
           if (control.kind === 'remove')
@@ -320,6 +320,11 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
           ),
         )}
       </ol>
+      {rows.some((r) => controlOf(r).kind === 'disabled') ? (
+        <p id={disabledWhyId} className="text-sm text-muted" data-testid="entry.timing.remove.why">
+          A lap that starts at a step boundary can’t be removed: change it with Edit times.
+        </p>
+      ) : null}
       {timing.skipped.length > 0 ? (
         <p className="text-sm text-muted">Skipped: {timing.skipped.map(label).join(', ')}</p>
       ) : null}

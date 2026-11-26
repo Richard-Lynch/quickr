@@ -26,8 +26,9 @@ import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import type { Question } from '../../lib/questions';
-import { timingToWire } from '../../lib/runs/fold';
+import { timingFromWire, timingToWire } from '../../lib/runs/fold';
 import { formatInstant } from '../../lib/runs/instant';
+import { projectedEntryTiming } from '../../lib/runs/localView';
 import { useRuns } from '../../lib/runs/useRuns';
 import { useTopic } from './TopicLayout';
 
@@ -57,19 +58,21 @@ function columnsFor(
 
 /**
  * Each version's questions, for the summary line (content-display.md §1.2: labels come from
- * the entry's own version). A version not listed yet reads the topic's current questions.
+ * the entry's own version). The current version's are the topic's; any other version's are
+ * null until the versions are listed (and stay null if listing them fails).
  */
 function questionsByVersion(
   topic: TopicDetail,
   versions: readonly TopicVersionOut[] | undefined,
-): (version: number) => readonly Question[] {
+): (version: number) => readonly Question[] | null {
   const byVersion = new Map((versions ?? []).map((v) => [v.version, v.questions]));
-  return (version) => byVersion.get(version) ?? topic.questions;
+  return (version) =>
+    byVersion.get(version) ?? (version === topic.current_version ? topic.questions : null);
 }
 
 /** What a row shows of the entry besides its answers: the summary line and the timing chip. */
 interface RowText {
-  questionsOf: (version: number) => readonly Question[];
+  questionsOf: (version: number) => readonly Question[] | null;
   timer: Timer | null;
 }
 
@@ -86,10 +89,12 @@ function SummaryLine({
   text: RowText;
   table?: boolean;
 }) {
+  // Until the entry's own version's questions are known, only the timing part: another
+  // version's labels or units would misread its answers (§1.2).
   const summary = entrySummary(
     entry.answers,
     entry.timing,
-    text.questionsOf(entry.version),
+    text.questionsOf(entry.version) ?? [],
     text.timer,
   );
   if (!summary) return null;
@@ -135,6 +140,32 @@ function RowChip({ entry, timer }: { entry: EntryOut; timer: Timer | null }) {
   );
 }
 
+/** The mark on a listed entry whose run has a removal queued on this device (A14). */
+function WaitingBadge() {
+  return (
+    <Badge tone="info">
+      <span data-testid="entry-pending" className="inline-flex items-center gap-1">
+        <Icon name="clock" className="size-3.5" /> Waiting to sync
+      </span>
+    </Badge>
+  );
+}
+
+/**
+ * A listed entry as this device sees it (content-display.md §3.2, A14): its timing with the
+ * queued removes of its run applied, and `pending` until the ack replaces the entry.
+ */
+function projectedRow(
+  entry: EntryOut,
+  queue: readonly OutboxItem[],
+): { entry: EntryOut; pending: boolean } {
+  if (!entry.timing) return { entry, pending: false };
+  const p = projectedEntryTiming({ id: entry.id, timing: timingFromWire(entry.timing) }, queue);
+  if (!p.pending) return { entry, pending: false };
+  const timing = { ...timingToWire(p.timing), skipped: [...p.timing.skipped] };
+  return { entry: { ...entry, timing }, pending: true };
+}
+
 function display(col: Column, s: EntryOut): string | null {
   const a = s.answers.find((x) => x.key === col.key);
   return a ? formatAnswer(col.question, a) : null;
@@ -170,7 +201,7 @@ function pendingAsEntry(
 ): EntryOut {
   const b = item.payload.body;
   const version = b.version ?? topic.current_version;
-  const answers = answersOut(questionsOf(version), b.answers);
+  const answers = answersOut(questionsOf(version) ?? topic.questions, b.answers);
   return {
     id: item.id,
     topic_id: topic.id,
@@ -279,7 +310,7 @@ function PendingEntries({
         const entry: EntryOut = {
           ...pendingAsEntryShape(topic, e.id),
           version: e.version,
-          answers: answersOut(text.questionsOf(e.version), e.answers),
+          answers: answersOut(text.questionsOf(e.version) ?? topic.questions, e.answers),
           // The local fold's timing, in the server's wire shape.
           timing: { ...timingToWire(e.timing), skipped: [...e.timing.skipped] },
         };
@@ -382,9 +413,12 @@ export function EntriesPage() {
   // the total still counts it, and the empty state and Load more follow the listed rows,
   // so a page of hidden entries never strands the next one.
   const { hiddenEntries } = useRuns();
-  const items = listed.filter((e) => !hiddenEntries.has(e.id.toLowerCase()));
-  const total = entries.data?.pages[0]?.total ?? 0;
   const outbox = useOutbox();
+  // A14: each row's timing with this device's queued removes applied, marked until the ack.
+  const rows = listed
+    .filter((e) => !hiddenEntries.has(e.id.toLowerCase()))
+    .map((e) => projectedRow(e, outbox.items));
+  const total = entries.data?.pages[0]?.total ?? 0;
   const queuedHere = outbox.items.filter(
     (i) => isEntryCreate(i) && i.payload.topic.id === topic.id,
   ).length;
@@ -445,7 +479,7 @@ export function EntriesPage() {
         <>
           {/* phones: cards */}
           <ul className="flex flex-col gap-3 md:hidden">
-            {items.map((s) => (
+            {rows.map(({ entry: s, pending }) => (
               <li key={s.id}>
                 <Card className="relative p-4 active:scale-[0.99]">
                   <div className="mb-3 flex items-center gap-2">
@@ -455,6 +489,7 @@ export function EntriesPage() {
                     >
                       {formatDateTime(s.captured_at)}
                     </Link>
+                    {pending ? <WaitingBadge /> : null}
                     {s.version !== topic.current_version ? (
                       <VersionTag version={s.version} />
                     ) : null}
@@ -511,7 +546,7 @@ export function EntriesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {items.map((s) => (
+                {rows.map(({ entry: s, pending }) => (
                   <tr
                     key={s.id}
                     className="cursor-pointer transition-colors hover:bg-sunken/60"
@@ -525,7 +560,10 @@ export function EntriesPage() {
                     </td>
                     <td className="px-3 py-3 whitespace-nowrap">
                       {s.timing ? (
-                        <TimingChip entry={s} timer={text.timer} />
+                        <span className="inline-flex items-center gap-1.5">
+                          <TimingChip entry={s} timer={text.timer} />
+                          {pending ? <WaitingBadge /> : null}
+                        </span>
                       ) : (
                         <span className="text-muted/60">—</span>
                       )}
