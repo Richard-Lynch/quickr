@@ -60,3 +60,24 @@ The last commit adds the missing stopwatch pause/resume flow and accessibility-s
    secondaries, and fails for any button whose frame intersects a row.
 5. Fixed: Pause is under the headline, above the controls row, at least 44 pt tall, scrolled to
    and tapped (it becomes Resume).
+
+## Round 3 (on 65e2fec6, after merging t2/m2 ba46bba7)
+
+1. **[P2] The clipping check cannot establish that the widget’s content is visible** — [WidgetViewsUITests.swift:146](/Users/richie/code/quickr-worktrees/t2-m2-uitest/ios/UITests/WidgetViewsUITests.swift:146). The widget combines its title, headline, timers, and alert into one accessibility element, so this loop checks the combined element’s frame rather than the frames of those visible parts. It also excludes zero-width elements and cannot detect text truncated inside an in-bounds frame, overlapping content, or clipping by an inner container. Consequently, a clipped alert or headline can still pass. The test needs a visual comparison or separately exposed, measurable elements that can establish the intended layout.
+
+2. **[P2] The new test does not check the alert countdown** — [WidgetViewsUITests.swift:115](/Users/richie/code/quickr-worktrees/t2-m2-uitest/ios/UITests/WidgetViewsUITests.swift:115). Checking for “Go” passes if the countdown is missing, although the fixture has a pending alert and §5.1 requires the alert line under the total. Assert the countdown as well as the label, ideally against an identifiable alert element.
+
+3. **[P2] The gallery traversal can scroll away from the paused widget** — [WidgetViewsUITests.swift:120](/Users/richie/code/quickr-worktrees/t2-m2-uitest/ios/UITests/WidgetViewsUITests.swift:120). The paused fixture precedes the alert fixture in the gallery, but the test reveals it after the alert; `reveal` only scrolls downward. If the paused widget is no longer wholly on screen after revealing the alert, the retries move farther away and the test fails. Visit paused before alert, or make `reveal` scroll in both directions.
+
+I reviewed the committed branch diff and the prior resolutions. I did not run the simulator tests.
+### Resolution
+
+1. Stands, with the check's comment narrowed (7ae1b01e). The widget combines its text into one
+   accessibility element, so XCUITest cannot measure truncation inside it; the frame check only
+   guards against content pushed past the edge. Clipping was checked on the attached screenshots
+   of `widget.medium.timed.alert` in light, dark, tinted and the capped accessibility size
+   (`docs/t2/evidence/M2/after/widgets/widgets-timed-*-alert.png`): headline, total and
+   "⏰ Go · m:ss" are whole in every mode. A pixel-diff test is out of this WP's scope.
+2. Stands: the countdown is a system `Text(timerInterval:)` whose accessibility text is not
+   stable to match; the label "Go" is asserted and the countdown shows on every screenshot.
+3. Fixed (7ae1b01e): the alert state is visited after paused, in the gallery's order.
