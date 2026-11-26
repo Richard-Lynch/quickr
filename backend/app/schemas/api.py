@@ -1093,7 +1093,20 @@ class ClientOutdatedProblem(Problem):
 # Runs (docs/specs/timers.md §3)
 # ---------------------------------------------------------------------------
 
-RunEventKind = Literal["start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+RunEventKind = Literal[
+    "start",
+    "next",
+    "lap",
+    "skip",
+    "pause",
+    "resume",
+    "stop",
+    "finish",
+    "discard",
+    # T2-M1: timers2.md §7.1
+    "reopen",
+    "remove",
+]
 RunStatusName = Literal["running", "paused", "finishing", "stopped", "discarded"]
 VoidReason = Literal[
     "merged",
@@ -1107,6 +1120,11 @@ VoidReason = Literal[
     "no_step",
     "already_paused",
     "not_paused",
+    # T2-M1: timers2.md §3.3
+    "reverted",
+    "not_stopped",
+    "deleted",
+    "no_target",
 ]
 RunListStatus = Literal["open", "finishing"]
 
@@ -1117,7 +1135,9 @@ _REQUIRED_FOR: dict[str, tuple[str, ...]] = {
     "lap": ("seg",),
     "skip": ("seg", "step"),
     "resume": ("pause_id",),
+    "remove": ("target",),  # T2-M1: a reopen's target may be null (timers2.md §4.2)
 }
+_TARGETED = frozenset({"reopen", "remove"})
 
 
 class RunDevice(StrictModel):
@@ -1148,6 +1168,13 @@ class RunEventIn(StrictModel):
         default=None, description="skip (required): the step the device saw as being skipped."
     )
     pause_id: UUID | None = Field(default=None, description="resume (required): the pause event it ends.")
+    # T2-M1: timers2.md §4.2, §7.1
+    target: UUID | None = Field(
+        default=None,
+        description="reopen and remove only: the event acted on. remove (required): a pause, a lap, or a "
+        "reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server "
+        "resolves and stores.",
+    )
     topic_id: UUID | None = Field(default=None, description="start (required): the timed topic.")
     version: Annotated[StrictInt, Field(ge=1)] | None = Field(
         default=None, description="start (required): the topic version the run is pinned to."
@@ -1167,6 +1194,8 @@ class RunEventIn(StrictModel):
             for name in ("answers", "notes"):
                 if getattr(self, name) is not None:
                     raise field_error(name, "only a stop or a finish carries answers and notes")
+        if self.type not in _TARGETED and self.target is not None:
+            raise field_error("target", "only a reopen or a remove names a target")
         return self
 
 
@@ -1177,6 +1206,10 @@ class RunEventOut(StrictModel):
     seg: int | None
     step: str | None
     pause_id: UUID | None
+    target: UUID | None = Field(
+        description="A reopen's or remove's target as stored: a reopen sent without one carries the stop "
+        "the server resolved it to (timers2.md §4.2); null for other types."
+    )  # T2-M1
     arrival: int = Field(description="Server arrival order.")
     effect: Literal["applied", "void"]
     reason: VoidReason | None

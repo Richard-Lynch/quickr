@@ -7,9 +7,6 @@ import { fold, stateToWire } from '../lib/runs/fold';
 import { formatInstant } from '../lib/runs/instant';
 import type { RunEvent, RunStatus, TimerStep } from '../lib/runs/types';
 
-/** An event as `RunOut` lists it (fold v4 types are wider until M1-RUNS regenerates it). */
-type ApiEvent = RunOut['events'][number];
-
 /** 2026-10-24T08:00:00Z. */
 export const T0 = Date.UTC(2026, 9, 24, 8, 0, 0);
 
@@ -113,17 +110,18 @@ export function serverRun(
     edited: false,
     events: events.map((e, i) => ({
       id: e.id,
-      type: e.type as ApiEvent['type'], // the client has no reopen/remove until M1-RUNS
+      type: e.type,
       at: formatInstant(e.at),
       seg: e.seg,
       step: e.step,
       pause_id: e.pause_id,
+      target: e.target ?? null,
       arrival: i + 1,
       effect: state.effects[e.id]?.effect ?? 'applied',
-      reason: (state.effects[e.id]?.reason ?? null) as ApiEvent['reason'],
+      reason: state.effects[e.id]?.reason ?? null,
       source: 'ui',
     })),
-    state: { ...stateToWire(state), status } as RunOut['state'],
+    state: { ...stateToWire(state), status },
     aliases: opts.aliases ?? [],
   };
 }

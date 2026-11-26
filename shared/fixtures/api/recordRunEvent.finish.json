@@ -99,6 +99,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -111,6 +112,7 @@
           "seg": null,
           "source": "widget",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -123,6 +125,7 @@
           "seg": 0,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "next"
         },
         {
@@ -135,6 +138,7 @@
           "seg": 0,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "next"
         },
         {
@@ -147,6 +151,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "pause"
         },
         {
@@ -159,6 +164,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "resume"
         },
         {
@@ -171,6 +177,7 @@
           "seg": 1,
           "source": "api",
           "step": "drink",
+          "target": null,
           "type": "skip"
         },
         {
@@ -183,6 +190,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "stop"
         },
         {
@@ -195,6 +203,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "finish"
         }
       ],

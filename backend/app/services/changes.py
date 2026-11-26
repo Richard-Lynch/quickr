@@ -99,6 +99,7 @@ async def _page(db: AsyncSession, after: int, limit: int) -> ChangesPage:
             key = (FeedKind.entry, e.id)
             found[key] = FeedEntry(seq=latest[key].seq, entry=entry_svc.entry_out(e))
     closed: set[Key] = set()  # closed runs, still rows: a deletion only with their delete row
+    closed_deleted: list[FeedDeletion] = []  # ... which a stopped run has without a tombstone
     if ids := by_kind[FeedKind.run]:
         runs = select(Run).where(Run.id.in_(ids)).execution_options(populate_existing=True)
         for r in (await db.execute(runs)).scalars():
@@ -107,6 +108,21 @@ async def _page(db: AsyncSession, after: int, limit: int) -> ChangesPage:
                 found[key] = FeedRun(seq=latest[key].seq, run=await run_svc.run_out(db, r))
             elif r.id not in run_deletes:
                 closed.add(key)
+            elif r.status == RunStatus.stopped:
+                # A stop writes no tombstone (timers2.md §4.3): the deletion comes from its log row,
+                # when that is the run's latest on the page (a later page carries a later one).
+                closed.add(key)
+                if (row := latest[key]).op != FeedOp.delete:
+                    continue
+                closed_deleted.append(
+                    FeedDeletion(
+                        kind=FeedKind.run.value,
+                        seq=row.seq,
+                        id=r.id,
+                        topic_id=row.topic_id,
+                        deleted_at=row.at,
+                    )
+                )
 
     # A run without a row went with its topic and is tombstoned like the topic's other children.
     vanished = [k for k in latest if k not in found and k not in closed]
@@ -126,6 +142,7 @@ async def _page(db: AsyncSession, after: int, limit: int) -> ChangesPage:
         for k in vanished
         if (d := tombstones.get(k)) is not None
     ]
+    deleted += closed_deleted
 
     items = sorted(found.values(), key=lambda it: (_APPLY_ORDER[FeedKind(it.kind)], it.seq))
     deleted.sort(key=lambda d: (-_APPLY_ORDER[FeedKind(d.kind)], d.seq))

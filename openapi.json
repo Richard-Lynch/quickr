@@ -7503,7 +7503,11 @@
                   "stale",
                   "no_step",
                   "already_paused",
-                  "not_paused"
+                  "not_paused",
+                  "reverted",
+                  "not_stopped",
+                  "deleted",
+                  "no_target"
                 ]
               },
               {
@@ -7540,7 +7544,9 @@
               "resume",
               "stop",
               "finish",
-              "discard"
+              "discard",
+              "reopen",
+              "remove"
             ],
             "title": "Type"
           },
@@ -7592,6 +7598,19 @@
             ],
             "title": "Pause Id",
             "description": "resume (required): the pause event it ends."
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target",
+            "description": "reopen and remove only: the event acted on. remove (required): a pause, a lap, or a reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server resolves and stores."
           },
           "topic_id": {
             "anyOf": [
@@ -7752,7 +7771,9 @@
               "resume",
               "stop",
               "finish",
-              "discard"
+              "discard",
+              "reopen",
+              "remove"
             ],
             "title": "Type"
           },
@@ -7795,6 +7816,19 @@
             ],
             "title": "Pause Id"
           },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target",
+            "description": "A reopen's or remove's target as stored: a reopen sent without one carries the stop the server resolved it to (timers2.md \u00a74.2); null for other types."
+          },
           "arrival": {
             "type": "integer",
             "title": "Arrival",
@@ -7823,7 +7857,11 @@
                   "stale",
                   "no_step",
                   "already_paused",
-                  "not_paused"
+                  "not_paused",
+                  "reverted",
+                  "not_stopped",
+                  "deleted",
+                  "no_target"
                 ]
               },
               {
@@ -7846,6 +7884,7 @@
           "seg",
           "step",
           "pause_id",
+          "target",
           "arrival",
           "effect",
           "reason",
@@ -7913,7 +7952,11 @@
                   "stale",
                   "no_step",
                   "already_paused",
-                  "not_paused"
+                  "not_paused",
+                  "reverted",
+                  "not_stopped",
+                  "deleted",
+                  "no_target"
                 ]
               },
               {

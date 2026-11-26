@@ -676,7 +676,11 @@ export const zRunEventEffect = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable()
 });
 
@@ -696,12 +700,15 @@ export const zRunEventIn = z.object({
         'resume',
         'stop',
         'finish',
-        'discard'
+        'discard',
+        'reopen',
+        'remove'
     ]),
     at: z.iso.datetime({ offset: true }),
     seg: z.int().gte(0).nullish(),
     step: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).nullish(),
     pause_id: z.uuid().nullish(),
+    target: z.uuid().nullish(),
     topic_id: z.uuid().nullish(),
     version: z.int().gte(1).nullish(),
     answers: z.record(z.string(), z.union([
@@ -729,12 +736,15 @@ export const zRunEventOut = z.object({
         'resume',
         'stop',
         'finish',
-        'discard'
+        'discard',
+        'reopen',
+        'remove'
     ]),
     at: z.iso.datetime({ offset: true }),
     seg: z.int().nullable(),
     step: z.string().nullable(),
     pause_id: z.uuid().nullable(),
+    target: z.uuid().nullable(),
     arrival: z.int(),
     effect: z.enum(['applied', 'void']),
     reason: z.enum([
@@ -748,7 +758,11 @@ export const zRunEventOut = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable(),
     source: z.string()
 });
@@ -770,7 +784,11 @@ export const zRunEventResultEvent = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable()
 });
 
