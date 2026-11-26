@@ -13,13 +13,7 @@ import type { LocalRun } from '../../lib/runs/localView';
 import type { Timer } from '../../lib/runs/types';
 import { timerOf, useRunContext, useTopicVersions } from '../runs/context';
 import { tileControls } from '../runs/controlsLayout';
-import {
-  actions as runActions,
-  activeMs,
-  expectOf,
-  REOPEN_WINDOW_MS,
-  type RunAction,
-} from '../runs/model';
+import { actions as runActions, activeMs, expectOf, type RunAction } from '../runs/model';
 import { useReopenAfterStop } from '../runs/reopen';
 import { useServerNow } from '../runs/RunClock';
 import { actionIcon, actionLabel, actionTitle } from '../runs/RunControls';
@@ -62,12 +56,12 @@ export function useActiveCardControls(
         void navigate(finishUrl(topic.slug, run));
       } else {
         const total = activeMs(run.state, parseInstant(item.payload.event.at));
-        // Resume while the stop is resumable (§3.2, OQ-1): the toast is up for that window.
+        // Resume from the toast for its usual lifetime (as iOS); the lasting offer is the idle
+        // tile's Resume, for OQ-1's window (§3.2, §3.3). The tap re-checks the stop.
         toast({
           title: `Saved ${topic.name}: ${fmtDuration(total)}`,
           ...(runCtx
             ? {
-                duration: REOPEN_WINDOW_MS,
                 action: { label: 'Resume', onClick: reopenAfterStop(topic, run, item.id, runCtx) },
               }
             : {}),

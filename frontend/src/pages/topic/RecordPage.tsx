@@ -14,7 +14,7 @@ import {
   useRunContext,
   useTopicVersions,
 } from '../../components/runs/context';
-import { activeMs, REOPEN_WINDOW_MS } from '../../components/runs/model';
+import { activeMs } from '../../components/runs/model';
 import { RunDetailsForm } from '../../components/runs/RunDetailsForm';
 import { RunPanel, RunStart } from '../../components/runs/RunPanel';
 import { useReopenAfterStop, useReopenOffer } from '../../components/runs/reopen';
@@ -285,12 +285,12 @@ function TimedRecord({
             setParams({ finish: run.id, v: String(run.version) }, { replace: true });
             return;
           }
-          // Resume while the stop is resumable (OQ-1): the toast is up for that window.
+          // Resume from the toast for its usual lifetime (as iOS); the lasting offer is the Resume
+          // under Start and on the idle tile, for OQ-1's window. The tap re-checks the stop.
           toast({
             title: `Saved ${topic.name}: ${fmtDuration(totalMs)}`,
             ...(runCtx
               ? {
-                  duration: REOPEN_WINDOW_MS,
                   action: {
                     label: 'Resume',
                     onClick: reopenAfterStop(topic, run, item.id, runCtx),
