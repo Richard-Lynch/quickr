@@ -134,15 +134,20 @@ final class StatsUITests: XCTestCase {
     /// 5 entries" for its Monday and its count.
     @MainActor
     func testActivityStripLabels() {
+        let runs = [(1, 7), (3, 18), (8, 7), (15, 7), (22, 19)]
+        // The labels for the day the run starts and the day it ends: they differ only when it
+        // crosses local midnight, when the app shows one or the other.
+        let before = Self.weekLabels(runs: runs)
         let app = launch(open: "quickr://t/intervals", extra: ["-QuickrSeedTypedTopic"])
         let caption = element(app, "overview.activity.caption")
         XCTAssertTrue(caption.waitForExistence(timeout: 20))
-        XCTAssertEqual(caption.label, "5 entries in the last 12 weeks")
-        let expected = Self.weekLabels(runs: [(1, 7), (3, 18), (8, 7), (15, 7), (22, 19)])
-        XCTAssertEqual(expected.count, 12)
-        for (column, label) in expected.enumerated() {
-            XCTAssertEqual(element(app, "overview.activity.week.\(column)").label, label, "column \(column)")
-        }
+        // The strip follows the store, so it can show a smaller count until the feed is applied.
+        expectation(for: NSPredicate(format: "label == '5 entries in the last 12 weeks'"), evaluatedWith: caption)
+        waitForExpectations(timeout: 15)
+        let shown = (0..<12).map { element(app, "overview.activity.week.\($0)").label }
+        let after = Self.weekLabels(runs: runs)
+        XCTAssertEqual(before.count, 12)
+        XCTAssertTrue(shown == before || shown == after, "\(shown) is neither \(before) nor \(after)")
         XCTAssertFalse(element(app, "overview.activity.week.12").exists, "twelve columns")
     }
 
