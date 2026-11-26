@@ -17,6 +17,10 @@ import SwiftUI
 /// rows get a one-tap Remove beside them (`entry.timing.remove.<i>`,
 /// `entry.timing.pause.remove.<j>`; `EntryTimingModel.remove`) behind a confirmation, and a
 /// queued remove's re-projected timing shows "Waiting" (`entry.timing.pending`) until the ack.
+///
+/// At accessibility sizes a row stacks (#280): the label, its badge and its time each get the
+/// whole width, one under the other, and the Remove sits under them, where side by side they cut
+/// "Rest 1" to a couple of letters per line.
 struct EntryTimingSection: View {
     let timing: Timing?
     /// The steps' labels by key, for the skipped ones (a step skipped has no segment to name it);
@@ -29,6 +33,7 @@ struct EntryTimingSection: View {
     var editUnavailable: String?
     var actions: EntryActionsModel?
     @State private var confirming: EntryTimingModel.Remove?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         if let timing {
@@ -54,14 +59,15 @@ struct EntryTimingSection: View {
                         switch row {
                         case .segment(let index, let segment):
                             let badge = EntryTimingModel.lapTypeBadge(segment, lapTypes: lapTypes)
-                            HStack(spacing: 4) {
-                                HStack {
+                            rowLayout {
+                                segmentLayout {
                                     Text(segment.label).font(.qr(.body)).foregroundStyle(.qr.ink)
                                     if let badge { QuickrBadge(badge) }
-                                    Spacer()
+                                    if !stacked { Spacer() }
                                     RunDuration(ms: segment.activeMs).foregroundStyle(.qr.muted)
                                 }
-                                .frame(minHeight: QuickrMetrics.tapTarget)
+                                .frame(maxWidth: .infinity, minHeight: QuickrMetrics.tapTarget, alignment: .leading)
+                                .padding(.vertical, stacked ? 8 : 0)
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel(
                                     [
@@ -76,7 +82,7 @@ struct EntryTimingSection: View {
                             .padding(.horizontal, 14)
                         case .pause(let index, let pause):
                             let ms = pause.end - pause.start
-                            HStack(spacing: 4) {
+                            rowLayout {
                                 HStack {
                                     Text("Paused · \(DurationFormat.format(ms))")
                                         .font(.qr(.footnote))
@@ -127,6 +133,19 @@ struct EntryTimingSection: View {
                 Text(remove.message)
             }
         }
+    }
+
+    /// Accessibility sizes stack a row (#280).
+    private var stacked: Bool { typeSize.isAccessibilitySize }
+
+    /// A row's text, then its Remove: side by side, or the Remove under the text.
+    private var rowLayout: AnyLayout {
+        stacked ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 0)) : AnyLayout(HStackLayout(spacing: 4))
+    }
+
+    /// A lap's label, badge and time: one line, or one under the other.
+    private var segmentLayout: AnyLayout {
+        stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout())
     }
 
     /// The row's Remove, when it has one (the detail only): its own accessibility element, beside

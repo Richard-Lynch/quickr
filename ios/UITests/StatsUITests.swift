@@ -129,6 +129,34 @@ final class StatsUITests: XCTestCase {
         snap(app, "stats-5-laptypes")
     }
 
+    /// The lap-type cards at the largest accessibility size (#280): one card per row, each the
+    /// section's width (two side by side cut the median to "1:…" and wrapped "median" a few letters
+    /// a line), still read whole, and each passes the audit, clipped text included.
+    @MainActor
+    func testLapTypeCardsAtAccessibilityXXXL() throws {
+        let app = launch(
+            open: "quickr://t/intervals", extra: ["-QuickrSeedTypedTopic"] + AccessibilityLaunch.arguments())
+        XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
+        let run = element(app, "overview.timing.laptype.run")
+        let rest = element(app, "overview.timing.laptype.rest")
+        scrollTo(run, in: app)
+        XCTAssertTrue(run.waitForExistence(timeout: 10))
+        let width = app.windows.firstMatch.frame.width
+        for (card, parts) in [
+            (run, ["Run", "12 laps", "1:40", "median", "best 1:10 · mean 1:40"]),
+            (rest, ["Rest", "8 laps", "0:40", "median", "best 0:30 · mean 0:40"]),
+        ] {
+            bringIntoFullView([card], in: app)
+            for part in parts { XCTAssertTrue(card.label.contains(part), "\(part) in \(card.label)") }
+            XCTAssertGreaterThan(card.frame.width, width * 0.7, "\(card.identifier): one per row")
+            // Before the audit, which steps the text size and so moves the list.
+            if card == run { snap(app, "stats-6-laptypes-ax") }
+            try assertAccessible(app, allowing: StatsAccessibility.known, within: [card.frame])
+        }
+        XCTAssertGreaterThanOrEqual(rest.frame.minY, run.frame.maxY, "Rest under Run, the timer's order")
+        XCTAssertEqual(rest.frame.minX, run.frame.minX, accuracy: 1, "one column")
+    }
+
     /// The activity strip's columns (content-display.md §4.2) over Intervals' five runs
     /// (`FakeLapTypes.runs`): twelve Monday-started weeks, oldest left, each read as "Week of 3 Nov:
     /// 5 entries" for its Monday and its count.

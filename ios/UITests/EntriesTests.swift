@@ -165,6 +165,51 @@ final class EntriesTests: XCTestCase {
         XCTAssertFalse(find(app, "entry.timing.pause.remove.0").exists, "no Remove")
     }
 
+    /// The entry detail's timing rows at the largest accessibility size (#280): each lap row is one
+    /// element, its Remove under it rather than beside it (side by side they cut "Rest 1" to
+    /// "Re / st 1" and its badge to "R / es / t"); the pause row likewise. (A row's frame is its
+    /// content's bounds, not the width it's given, so the order is what's asserted.) Opened from
+    /// its row: a deep link to the detail can race the first sync (#236).
+    @MainActor
+    func testEntryDetailTimingAtAccessibilityXXXL() throws {
+        let app = launchTyped(AccessibilityLaunch.arguments())
+        let newest = find(app, Self.newest)
+        for _ in 0..<15 where !newest.isHittable { app.swipeUp() }
+        XCTAssertTrue(newest.isHittable, "the newest run's row, in view")
+        newest.tap()
+        let first = find(app, "entry.timing.segment.0")
+        XCTAssertTrue(first.waitForExistence(timeout: 20), "the newest run's timing")
+        // Run 1, Rest 1, Run 2, Rest 2, Run 3; every lap after the first has a Remove.
+        let labels = [
+            "Run 1, type Run", "Rest 1, type Rest", "Run 2, type Run", "Rest 2, type Rest", "Run 3, type Run",
+        ]
+        for (index, label) in labels.enumerated() {
+            let row = find(app, "entry.timing.segment.\(index)")
+            let remove = find(app, "entry.timing.remove.\(index)")
+            bringIntoFullView(index == 0 ? [row] : [row, remove], in: app)
+            XCTAssertTrue(row.label.hasPrefix(label), "\(label) in \(row.label)")
+            if index > 0 {
+                XCTAssertTrue(remove.exists, "\(label)'s Remove")
+                XCTAssertGreaterThanOrEqual(remove.frame.minY, row.frame.maxY - 1, "\(label)'s Remove is under it")
+            }
+            if index == 1 {
+                let shot = XCTAttachment(screenshot: app.screenshot())
+                shot.name = "entry-detail-timing-ax-xxxl"
+                shot.lifetime = .keepAlways
+                add(shot)
+            }
+        }
+        let pause = find(app, "entry.timing.pause.0")
+        let removePause = find(app, "entry.timing.pause.remove.0")
+        bringIntoFullView([pause, removePause], in: app)
+        XCTAssertEqual(pause.label, "Paused, 20 seconds")
+        XCTAssertTrue(removePause.exists, "the pause's Remove")
+        XCTAssertGreaterThanOrEqual(removePause.frame.minY, pause.frame.maxY - 1, "the pause's Remove is under it")
+        // Mid-list (a Form): what's tied to the rows (EntriesAccessibility.edit, AccessibilitySupport).
+        try assertAccessible(
+            app, types: .midList, allowing: EntriesAccessibility.edit, within: [pause.frame, removePause.frame])
+    }
+
     /// Device-only logs pin on top, in the order they were logged; the count says so.
     @MainActor
     func testUnsyncedEntriesPinAboveTheList() {
