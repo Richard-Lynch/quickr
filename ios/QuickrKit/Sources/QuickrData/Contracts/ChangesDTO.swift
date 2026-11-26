@@ -140,7 +140,7 @@ public enum FeedDeletionKindDTO: String, Codable, Sendable, Hashable, CaseIterab
     case entry, topic, version, run
 }
 
-/// `FeedDeletion`: a tombstone on a feed page.
+/// `FeedDeletion`: a deletion on a feed page (a `run` deletion means closed, sync-protocol.md F2).
 public struct FeedDeletionDTO: Codable, Sendable, Hashable, FeedRowDTO {
     static let knownKinds = Set(FeedDeletionKindDTO.allCases.map(\.rawValue))
 
@@ -149,9 +149,13 @@ public struct FeedDeletionDTO: Codable, Sendable, Hashable, FeedRowDTO {
     public var id: String
     public var topicId: String
     public var deletedAt: Date
+    /// A `run` deletion: the run's revision in the page's snapshot, the fence for its earlier
+    /// states; null for a topic cascade and other kinds (timers2.md §5.2). Decoded only: applying it
+    /// is I1-SYNC's.
+    @RequiredKey public var revision: Int?
 
     enum CodingKeys: String, CodingKey {
-        case kind, seq, id
+        case kind, seq, id, revision
         case topicId = "topic_id"
         case deletedAt = "deleted_at"
     }
