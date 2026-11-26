@@ -6,6 +6,7 @@ import {
   checkIcon,
   checkTags,
   glyphOf,
+  isBlankTag,
   topicStyle,
   type Appearance,
 } from './appearance';
@@ -240,6 +241,12 @@ describe('checkTags', () => {
     // The vectors' `loc` is `tags.{i}` for a tag and `tags` for the list (index -1 here).
     const index = expected.loc === 'tags' ? -1 : Number(expected.loc?.split('.')[1]);
     expect(r).toMatchObject({ ok: false, index });
+  });
+
+  it('keeps U+FEFF, which Python’s strip() does not remove', () => {
+    expect(isBlankTag('\u{FEFF}')).toBe(false);
+    expect(isBlankTag(' \u{A0}\u{1C} ')).toBe(true);
+    expect(checkTags(['\u{FEFF}'])).toEqual({ ok: true, value: ['\u{FEFF}'] });
   });
 
   it('takes the limits from the caller', () => {

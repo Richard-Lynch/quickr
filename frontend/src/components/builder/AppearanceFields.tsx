@@ -2,7 +2,13 @@ import { useId, useState, type KeyboardEvent } from 'react';
 import { useFormContext, useWatch, type FieldErrors } from 'react-hook-form';
 
 import { useLimits } from '../../api/limits';
-import { checkTags, COLOR_NAMES, topicStyle, type ColorName } from '../../lib/appearance';
+import {
+  checkTags,
+  COLOR_NAMES,
+  isBlankTag,
+  topicStyle,
+  type ColorName,
+} from '../../lib/appearance';
 import type { AppearanceDraft } from '../../lib/builder';
 import { appearanceLimitsOf } from '../../lib/topicAppearanceSeam';
 import { IconButton } from '../ui/Button';
@@ -233,7 +239,7 @@ function TagsField() {
     let next = tags;
     let taken = 0;
     for (const raw of parts) {
-      if (raw.trim() === '') {
+      if (isBlankTag(raw)) {
         taken++;
         continue;
       }
