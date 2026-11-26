@@ -189,6 +189,9 @@ describe('the run panel', () => {
     queued: [],
     steps: [],
     requires_answers: false,
+    laps: null,
+    resuming: false,
+    has_entry: false,
   };
   const noTaps: RunActions = {
     busy: false,
