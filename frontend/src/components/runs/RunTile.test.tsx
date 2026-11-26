@@ -128,14 +128,23 @@ describe('a run whose steps aren’t known here (T-PUSH: a reminder’s Start, n
     seedRun(s);
   };
 
-  it('the panel shows the clock, Next, Stop, Lap and Pause, but no step list and no Skip', async () => {
+  it('the panel shows the clock, Next, Stop and Pause, but no step list, no Lap and no Skip', async () => {
     h = renderRunApp('/t/morning/record', timedTopic(), unknownSteps);
-    const next = await screen.findByRole('button', { name: 'Next' });
+    // Steps unknown (active-surfaces.md §1.2 row 9): a plain Next primary, no Lap, no Skip.
+    const next = await screen.findByTestId('run-primary');
+    expect(next).toHaveAccessibleName('Next');
     await waitFor(() => expect(next).toBeEnabled());
-    expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Lap' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Stop Morning' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Pause' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Skip' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /^Lap/ })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'More' }));
+    const more = await screen.findByRole('list', { name: 'More run actions' });
+    expect(
+      within(more)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Discard run']);
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
     // The total clock runs (its screen-reader label is "Total").
     expect(screen.getByText('Total').parentElement).toHaveTextContent(/^Total 1:0\d$/);
     expect(screen.queryByText('Breakfast')).toBeNull();
