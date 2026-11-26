@@ -38,3 +38,15 @@ const PY_STRIP = new RegExp(`^[${PY_SPACE}]+|[${PY_SPACE}]+$`, 'g');
 export function serverStrip(s: string): string {
   return s.replace(PY_STRIP, '');
 }
+
+// Unicode White_Space: what pydantic's `str_strip_whitespace` (Rust's `str::trim`) removes from
+// every topic, question and timer string the server takes (`schemas/base.py::StrictModel`).
+// Unlike JS trim() it includes U+0085 and excludes U+FEFF; unlike Python's str.strip()
+// (`serverStrip`) it keeps U+001C–U+001F. iOS does the same (`BuilderText.strip`); see
+// shared/fixtures/builder-vectors.json (the `ws/` cases).
+const BUILDER_STRIP = /^\p{White_Space}+|\p{White_Space}+$/gu;
+
+/** A builder field as the server stores it (pydantic `str_strip_whitespace`). */
+export function builderStrip(s: string): string {
+  return s.replace(BUILDER_STRIP, '');
+}

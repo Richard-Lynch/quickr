@@ -466,6 +466,32 @@ describe('reopen and remove (timers2.md §5.3, §5.5)', () => {
     expect(await tapRun(deps, 'r1', CTX, 'remove')).toBeNull();
   });
 
+  it('a remove of a gap pause says whether it absorbed a user pause (P3-1)', async () => {
+    // Vector reopen-while-paused-ends-pause, open again: the gap s1 took over pause p1.
+    const absorbing = serverRun('r1', [
+      start,
+      ev('p1', 'pause', T0 + 30 * S),
+      ev('s1', 'stop', T0 + 60 * S),
+      ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+    ]);
+    const { deps } = setup([absorbing]);
+    const gap = await tapRun(deps, 'r1', CTX, 'remove', {}, { target: 's1' });
+    expect(gap?.payload.event).toMatchObject({ type: 'remove', target: 's1' });
+    expect(gap?.payload.gap).toEqual({ absorbs: 'p1' });
+    // A user pause's remove carries none.
+    const user = await tapRun(deps, 'r1', CTX, 'remove', {}, { target: 'p1' });
+    expect(user?.payload.gap).toBeUndefined();
+    // A plain gap (nothing paused at the stop) absorbs nothing.
+    const plain = serverRun('r1', [
+      start,
+      ev('s1', 'stop', T0 + 60 * S),
+      ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+    ]);
+    const other = setup([plain]);
+    const bare = await tapRun(other.deps, 'r1', CTX, 'remove', {}, { target: 's1' });
+    expect(bare?.payload.gap).toEqual({ absorbs: null });
+  });
+
   it("a remove from an entry names the timing's ids: a lap's event_id or a pause id", async () => {
     const { deps } = setup();
     const entry = entryOf(

@@ -123,6 +123,17 @@ public actor RunAlertScheduler {
         if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale) }
         let current = Dictionary(pending.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for request in desired where !(current[request.id].map { Self.matches($0, request) } ?? false) {
+            // M1-REVIEW P2-2: one that came due during the pass (planned ahead of `now`) was
+            // delivered meanwhile, or is past: added now, it would fire (again) about 1 s late.
+            // The clock is read right before each add, as an earlier add may have suspended. Not a
+            // window ahead of it: an alert planned less than a second out is still to schedule.
+            // A pending one it would have replaced goes: its new time has passed.
+            if let fireAt = request.fireAt, fireAt <= now() {
+                if current[request.id] != nil {
+                    center.removePendingNotificationRequests(withIdentifiers: [request.id])
+                }
+                continue
+            }
             // Same identifier: the system replaces the pending request.
             try? await center.add(request)
         }

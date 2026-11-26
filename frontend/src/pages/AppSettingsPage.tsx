@@ -5,6 +5,7 @@ import { Page, TopBar } from '../components/AppShell';
 import { IosInstallSteps } from '../components/pwa/InstallHint';
 import { OutboxPanel } from '../components/pwa/Sync';
 import { getRegistration, subscribeRegistration } from '../components/pwa/swRegistration';
+import { setAlertsMuted, useAlertsMuted } from '../components/runs/useRunAudio';
 import { Button } from '../components/ui/Button';
 import { Badge, Card, SectionTitle } from '../components/ui/Card';
 import { Icon } from '../components/ui/Icon';
@@ -59,6 +60,7 @@ export function AppSettingsPage() {
       <Page className="mx-auto max-w-2xl gap-4">
         <InstallSection />
         <NotificationsSection />
+        <AlertsSection />
         <SyncSection />
         <AboutSection />
         <StorageSection />
@@ -256,6 +258,24 @@ function NotificationsSection() {
           ) : null}
         </>
       )}
+    </Section>
+  );
+}
+
+/** Run alerts' global mute (timers2.md §9.2): the toast stays, the tone and vibration go. */
+function AlertsSection() {
+  const muted = useAlertsMuted();
+  return (
+    <Section
+      title="Timer alerts"
+      icon="timer"
+      aside={<Switch label="Mute alerts" checked={muted} onChange={setAlertsMuted} />}
+    >
+      <p className="text-sm text-muted">
+        {muted
+          ? 'Muted: a timer’s alerts show a message only, with no sound or vibration.'
+          : 'While quickR is open, a timer’s alerts show a message, play a short tone and vibrate where the device can. Mute to keep only the message.'}
+      </p>
     </Section>
   );
 }

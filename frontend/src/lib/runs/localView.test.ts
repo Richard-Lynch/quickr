@@ -402,6 +402,25 @@ describe('review fixes', () => {
       expect(run?.state.effects.s1).toEqual({ effect: 'void', reason: 'too_long' });
     });
 
+    it('a pause or lap more than 7 days after the start is void too_long, as the fold (P3-2)', () => {
+      const late = T0 + 8 * 24 * 3600 * S;
+      for (const item of [
+        blind(runItem('pause', { id: 'p1', run: 'r1', at: late })),
+        blind(runItem('lap', { id: 'l1', run: 'r1', at: late, seg: 1 })),
+      ]) {
+        const [run] = localRuns([server], [item]);
+        expect(run?.status).toBe('running');
+        expect(run?.state.effects[item.id]).toEqual({ effect: 'void', reason: 'too_long' });
+        expect(run?.state.open?.index).toBe(1);
+      }
+      // A tap before the start is before_start, as the fold has it.
+      const early = blind(runItem('pause', { id: 'p0', run: 'r1', at: T0 - S }));
+      expect(localRuns([server], [early])[0]?.state.effects.p0).toEqual({
+        effect: 'void',
+        reason: 'before_start',
+      });
+    });
+
     it('a tap the server lists already isn’t applied twice', () => {
       const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
       const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));
@@ -549,6 +568,29 @@ describe('reopen and remove in the local view (timers2.md §5.3)', () => {
       const runs = localRuns([server], [discard]);
       expect(runs[0]?.status).toBe('discarded');
       expect(optimisticEntries(runs)).toEqual([]);
+    });
+
+    it('reopen → revert → reopen again is running (vector reopen-revert-then-reopen-again)', () => {
+      // start, next, stop s1, reopen o1→s1, discard (revert), reopen o2→s1: o1 stays void
+      // `reverted`, but the run is open again.
+      const o1 = ev('o1', 'reopen', T0 + 120 * S, { target: 's1' });
+      const d1 = ev('d1', 'discard', T0 + 130 * S);
+      const o2 = ev('o2', 'reopen', T0 + 140 * S, { target: 's1' });
+      const check = (runs: ReturnType<typeof localRuns>) => {
+        expect(runs[0]?.status).toBe('running');
+        expect(runs[0]?.state.status).toBe('running');
+        expect(openRunOf(runs, 'topic-1')?.id).toBe('r1');
+        expect([...hiddenEntryIds(runs)]).toEqual(['r1']);
+        expect([...openRunTopics(runs)]).toEqual(['topic-1']);
+      };
+      // All on the server (the reopens done on another device), nothing queued here.
+      check(localRuns([serverRun('r1', [start, next, stop, o1, d1, o2])], []));
+      // The second reopen queued here, on the server's reverted run.
+      check(localRuns([serverRun('r1', [start, next, stop, o1, d1])], [q(o2)]));
+      // All queued here.
+      check(
+        localRuns([], [q(start), q(next), q(stop, { makes_entry: true }), q(o1), q(d1), q(o2)]),
+      );
     });
 
     it('with the reopen still queued on a finishing server run: discarded too', () => {
@@ -701,6 +743,76 @@ describe('reopen and remove in the local view (timers2.md §5.3)', () => {
         TIKTOK,
       );
       expect(timing).toEqual(folded.timing);
+    });
+
+    it('remove → reopen offline: the resuming run has the queued remove applied (P2-5)', () => {
+      const events = [
+        start,
+        ev('p1', 'pause', T0 + 10 * S),
+        ev('u1', 'resume', T0 + 30 * S, { pause_id: 'p1' }),
+        next,
+        stop,
+      ];
+      const paused = entryOf('r1', events);
+      const remove = q(ev('x1', 'remove', T0 + 100 * S, { target: 'p1' }), {
+        entry: entryPayload(paused),
+      });
+      const reopenEv = ev('o1', 'reopen', T0 + 120 * S, { target: 's1' });
+      const reopen = q(reopenEv, { entry: entryPayload(paused) });
+      const [run] = localRuns([], [remove, reopen]);
+      expect(run).toMatchObject({ status: 'running', resuming: true });
+      // What the server's fold makes of the same events.
+      const folded = serverRun('r1', [
+        ...events,
+        ev('x1', 'remove', T0 + 100 * S, { target: 'p1' }),
+        reopenEv,
+      ]);
+      const want = folded.state;
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: 's1' }]);
+      expect(run?.state.segments.map((x) => [x.label, x.active_ms, x.paused_ms])).toEqual(
+        want.segments.map((x) => [x.label, x.active_ms, x.paused_ms]),
+      );
+      expect(run?.state.open?.started_at).toBe(T0 + 60 * S);
+      // A remove queued after the reopen (none is offered while resuming) isn't applied early.
+      const [later] = localRuns(
+        [],
+        [reopen, { ...remove, created_at: new Date(T0 + 200 * S).toISOString() }],
+      );
+      expect(later?.state.pauses).toHaveLength(2);
+    });
+
+    it('a removed gap pause that absorbed a user pause keeps it, under the user pause id (P3-1)', () => {
+      // Vector reopen-while-paused-ends-pause: the gap s1 took over p1 (0:30–1:30); with s1
+      // removed, p1 runs on to the reopen under its own id.
+      const events = [
+        start,
+        ev('p1', 'pause', T0 + 30 * S),
+        ev('s1', 'stop', T0 + 60 * S),
+        ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+        ev('u1', 'resume', T0 + 100 * S, { pause_id: 'p1' }),
+        ev('s2', 'stop', T0 + 120 * S),
+      ];
+      const stopped = entryOf('r1', events);
+      expect(stopped.timing.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 90 * S, id: 's1' }]);
+      const removed = ev('x1', 'remove', T0 + 150 * S, { target: 's1' });
+      const want = entryOf('r1', [...events, removed]).timing;
+      expect(want.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 90 * S, id: 'p1' }]);
+      const remove = q(removed, { entry: entryPayload(stopped) });
+      remove.payload.gap = { absorbs: 'p1' };
+      expect(projectedEntryTiming(stopped, [remove])).toEqual({ timing: want, pending: true });
+      // A gap that absorbed nothing goes, its time active.
+      const plainEvents = [
+        start,
+        ev('s1', 'stop', T0 + 60 * S),
+        ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+        ev('s2', 'stop', T0 + 120 * S),
+      ];
+      const plain = entryOf('r1', plainEvents);
+      const plainRemove = q(removed, { entry: entryPayload(plain) });
+      plainRemove.payload.gap = { absorbs: null };
+      expect(projectedEntryTiming(plain, [plainRemove]).timing).toEqual(
+        entryOf('r1', [...plainEvents, removed]).timing,
+      );
     });
 
     it('only pending removes of that entry count; a failed one shows no mark', () => {

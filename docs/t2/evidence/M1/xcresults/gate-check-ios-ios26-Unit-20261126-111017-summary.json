@@ -1,0 +1,57 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "37467AE0-F858-45C0-BA28-431CF163C24C",
+        "deviceName" : "quickR iOS-26-0 t2-m1-gate-f08e14",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 6124,
+      "skippedTests" : 28,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "Unit · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1795691473.263,
+  "passedTests" : 1570,
+  "result" : "Passed",
+  "runtimeWarnings" : [
+
+  ],
+  "skippedTests" : 28,
+  "startTime" : 1795691424.094,
+  "statistics" : [
+    {
+      "subtitle" : "4659 test runs",
+      "title" : "105 tests ran with dynamic parameters"
+    }
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "15% of duration",
+      "text" : "80 longest test runs with outlier durations exceeding 9.39s (three standard deviations)"
+    },
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "10% of duration",
+      "text" : "3 longest test runs with outlier durations exceeding 0.95s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 1598
+}

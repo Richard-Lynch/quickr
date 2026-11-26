@@ -1,0 +1,5 @@
+- **P3 — The refactor moves the interval’s reference time earlier.** [SystemNotificationCenter.swift:50](/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/QuickrKit/Sources/QuickrData/Notifications/SystemNotificationCenter.swift:50) now captures `Date()` before constructing and encoding the notification content. Previously, it captured `Date()` immediately before building the trigger. An interval notification is therefore scheduled later by the time spent preparing that content, so the refactor does not preserve `add()`’s timing exactly. Capture the time at the original point in request construction to preserve it.
+
+The three round-1 findings are resolved: both remote-write tests now wait for the relevant fake-server state, and the media test handles an already-authorized simulator. The R23 test checks the specified interval trigger and interruption level. Aside from the timing change above, the request mapping is preserved.
+
+This was a static review; I did not run the simulator tests.

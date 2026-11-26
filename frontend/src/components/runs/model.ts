@@ -6,13 +6,23 @@
  */
 import type { EntryOut } from '../../client';
 import type { TapExpect } from '../../lib/runs/actions';
+import { fmtDuration } from '../../lib/runs/format';
+import { parseInstant } from '../../lib/runs/instant';
 import {
+  isOpen,
   openPauseId,
   optimisticEntries,
   type LocalRun,
   type OptimisticEntry,
 } from '../../lib/runs/localView';
-import type { Pause, RunState, RunStatus, Timer, TimerStep } from '../../lib/runs/types';
+import type {
+  Pause,
+  RunState,
+  RunStatus,
+  Timer,
+  TimerAlert,
+  TimerStep,
+} from '../../lib/runs/types';
 
 /** The time inside [from, to] covered by `pauses` and the open pause (since `pausedSince`). */
 function pausedWithin(
@@ -73,7 +83,7 @@ export interface RunAction {
 /** The headline of an open run (active-surfaces.md §1.1): its text and the compact counter. */
 export interface Headline {
   text: string;
-  /** "L4" while a lap is open; null until `RunState.lap_count` exists (T2-M1: F1-CORE). */
+  /** "L4" while a lap is open (its number in the run), for compact surfaces; else null. */
   counter: string | null;
 }
 
@@ -92,20 +102,23 @@ const action = (kind: RunActionKind, role: RunActionRole): RunAction => ({
 
 /**
  * The run's actions in display order: the primary first, then secondaries, then overflow,
- * destructive last (active-surfaces.md §1.1). The on-screen primary rule (timers2.md §10):
- * Lap when the open segment is a lap or no named step remains, else Next with the step it
- * opens; Stop is never primary. `timer === null` (steps unknown) is the v1 fallback:
+ * destructive last (active-surfaces.md §1.1, §1.2). The on-screen primary rule (timers2.md
+ * §10): Lap when the open segment is a lap or no named step remains, labelled with the lap it
+ * opens when the timer has lap types (`next_lap_type`: "Lap → Rest"), else Next with the step
+ * it opens; Stop is never primary. `timer === null` (steps unknown) is the v1 fallback:
  * `next` with an empty label, which §1.3 renders as a plain "Next", and no `skip`, no `lap`.
  *
- * A closed run (`stopped`/`discarded`) is idle (rows 1–3): `start` (primary). A stopped run
- * with a `terminal_id` also offers `reopen` (secondary) within `REOPEN_WINDOW_MS` of its stop
- * (row 13); the store-level rules (unedited, latest stop, no other open run) are `resumable`'s
- * and the surface's. A topic with no run doesn't call this.
+ * - An open run reached by a reopen (`state.reopen_id`) offers `revert` instead of `discard`
+ *   (row 10).
+ * - A closed run (`stopped`/`discarded`) is idle (rows 1–3): `start` (primary). A stopped run
+ *   with a `terminal_id` also offers `reopen` (secondary) within `REOPEN_WINDOW_MS` of its
+ *   stop (row 13); the store-level rules (unedited, latest stop, no other open run) are
+ *   `resumable`'s and the surface's. A topic with no run doesn't call this.
+ * - A finishing run: `addDetails`, `discard` (row 12).
  *
- * T2-M1 stub half: `lap.nextTypeLabel` is null until `RunState.next_lap_type` is read here
- * (F1-CORE); `revert` is never returned until `RunState` carries the reopen (F1-OUTBOX);
- * row 14 (busy: every `enabled === false`) waits for a cooldown notion in `RunStatus`
- * (F1-OUTBOX).
+ * Not expressible here: rows 11 (a queued reopen's "resuming" run shows no controls) and 14
+ * (busy: every `enabled === false`); the surface applies both. iOS:
+ * `RunPresentation.actions(_:status:timer:now:)`.
  */
 // Verbatim from timers2.md §10 (A13): state + status, never a LocalRun.
 export function actions(
@@ -144,7 +157,7 @@ export function actions(
     steps === null
       ? action({ type: 'next', label: '' }, 'primary')
       : open?.kind === 'lap' || nextLabel === null
-        ? action({ type: 'lap', nextTypeLabel: null }, 'primary')
+        ? action({ type: 'lap', nextTypeLabel: nextTypeLabel(state, timer) }, 'primary')
         : action({ type: 'next', label: nextLabel }, 'primary');
   const out = [
     primary,
@@ -153,38 +166,160 @@ export function actions(
   ];
   const skip = skipTarget({ state }, steps);
   if (skip) out.push(action({ type: 'skip', label: skip.label }, 'overflow'));
-  out.push(action({ type: 'discard' }, 'destructive'));
+  out.push(action({ type: state.reopen_id != null ? 'revert' : 'discard' }, 'destructive'));
   return out;
 }
 
+/** The label of the lap type a `lap` tap would open now; null when laps are untyped. */
+function nextTypeLabel(state: RunState, timer: Timer | null): string | null {
+  const key = state.next_lap_type;
+  if (key === null) return null;
+  return timer?.laps?.find((l) => l.key === key)?.label ?? null;
+}
+
 /**
- * The open segment's label with its counter. T2-M1 stub half: the bare `open.label`
- * ("Shower", "Lap 3") and no counter until `RunState.lap_count`/`next_lap_type` exist
- * (F1-CORE); "Running"/"Paused" when nothing is open.
+ * The open segment's label with its counter (active-surfaces.md §1.1):
+ *
+ * - a typed lap: "{label} · lap {n}" ("Rest 2 · lap 4"), counter "L{n}", where n is the lap's
+ *   number in the run (`lap_count + 1`);
+ * - an untyped lap: its label ("Lap 3"), counter "L3";
+ * - a step: "{label} · {position} of {count}" over the timer's steps ("Shower · 2 of 5"), no
+ *   counter; the bare label when the timer isn't known or lacks the step;
+ * - nothing open: "Running", or "Paused" while `status` is paused.
+ *
+ * iOS: `RunPresentation.headline(_:status:timer:)`.
  */
 export function headline(state: RunState, status: RunStatus, timer: Timer | null): Headline {
-  // eslint-disable-next-line @typescript-eslint/no-meaningless-void-operator -- reserved for v2 state (T2-M1 stub half)
-  void timer; // lap types label the headline once `RunState.next_lap_type` exists
-  if (state.open) return { text: state.open.label, counter: null };
-  return { text: status === 'paused' ? 'Paused' : 'Running', counter: null };
+  const open = state.open;
+  if (!open) return { text: status === 'paused' ? 'Paused' : 'Running', counter: null };
+  if (open.kind === 'lap') {
+    const n = state.lap_count + 1;
+    const text = open.lap_type !== null ? `${open.label} · lap ${String(n)}` : open.label;
+    return { text, counter: `L${String(n)}` };
+  }
+  const steps = timer?.steps;
+  const index = steps?.findIndex((x) => x.key === open.step) ?? -1;
+  if (!steps || index < 0) return { text: open.label, counter: null };
+  return { text: `${open.label} · ${String(index + 1)} of ${String(steps.length)}`, counter: null };
 }
 
-/** The next alert's label and countdown. T2-M1 stub half: null until F1-CORE's alerts land. */
-export function alertLine(state: RunState, timer: Timer | null, now: number): string | null {
-  // eslint-disable-next-line @typescript-eslint/no-meaningless-void-operator -- reserved for v2 state (T2-M1 stub half)
-  void [state, timer, now];
-  return null;
+/** The alerts of the open segment's step or lap type (an untyped lap has none). */
+function openAlerts(state: RunState, timer: Timer): readonly TimerAlert[] {
+  const open = state.open;
+  if (!open) return [];
+  if (open.kind === 'step') return timer.steps.find((x) => x.key === open.step)?.alerts ?? [];
+  if (open.lap_type === null) return [];
+  return timer.laps?.find((l) => l.key === open.lap_type)?.alerts ?? [];
 }
 
 /**
- * Whether the entry's run can be reopened (active-surfaces.md OQ-1: an unedited timed entry
- * of the latest stop, within 15 minutes). T2-M1 stub half: false until `Timing.terminal_id`
- * exists (F1-CORE).
+ * The next alert of the open segment and its countdown: "Half way · in 0:12"
+ * (active-surfaces.md §1.1). The alerts are the open step's or lap type's (timers2.md §1.1),
+ * in `at_ms` order then position; the next is the first whose `at_ms` is beyond the segment's
+ * active time now (paused time doesn't count). Null while paused, when nothing is open, when
+ * the timer isn't known, or when none remain. The countdown is `fmtDuration` (truncated).
+ * iOS: `RunPresentation.alertLine(_:timer:now:)`.
  */
-export function resumable(entry: EntryOut, now: number): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-meaningless-void-operator -- reserved for v2 state (T2-M1 stub half)
-  void [entry, now];
-  return false;
+export function alertLine(state: RunState, timer: Timer | null, now: number): string | null {
+  if (!state.open || state.paused_since !== null || !timer) return null;
+  const active = segmentMs(state, now);
+  let next: { at: number; label: string } | null = null;
+  for (const alert of openAlerts(state, timer)) {
+    const at = alert.at_ms;
+    if (at === undefined || at <= active) continue;
+    if (next === null || at < next.at) next = { at, label: alert.label };
+  }
+  return next === null ? null : `${next.label} · in ${fmtDuration(next.at - active)}`;
+}
+
+/**
+ * OQ-1: from the entry detail, a run can be reopened within 7 days of its start (timers2.md
+ * glossary, "Resumable"; content-display.md §3.2). iOS: `RunPresentation.entryReopenWindowMs`.
+ */
+export const ENTRY_REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The entry's timing instants and edited flag, or null for an untimed entry. */
+function timingOf(entry: Pick<EntryOut, 'timing'>): {
+  started_at: number;
+  ended_at: number;
+  edited: boolean;
+} | null {
+  const t = entry.timing;
+  if (!t) return null;
+  return {
+    started_at: parseInstant(t.started_at),
+    ended_at: parseInstant(t.ended_at),
+    edited: t.edited,
+  };
+}
+
+/**
+ * The entry's half of "resumable" (timers2.md glossary, OQ-1) on tiles, toasts and the run
+ * screen: a timed entry whose times are unedited (`timing.edited === false`, i.e.
+ * `run.edited === false`; answers, notes and meta changes don't count), within
+ * `REOPEN_WINDOW_MS` of its stop. A pre-v2 timing (no `terminal_id`) qualifies: its Resume
+ * sends `target: null` (A12). The view's half (the topic's latest stop, no locally open run:
+ * A15) is `resumableInView`, which surfaces call; the entry alone can't tell.
+ * iOS: `RunPresentation.resumable(_:now:)`.
+ */
+export function resumable(entry: Pick<EntryOut, 'timing'>, now: number): boolean {
+  const t = timingOf(entry);
+  if (!t || t.edited) return false;
+  return now - t.ended_at <= REOPEN_WINDOW_MS;
+}
+
+/**
+ * `resumable` from the entry detail (OQ-1, content-display.md §3.2): unedited, within
+ * `ENTRY_REOPEN_WINDOW_MS` of the run's start. The detail hides Resume while the topic has a
+ * locally open or finishing run (A15) and while the entry is pending; that is the page's.
+ * iOS: `RunPresentation.resumableFromDetail(_:now:)`.
+ */
+export function resumableFromDetail(entry: Pick<EntryOut, 'timing'>, now: number): boolean {
+  const t = timingOf(entry);
+  if (!t || t.edited) return false;
+  return now - t.started_at <= ENTRY_REOPEN_WINDOW_MS;
+}
+
+/**
+ * Whether the entry's run is offered "Resume run" on tiles, toasts and the run screen
+ * (timers2.md glossary, OQ-1, A15): `resumable` (an unedited timed entry within 15 minutes of
+ * its stop), the entry is the topic's latest stop (no later timed entry in `entries`, and no
+ * later stop of a run in the view: a finishing run has no entry yet), and the topic has no
+ * locally open run (a reopen would be refused with 409 `conflict`), the entry's own run
+ * included (already reopened here). A later stop on the same instant is broken by id, as
+ * iOS does; ids compare case-insensitively. `entries` are the ones this device has for the topic (others are ignored).
+ * iOS: `RunOverlay.resumable(_:entryId:now:)`.
+ */
+export function resumableInView(
+  entry: Pick<EntryOut, 'id' | 'topic_id' | 'timing'>,
+  entries: readonly Pick<EntryOut, 'id' | 'topic_id' | 'timing'>[],
+  runs: readonly LocalRun[],
+  now: number,
+): boolean {
+  const end = timingOf(entry)?.ended_at;
+  if (end === undefined || !resumable(entry, now)) return false;
+  const id = entry.id.toLowerCase();
+  const topicId = entry.topic_id.toLowerCase();
+  const topicRuns = runs.filter((r) => r.topic_id.toLowerCase() === topicId);
+  const answers = (r: LocalRun) => r.id === id || r.aliases.includes(id);
+  if (topicRuns.some((r) => isOpen(r) || (answers(r) && r.status === 'finishing'))) return false;
+  const later = (otherId: string, otherEnd: number) =>
+    otherEnd > end || (otherEnd === end && otherId.toLowerCase() > id);
+  if (
+    topicRuns.some(
+      (r) =>
+        !answers(r) &&
+        r.status !== 'discarded' &&
+        r.state.ended_at !== null &&
+        later(r.id, r.state.ended_at),
+    )
+  )
+    return false;
+  return !entries.some((e) => {
+    if (e.topic_id.toLowerCase() !== topicId || e.id.toLowerCase() === id) return false;
+    const otherEnd = timingOf(e)?.ended_at;
+    return otherEnd !== undefined && later(e.id, otherEnd);
+  });
 }
 
 /** Convenience over `actions`: the primary, for the tile and the running bar; null when the run isn't open. */

@@ -97,6 +97,15 @@ extension AppEnvironment {
         }
     }
 
+    /// M1-REVIEW P1-2: reschedules the run alerts from `store` once, after a write made outside
+    /// `RootView` (a Live Activity button or a run intent: iOS runs them in a background launch,
+    /// or wakes the suspended app just for them, so `observeRunsForAlerts` isn't running). Call it
+    /// while the store hold is still held, beside the Live Activity's reconcile.
+    func rescheduleRunAlerts(_ store: LocalStore, session: AppSession) async {
+        guard let input = try? await store.runAlertInput() else { return }
+        await runAlertScheduler(session).reconcile(input)
+    }
+
     /// `willPresent` of a run alert (`quickr.kind = alert`).
     func runAlertPresented(_ info: QuickrNotificationInfo) {
         runAlerts.present(info)

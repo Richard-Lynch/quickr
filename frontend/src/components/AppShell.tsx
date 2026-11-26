@@ -4,6 +4,7 @@ import { isRouteErrorResponse, Link, Outlet, useNavigate, useRouteError } from '
 import { errorMessage } from '../api/errors';
 import { useRuns } from '../lib/runs/useRuns';
 import { SyncIndicator } from './pwa/Sync';
+import { RunAlerts } from './runs/RunAlerts'; // T2-M1 F1-ALERTS
 import { RunningBar } from './runs/RunningBar';
 import { RunNotices } from './runs/RunNotices';
 import { ButtonLink, IconButton } from './ui/Button';
@@ -56,6 +57,7 @@ export function AppShell() {
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]">
       <Outlet />
       <RunNotices />
+      <RunAlerts /* T2-M1 F1-ALERTS: run alerts while open (timers2.md §9.2) */ />
     </div>
   );
 }

@@ -1284,6 +1284,16 @@ class RunState(StrictModel):
     )
     lap_count: int = Field(default=0, description="Closed lap segments.")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _lap_count_before_fold_v4(cls, data: Any) -> Any:
+        """A state stored before fold v4 has no ``lap_count``: count its closed lap segments."""
+        if isinstance(data, dict) and data.get("lap_count") is None:
+            segments = data.get("segments") or []
+            laps = sum(1 for s in segments if isinstance(s, dict) and s.get("kind") == "lap")
+            data = {**data, "lap_count": laps}
+        return data
+
 
 class RunOut(StrictModel):
     """A run in any status, with every event and its current effect."""
