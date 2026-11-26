@@ -1,0 +1,168 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "5FBAEBF7-96A7-4032-A8C4-DEC381D4C6D2",
+   "deviceName": "quickR iOS-26-0 t2-m1-writes-ios-6942b6",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "23A343",
+   "osVersion": "26.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "durationInSeconds": 45.16571497917175,
+         "name": "testAConflictLoadsTheLatestVersion()",
+         "nodeIdentifier": "BuilderUITests/testAConflictLoadsTheLatestVersion()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 86.10600507259369,
+         "name": "testANewQuestionsFieldsAtTheLargestTextSize()",
+         "nodeIdentifier": "BuilderUITests/testANewQuestionsFieldsAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 37.67230796813965,
+         "name": "testBuilderAtTheLargestTextSize()",
+         "nodeIdentifier": "BuilderUITests/testBuilderAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 43.7745920419693,
+         "name": "testEditQuestionsPublishesV2()",
+         "nodeIdentifier": "BuilderUITests/testEditQuestionsPublishesV2()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 42.77221095561981,
+         "name": "testKeepingTheDraftAfterAConflict()",
+         "nodeIdentifier": "BuilderUITests/testKeepingTheDraftAfterAConflict()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 57.25492799282074,
+         "name": "testPreviewAndCollapse()",
+         "nodeIdentifier": "BuilderUITests/testPreviewAndCollapse()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 12.665549039840698,
+         "name": "testVersionsAtTheLargestTextSize()",
+         "nodeIdentifier": "BuilderUITests/testVersionsAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 10.713083982467651,
+         "name": "testVersionsTab()",
+         "nodeIdentifier": "BuilderUITests/testVersionsTab()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "BuilderUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 41.010712027549744,
+         "name": "testStartNextNextSkipPauseResumeStopAnswerSave()",
+         "nodeIdentifier": "RunUITests/testStartNextNextSkipPauseResumeStopAnswerSave()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "RunUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 16.35812199115753,
+         "name": "testAChipLogsInOneTapAndUndoRemovesTheEntry()",
+         "nodeIdentifier": "TileUITests/testAChipLogsInOneTapAndUndoRemovesTheEntry()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 8.057897090911865,
+         "name": "testOnlyQuickLogTopicsGetControls()",
+         "nodeIdentifier": "TileUITests/testOnlyQuickLogTopicsGetControls()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 8.849788069725037,
+         "name": "testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap()",
+         "nodeIdentifier": "TileUITests/testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 18.854619026184082,
+         "name": "testTilesWorkAtAnAccessibilityTextSize()",
+         "nodeIdentifier": "TileUITests/testTilesWorkAtAnAccessibilityTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "TileUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 25.26722800731659,
+         "name": "testEditTimesThenTheStatsShowTheNewMedian()",
+         "nodeIdentifier": "TimingUITests/testEditTimesThenTheStatsShowTheNewMedian()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 38.400848031044006,
+         "name": "testPublishingATimedTopic()",
+         "nodeIdentifier": "TimingUITests/testPublishingATimedTopic()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "TimingUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      }
+     ],
+     "name": "QuickRUITests",
+     "nodeType": "UI test bundle",
+     "result": "Passed"
+    }
+   ],
+   "name": "UI",
+   "nodeType": "Test Plan",
+   "result": "Passed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}

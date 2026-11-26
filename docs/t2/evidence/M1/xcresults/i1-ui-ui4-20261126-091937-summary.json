@@ -1,0 +1,76 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "45A3C7C5-4EB9-4F77-B85F-86FB876A836B",
+        "deviceName" : "quickR iOS-26-0 t2-m1-ui-ios-8a9778",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 4,
+      "passedTests" : 0,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 4,
+  "finishTime" : 1795684881.112,
+  "passedTests" : 0,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795684781.699,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertTrue failed - no lap types yet",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 1,
+      "testIdentifierString" : "BuilderUITests/testPublishingATimerV2Topic()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testPublishingATimerV2Topic",
+      "testName" : "testPublishingATimerV2Topic()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 2,
+      "testIdentifierString" : "RunUITests/testRemoteRemoveRenumbersLaps()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRemoteRemoveRenumbersLaps",
+      "testName" : "testRemoteRemoveRenumbersLaps()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 3,
+      "testIdentifierString" : "RunUITests/testRunComesBackAfterRemoteReopen()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunComesBackAfterRemoteReopen",
+      "testName" : "testRunComesBackAfterRemoteReopen()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 4,
+      "testIdentifierString" : "RunUITests/testTikTokLapLabels()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testTikTokLapLabels",
+      "testName" : "testTikTokLapLabels()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 4
+}
