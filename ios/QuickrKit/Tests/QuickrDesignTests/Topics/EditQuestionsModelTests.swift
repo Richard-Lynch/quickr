@@ -444,8 +444,8 @@ final class FakeVersionWriter: VersionWriter {
 
     init() {
         model = EditQuestionsModel(
-            topic: EditQuestionsModelTests.topic, timer: Self.timer, stepHistory: Self.history, writer: writer,
-            toasts: toasts)
+            topic: EditQuestionsModelTests.topic, timer: Self.timer, history: TimerHistory(steps: Self.history),
+            writer: writer, toasts: toasts)
     }
 
     @Test func opensWithThePublishedStepsLocked() {
@@ -569,6 +569,132 @@ final class FakeVersionWriter: VersionWriter {
         await model.reviewChanges()
         let error = model.draftErrors[.step(1, .key)]
         #expect(error == "Duplicate key")
+    }
+}
+
+/// Timer v2 in the question editor (timers2.md §1.6): lap types, variables and alerts are
+/// edited, reviewed ("Timing" lists their changes) and published normalised.
+@MainActor @Suite struct EditQuestionsTimerV2Tests {
+    static let timer = TopicTimer(
+        steps: [.init(key: "warm", label: "Warm up")],
+        laps: [
+            .init(key: "run", label: "Run", alerts: [.init(key: "half", label: "Half", at: "t/2", atMs: 30_000)]),
+            .init(key: "rest", label: "Rest"),
+        ],
+        variables: [.init(name: "t", ms: 60_000)])
+    static let history = TimerHistory(
+        steps: [HistoricStep(key: "warm", label: "Warm up")],
+        laps: [HistoricStep(key: "jog", label: "Jog"), HistoricStep(key: "run", label: "Run")])
+
+    let writer = FakeVersionWriter(
+        server: EditQuestionsModelTests.topic, report: EditQuestionsTimerTests.noQuestionChanges)
+    let toasts = ToastCenter(sleep: { _ in try await Task.sleep(for: .seconds(3600)) })
+    let model: EditQuestionsModel
+
+    init() {
+        model = EditQuestionsModel(
+            topic: EditQuestionsModelTests.topic, timer: Self.timer, history: Self.history, writer: writer,
+            toasts: toasts)
+    }
+
+    @Test func opensWithThePublishedLapTypesAlertsAndVariables() {
+        #expect(model.draft.laps.map(\.key) == ["run", "rest"])
+        #expect(model.draft.laps.allSatisfy(\.locked))
+        #expect(model.draft.laps[0].alerts.map(\.at) == ["t/2"])
+        #expect(model.draft.variables.map(\.name) == ["t"])
+        #expect(!model.hasUnsavedChanges)
+    }
+
+    /// I1-BUILDER acceptance: `Review.timerChanges` lists a renamed lap type, an added variable
+    /// and a changed alert.
+    @Test func theReviewListsARenamedLapTypeAnAddedVariableAndAChangedAlert() async throws {
+        let run = model.draft.laps[0]
+        model.setLapTypeLabel(run.id, "Jog")
+        #expect(model.draft.laps[0].key == "run", "a published lap type keeps its key")
+        let variable = model.addVariable()
+        model.draft.setVariableName(try #require(variable), "rest")
+        model.draft.setVariableDuration(try #require(variable), "0:30")
+        model.draft.setAlertAt(.lapType(run.id), run.alerts[0].id, "t/3")
+        await model.reviewChanges()
+        let changes: [String]? = model.review?.timerChanges
+        #expect(
+            changes == [
+                "Lap type renamed: Run → Jog", "Variable added: rest = 0:30", "Alert changed: Jog · Half, t/2 → t/3",
+            ])
+        let sent: TopicTimer? = writer.versions.last?.timer
+        #expect(sent?.laps.first?.label == "Jog")
+        #expect(sent?.laps.first?.alerts.first?.atMs == 20_000)
+        #expect(sent?.variables == [.init(name: "t", ms: 60_000), .init(name: "rest", ms: 30_000)])
+    }
+
+    @Test func aNewLapTypeNamedLikeARetiredOneTakesItsKeyBack() throws {
+        let id = try #require(model.addLapType())
+        model.setLapTypeLabel(id, "jog")
+        let key: String? = model.draft.laps.last?.key
+        #expect(key == "jog")
+        model.setLapTypeLabel(id, "Warm up")
+        let other: String? = model.draft.laps.last?.key
+        #expect(other == "warm_up_2", "never a step's key")
+    }
+
+    /// I1-BUILDER acceptance: a key shared by a step and a lap type is refused before any call,
+    /// on the lap type's key (the server's `timer.laps.0.key`).
+    @Test func aKeySharedByAStepAndALapTypeBlocksTheReview() async {
+        model.draft.steps = [DraftStep(key: "run", label: "Run")]
+        await model.reviewChanges()
+        #expect(model.review == nil)
+        #expect(writer.calls.isEmpty)
+        #expect(model.draftErrors[.lap(0, .key)] == "A step has this key")
+        #expect(model.visibleBanner == EditQuestionsModel.clientInvalid)
+    }
+
+    @Test func anInvalidExpressionShowsTheServersMessage() async {
+        let run = model.draft.laps[0]
+        model.draft.setAlertAt(.lapType(run.id), run.alerts[0].id, "t+")
+        await model.reviewChanges()
+        #expect(writer.calls.isEmpty)
+        #expect(model.draftErrors[.alert(.lap(0), 0, .at)] == "Syntax at 2: unexpected end")
+    }
+
+    @Test func aServerAlertErrorLandsOnTheAlert() async {
+        writer.checkResult = .rejected(
+            Problem(
+                code: .invalidRequest, detail: "invalid",
+                errors: [
+                    .init(
+                        location: [
+                            .key("body"), .key("timer"), .key("laps"), .index(0), .key("alerts"), .index(0), .key("at"),
+                        ],
+                        message: "unknown_variable at 0: unknown variable 'x'"),
+                    .init(
+                        location: [.key("body"), .key("timer"), .key("variables"), .index(0), .key("ms")],
+                        message: "Input should be less than or equal to 604800000"),
+                ]))
+        await model.reviewChanges()
+        #expect(model.draftErrors[.alert(.lap(0), 0, .at)] == "Unknown_variable at 0: unknown variable 'x'")
+        #expect(model.draftErrors[.variable(0, .duration)] == "Input should be less than or equal to 604800000")
+    }
+
+    @Test func reloadingExtendsTheLapTypeHistory() async {
+        writer.checkResult = .rejected(EditQuestionsModelTests.conflict)
+        await model.reviewChanges()
+        var latest = EditQuestionsModelTests.topic
+        latest.currentVersion = 4
+        latest.timer = TopicTimer(steps: [], laps: [.init(key: "sprint", label: "Sprint")])
+        writer.latestResult = .done(latest)
+        let v3 = TopicVersion(
+            version: 3, questions: [], timer: TopicTimer(steps: [], laps: [.init(key: "walk", label: "Stroll")]),
+            createdAt: .distantPast)
+        writer.versionsResult = .done([v3])
+        await model.reloadLatest()
+        #expect(model.draft.laps.map(\.key) == ["sprint"])
+        let id = model.addLapType()!
+        model.setLapTypeLabel(id, "stroll")
+        let key: String? = model.draft.laps.last?.key
+        #expect(key == "walk", "v3's retired lap type, taken back")
+        model.setLapTypeLabel(id, "Jog")
+        let older: String? = model.draft.laps.last?.key
+        #expect(older == "jog", "the history from before the reload is kept")
     }
 }
 

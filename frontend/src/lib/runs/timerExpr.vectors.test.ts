@@ -1,7 +1,8 @@
 /**
  * TS/Python parity for alert expressions (timers2.md §2.5, T29): every case in
  * shared/fixtures/timer-expr-vectors.json (from `timer_expr.evaluate`), and the edge rules its
- * `meta.semantics` pins (error order, longest-match units, code-point positions).
+ * `meta.semantics` pins (error order, longest-match units, code-point positions), and each
+ * error's message, the server's 422 text.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -12,7 +13,7 @@ interface Case {
   name: string;
   expr: string;
   variables: Record<string, number>;
-  expected: { ms: number } | { error: string; pos: number };
+  expected: { ms: number } | { error: string; pos: number; message: string };
 }
 
 const vectors = JSON.parse(raw) as {
@@ -27,19 +28,19 @@ afterAll(() => {
   if (missing.length) throw new Error(`timer-expr vector cases not run: ${missing.join(', ')}`);
 });
 
-/** `{ms}` or `{error, pos}`, as the vectors spell an outcome. */
+/** `{ms}` or `{error, pos, message}` (the server's 422 text), as the vectors spell an outcome. */
 function outcome(c: Case): Case['expected'] {
   try {
     return { ms: evaluate(c.expr, c.variables) };
   } catch (e) {
-    if (e instanceof ExprError) return { error: e.code, pos: e.pos };
+    if (e instanceof ExprError) return { error: e.code, pos: e.pos, message: e.message };
     throw e;
   }
 }
 
 describe('timer expression vectors (shared with the backend and iOS)', () => {
   it('has the §2.5 cases, with unique names, under the same bounds', () => {
-    expect(vectors.meta.generator_version).toBe(1);
+    expect(vectors.meta.generator_version).toBe(2);
     expect(vectors.meta.max_ms).toBe(MAX_EXPR_MS);
     expect(vectors.meta.max_length).toBe(MAX_EXPR_LENGTH);
     expect(vectors.meta.semantics.length).toBeGreaterThan(0);

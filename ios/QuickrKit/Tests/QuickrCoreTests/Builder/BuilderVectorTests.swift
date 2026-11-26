@@ -16,24 +16,46 @@ import Testing
         #expect(BuilderVectors.shared.questions.count > 100)
         #expect(BuilderVectors.shared.compat.count > 30)
         #expect(BuilderVectors.shared.slugs.count > 10)
-        #expect(BuilderVectors.shared.timers.count > 20)
+        #expect(BuilderTimerVectors.shared.generatorVersion == 4)
+        #expect(BuilderTimerVectors.shared.timers.count > 60)
+        // timers2.md §1.3's case list.
+        for name in [
+            "laps-one-type", "laps-two-types", "laps-max", "laps-too-many", "lap-key-collides-with-step",
+            "lap-label-65", "variables-max", "variables-too-many", "variable-name-uppercase-normalised",
+            "variable-name-duplicate-case", "variable-name-reserved-unit", "variable-ms-negative",
+            "variable-ms-over-7d", "alerts-max", "alerts-too-many", "alert-key-duplicate", "alert-expr-syntax",
+            "alert-expr-unknown-variable", "alert-expr-type", "alert-expr-65-chars", "alert-on-step",
+            "v1-shape-accepted", "output-normalised",
+        ] {
+            #expect(BuilderTimerVectors.shared.timers.contains { $0.name == name }, "missing case \(name)")
+        }
     }
 
-    /// The builder accepts exactly the timers the server's `Timer` accepts, and flags (at least)
-    /// each step field it names; keys are unique, labels needn't be (timers.md §2.1).
-    @Test(arguments: BuilderVectors.shared.timers)
-    func timer(_ vector: BuilderVectors.TimerCase) {
-        let steps = vector.timer.steps.map { DraftStep(key: $0.key, label: $0.label) }
-        let draft = TopicDraft(questions: [], timed: true, steps: steps)
+    /// The builder accepts exactly the timers the server's `Timer` accepts, flags (at least) each
+    /// field it names, and publishes the timer the server stores (timers2.md §1.3, §1.4): keys of
+    /// steps and lap types share one namespace, labels needn't be unique, `at_ms` is evaluated.
+    /// A variable's `ms` is typed as its duration text, so the server's `variables.N.ms` is the
+    /// draft's `variables.N.duration`.
+    @Test(arguments: BuilderTimerVectors.shared.timers)
+    func timer(_ vector: BuilderTimerVectors.TimerCase) {
+        let draft = vector.draft
         let client: Set<String>
         switch draft.validatedTimer() {
-        case .success: client = []
-        case .failure(let issues): client = Set(issues.issues.map(\.field.path))
+        case .success(let timer):
+            client = []
+            #expect(timer == vector.stored, "\(vector.name): the server stores \(String(describing: vector.stored))")
+        case .failure(let issues):
+            client = Set(issues.issues.map { Self.serverPath($0.field.path) })
         }
         #expect(client.isEmpty == vector.errors.isEmpty, "\(vector.name): client \(client), server \(vector.errors)")
         for loc in vector.errors {
             #expect(client.contains(loc), "\(vector.name): server rejects \(loc); client flags \(client)")
         }
+    }
+
+    /// A draft path as the server spells it: `variables.N.duration` is `variables.N.ms`.
+    static func serverPath(_ path: String) -> String {
+        path.hasSuffix(".duration") ? String(path.dropLast("duration".count)) + "ms" : path
     }
 
     @Test(arguments: BuilderVectors.shared.questions)
@@ -119,24 +141,6 @@ struct BuilderVectors: Decodable {
     var compat: [CompatCase]
     var slugs: [SlugCase]
     var casefold: [CaseFold]
-    var timers: [TimerCase]
-
-    struct TimerCase: Decodable, Sendable, CustomTestStringConvertible {
-        var name: String
-        var timer: TopicTimer
-        var errors: [String]
-        var testDescription: String { name }
-
-        enum CodingKeys: String, CodingKey { case name, timer, expected }
-        struct Expected: Decodable { var errors: [String] }
-
-        init(from decoder: any Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            name = try c.decode(String.self, forKey: .name)
-            timer = try c.decode(TopicTimer.self, forKey: .timer)
-            errors = try c.decode(Expected.self, forKey: .expected).errors
-        }
-    }
 
     /// `[code point, [folded code points]]`.
     struct CaseFold: Decodable {
@@ -317,5 +321,72 @@ struct QuestionJSON: Decodable {
             key: try c.decode(String.self, forKey: .key), label: try c.decode(String.self, forKey: .label),
             helpText: try c.decodeIfPresent(String.self, forKey: .helpText),
             required: try c.decode(Bool.self, forKey: .required), kind: kind)
+    }
+}
+
+/// builder-vectors.json's `timers[]`, decoded without the snake-case strategy (a stored timer's
+/// `at_ms` must reach `TopicTimer.Alert`'s own key).
+struct BuilderTimerVectors: Decodable {
+    static let shared: BuilderTimerVectors = {
+        do {
+            return try JSONDecoder().decode(BuilderTimerVectors.self, from: Fixtures.data("builder-vectors.json"))
+        } catch {
+            fatalError("builder-vectors.json: \(error)")
+        }
+    }()
+
+    var generatorVersion: Int
+    var timers: [TimerCase]
+
+    enum CodingKeys: String, CodingKey { case meta, timers }
+    struct Meta: Decodable {
+        var generatorVersion: Int
+        enum CodingKeys: String, CodingKey { case generatorVersion = "generator_version" }
+    }
+
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        generatorVersion = try c.decode(Meta.self, forKey: .meta).generatorVersion
+        timers = try c.decode([TimerCase].self, forKey: .timers)
+    }
+
+    struct TimerCase: Decodable, Sendable, CustomTestStringConvertible {
+        var name: String
+        var timer: TopicTimer
+        var errors: [String]
+        /// The normalised timer the server stores; nil when it rejects the timer.
+        var stored: TopicTimer?
+        var testDescription: String { name }
+
+        enum CodingKeys: String, CodingKey { case name, timer, expected }
+        struct Expected: Decodable {
+            var errors: [String]
+            var timer: TopicTimer?
+        }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name = try c.decode(String.self, forKey: .name)
+            timer = try c.decode(TopicTimer.self, forKey: .timer)
+            let expected = try c.decode(Expected.self, forKey: .expected)
+            errors = expected.errors
+            stored = expected.timer
+        }
+
+        /// The timer as a draft would hold it: every item new (unlocked), each variable's ms as
+        /// the duration text the editor shows (a negative one as text no duration parses).
+        var draft: TopicDraft {
+            func alerts(_ list: [TopicTimer.Alert]) -> [DraftAlert] {
+                list.map { DraftAlert(key: $0.key, label: $0.label, at: $0.at) }
+            }
+            return TopicDraft(
+                questions: [], timed: true,
+                steps: timer.steps.map { DraftStep(key: $0.key, label: $0.label, alerts: alerts($0.alerts)) },
+                laps: timer.laps.map { DraftLapType(key: $0.key, label: $0.label, alerts: alerts($0.alerts)) },
+                variables: timer.variables.map {
+                    DraftVariable(
+                        name: $0.name, duration: $0.ms < 0 ? "-\(DurationText.format(-$0.ms))" : DurationText.format($0.ms))
+                })
+        }
     }
 }

@@ -7,10 +7,10 @@
  *
  * Timer v2 (timers2.md §1.6, §12.1; I1-BUILDER): a new lap type's key and renaming one
  * (`new_lap_type`, `lap_type_label`), a variable as entered (`variable`), an alert's live
- * evaluation (`alert_expr`), and v2 versions of the timer a draft publishes and of the review
- * sheet's lines (`timer_output_v2`, `timer_changes_v2`: normalised `Timer`, issue paths
- * relative to the draft such as `["laps", 0, "key"]`). `timer_output` and `timer_changes` keep
- * their v1 spelling (steps only, paths relative to the steps list) for the v1 Swift port.
+ * evaluation (`alert_expr`). `from_timer`, `timer_output` and `timer_changes` are v2: the draft a
+ * v2 timer opens as, the normalised `Timer` a draft publishes (issue paths relative to the draft,
+ * such as `["steps", 0, "key"]` or `["laps", 0, "alerts", 1, "at"]`) and the review sheet's
+ * lines; their steps-only cases are the v1 shape.
  *
  * Text is en-US (the test checks the locale). With QUICKR_UPDATE_VECTORS=1 (`make vectors`)
  * this writes the file; otherwise it fails when the committed file differs.
@@ -489,6 +489,22 @@ const TIMERS: (Timer | null)[] = [
     steps: [
       { key: 'shower', label: 'Shower' },
       { key: 'dress', label: 'Get dressed' },
+    ],
+  },
+  {
+    steps: [{ key: 'warm', label: 'Warm up', alerts: [{ key: 'go', label: 'Go', at: '1m' }] }],
+    laps: [
+      {
+        key: 'run',
+        label: 'Run',
+        alerts: [{ key: 'half', label: 'Half', at: 't/2', at_ms: 30_000 }],
+      },
+      { key: 'rest', label: 'Rest', alerts: [] },
+    ],
+    variables: [
+      { name: 't', ms: 60_000 },
+      { name: 'fine', ms: 90_500 },
+      { name: 'long', ms: 5_400_000 },
     ],
   },
 ];
@@ -1057,7 +1073,15 @@ function generate() {
     })),
     from_timer: TIMERS.map((timer) => {
       const d = draftFromTimer(timer);
-      return { timer, expected: { timed: d.timed, steps: d.steps.map(plainStep) } };
+      return {
+        timer,
+        expected: {
+          timed: d.timed,
+          steps: d.steps.map(plainStepV2),
+          laps: d.laps.map(plainLapType),
+          variables: d.variables.map(plainVariable),
+        },
+      };
     }),
     step_label: STEP_LABEL.map(({ name, step: st, label, taken, history = [] }) => ({
       name,
@@ -1067,25 +1091,28 @@ function generate() {
       history,
       expected: plainStep(withStepLabel(st, label, taken, history)),
     })),
-    // v1 spelling: the timer's steps only, paths relative to the steps list.
-    timer_output: TIMER_OUTPUT.map(({ name, timed, steps }) => {
-      const r = timerFromDraft({ timed, steps, laps: [], variables: [] });
+    timer_output: [
+      ...TIMER_OUTPUT.map((c) => ({ ...c, laps: [], variables: [] })),
+      ...TIMER_OUTPUT_V2,
+    ].map(({ name, timed, steps, laps, variables }) => {
+      const r = timerFromDraft({ timed, steps, laps, variables });
       return {
         name,
-        timed,
-        steps: steps.map(plainStep),
+        draft: {
+          timed,
+          steps: steps.map(plainStepV2),
+          laps: laps.map(plainLapType),
+          variables: variables.map(plainVariable),
+        },
         expected: r.ok
-          ? {
-              timer: r.timer && { steps: r.timer.steps.map(({ key, label }) => ({ key, label })) },
-              issues: [],
-            }
-          : {
-              timer: null,
-              issues: r.issues.map((i) => ({ path: stepsRelative(i.path), message: i.message })),
-            },
+          ? { timer: r.timer, issues: [] }
+          : { timer: null, issues: r.issues.map((i) => ({ path: i.path, message: i.message })) },
       };
     }),
-    timer_changes: TIMER_CHANGES.map(({ name, base, next }) => ({
+    timer_changes: [
+      ...TIMER_CHANGES.map((c) => ({ ...c, name: `steps only: ${c.name}` })),
+      ...TIMER_CHANGES_V2,
+    ].map(({ name, base, next }) => ({
       name,
       base,
       next,
@@ -1127,34 +1154,7 @@ function generate() {
         expected: r.ok ? { ms: r.ms, text: r.text } : { error: r.message, pos: r.pos },
       };
     }),
-    timer_output_v2: TIMER_OUTPUT_V2.map(({ name, timed, steps, laps, variables }) => {
-      const r = timerFromDraft({ timed, steps, laps, variables });
-      return {
-        name,
-        draft: {
-          timed,
-          steps: steps.map(plainStepV2),
-          laps: laps.map(plainLapType),
-          variables: variables.map(plainVariable),
-        },
-        expected: r.ok
-          ? { timer: r.timer, issues: [] }
-          : { timer: null, issues: r.issues.map((i) => ({ path: i.path, message: i.message })) },
-      };
-    }),
-    timer_changes_v2: TIMER_CHANGES_V2.map(({ name, base, next }) => ({
-      name,
-      base,
-      next,
-      expected: timerChanges(base, next),
-    })),
   };
-}
-
-/** A v1 issue path: relative to the steps list (every v1 case's issues are the steps'). */
-function stepsRelative(path: (string | number)[]): (string | number)[] {
-  if (path[0] !== 'steps') throw new Error(`not a steps issue: ${path.join('.')}`);
-  return path.slice(1);
 }
 
 // One case per line, like the other vector files.
@@ -1176,8 +1176,6 @@ function serialise(data: ReturnType<typeof generate>): string {
       'lap_type_label',
       'variable',
       'alert_expr',
-      'timer_output_v2',
-      'timer_changes_v2',
     ] as const
   )
     .map((k) => `  "${k}": ${section(data[k])}`)
@@ -1193,6 +1191,7 @@ describe('builder UI vectors', () => {
     const data = generate();
     expect(data.new_step.length).toBeGreaterThanOrEqual(10);
     expect(data.timer_output.some((c) => c.expected.issues.length > 0)).toBe(true);
+    expect(data.from_timer.some((c) => c.expected.laps.length > 0)).toBe(true);
   });
 
   it('has the timer v2 cases (timers2.md §1.3, §1.6, §12.1)', () => {
@@ -1210,7 +1209,7 @@ describe('builder UI vectors', () => {
       new Set(['ok', 'Syntax', 'Unknown_variable', 'Type', 'Div_zero', 'Negative', 'Too_long']),
     );
     // Every §1.3 builder rule the client checks has a case, by name.
-    const names = new Set(data.timer_output_v2.map((c) => c.name));
+    const names = new Set(data.timer_output.map((c) => c.name));
     for (const n of [
       'one lap type renames laps',
       'two lap types with alerts and a variable',
@@ -1232,11 +1231,12 @@ describe('builder UI vectors', () => {
       'alert expression 65 chars',
     ])
       expect(names, n).toContain(n);
-    expect(data.timer_output_v2.some((c) => c.expected.issues.length > 0)).toBe(true);
-    expect(data.timer_changes_v2.length).toBeGreaterThanOrEqual(19);
-    expect(new Set(data.timer_changes_v2.map((c) => c.name)).size).toBe(
-      data.timer_changes_v2.length,
+    expect(data.timer_output.some((c) => c.expected.issues.some((i) => i.path[0] === 'laps'))).toBe(
+      true,
     );
+    expect(data.timer_changes.length).toBeGreaterThanOrEqual(28);
+    expect(new Set(data.timer_output.map((c) => c.name)).size).toBe(data.timer_output.length);
+    expect(new Set(data.timer_changes.map((c) => c.name)).size).toBe(data.timer_changes.length);
   });
 
   it(`${FILE_LABEL} matches builder.ts and questionSummary.ts`, async () => {
