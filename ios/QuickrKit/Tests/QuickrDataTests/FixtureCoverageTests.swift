@@ -40,7 +40,7 @@ import Testing
     /// Every key of every response object is required in `openapi.json` (nullable ones too), so
     /// a response missing any one of them must fail to decode, never default to nil (sync §2.2).
     /// Free-form maps (`meta`, `option_counts`, `json_schema`, a run's `effects`, a timing series
-    /// point's `steps`, `/health`) have no required keys.
+    /// point's `steps` and `lap_types`, `/health`) have no required keys.
     @Test(arguments: try Fixtures.apiNames().filter { $0 != "health" })
     func responseMissingAnyKeyFailsToDecode(name: String) throws {
         let fixture = try Fixtures.api(name)
@@ -114,8 +114,10 @@ import Testing
                 var removed = object
                 removed[key] = nil
                 variants.append(("\(path)/\(key)", removed))
-                // A series point's `steps` is a map; a topic's `steps` is an array of objects.
-                guard !freeFormMaps.contains(key), !(key == "steps" && child is [String: Any]) else { continue }
+                // A series point's `steps` and `lap_types` are maps; a topic's `steps` and a timing's
+                // `lap_types` are arrays of objects.
+                guard !freeFormMaps.contains(key), !(["steps", "lap_types"].contains(key) && child is [String: Any])
+                else { continue }
                 for (childPath, childVariant) in withOneKeyRemoved(child, path: "\(path)/\(key)") {
                     var copy = object
                     copy[key] = childVariant
