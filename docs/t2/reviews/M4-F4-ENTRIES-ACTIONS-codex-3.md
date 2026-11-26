@@ -1,0 +1,8 @@
+No findings in the requested delta.
+
+- Remove eligibility in [entryTiming.ts](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/lib/entryTiming.ts:107) matches the amended detail rule and M1’s write path: only non-first lap rows opened by a `lap` event are actionable; other identified lap rows are disabled, and pauses use their IDs. This agrees with [actions.ts](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/lib/runs/actions.ts:365) and the local projection in [localView.ts](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/lib/runs/localView.ts:805).
+- [model.ts](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/components/runs/model.ts:277) implements detail Resume for unedited timing through seven days from `started_at`, and [TimingSection.tsx](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/components/runs/TimingSection.tsx:84) uses it.
+- I found no conflict markers in the frontend or the checked backend schema. The `lap_types` occurrences in [api.py](/Users/richie/code/quickr-worktrees/t2-m4-factions/backend/app/schemas/api.py:775) and [zod.gen.ts](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/client/zod.gen.ts:1163) belong to separate types, rather than duplicate fields.
+- Coverage remains in [entryTiming.test.ts](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/lib/entryTiming.test.ts:124) and [model.test.ts](/Users/richie/code/quickr-worktrees/t2-m4-factions/frontend/src/components/runs/model.test.ts:671), alongside the write-path and projection tests.
+
+I could not run the focused tests: Vitest failed at startup because the read-only filesystem prevented Vite from writing its temporary config file.
