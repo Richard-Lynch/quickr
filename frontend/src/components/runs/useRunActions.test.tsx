@@ -2,7 +2,7 @@
 import 'fake-indexeddb/auto';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, renderHook, screen } from '@testing-library/react';
+import { act, renderHook, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,10 +11,17 @@ import { client } from '../../client/client.gen';
 import { outbox } from '../../lib/outbox/client';
 import { memoryAckedStore, setAckedStore } from '../../lib/runs/acked';
 import { CTX, T0, ev, serverRun } from '../../test/runs';
+import { tapCooldownOn } from '../../test/tapClock';
 import { ToastProvider } from '../ui/Toast';
-import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown, useRunActions } from './useRunActions';
+import {
+  RUN_TAP_COOLDOWN_MS,
+  setRunTapCooldown,
+  useRunActions,
+  useRunCooldown,
+} from './useRunActions';
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
   await outbox.clear();
   vi.unstubAllGlobals();
@@ -31,7 +38,16 @@ function setup(fetch: typeof globalThis.fetch = () => Promise.reject(new TypeErr
       <ToastProvider>{children}</ToastProvider>
     </QueryClientProvider>
   );
-  return renderHook(() => useRunActions(), { wrapper });
+  return renderHook(() => ({ ...useRunActions(), cooling: useRunCooldown(CTX.topic.id) }), {
+    wrapper,
+  });
+}
+
+/** The run events this test enqueued, by type (the outbox is shared across tests). */
+async function mine(before: Set<string>): Promise<string[]> {
+  return (await outbox.list())
+    .filter((i) => !before.has(i.id))
+    .map((i) => (i.payload as { event: { type: string } }).event.type);
 }
 
 describe('useRunActions', () => {
@@ -59,18 +75,101 @@ describe('useRunActions', () => {
 
   it('a discard isn’t held by the cooldown (it is confirmed first, as on iOS)', async () => {
     const { result } = setup();
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    // Time stands still: the discard is inside the lap's cooldown however slow the machine.
+    tapCooldownOn();
     // (An earlier test's lap may still be in the shared outbox.)
     const before = new Set((await outbox.list()).map((i) => i.id));
     await act(async () => {
       await result.current.tap('r1', CTX, 'lap');
       await result.current.tap('r1', CTX, 'discard');
     });
-    const mine = (await outbox.list()).filter((i) => !before.has(i.id));
-    expect(mine.map((i) => (i.payload as { event: { type: string } }).event.type)).toEqual([
-      'lap',
-      'discard',
-    ]);
+    expect(await mine(before)).toEqual(['lap', 'discard']);
+  });
+});
+
+describe('the tap cooldown’s clock (#188)', () => {
+  it('ignores a second tap until the cooldown has passed, then takes it', async () => {
+    const { result } = setup();
+    const clock = tapCooldownOn();
+    const before = new Set((await outbox.list()).map((i) => i.id));
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    expect(result.current.cooling).toBe(true);
+    clock.advance(RUN_TAP_COOLDOWN_MS - 1);
+    expect(result.current.cooling).toBe(true);
+    await act(async () => {
+      expect(await result.current.tap('r1', CTX, 'lap')).toBeNull();
+    });
+    clock.advance(1);
+    expect(result.current.cooling).toBe(false);
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    expect(await mine(before)).toEqual(['lap', 'lap']);
+  });
+
+  it('a clock that steps back doesn’t leave the controls dead', async () => {
+    const { result } = setup();
+    const clock = tapCooldownOn();
+    clock.advance(3_600_000);
+    const before = new Set((await outbox.list()).map((i) => i.id));
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    expect(result.current.cooling).toBe(true);
+    // Set back an hour: behind the tap, which ends its cooldown rather than stretching it.
+    clock.advance(-3_600_000);
+    expect(result.current.cooling).toBe(false);
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    expect(await mine(before)).toEqual(['lap', 'lap']);
+  });
+
+  it('an end timer that fires before the clock reaches the end waits out the rest', async () => {
+    const { result } = setup();
+    // Moved by hand without telling the controls: only the end timer can re-enable them.
+    let t = 0;
+    setRunTapCooldown(50, () => t);
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    // The 50 ms timer has fired (it was due first), but the clock is still at the tap.
+    await act(() => new Promise((r) => setTimeout(r, 80)));
+    expect(result.current.cooling).toBe(true);
+    t = 50;
+    await waitFor(() => expect(result.current.cooling).toBe(false));
+  });
+
+  it('runs on monotonic time: the device clock moving changes nothing', async () => {
+    const { result } = setup();
+    // The app's own clock (no injected one), with monotonic time held still by hand, so a
+    // slow machine can't end the cooldown before the double tap below.
+    let mono = 1_000;
+    vi.spyOn(performance, 'now').mockImplementation(() => mono);
+    setRunTapCooldown(50);
+    const before = new Set((await outbox.list()).map((i) => i.id));
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    expect(result.current.cooling).toBe(true);
+    const wall = Date.now();
+    const now = vi.spyOn(Date, 'now');
+    // Set on an hour: the cooldown isn't over early, so the double tap is still ignored.
+    now.mockImplementation(() => wall + 3_600_000);
+    await act(async () => {
+      expect(await result.current.tap('r1', CTX, 'lap')).toBeNull();
+    });
+    // Set back an hour, and the cooldown's time passes: it ends on time.
+    now.mockImplementation(() => wall - 3_600_000);
+    mono += 50;
+    // The cooldown's own timer re-enables the controls: nothing else re-renders the hook.
+    await waitFor(() => expect(result.current.cooling).toBe(false));
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    expect(await mine(before)).toEqual(['lap', 'lap']);
   });
 });
 

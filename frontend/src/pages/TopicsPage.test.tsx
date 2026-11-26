@@ -8,8 +8,9 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { TopicSummary } from '../client';
-import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown } from '../components/runs/useRunActions';
+import { RUN_TAP_COOLDOWN_MS } from '../components/runs/useRunActions';
 import { renderRunApp, seedRun, timedTopic, type Harness } from '../test/runUi';
+import { tapCooldownOn } from '../test/tapClock';
 
 let h: Harness | null = null;
 
@@ -144,16 +145,19 @@ describe('"Active now" on the topics page', () => {
     const active = await screen.findByRole('region', { name: /Active now/ });
     const next = within(active).getByTestId('card-primary');
     await waitFor(() => expect(next).toBeEnabled());
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    const clock = tapCooldownOn();
     await userEvent.click(next);
     // Inside the cooldown every control of the topic is disabled, then they come back.
     await waitFor(() =>
       expect(within(section('Active now')).getByTestId('card-stop')).toBeDisabled(),
     );
     expect(within(section('Active now')).getByTestId('card-pause')).toBeDisabled();
+    clock.advance(RUN_TAP_COOLDOWN_MS);
     await waitFor(() =>
       expect(within(section('Active now')).getByTestId('card-stop')).toBeEnabled(),
     );
+    // The tap's send isn't timed by the cooldown's clock: wait for it.
+    await waitFor(() => expect(h?.server.events()).toHaveLength(1), { timeout: 4000 });
     expect(h.server.events().map((e) => e.type)).toEqual(['next']);
   });
 
@@ -162,7 +166,7 @@ describe('"Active now" on the topics page', () => {
     h = renderRunApp('/t/morning', dueMorning(), (s) => seedRun(s), [vitamins]);
     const next = await screen.findByTestId('bar-primary');
     await waitFor(() => expect(next).toBeEnabled());
-    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    const clock = tapCooldownOn();
     await userEvent.click(next);
     // Enqueued and sent; back on the topics page the card holds off for the rest of the cooldown.
     await waitFor(() => expect(h?.server.events()).toHaveLength(1), { timeout: 4000 });
@@ -171,6 +175,7 @@ describe('"Active now" on the topics page', () => {
     expect(within(card).getByTestId('card-primary')).toBeDisabled();
     expect(within(card).getByTestId('card-stop')).toBeDisabled();
     expect(screen.queryByRole('region', { name: 'Running' })).toBeNull();
+    clock.advance(RUN_TAP_COOLDOWN_MS);
     await waitFor(() =>
       expect(within(section('Active now')).getByTestId('card-stop')).toBeEnabled(),
     );
