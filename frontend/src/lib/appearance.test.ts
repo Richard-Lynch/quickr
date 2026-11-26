@@ -190,39 +190,36 @@ function luminance(hex: string): number {
   return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
 }
 
-// T2-M3 (F3-EDIT): checkIcon / checkTags.
-// T2-M3: repoint at appearance-vectors.json `icons[]`/`tags[]` (cases copied from spec §2, §3.2).
-const VS = '\u{FE0F}';
-const ICONS: { name: string; value: string; stored: string | null }[] = [
-  { name: 'plain', value: '🚬', stored: '🚬' },
-  { name: 'vs16_added', value: '\u{263A}', stored: `\u{263A}${VS}` },
-  { name: 'vs16_present', value: `\u{263A}${VS}`, stored: `\u{263A}${VS}` },
-  { name: 'copyright_vs16', value: `\u{A9}${VS}`, stored: `\u{A9}${VS}` },
-  { name: 'zwj_family', value: '👨\u{200D}👩\u{200D}👧', stored: '👨\u{200D}👩\u{200D}👧' },
-  { name: 'skin_tone', value: '👍\u{1F3FD}', stored: '👍\u{1F3FD}' },
-  { name: 'flag', value: '\u{1F1EC}\u{1F1E7}', stored: '\u{1F1EC}\u{1F1E7}' },
-  { name: 'keycap', value: `1${VS}\u{20E3}`, stored: `1${VS}\u{20E3}` },
-  { name: 'letter', value: 'a', stored: null },
-  { name: 'digit', value: '5', stored: null },
-  { name: 'digit_vs16', value: `5${VS}`, stored: null },
-  { name: 'hash_vs16_no_keycap', value: `#${VS}`, stored: null },
-  { name: 'two_emoji', value: '🚬🚬', stored: null },
-  { name: 'emoji_plus_letter', value: '🚬a', stored: null },
-  { name: 'empty', value: '', stored: null },
-  // A black flag and 16 tag characters: one grapheme cluster, 17 code points.
-  { name: 'too_long', value: '\u{1F3F4}' + '\u{E0067}'.repeat(16), stored: null },
-  { name: 'text_symbol_no_vs16_unfixable', value: '\u{2192}', stored: null },
-];
+// T2-M3 (F3-EDIT): checkIcon / checkTags over appearance-vectors.json (§3.3). Only `ok` and the
+// stored value (or the failing tag's index) must agree; the PWA words its own messages.
+type Expected<T> = { ok: true; value: T } | { ok: false; message: string; loc?: string };
+const cases = JSON.parse(vectorsRaw) as {
+  meta: { max_icon_length: number; max_tags: number; max_tag_length: number };
+  icons: { name: string; value: string; expected: Expected<string> }[];
+  tags: { name: string; input: string[]; expected: Expected<string[]> }[];
+};
 
 describe('checkIcon', () => {
-  it.each(ICONS)('$name', ({ value, stored }) => {
-    const r = checkIcon(value);
-    if (stored === null) expect(r.ok).toBe(false);
-    else expect(r).toEqual({ ok: true, value: stored });
+  it('covers the vectors', () => {
+    expect(cases.icons.map((c) => c.name)).toEqual(
+      expect.arrayContaining([
+        'too_long',
+        'too_long_after_vs16',
+        'keycap',
+        'flag',
+        'copyright_bare',
+      ]),
+    );
+  });
+
+  it.each(cases.icons)('$name', ({ value, expected }) => {
+    const r = checkIcon(value, cases.meta.max_icon_length);
+    if (expected.ok) expect(r).toEqual({ ok: true, value: expected.value });
+    else expect(r.ok).toBe(false);
   });
 
   it('normalises to NFC before counting', () => {
-    expect(checkIcon('\u{263A}'.normalize('NFD'))).toEqual({ ok: true, value: `\u{263A}${VS}` });
+    expect(checkIcon('\u{263A}'.normalize('NFD'))).toEqual({ ok: true, value: '\u{263A}\u{FE0F}' });
   });
 
   it('takes the length limit from the caller', () => {
@@ -232,39 +229,17 @@ describe('checkIcon', () => {
 });
 
 describe('checkTags', () => {
-  const ok = (value: string[]) => ({ ok: true, value });
-  it('trims, collapses inner whitespace and keeps order', () => {
-    expect(checkTags(['  gym ', 'early\t  morning', 'Alpha'])).toEqual(
-      ok(['gym', 'early morning', 'Alpha']),
-    );
-  });
+  const limits = { maxTags: cases.meta.max_tags, maxLength: cases.meta.max_tag_length };
 
-  it('refuses a casefold duplicate at its index, not dropping it', () => {
-    expect(checkTags(['Gym', 'run', 'gym'])).toMatchObject({ ok: false, index: 2 });
-    expect(checkTags(['Straße', 'STRASSE'])).toMatchObject({ ok: false, index: 1 });
-    expect(checkTags(['ß', '\u{1E9E}'])).toMatchObject({ ok: false, index: 1 });
-    // Python: 'ı'.casefold() == 'ı' != 'i'.
-    expect(checkTags(['ı', 'i'])).toEqual({ ok: true, value: ['ı', 'i'] });
-  });
-
-  it('refuses an eleventh tag on the list, not a tag', () => {
-    const ten = Array.from({ length: 10 }, (_, i) => `t${String(i)}`);
-    expect(checkTags(ten).ok).toBe(true);
-    expect(checkTags([...ten, 'eleven'])).toMatchObject({ ok: false, index: -1 });
-  });
-
-  it('counts code points: 24 is fine, 25 is not', () => {
-    expect(checkTags(['🏃'.repeat(24)]).ok).toBe(true);
-    expect(checkTags(['ok', 'x'.repeat(25)])).toMatchObject({ ok: false, index: 1 });
-  });
-
-  it('treats U+001C–U+001F as whitespace, as Python does', () => {
-    expect(checkTags(['a\u{1C}b\u{1F}'])).toEqual({ ok: true, value: ['a b'] });
-  });
-
-  it('refuses a tag that is empty after trimming, and a control character', () => {
-    expect(checkTags(['a', '   '])).toMatchObject({ ok: false, index: 1 });
-    expect(checkTags(['bell\u{7}'])).toMatchObject({ ok: false, index: 0 });
+  it.each(cases.tags)('$name', ({ input, expected }) => {
+    const r = checkTags(input, limits);
+    if (expected.ok) {
+      expect(r).toEqual({ ok: true, value: expected.value });
+      return;
+    }
+    // The vectors' `loc` is `tags.{i}` for a tag and `tags` for the list (index -1 here).
+    const index = expected.loc === 'tags' ? -1 : Number(expected.loc?.split('.')[1]);
+    expect(r).toMatchObject({ ok: false, index });
   });
 
   it('takes the limits from the caller', () => {

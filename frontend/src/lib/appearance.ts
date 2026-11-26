@@ -134,7 +134,7 @@ function firstGrapheme(s: string): string {
 }
 
 // T2-M3 (F3-EDIT): the PWA's icon and tag predicates (appearance.md §1.3, §2, §5) and the
-// empty appearance. M3-DB pins `checkIcon`/`checkTags` to `icons[]`/`tags[]` in appearance-vectors.json.
+// empty appearance. appearance.test.ts runs both over `icons[]`/`tags[]` of appearance-vectors.json.
 
 /** §1.3 defaults; the forms pass the server's `GET /limits` values. */
 export const MAX_ICON_LENGTH = 16;
@@ -149,7 +149,8 @@ const REGIONAL = /^\p{Regional_Indicator}$/u;
 const KEYCAP_BASE = /^[0-9#*]$/;
 
 /**
- * One emoji, in its stored form (§2): NFC, a text-presentation pictograph gets U+FE0F, then exactly
+ * One emoji, in its stored form (§2): NFC, a text-presentation pictograph gets U+FE0F, at most
+ * `maxLength` code points as stored, then exactly
  * one grapheme cluster that starts as an emoji. The same predicate as the server's, scalar by
  * scalar: a pictograph shown as emoji (by default or with U+FE0F), a flag, or a keycap.
  */
@@ -159,11 +160,12 @@ export function checkIcon(
 ): { ok: true; value: string } | { ok: false; message: string } {
   let scalars = Array.from(value.normalize('NFC'));
   if (scalars.length === 0) return { ok: false, message: 'Enter an emoji' };
-  if (scalars.length > maxLength) return { ok: false, message: 'Enter a single emoji' };
   const [s0 = '', s1] = scalars;
   if (PICTOGRAPH.test(s0) && !PRESENTATION.test(s0) && s1 !== VS16) {
     scalars = [s0, VS16, ...scalars.slice(1)];
   }
+  // The limit applies to the stored form, after the U+FE0F insert (§2 step 2).
+  if (scalars.length > maxLength) return { ok: false, message: 'Enter a single emoji' };
   const v = scalars.join('');
   if ([...graphemes.segment(v)].length !== 1) return { ok: false, message: 'Enter a single emoji' };
   const [c0 = '', c1 = '', c2] = scalars;
@@ -177,7 +179,7 @@ export function checkIcon(
 /**
  * `str.casefold()` near enough, per code point: upper- then lower-casing, then ß → ss (so ß, ẞ and
  * SS all fold to ss, as in Python). Dotless ı is left alone: the round trip would make it i, while
- * Python keeps ı. M3-DB's `tags[]` vectors pin the cases that matter.
+ * Python keeps ı. The `tags[]` vectors pin the cases that matter.
  */
 function fold(s: string): string {
   return Array.from(s, (c) => (c === '\u{131}' ? c : c.toUpperCase().toLowerCase()))

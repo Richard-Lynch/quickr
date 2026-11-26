@@ -11,7 +11,6 @@ import type { Appearance } from '../lib/appearance';
 import { appearanceOf, type TopicUpdateBody } from '../lib/topicAppearanceSeam';
 import { applyAppearanceUpdate, useUpdateTopicMeta } from './mutations';
 
-// T2-M3 seam: a hand-written §1.1 appearance on the topic until the generated TopicDetail has it.
 const before: Appearance = { color: 'red', icon: { kind: 'emoji', value: '🏃' }, tags: ['sport'] };
 const topic = {
   id: '6f1c0000-0000-4000-8000-000000000001',
@@ -33,7 +32,7 @@ const topic = {
   timer: null,
   questions: [],
   appearance: before,
-} satisfies TopicDetail & { appearance: Appearance };
+} satisfies TopicDetail;
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
