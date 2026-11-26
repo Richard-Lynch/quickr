@@ -56,6 +56,15 @@ struct TimingOverviewSection: View {
 private struct TimingCards: View {
     let text: TimingOverviewText
     let bucket: QuestionSeries.Bucket
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The lap-type cards' grid: as many as fit, or one per row at accessibility sizes (#280),
+    /// where two side by side cut the median to "1:…".
+    private var lapTypeColumns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), spacing: 12, alignment: .top)]
+            : [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)]
+    }
 
     var body: some View {
         Card {
@@ -110,7 +119,7 @@ private struct TimingCards: View {
             Card {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Lap types").font(.qr(.section)).accessibilityAddTraits(.isHeader)
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)], spacing: 12) {
+                    LazyVGrid(columns: lapTypeColumns, spacing: 12) {
                         ForEach(text.lapTypes) { lapType in
                             LapTypeCard(lapType: lapType, color: lapTypeColor(lapType.key))
                         }
@@ -189,10 +198,12 @@ private struct StepBar: View {
     }
 }
 
-/// A lap type's card: its label, lap count, median (big), best and mean.
+/// A lap type's card: its label, lap count, median (big), best and mean. At accessibility sizes
+/// "median" goes under the value (#280).
 private struct LapTypeCard: View {
     let lapType: TimingOverviewText.LapType
     let color: Color
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -201,7 +212,11 @@ private struct LapTypeCard: View {
                 Text(lapType.label).font(.qr(.label)).lineLimit(2)
             }
             Text(lapType.laps).font(.qr(.caption)).foregroundStyle(.qr.muted)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            let medianLayout =
+                typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
+            medianLayout {
                 Text(lapType.median).font(.qr(.monoRegular, size: 24, relativeTo: .title2).bold()).lineLimit(1)
                     .minimumScaleFactor(0.7)
                 Text("median").font(.qr(.caption)).foregroundStyle(.qr.muted)
