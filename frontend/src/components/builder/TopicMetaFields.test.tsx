@@ -27,7 +27,6 @@ import { ToastProvider } from '../ui/Toast';
 import { CURATED_EMOJI } from './AppearanceFields';
 import { TopicMetaFields } from './TopicMetaFields';
 
-// T2-M3 seam: a hand-written §1.1 appearance on the topic until the generated TopicDetail has it.
 const appearance: Appearance = {
   color: 'red',
   icon: { kind: 'emoji', value: '🏃' },
@@ -53,7 +52,7 @@ const topic = {
   timer: null,
   questions: [],
   appearance,
-} satisfies TopicDetail & { appearance: Appearance };
+} satisfies TopicDetail;
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });

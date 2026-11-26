@@ -430,10 +430,7 @@ describe('appearance schemas', () => {
   });
 
   it('uses the server’s limits when GET /limits carries them', () => {
-    const tight = makeAppearanceSchema({
-      ...FALLBACK_LIMITS,
-      max_tags: 1,
-    } as typeof FALLBACK_LIMITS);
+    const tight = makeAppearanceSchema({ ...FALLBACK_LIMITS, max_tags: 1 });
     expect(tight.safeParse({ color: null, icon: '', tags: ['a', 'b'], tagInput: '' }).success).toBe(
       false,
     );
