@@ -657,11 +657,13 @@ markup when `running` (`TopicTile.tsx:102`).
   `lastEntry.timing.terminal_id` (`last_entry` from the topic summary,
   content-display.md §2, or the optimistic entry); `onStopped`
   (`RecordPage.tsx:272-281`) passes a toast
-  `action: { label: 'Resume', onClick }` for 15 minutes with the same target. A
-  queued, unacked reopen renders the panel header with a "Resuming…" badge and
-  no `RunControls` (the `localView` projection of timers2.md §5.3). **Undo
-  resume** on such a run is a revert: the outbox MUST NOT K6-coalesce it
-  (timers2.md §5.5, `k6-not-on-revert`), so the saved entry survives.
+  `action: { label: 'Resume', onClick }` with the same target for the toast's
+  usual lifetime, as iOS; the lasting 15-minute offer is the Resume under Start
+  and on the idle tile. A queued, unacked reopen renders the panel header with a
+  "Resuming…" badge and no `RunControls` (the `localView` projection of
+  timers2.md §5.3). **Undo resume** on such a run is a revert: the outbox MUST
+  NOT K6-coalesce it (timers2.md §5.5, `k6-not-on-revert`), so the saved entry
+  survives.
 - `useRunActions.tap` already accepts any `TapType`; `reopen`/`remove` are M1's
   additions to `actions.ts`.
 
