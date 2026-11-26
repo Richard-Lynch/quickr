@@ -24,6 +24,7 @@ from app.services.topics import parse_timer
 from tests.helpers import make_topic
 
 WEEK_MS = 7 * 24 * 3_600_000
+Q = [{"type": "int", "key": "n", "label": "N"}]  # make_topic replaces an empty list
 
 
 def step(key: str = "work", label: str = "Work", **extra: Any) -> dict[str, Any]:
@@ -214,7 +215,7 @@ def test_variable_ms_bounds() -> None:
 @pytest.mark.parametrize("owner", ["steps", "laps"])
 def test_alert_count(owner: str) -> None:
     def timer(n: int) -> dict[str, Any]:
-        owners = {"steps": [], "laps": []}
+        owners: dict[str, Any] = {"steps": [], "laps": []}
         owners[owner] = [{"key": "a", "label": "A", "alerts": [alert("30s", f"k{i}") for i in range(n)]}]
         return owners
 
@@ -332,7 +333,7 @@ async def test_get_limits_carries_the_new_rows(client: httpx.AsyncClient) -> Non
 # --- over HTTP ----------------------------------------------------------------------------------
 
 
-V2 = {
+V2: dict[str, Any] = {
     "steps": [{"key": "warm", "label": "Warm up", "alerts": [{"key": "go", "label": "Go", "at": "rest"}]}],
     "laps": [
         {"key": "run", "label": "Run", "alerts": [{"key": "half", "label": "Half", "at": "t/2"}]},
@@ -361,7 +362,7 @@ V2_OUT = {
 
 
 async def test_create_and_read_a_v2_timer(client: httpx.AsyncClient) -> None:
-    created = await make_topic(client, "Intervals", questions=[], timer=V2)
+    created = await make_topic(client, "Intervals", questions=Q, timer=V2)
     assert created["timer"] == V2_OUT
     assert (await client.get("/topics/intervals")).json()["timer"] == V2_OUT
     assert [t["timer"] for t in (await client.get("/topics")).json()["items"]] == [V2_OUT]
@@ -372,10 +373,10 @@ async def test_create_and_read_a_v2_timer(client: httpx.AsyncClient) -> None:
 
 
 async def test_publish_and_check_accept_v2(client: httpx.AsyncClient) -> None:
-    await make_topic(client, "Intervals", questions=[], timer={"steps": []})
-    check = await client.post("/topics/intervals/versions/check", json={"questions": [], "timer": V2})
+    await make_topic(client, "Intervals", questions=Q, timer={"steps": []})
+    check = await client.post("/topics/intervals/versions/check", json={"questions": Q, "timer": V2})
     assert (check.status_code, check.json()["ok"]) == (200, True)
-    body = {"questions": [], "base_version": 1, "timer": V2}
+    body = {"questions": Q, "base_version": 1, "timer": V2}
     r = await client.post("/topics/intervals/versions", json=body)
     assert r.status_code == 201, r.text
     assert r.json()["timer"] == V2_OUT
@@ -403,12 +404,12 @@ async def test_publish_and_check_accept_v2(client: httpx.AsyncClient) -> None:
     ],
 )
 async def test_422_paths(client: httpx.AsyncClient, timer: dict[str, Any], loc: list[Any]) -> None:
-    r = await client.post("/topics", json={"name": "Bad", "questions": [], "timer": timer})
+    r = await client.post("/topics", json={"name": "Bad", "questions": Q, "timer": timer})
     assert r.status_code == 422
     assert r.json()["code"] == "invalid_request"
     assert [e["loc"] for e in r.json()["errors"]] == [["body", "timer", *loc]]
-    await make_topic(client, "Good", questions=[], timer={"steps": []})
-    r = await client.post("/topics/good/versions", json={"questions": [], "base_version": 1, "timer": timer})
+    await make_topic(client, "Good", questions=Q, timer={"steps": []})
+    r = await client.post("/topics/good/versions", json={"questions": Q, "base_version": 1, "timer": timer})
     assert [e["loc"] for e in r.json()["errors"]] == [["body", "timer", *loc]]
 
 
@@ -416,17 +417,17 @@ async def test_a_stored_v1_timer_reads_back_as_v2(client: httpx.AsyncClient, db:
     """No data migration of ``topic_versions.timer``: a v1 row parses with the defaults, and
     resending it unchanged is no change to publish."""
     v1 = {"steps": [{"key": "load", "label": "Load"}]}
-    await make_topic(client, "Dishwasher", questions=[], timer=v1)
+    await make_topic(client, "Dishwasher", questions=Q, timer=v1)
     await db.execute(update(TopicVersion).values(timer=v1))  # as a v1 server stored it
     await db.commit()
     out = {"steps": [{"key": "load", "label": "Load", "alerts": []}], "laps": [], "variables": []}
     assert (await client.get("/topics/dishwasher")).json()["timer"] == out
     assert [v["timer"] for v in (await client.get("/topics/dishwasher/versions")).json()] == [out]
     r = await client.post(
-        "/topics/dishwasher/versions", json={"questions": [], "base_version": 1, "timer": v1}
+        "/topics/dishwasher/versions", json={"questions": Q, "base_version": 1, "timer": v1}
     )
     assert (r.status_code, r.json()["detail"]) == (422, "no changes to publish")
-    check = await client.post("/topics/dishwasher/versions/check", json={"questions": [], "timer": out})
+    check = await client.post("/topics/dishwasher/versions/check", json={"questions": Q, "timer": out})
     assert check.json()["ok"] is False
 
 

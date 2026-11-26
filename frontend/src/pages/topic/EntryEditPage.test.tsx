@@ -42,7 +42,7 @@ const topic: TopicDetail = {
 const version: TopicVersionOut = {
   version: 1,
   questions: [],
-  timer: { steps: [] },
+  timer: { steps: [], laps: [], variables: [] },
   change_note: '',
   created_at: '2026-10-01T00:00:00Z',
   entry_count: 1,
@@ -178,9 +178,11 @@ const stepped: TopicVersionOut = {
   ...version,
   timer: {
     steps: [
-      { key: 'wash', label: 'Wash' },
-      { key: 'dry', label: 'Dry' },
+      { key: 'wash', label: 'Wash', alerts: [] },
+      { key: 'dry', label: 'Dry', alerts: [] },
     ],
+    laps: [],
+    variables: [],
   },
 };
 

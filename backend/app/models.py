@@ -191,6 +191,8 @@ class RunEventType(enum.StrEnum):
     stop = "stop"
     finish = "finish"
     discard = "discard"
+    reopen = "reopen"  # timers2.md §3
+    remove = "remove"
 
 
 class Run(Base):
@@ -253,6 +255,8 @@ class RunEvent(Base):
     step: Mapped[str | None] = mapped_column(String(64), default=None)
     # resume: the pause event it ends.
     pause_id: Mapped[UUID | None] = mapped_column(default=None)
+    # reopen: the stop it reopens; remove: the pause, lap boundary or reopen it voids (timers2.md §3).
+    target_id: Mapped[UUID | None] = mapped_column(default=None)
     # stop/finish: answers, notes, meta; start: version.
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     source: Mapped[str] = mapped_column(String(100))
