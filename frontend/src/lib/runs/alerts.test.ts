@@ -35,7 +35,7 @@ const TIMER: AlertTimer = {
   ],
 };
 
-const start = ev('s', 'start', T0);
+const start = ev('r1', 'start', T0);
 /** A lap at T0 + 5 s: `Run 1` closes, `Rest 1` (segment 1) opens. */
 const lap = ev('l1', 'lap', T0 + 5 * S, { seg: 0 });
 const REST_AT = T0 + 5 * S;
@@ -165,7 +165,7 @@ describe('alertSchedule', () => {
       id: 'r2',
       ...(() => {
         const state = fold('r2', TIMER, [
-          ev('s2', 'start', T0),
+          ev('r2', 'start', T0),
           ev('l2', 'lap', T0 + S, { seg: 0 }),
         ]);
         return { status: state.status, state };

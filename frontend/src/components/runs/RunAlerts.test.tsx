@@ -16,7 +16,7 @@ import { setRegistration } from '../pwa/swRegistration';
 import { ToastProvider } from '../ui/Toast';
 import { topicVersionsOptions } from './context';
 import { RunAlerts, RunAlertsFor, resetFiredAlerts, type AlertSource } from './RunAlerts';
-import { ALERTS_MUTED_KEY, resetRunAudio } from './useRunAudio';
+import { ALERTS_MUTED_KEY, resetRunAudio, setAlertsMuted } from './useRunAudio';
 
 const S = 1000;
 
@@ -37,7 +37,7 @@ const TIMER: Timer = {
 };
 const TOPIC = { id: 'topic-1', slug: 'intervals', name: 'Intervals' };
 
-const start = ev('s', 'start', T0);
+const start = ev('r1', 'start', T0);
 /** `Rest 1` opens at REST_AT. */
 const REST_AT = T0 + 5 * S;
 const lap = ev('l1', 'lap', REST_AT, { seg: 0 });
@@ -45,7 +45,7 @@ const lap = ev('l1', 'lap', REST_AT, { seg: 0 });
 function source(events: RunEvent[]): AlertSource {
   const state = fold('r1', TIMER, events);
   return {
-    run: { id: 'r1', aliases: [], status: state.status, state },
+    run: { id: 'r1', aliases: [], state },
     timer: TIMER,
     topic: TOPIC,
   };
@@ -53,7 +53,7 @@ function source(events: RunEvent[]): AlertSource {
 
 // ---- the platform: vibrate, Web Audio, notifications, visibility -------------------------
 
-const vibrate = vi.fn((_: VibratePattern) => true);
+const vibrate = vi.fn<(pattern: VibratePattern) => boolean>(() => true);
 let tones = 0;
 
 class FakeAudioContext {
@@ -102,7 +102,9 @@ function setVisibility(v: DocumentVisibilityState) {
   });
 }
 
-const showNotification = vi.fn((_title: string, _opts?: NotificationOptions) => Promise.resolve());
+const showNotification = vi.fn<(title: string, opts?: NotificationOptions) => Promise<void>>(() =>
+  Promise.resolve(),
+);
 let permission: NotificationPermission = 'default';
 
 beforeEach(() => {
@@ -217,6 +219,18 @@ describe('RunAlerts', () => {
     expect(tones).toBe(0);
   });
 
+  it('follows the settings toggle between alerts', () => {
+    mount(source([start, lap]));
+    advance(30 * S);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    setAlertsMuted(true);
+    advance(30 * S);
+    expect(toastShown('Done · Rest 1')).toBe(true);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    setAlertsMuted(false);
+    expect(localStorage.getItem(ALERTS_MUTED_KEY)).toBeNull();
+  });
+
   it('fires nothing while hidden, and the tab resumes with the pending alert', () => {
     mount(source([start, lap]));
     advance(10 * S);
@@ -310,20 +324,20 @@ describe('RunAlerts', () => {
   });
 
   it('unlocks the audio on a tap, so a later alert can sound', () => {
-    let made: FakeAudioContext | null = null;
+    const made: FakeAudioContext[] = [];
     vi.stubGlobal(
       'AudioContext',
       class extends FakeAudioContext {
         constructor() {
           super();
-          made = this;
+          made.push(this);
         }
       },
     );
     mount(source([start, lap]));
     fireEvent.click(document.body);
-    expect(made).not.toBeNull();
-    expect(made!.state).toBe('running');
+    expect(made).toHaveLength(1);
+    expect(made[0]?.state).toBe('running');
   });
 });
 
