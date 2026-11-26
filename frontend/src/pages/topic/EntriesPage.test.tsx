@@ -4,7 +4,7 @@
  * entry of a timed topic, and the desktop table's Timing column.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -340,5 +340,84 @@ describe('EntriesPage rows', () => {
     const pending = await screen.findByRole('list', { name: 'Not yet synced' });
     expect(within(pending).getByTestId('entry-summary').textContent).toBe('2:00');
     expect(within(pending).getByTestId('entry-timing').textContent).toBe('2:00');
+  });
+});
+
+/**
+ * OQ-14 (timers2.md §5.3, content-display.md §3.2): an entry whose run is open or finishing
+ * on this device (here: a Resume queued from it) is the run's, not listed as an entry; the
+ * total still counts it.
+ */
+describe('EntriesPage OQ-14', () => {
+  /** A Resume tapped on `TIMED`'s detail, still queued: the run is projected resuming. */
+  function queueReopen(): OutboxItem[] {
+    const t = timed.timing;
+    if (!t) throw new Error('timed has a timing');
+    const item = runItem('reopen', {
+      id: '6f1c0000-0000-4000-8000-0000000000a9',
+      run: TIMED,
+      at: Date.parse(t.ended_at) + 60_000,
+      target: null,
+      steps: [],
+      entry: { timing: t, revision: timed.revision },
+    });
+    return [
+      {
+        ...item,
+        payload: { ...item.payload, topic: { id: TOPIC_ID, slug: topic.slug, name: topic.name } },
+      },
+    ];
+  }
+
+  it('lists the entry while its run is closed', async () => {
+    stubServer([timed, untimed]);
+    renderPage();
+    expect(await cards()).toHaveLength(2);
+  });
+
+  it('leaves out an entry whose run is open here, and still counts it', async () => {
+    queued = queueReopen();
+    stubServer([timed, untimed]);
+    renderPage();
+    const rows = await cards();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).not.toContain('12:40');
+    expect(screen.queryByRole('list', { name: 'Not yet synced' })).toBeNull();
+    expect(screen.getByText(/^2 entries/)).toBeInTheDocument();
+    // The desktop table too.
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('row')).toHaveLength(2); // the header and one entry
+  });
+
+  it('keeps Load more when every loaded entry is hidden', async () => {
+    queued = queueReopen();
+    // One entry per page: the first page holds only the hidden one.
+    const pages = [timed, untimed];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: Request) => {
+        const url = new URL(input.url);
+        if (url.pathname.endsWith('/entries')) {
+          const offset = Number(url.searchParams.get('offset') ?? 0);
+          const page: EntryPage = {
+            items: pages.slice(offset, offset + 1),
+            total: pages.length,
+            offset,
+            limit: 1,
+          };
+          return Promise.resolve(json(200, page));
+        }
+        if (url.pathname.endsWith('/versions')) return Promise.resolve(json(200, versions));
+        if (url.pathname.endsWith('/runs')) return Promise.resolve(json(200, []));
+        return Promise.resolve(json(404, { code: 'not_found', detail: 'nf', errors: [] }));
+      }),
+    );
+    renderPage();
+    const more = await screen.findByRole('button', { name: /load more/i });
+    expect(screen.queryByText('No entries match')).toBeNull();
+    more.click();
+    // The second page's entry, the untimed one.
+    await waitFor(async () => expect(await cards()).toHaveLength(1));
+    expect((await cards())[0]?.textContent).not.toContain('12:40');
   });
 });
