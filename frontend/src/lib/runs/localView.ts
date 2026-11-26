@@ -25,6 +25,7 @@ import {
 import { parseInstant } from './instant';
 import type {
   Effect,
+  OpenedBy,
   OpenSegment,
   Pause,
   RunEvent,
@@ -149,12 +150,26 @@ function statusOf(
  * outbox order (§8.3): pause, resume, lap, stop and discard, with the fold's rules. A Next
  * or Skip needs the steps: it shows once the server answers. For a run whose pinned
  * version's steps this device doesn't know, so an offline Pause or Stop still shows.
+ * The lap types aren't known either: a lap tapped here is untyped ("Lap n") until the
+ * server answers.
  */
 function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]): RunState {
   const effects: Record<string, Effect> = { ...base.effects };
   const segments: Segment[] = [...base.segments];
   const pauses: Pause[] = [...base.pauses];
-  let { status, ended_at: endedAt, open, next_step: nextStep, paused_since: pausedSince } = base;
+  let {
+    status,
+    ended_at: endedAt,
+    open,
+    next_step: nextStep,
+    paused_since: pausedSince,
+    next_lap_type: nextLapType,
+    terminal_id: terminalId,
+  } = base;
+  // The event that opened the open segment: the start's for the first, else not known here
+  // for the server's (its state doesn't name it), and this device's lap for one it opened.
+  let opener: [string | null, OpenedBy | null] =
+    base.open?.index === 0 ? [null, 'start'] : [null, null];
   // The server's open pause, which a resume must name: the applied pause that began it.
   let pauseId: string | null = null;
   if (pausedSince !== null) {
@@ -172,6 +187,9 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
       ended_at: at,
       active_ms: at - seg.started_at - paused,
       paused_ms: paused,
+      lap_type: seg.lap_type,
+      event_id: opener[0],
+      opened_by: opener[1],
     });
   };
   // A tap before the server's open segment began would close it with negative time.
@@ -197,7 +215,10 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
         step: null,
         label: lapLabel(laps + 1),
         started_at: e.at,
+        lap_type: null,
       };
+      opener = [e.id, 'lap'];
+      nextLapType = null;
       return null;
     }
     if (e.type === 'pause') {
@@ -211,7 +232,7 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
     if (e.pause_id !== pauseId) return 'stale';
     // A resume before its pause began would make a negative pause.
     if (e.at < pausedSince) return 'stale';
-    pauses.push({ start: pausedSince, end: e.at });
+    pauses.push({ start: pausedSince, end: e.at, id: pauseId });
     pausedSince = null;
     pauseId = null;
     status = 'running';
@@ -237,14 +258,16 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
     decide(e, terminal !== null && e.at > terminal.at ? 'after_stop' : apply(e));
   if (terminal !== null && open !== null) {
     if (terminal.type === 'stop') {
-      if (pausedSince !== null) pauses.push({ start: pausedSince, end: terminal.at });
+      if (pausedSince !== null) pauses.push({ start: pausedSince, end: terminal.at, id: pauseId });
       pausedSince = null;
       close(open, terminal.at);
       endedAt = terminal.at;
+      terminalId = terminal.id;
     }
     status = terminal.type === 'stop' ? 'stopped' : 'discarded';
     open = null;
     nextStep = null;
+    nextLapType = null;
     pausedSince = null;
   }
   return {
@@ -258,6 +281,9 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
     skipped: base.skipped,
     pauses,
     effects,
+    terminal_id: terminalId,
+    next_lap_type: nextLapType,
+    lap_count: segments.filter((x) => x.kind === 'lap').length,
   };
 }
 
@@ -282,7 +308,7 @@ function buildRun(
     state = stateFromWire(server.state);
   } else if (steps) {
     try {
-      state = fold(id, steps, events);
+      state = fold(id, { steps }, events);
     } catch (err) {
       // Not foldable (no start yet, say): the server's state, if there is one.
       if (!server) return null;
@@ -298,7 +324,7 @@ function buildRun(
     // fold over none, so the run shows its clock and can be stopped offline. `steps` stays
     // null: there is no step list yet.
     try {
-      state = fold(id, [], events);
+      state = fold(id, { steps: [] }, events);
     } catch (err) {
       console.error('[runs] could not fold the local view', err);
       return null;
@@ -424,7 +450,7 @@ export function optimisticEntries(runs: readonly LocalRun[]): OptimisticEntry[] 
       run.queued.findLast((i) => i.payload.event.type === 'finish') ??
       run.queued.find((i) => i.payload.event.type === 'stop');
     const event = carrier?.payload.event;
-    const timing = projectTiming(run.state, run.steps);
+    const timing = projectTiming(run.state, { steps: run.steps });
     out.push({
       id: run.id,
       topic_id: run.topic_id,

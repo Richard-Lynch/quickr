@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { T0, ev, runItem, serverRun } from '../../test/runs';
-import type { VoidReason } from './types';
+import type { RunEventResult } from '../../client';
 import {
   dismissRunNotice,
   getRunNotices,
@@ -15,7 +15,7 @@ import {
 } from './notices';
 
 const run = serverRun('r1', [ev('r1', 'start', T0), ev('x', 'stop', T0 + 300_000)]);
-const reply = (reason: VoidReason | null, effect: 'applied' | 'void' = 'void') => ({
+const reply = (reason: RunEventResult['event']['reason'], effect: 'applied' | 'void' = 'void') => ({
   event: { id: 'n1', effect, reason },
   run,
 });
