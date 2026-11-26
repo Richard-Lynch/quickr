@@ -135,8 +135,18 @@ public struct LocalStore: Sendable {
         }
     }
 
-    public func observeOutbox(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<[OutboxItem], any Error> {
-        StoreObservation.values(in: writer, refresh: refresh) { db in try OutboxStorage.items(db) }
+    /// The items and their summary from one read (`OutboxSnapshot`): a consumer that shows both
+    /// never sees one ahead of the other. The summary has no `nextWake`: for an item already due
+    /// it is the read's own clock, so unchanged rows would never read as a duplicate (the flush
+    /// timer reads its own from `Outbox.summary()`).
+    public func observeOutbox(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<OutboxSnapshot, any Error> {
+        let clock = leaseClock
+        return StoreObservation.values(in: writer, refresh: refresh) { db in
+            let items = try OutboxStorage.items(db)
+            var summary = try OutboxSummary.read(db, items: items, now: clock.now())
+            summary.nextWake = nil
+            return OutboxSnapshot(items: items, summary: summary)
+        }
     }
 
     public func observeSyncState(refresh: AsyncStream<Void>? = nil) -> AsyncThrowingStream<SyncState?, any Error> {
