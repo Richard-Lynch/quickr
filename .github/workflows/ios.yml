@@ -107,7 +107,7 @@ jobs:
       needs.changes.outputs.ios == 'true' &&
       (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install xcodegen ${{ env.XCODEGEN_VERSION }}
@@ -131,7 +131,9 @@ jobs:
       # Healthy: ~2 min to build, ~1 min to boot and install, 1–2 min of tests. xcodebuild prints
       # all along, so 5 silent minutes is a hang (a cold package fetch still gets 40, common.sh).
       - name: Build + Unit plan (no signing)
-        timeout-minutes: 15
+        # Green runs take 9.7 to 13.2 min on hosted macos-26 (Nov 2026), and one overran 15 min by 75 ms after
+        # "Test Succeeded" (#230). The watchdog still catches hangs (5 silent minutes); this is only the budget.
+        timeout-minutes: 22
         env:
           IOS_WATCHDOG_SILENCE_MIN: 5
         run: make ios-check-ci IOS_SIM_CI="iPhone 17"

@@ -20,6 +20,11 @@ runtime="$(xcrun simctl list devices | awk -v id="$udid" '/^-- /{rt=$0} index($0
 echo "ios: $plan plan on $udid ${runtime}"
 echo "ios: result bundle: $result"
 sim_hold "$udid"  # under the simulator cap, before xcodebuild would boot it
+# A UI plan types service tokens: no "Save Password?" offer over the screen (common.sh).
+if [[ "$plan" != Unit ]]; then
+  sim_autofill_off "$udid" || die "could not turn Password AutoFill off on $udid (simctl spawn defaults write);" \
+    "iOS would offer to save the typed tokens over the UI tests"
+fi
 # CI's ~3-core runner starves a hosted run that executes every Swift Testing test of every target
 # at once (main-actor suites stalled for minutes). There, cap how many run concurrently in the
 # test process (IOS_TEST_PARALLEL_WIDTH, default 4; forwarded through TEST_RUNNER_). Local runs
