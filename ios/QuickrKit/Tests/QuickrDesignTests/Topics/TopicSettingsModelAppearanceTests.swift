@@ -390,6 +390,25 @@ extension TopicSettingsModelTests {
         #expect(model.topic.name == "Renamed")
     }
 
+    /// Codex rvfix round 2 #1: after a conflict, a field that wasn't sent (it only gained a space)
+    /// takes the copy from elsewhere, so the next Save doesn't overwrite it.
+    @Test func aConflictDoesNotKeepAFieldThatWasNotSent() async {
+        let model = themed()
+        writer.server.revision = 4
+        writer.server.name = "Renamed"
+        writer.server.appearance.color = .indigo
+        model.name = "Mood "
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(model.detailsBanner == TopicWriteMessage.conflict(["colour"]))
+        #expect(model.name == "Renamed")
+        await model.saveDetails()
+        let change = TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink)))
+        #expect(writer.calls.last == .details(change, expectedRevision: 4))
+        #expect(model.topic.name == "Renamed" && model.topic.appearance.color == .pink)
+        #expect(titles == ["Saved"])
+    }
+
     /// An edited field changed elsewhere to the same value is no conflict: the change goes again.
     @Test func theSameChangeFromElsewhereIsNoConflict() async {
         let model = themed()

@@ -198,10 +198,10 @@ public final class TopicSettingsModel {
     }
 
     /// `newer` becomes the base even when it changed an edited field (a conflict the screen has
-    /// shown): the fields not edited take its values, the edits stay, and the next save sends its
-    /// revision, so it keeps them.
-    private func moveDetailsBase(to newer: Topic) {
-        let edited = editedFields
+    /// shown): the fields not in `kept` (default: the edited ones) take its values, the others
+    /// stay, and the next save sends its revision, so it keeps them.
+    private func moveDetailsBase(to newer: Topic, keeping kept: [DetailsField]? = nil) {
+        let edited = kept ?? editedFields
         detailsBase = newer
         for field in DetailsField.allCases where !edited.contains(field) {
             switch field {
@@ -289,7 +289,9 @@ public final class TopicSettingsModel {
         isSavingDetails = false
         guard saved else {
             if let conflict {
-                moveDetailsBase(to: conflict.latest)
+                // Only what the save sent stays: a form-only difference (a trailing space) would
+                // otherwise be sent next time, over the field's change elsewhere.
+                moveDetailsBase(to: conflict.latest, keeping: sent)
                 detailsBanner = TopicWriteMessage.conflict(conflict.fields.map(\.label))
             } else if contended {
                 detailsBanner = TopicWriteMessage.contention
