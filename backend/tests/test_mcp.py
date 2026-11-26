@@ -593,7 +593,7 @@ async def test_check_topic_version_takes_the_timer(mcp_client: Client[Any]) -> N
     assert (await check(timer=None))["ok"] is True  # timing switched off
     tools = {t.name: t for t in await mcp_client.list_tools()}
     assert "timer" not in tools["check_topic_version"].input_schema.get("required", [])
-    with pytest.raises(ToolError, match="alerts"):
+    with pytest.raises(ToolError, match="unknown variable 'u'"):
         await mcp_client.call_tool(
             "check_topic_version",
             {
@@ -634,12 +634,17 @@ async def test_run_action_reopen_defaults_to_the_terminal(mcp_client: Client[Any
 async def test_run_action_reopen_with_an_explicit_target(mcp_client: Client[Any]) -> None:
     run_id, stopped = await _stopped_run(mcp_client)
     start = stopped["run"]["events"][0]["id"]
-    void = await call(mcp_client, "run_action", run_id=run_id, action="reopen", target=start)
-    assert (void["event"]["effect"], void["event"]["reason"]) == ("void", "not_stopped")
+    again = await call(mcp_client, "run_action", run_id=run_id, action="stop")  # void: already closed
+    for target, reason in ((start, "no_target"), (again["event"]["id"], "not_stopped")):
+        void = await call(mcp_client, "run_action", run_id=run_id, action="reopen", target=target)
+        assert (void["event"]["effect"], void["event"]["reason"]) == ("void", reason)
     applied = await call(
         mcp_client, "run_action", run_id=run_id, action="reopen", target=stopped["event"]["id"]
     )
-    assert applied["event"]["effect"] == "applied"
+    assert (applied["event"]["effect"], applied["run"]["events"][-1]["target"]) == (
+        "applied",
+        stopped["event"]["id"],
+    )
 
 
 async def test_run_action_remove_requires_a_target(mcp_client: Client[Any]) -> None:

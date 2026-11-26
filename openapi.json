@@ -8915,6 +8915,69 @@
         ],
         "title": "TimingEditSegment"
       },
+      "TimingLapTypeStats": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The latest version's label for the lap type."
+          },
+          "laps": {
+            "type": "integer",
+            "title": "Laps",
+            "description": "Lap segments of this type, over every timed run."
+          },
+          "best_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Ms",
+            "description": "Over those segments' active_ms."
+          },
+          "median_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ms"
+          },
+          "mean_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "laps",
+          "best_ms",
+          "median_ms",
+          "mean_ms"
+        ],
+        "title": "TimingLapTypeStats"
+      },
       "TimingLaps": {
         "properties": {
           "runs_with_laps": {
@@ -9160,6 +9223,14 @@
             "type": "object",
             "title": "Steps",
             "description": "Each step segment's key and its active_ms."
+          },
+          "lap_types": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Lap Types",
+            "description": "Each lap type and its lap segments' summed active_ms; untyped laps are left out."
           }
         },
         "additionalProperties": false,
@@ -9171,7 +9242,8 @@
           "active_ms",
           "paused_ms",
           "complete",
-          "steps"
+          "steps",
+          "lap_types"
         ],
         "title": "TimingSeriesPoint"
       },
@@ -9891,6 +9963,14 @@
             "title": "Steps",
             "description": "Every step key seen in range: the current version's steps in step order, then the rest by key."
           },
+          "lap_types": {
+            "items": {
+              "$ref": "#/components/schemas/TimingLapTypeStats"
+            },
+            "type": "array",
+            "title": "Lap Types",
+            "description": "Every lap type with a lap segment in range: the current version's lap types in order, then the rest by key. Keyed apart from steps; untyped laps count only toward laps."
+          },
           "laps": {
             "$ref": "#/components/schemas/TimingLaps"
           },
@@ -9913,6 +9993,7 @@
           "complete_runs",
           "total",
           "steps",
+          "lap_types",
           "laps",
           "paused",
           "series"

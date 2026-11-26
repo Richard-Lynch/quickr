@@ -28,6 +28,7 @@ function run(
     paused_ms: 0,
     complete: true,
     steps,
+    lap_types: {},
   };
 }
 
