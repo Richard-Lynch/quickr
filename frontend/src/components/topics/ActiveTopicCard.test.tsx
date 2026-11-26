@@ -6,7 +6,13 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalRun } from '../../lib/runs/localView';
 import type { OpenSegment } from '../../lib/runs/types';
-import { ActiveTopicCard, cardTint, type CardControls, type CardTopic } from './ActiveTopicCard';
+import {
+  ActiveTopicCard,
+  cardTint,
+  isResuming,
+  type CardControls,
+  type CardTopic,
+} from './ActiveTopicCard';
 
 const topic = { id: '6f1c0000-0000-4000-8000-0000000000c1', slug: 'morning', name: 'Morning' };
 
@@ -129,7 +135,14 @@ describe('the active card', () => {
     expect(primary).toHaveTextContent('Next: Breakfast');
     expect(within(card).getByTestId('card-stop')).toHaveAccessibleName('Stop · Morning');
     expect(within(card).getByTestId('card-pause')).toHaveAccessibleName('Pause · Morning');
-    expect(within(card).getAllByRole('button')).toHaveLength(3);
+    // Screen readers meet them in the order primary, Stop, Pause (§7), after the clocks.
+    expect(
+      within(card)
+        .getAllByRole('button')
+        .map((b) => b.dataset.testid),
+    ).toEqual(['card-primary', 'card-stop', 'card-pause']);
+    const status = within(card).getByTestId('card-status');
+    expect(status.compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(primary);
     await userEvent.click(within(card).getByTestId('card-stop'));
     await userEvent.click(within(card).getByTestId('card-pause'));
@@ -207,6 +220,12 @@ describe('the active card', () => {
     // The clocks still run, and the card still opens the run panel.
     expect(within(card).getByTestId('card-total')).toHaveTextContent(/1:0\d/);
     expect(within(card).getByRole('link', { name: 'Morning' })).toBeInTheDocument();
+  });
+
+  it('no run is resuming yet: M1 has no queued-reopen projection (pending M1, see the PR)', () => {
+    // When M1's local view projects a queued, unacked `reopen`, `isResuming` reads it and
+    // this expectation flips for such a run; the card's side is the test above.
+    expect(isResuming(runOf())).toBe(false);
   });
 
   it('reads M1’s headline: the open segment’s label, nothing extra with nothing open', () => {

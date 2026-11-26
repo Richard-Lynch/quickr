@@ -114,7 +114,7 @@ export function ActiveTopicCard({
     >
       <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tint.bar)} />
       <div className="flex min-w-0 flex-1 flex-col gap-3 py-3.5 pr-3 pl-5">
-        <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className={cn('flex min-w-0 items-start', pauseResume && 'pr-[6.5rem]')}>
           <h2 className="flex min-w-0 items-center gap-2 pt-1.5 font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
             <span aria-hidden className="contents">
               <TopicGlyph appearance={topic.appearance} name={topic.name} size={24} />
@@ -127,19 +127,6 @@ export function ActiveTopicCard({
               {topic.name}
             </Link>
           </h2>
-          {pauseResume ? (
-            <button
-              type="button"
-              data-testid={pauseResume.paused ? 'card-resume' : 'card-pause'}
-              aria-label={pauseResume.label}
-              disabled={pauseResume.disabled}
-              onClick={pauseResume.onTap}
-              className="relative z-10 -mr-1 inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-soft transition-colors hover:bg-surface/70 hover:text-ink disabled:cursor-wait disabled:opacity-60"
-            >
-              <Icon name={pauseResume.icon} className="size-4" strokeWidth={2.4} />
-              {pauseResume.title}
-            </button>
-          ) : null}
         </div>
 
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -181,7 +168,8 @@ export function ActiveTopicCard({
         </div>
 
         {primary || stop ? (
-          <div className="relative z-10 flex gap-2">
+          // Stacks when the text is large (rem bases): the primary over a full-width Stop (§7).
+          <div className="relative z-10 flex flex-wrap gap-2">
             {primary ? (
               <button
                 type="button"
@@ -191,7 +179,7 @@ export function ActiveTopicCard({
                 onClick={primary.onTap}
                 className={cn(
                   CONTROL,
-                  'min-w-0 flex-1 bg-topic-tint px-4 text-topic-on-tint shadow-[0_1px_0_rgb(0_0_0/0.15),inset_0_1px_0_rgb(255_255_255/0.2)] hover:brightness-110',
+                  'min-w-0 flex-[3_1_12rem] bg-topic-tint px-4 text-topic-on-tint shadow-[0_1px_0_rgb(0_0_0/0.15),inset_0_1px_0_rgb(255_255_255/0.2)] hover:brightness-110',
                 )}
               >
                 <Icon name={primary.icon} className="size-5 shrink-0" strokeWidth={2.6} />
@@ -207,8 +195,7 @@ export function ActiveTopicCard({
                 onClick={stop.onTap}
                 className={cn(
                   CONTROL,
-                  'gap-1.5 border border-line-strong bg-surface px-2 text-danger hover:border-ink/40 hover:bg-sunken',
-                  primary ? 'w-[5.25rem] shrink-0' : 'flex-1',
+                  'flex-[1_0_5.25rem] gap-1.5 border border-line-strong bg-surface px-2 text-danger hover:border-ink/40 hover:bg-sunken',
                 )}
               >
                 <Icon name={stop.icon} className="size-4.5 shrink-0" strokeWidth={2.6} />
@@ -216,6 +203,21 @@ export function ActiveTopicCard({
               </button>
             ) : null}
           </div>
+        ) : null}
+        {/* Last for screen readers (§7: the controls in order primary, Stop, Pause), shown in
+            the title row's corner. */}
+        {pauseResume ? (
+          <button
+            type="button"
+            data-testid={pauseResume.paused ? 'card-resume' : 'card-pause'}
+            aria-label={pauseResume.label}
+            disabled={pauseResume.disabled}
+            onClick={pauseResume.onTap}
+            className="absolute top-2.5 right-2 z-10 inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-soft transition-colors hover:bg-surface/70 hover:text-ink disabled:cursor-wait disabled:opacity-60"
+          >
+            <Icon name={pauseResume.icon} className="size-4" strokeWidth={2.4} />
+            {pauseResume.title}
+          </button>
         ) : null}
       </div>
     </article>
