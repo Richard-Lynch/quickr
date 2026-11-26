@@ -102,16 +102,27 @@ public final class EntryActionsModel {
         } catch {}
     }
 
+    /// Reads `removeQueued` once: call it before the screen shows, so Edit times is never offered
+    /// over a remove queued earlier while `observe()` hasn't read the outbox yet.
+    public func readQueuedRemove() async throws {
+        removeQueued = queuesRemove(try await store.outbox.items(topicId: topicId.wireString))
+    }
+
     private func observeRemoves() async {
-        let runId = entry.entry.id.wireString
         do {
             for try await snapshot in store.observeOutbox(refresh: refresh?.stream()) {
-                removeQueued = snapshot.items.contains { item in
-                    item.kind == .runEvent && item.state.isActive && item.entityId.lowercased() == runId
-                        && (try? item.runEventPayload())??.type == .remove
-                }
+                removeQueued = queuesRemove(snapshot.items)
             }
         } catch {}
+    }
+
+    /// `items` hold an active `remove` of the entry's run.
+    private func queuesRemove(_ items: [OutboxItem]) -> Bool {
+        let runId = entry.entry.id.wireString
+        return items.contains { item in
+            item.kind == .runEvent && item.state.isActive && item.entityId.lowercased() == runId
+                && (try? item.runEventPayload())??.type == .remove
+        }
     }
 
     /// Sends the row's remove, after its confirmation. True when it was enqueued; otherwise

@@ -316,6 +316,16 @@ private let utc = TimingEditClock(timeZone: TimeZone(identifier: "UTC")!)
         #expect(m.timingEditor != nil, "after the ack it opens")
     }
 
+    /// Review R1 (Codex): a remove queued while the sheet is open closes it, and nothing is saved.
+    @Test func aRemoveQueuedWhileEditingClosesTheSheet() async throws {
+        let m = editModel()
+        _ = try editor(m)
+        m.removeQueued = true
+        #expect(m.timingEditor == nil)
+        await m.saveTiming()
+        #expect(writer.saves.isEmpty)
+    }
+
     // MARK: - Lap types (content-display.md §3.2, timers2.md §3.2)
 
     /// With the version's lap types, a lap row's choice names the type its position gives it, and

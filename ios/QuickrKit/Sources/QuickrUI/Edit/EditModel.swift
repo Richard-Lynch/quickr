@@ -99,8 +99,11 @@ public final class EditModel: EntryDetailsEditing {
     /// The open Edit times sheet.
     public var timingEditor: TimingEditModel?
     /// One of the run's removes is queued (`EntryActionsModel.removeQueued`, content-display.md
-    /// §3.2): Edit times waits for its ack, since saving times would void it (`run_edited`).
-    public var removeQueued = false
+    /// §3.2): Edit times waits for its ack, since saving times would void it (`run_edited`). An
+    /// open sheet that isn't saving closes, and a save is refused.
+    public var removeQueued = false {
+        didSet { if removeQueued, timingEditor?.isSaving == false { timingEditor = nil } }
+    }
     /// The entry changed elsewhere while the answers or notes are being edited: what it says now.
     /// Shown with Reload; the edits stay until then.
     public private(set) var changedElsewhere: Entry?
@@ -323,7 +326,7 @@ public final class EditModel: EntryDetailsEditing {
     /// "Save times": saved, the sheet closes and the entry shows its new times. Unsaved answer and
     /// notes edits stay on the form, now based on the saved revision.
     public func saveTiming() async {
-        guard let editor = timingEditor, let saved = await editor.save() else { return }
+        guard !removeQueued, let editor = timingEditor, let saved = await editor.save() else { return }
         timingEditor = nil
         adopt(times: saved)
         _ = toasts.center.show(Toast("Times updated"))

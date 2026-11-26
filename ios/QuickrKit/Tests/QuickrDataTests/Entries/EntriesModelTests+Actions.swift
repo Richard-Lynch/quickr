@@ -178,6 +178,13 @@ extension EntriesModelTests {
         #expect(await model.remove(try #require(model.removeAction(rows[1]))))
         w.session.refresh.poke()
         try await eventually("the queued remove is seen") { await MainActor.run { model.removeQueued } }
+        // A detail opened later reads it before it shows (no Edit times before the first
+        // observation, Codex).
+        let reopened = EntryActionsModel(
+            entry: model.entry, store: store, refresh: w.session.refresh, runActions: recorder.actions(store))
+        #expect(!reopened.removeQueued)
+        try await reopened.readQueuedRemove()
+        #expect(reopened.removeQueued)
 
         // Refused (terminal): the server's timing stands, Edit times is free again.
         try await store.writer.write { db in try db.execute(sql: "UPDATE outbox_item SET state = 'failed'") }

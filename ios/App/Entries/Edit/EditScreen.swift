@@ -158,6 +158,9 @@ struct EditScreen: View {
                 timerLapTypes: timer?.laps ?? [], timingWriter: SessionTopicWriter(session: session, binding: binding))
             let actions = EntryActionsModel(
                 entry: viewEntry, store: store, refresh: session.refresh, runActions: environment.runActions)
+            // A remove queued earlier holds Edit times back from the first frame.
+            try await actions.readQueuedRemove()
+            model.removeQueued = actions.removeQueued
             // A Remove or Resume run that wasn't enqueued says so (the PWA's toasts).
             let toasts = environment.entryToasts.center
             actions.onRefused = { message in _ = toasts.show(Toast(message, tone: .danger)) }
