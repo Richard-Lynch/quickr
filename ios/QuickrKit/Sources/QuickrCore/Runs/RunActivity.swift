@@ -236,7 +236,8 @@ public enum RunActivityContent {
             (seg, kind, step, label, segStartedAt, lapType) = (0, .lap, nil, "", state.startedAt, nil)
         }
         var nextLabel: String?
-        if state.open != nil, let next = state.nextStep, let index = keys.firstIndex(of: next) {
+        // In a lap, never the pending step: a lap opened mid-steps names the next lap's type (§8.1).
+        if state.open != nil, kind == .step, let next = state.nextStep, let index = keys.firstIndex(of: next) {
             nextLabel = truncate(steps[index].label)
         } else if state.open != nil, kind == .lap, let next = state.nextLapType,
             let type = timer.laps.first(where: { $0.key == next })
