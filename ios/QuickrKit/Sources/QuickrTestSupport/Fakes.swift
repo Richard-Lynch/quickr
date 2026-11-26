@@ -100,6 +100,8 @@ public final class FakeNotificationCenter: NotificationCenterProtocol {
         public var delivered: [NotificationSnapshot] = []
         public var pending: [NotificationSnapshot] = []
         public var added: [LocalNotificationRequest] = []
+        /// Every identifier `removePendingNotificationRequests` was called with, in order (T2-M1).
+        public var removedPending: [String] = []
         public var badge: Int = 0
         public var authorization: NotificationAuthorization = .authorized
         public var grantsAuthorization = true
@@ -146,17 +148,24 @@ public final class FakeNotificationCenter: NotificationCenterProtocol {
     }
 
     public func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
-        state.withLock { $0.pending.removeAll { identifiers.contains($0.id) } }
+        state.withLock {
+            $0.pending.removeAll { identifiers.contains($0.id) }
+            $0.removedPending += identifiers
+        }
     }
 
     public func add(_ request: LocalNotificationRequest) async throws {
         state.withLock {
             $0.added.append(request)
             $0.pending.removeAll { $0.id == request.id }
+            // T2-M1: the snapshot the system would list (an interval trigger's instant included).
             $0.pending.append(
                 NotificationSnapshot(
                     id: request.id, categoryIdentifier: request.categoryIdentifier ?? "",
-                    threadIdentifier: request.threadIdentifier ?? "", date: request.fireDate, quickr: request.quickr))
+                    threadIdentifier: request.threadIdentifier ?? "", date: request.fireAt ?? request.fireDate,
+                    quickr: request.quickr, title: request.title, body: request.body, sound: request.sound,
+                    interruptionLevel: request.interruptionLevel))
+            // end T2-M1
         }
     }
 

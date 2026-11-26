@@ -28,8 +28,24 @@ final class NotificationResponder: NSObject, UNUserNotificationCenterDelegate {
         let snapshot = NotificationSnapshot(
             id: notification.request.identifier,
             quickr: SystemNotificationCenter.quickr(notification.request.content.userInfo))
+        // T2-M1 (timers2.md §9.1): a run alert shows its banner with sound, and the app plays
+        // `QuickrHaptic.alert` and shows its label inline on the run screen for 10 s.
+        if let info = snapshot.quickr, info.kind == RunAlerts.kind {
+            await alertPresented(info)
+            return Self.alertPresentation
+        }
+        // end T2-M1
         return await shouldPresent(snapshot) ? [.banner, .list, .sound] : []
     }
+
+    // T2-M1
+    /// A run alert in the foreground: banner and sound (timers2.md §9.1).
+    nonisolated static let alertPresentation: UNNotificationPresentationOptions = [.banner, .sound]
+
+    private func alertPresented(_ info: QuickrNotificationInfo) {
+        environment?.runAlertPresented(info)
+    }
+    // end T2-M1
 
     private func shouldPresent(_ snapshot: NotificationSnapshot) async -> Bool {
         await environment?.shouldPresentNotification(snapshot) ?? true
