@@ -84,38 +84,52 @@ public enum RunPresentation {
 
     // MARK: - RunAction (timers2.md §10; active-surfaces.md §1.1–§1.2)
 
+    /// OQ-1: how long after its stop a run is offered "Resume run" on tiles, toasts and the run
+    /// screen (timers2.md glossary, "Resumable").
+    public static let reopenWindowMs = 15 * 60 * 1000
+
     /// The run's actions in display order: the primary first, then secondaries, then overflow,
-    /// destructive last (active-surfaces.md §1.1). The on-screen primary rule (timers2.md §10):
-    /// Lap when the open segment is a lap or no named step remains, else Next with the step it
-    /// opens; Stop is never primary. `timer == nil` (steps unknown) is the v1 fallback: a plain
-    /// `next("Next")` and no `skip`, no `lap`.
+    /// destructive last (active-surfaces.md §1.1, §1.2). The on-screen primary rule (timers2.md
+    /// §10): Lap when the open segment is a lap or no named step remains, labelled with the lap it
+    /// opens when the timer has lap types ("Lap → Rest"), else Next with the step it opens; Stop is
+    /// never primary. `timer == nil` (steps unknown) is the v1 fallback: a plain `next("Next")` and
+    /// no `skip`, no `lap`.
     ///
-    /// T2-M1 stub half: `lap(nextTypeLabel:)` is nil until `RunState.nextLapType` exists
-    /// (I1-CORE); `reopen`/`revert` are never returned until the reopen event lands (I1-WRITES);
-    /// row 14 (busy: every `enabled == false`) waits for a cooldown notion in `RunStatus`
-    /// (I1-WRITES). A closed run (`stopped`/`discarded`) yields `[]` today (row 13 without
-    /// `resumable`).
+    /// - An open run reached by a reopen (`state.reopenId`) offers `revert` instead of `discard`
+    ///   (row 10).
+    /// - A stopped run offers `reopen(terminalId)` in overflow within `reopenWindowMs` of its stop
+    ///   (row 13); `[]` after. The store-level rules (the entry unedited, the latest stop, no other
+    ///   open run: A15) are `resumable`'s and the surface's.
+    /// - A finishing run: `addDetails`, `discard` (row 12). A discarded run: `[]`.
+    ///
+    /// Not expressible here: rows 1–3 (an idle topic has no `RunState`; its surface shows Start),
+    /// 11 (a queued reopen: I1-WRITES' "resuming" projection shows no controls) and 14 (busy:
+    /// I1-WRITES' cooldown sets `enabled`). Every action returned is enabled.
     // Verbatim from timers2.md §10 (A13).
     public static func actions(_ state: RunState, status: RunStatus, timer: TopicTimer?, now: Date) -> [RunAction] {
-        // `now` is read for the reopen window (row 13) once `Timing.terminalId` exists.
         switch status {
         case .finishing:
             return [
                 RunAction(kind: .addDetails, role: .primary, enabled: true),
                 RunAction(kind: .discard, role: .destructive, enabled: true),
             ]
-        case .stopped, .discarded:
+        case .discarded:
             return []
+        case .stopped:
+            guard let id = state.terminalId, let target = UUID(uuidString: id), let end = state.endedAt,
+                RunInstant.milliseconds(now) - end <= reopenWindowMs
+            else { return [] }
+            return [RunAction(kind: .reopen(target: target), role: .overflow, enabled: true)]
         case .running, .paused:
             break
         }
-        let steps = timer?.steps
         let primary: RunAction.Kind
-        if let steps {
+        if let timer {
             if state.open?.kind == .lap || state.nextStep == nil {
-                primary = .lap(nextTypeLabel: nil)
+                let next = state.nextLapType.flatMap { key in timer.laps.first { $0.key == key }?.label }
+                primary = .lap(nextTypeLabel: next)
             } else {
-                primary = .next(label: label(of: state.nextStep ?? "", in: steps))
+                primary = .next(label: label(of: state.nextStep ?? "", in: timer.steps))
             }
         } else {
             primary = .next(label: "Next")
@@ -125,29 +139,58 @@ public enum RunPresentation {
             RunAction(kind: .stop, role: .secondary, enabled: true),
             RunAction(kind: status == .paused ? .resume : .pause, role: .secondary, enabled: true),
         ]
-        if let skip = skipTarget(state, steps: steps) {
+        if let skip = skipTarget(state, steps: timer?.steps) {
             out.append(RunAction(kind: .skip(label: skip.label), role: .overflow, enabled: true))
         }
-        out.append(RunAction(kind: .discard, role: .destructive, enabled: true))
+        out.append(RunAction(kind: state.reopenId != nil ? .revert : .discard, role: .destructive, enabled: true))
         return out
     }
 
-    /// The open segment's label with its counter. T2-M1 stub half: the bare `open.label`
-    /// ("Shower", "Lap 3") and no counter until `RunState.lapCount`/`nextLapType` exist
-    /// (I1-CORE); "Running"/"Paused" when nothing is open.
+    /// The open segment's label with its counter (active-surfaces.md §1.1):
+    ///
+    /// - a typed lap: "{label} · lap {n}" ("Rest 2 · lap 4"), counter "L{n}", where n is the lap's
+    ///   number in the run (`lapCount + 1`);
+    /// - an untyped lap: its label ("Lap 3"), counter "L3";
+    /// - a step: "{label} · {position} of {count}" over the timer's steps ("Shower · 2 of 5"), no
+    ///   counter; the bare label when the timer isn't known or lacks the step;
+    /// - nothing open: "Running", or "Paused" while `status` is paused.
     public static func headline(_ state: RunState, status: RunStatus, timer: TopicTimer?) -> Headline {
-        if let open = state.open { return Headline(text: open.label, counter: nil) }
-        return Headline(text: status == .paused ? "Paused" : "Running", counter: nil)
+        guard let open = state.open else {
+            return Headline(text: status == .paused ? "Paused" : "Running", counter: nil)
+        }
+        switch open.kind {
+        case .lap:
+            let n = state.lapCount + 1
+            let text = open.lapType != nil ? "\(open.label) · lap \(n)" : open.label
+            return Headline(text: text, counter: "L\(n)")
+        case .step:
+            guard let steps = timer?.steps, let index = steps.firstIndex(where: { $0.key == open.step }) else {
+                return Headline(text: open.label, counter: nil)
+            }
+            return Headline(text: "\(open.label) · \(index + 1) of \(steps.count)", counter: nil)
+        }
     }
 
-    /// The next alert's label and countdown. T2-M1 stub half: nil until I1-CORE's alerts land.
+    /// The next alert of the open segment and its countdown: "Half way · in 0:12"
+    /// (active-surfaces.md §1.1). The alerts are the open step's or lap type's (timers2.md §1.1),
+    /// in `atMs` order then position; the next is the first whose `atMs` is beyond the segment's
+    /// active time now (paused time doesn't count). Nil while paused, when nothing is open, when
+    /// the timer isn't known, or when none remain. The countdown is `fmtDuration` (truncated).
     public static func alertLine(_ state: RunState, timer: TopicTimer?, now: Date) -> String? {
-        return nil
+        guard let open = state.open, state.pausedSince == nil, let timer else { return nil }
+        let active = segmentMs(state, now: RunInstant.milliseconds(now))
+        let next = timer.alerts(step: open.step, lapType: open.lapType).enumerated()
+            .compactMap { index, alert in alert.atMs.map { (at: $0, index: index, label: alert.label) } }
+            .filter { $0.at > active }
+            .min { ($0.at, $0.index) < ($1.at, $1.index) }
+        guard let next else { return nil }
+        return "\(next.label) · in \(DurationFormat.format(next.at - active))"
     }
 
     /// Whether the entry's run can be reopened (active-surfaces.md OQ-1: an unedited timed entry
-    /// of the latest stop, within 15 minutes). T2-M1 stub half: false until `Timing.terminalId`
-    /// exists (I1-CORE).
+    /// of the topic's latest stop, within 15 minutes, while the topic has no other open run).
+    /// T2-M1: false until I1-WRITES, which owns the store-level half (the latest stop, the open
+    /// run); `Entry` alone can't tell.
     public static func resumable(_ entry: Entry, now: Date) -> Bool {
         return false
     }

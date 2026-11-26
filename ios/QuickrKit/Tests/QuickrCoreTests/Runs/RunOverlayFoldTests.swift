@@ -50,7 +50,8 @@ import Testing
             ], pauseId: "p1")
         #expect(resumed.status == .running)
         let pauses: [RunPause] = resumed.pauses
-        #expect(pauses == [RunPause(start: 70 * Self.s, end: 80 * Self.s)])
+        #expect(
+            pauses == [RunPause(start: 70 * Self.s, end: 80 * Self.s, id: "p1")], "the pause carries its event id (v4)")
     }
 
     @Test func aResumeNamingAnotherPauseOrAnUnknownOneIsStale() throws {
@@ -111,7 +112,7 @@ import Testing
         #expect(server.nextLapType == "run")
         let lapped = RunFold.overlay(server, events: [RunEvent(id: "l2", type: .lap, at: 70 * Self.s, seg: 1)])
         let open = try #require(lapped.open)
-        #expect(open.label == "Lap 2")
+        #expect(open.label == "Lap 3", "lap 3 of the run, untyped")
         #expect(open.lapType == nil)
         #expect(lapped.lapCount == 2)
         #expect(lapped.nextLapType == nil, "the next lap's type is unknown without the version")
@@ -122,7 +123,8 @@ import Testing
     }
 
     @Test func anOverlayStopSetsTheTerminalId() throws {
-        let stopped = RunFold.overlay(try Self.typedServer(), events: [RunEvent(id: "S1", type: .stop, at: 90 * Self.s)])
+        let stopped = RunFold.overlay(
+            try Self.typedServer(), events: [RunEvent(id: "S1", type: .stop, at: 90 * Self.s)])
         #expect(stopped.status == .stopped)
         #expect(stopped.terminalId == "s1")
         #expect(stopped.lapCount == 2)

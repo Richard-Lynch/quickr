@@ -154,7 +154,9 @@ import Testing
     static let stop2Id = "0e000000-0000-4000-8000-000000000003"
     static let minute = 60_000
 
-    static let lapTypes = [TopicTimer.LapType(key: "run", label: "Run"), TopicTimer.LapType(key: "rest", label: "Rest")]
+    static let lapTypes = [
+        TopicTimer.LapType(key: "run", label: "Run"), TopicTimer.LapType(key: "rest", label: "Rest"),
+    ]
     static let plain = TopicTimer(steps: steps)
     static let lapsOnly = TopicTimer(steps: [])
     static let tiktok = TopicTimer(steps: [], laps: lapTypes)
@@ -293,7 +295,8 @@ import Testing
                 row: "13 reverted (discard after a reopen): the stop is the terminal again",
                 events: [stop, reopen, revertDiscard], folded: plain, timer: plain, now: 8,
                 expected: [reopenOverflow]),
-            ActionRow(row: "13 discarded", events: [RunEvent(id: "d", type: .discard, at: 5)], folded: plain,
+            ActionRow(
+                row: "13 discarded", events: [RunEvent(id: "d", type: .discard, at: 5)], folded: plain,
                 timer: plain, expected: []),
         ]
     }()
@@ -313,7 +316,8 @@ import Testing
         for row in Self.actionRows {
             let state = try Self.fold(row.events, timer: row.folded)
             let status = row.status ?? state.status
-            let actions = RunPresentation.actions(state, status: status, timer: row.timer, now: RunInstant.date(row.now))
+            let actions = RunPresentation.actions(
+                state, status: status, timer: row.timer, now: RunInstant.date(row.now))
             if status.isOpen || status == .finishing {
                 #expect(actions.count { $0.role == .primary } == 1, "\(row.row)")
             } else {
@@ -357,11 +361,13 @@ import Testing
     @Test("headline: a step reads its position of the steps; a typed lap its lap number; an untyped lap its label")
     func headline() throws {
         let step = try Self.fold([], timer: Self.plain)
-        #expect(RunPresentation.headline(step, status: .running, timer: Self.plain)
-            == Headline(text: "Shower · 1 of 3", counter: nil))
+        #expect(
+            RunPresentation.headline(step, status: .running, timer: Self.plain)
+                == Headline(text: "Shower · 1 of 3", counter: nil))
         let second = try Self.fold([RunEvent(id: "n1", type: .next, at: 1, seg: 0)], timer: Self.plain)
-        #expect(RunPresentation.headline(second, status: .running, timer: Self.plain)
-            == Headline(text: "Dress · 2 of 3", counter: nil))
+        #expect(
+            RunPresentation.headline(second, status: .running, timer: Self.plain)
+                == Headline(text: "Dress · 2 of 3", counter: nil))
         // The steps unknown: the label alone.
         #expect(RunPresentation.headline(second, status: .running, timer: nil) == Headline(text: "Dress", counter: nil))
 
@@ -370,21 +376,26 @@ import Testing
                 RunEvent(id: "l1", type: .lap, at: 1, seg: 0), RunEvent(id: "l2", type: .lap, at: 2, seg: 1),
                 RunEvent(id: "l3", type: .lap, at: 3, seg: 2),
             ], timer: Self.tiktok)
-        #expect(RunPresentation.headline(typed, status: .running, timer: Self.tiktok)
-            == Headline(text: "Rest 2 · lap 4", counter: "L4"))
+        #expect(
+            RunPresentation.headline(typed, status: .running, timer: Self.tiktok)
+                == Headline(text: "Rest 2 · lap 4", counter: "L4"))
 
         let untyped = try Self.fold(
             [RunEvent(id: "l1", type: .lap, at: 1, seg: 0), RunEvent(id: "l2", type: .lap, at: 2, seg: 1)],
             timer: Self.lapsOnly)
-        #expect(RunPresentation.headline(untyped, status: .running, timer: Self.lapsOnly)
-            == Headline(text: "Lap 3", counter: "L3"))
-        #expect(RunPresentation.headline(untyped, status: .running, timer: nil) == Headline(text: "Lap 3", counter: "L3"))
+        #expect(
+            RunPresentation.headline(untyped, status: .running, timer: Self.lapsOnly)
+                == Headline(text: "Lap 3", counter: "L3"))
+        #expect(
+            RunPresentation.headline(untyped, status: .running, timer: nil) == Headline(text: "Lap 3", counter: "L3"))
 
         let stopped = try Self.fold([RunEvent(id: Self.stopId, type: .stop, at: 5)], timer: Self.plain)
-        #expect(RunPresentation.headline(stopped, status: .finishing, timer: Self.plain)
-            == Headline(text: "Running", counter: nil))
-        #expect(RunPresentation.headline(stopped, status: .paused, timer: Self.plain)
-            == Headline(text: "Paused", counter: nil))
+        #expect(
+            RunPresentation.headline(stopped, status: .finishing, timer: Self.plain)
+                == Headline(text: "Running", counter: nil))
+        #expect(
+            RunPresentation.headline(stopped, status: .paused, timer: Self.plain)
+                == Headline(text: "Paused", counter: nil))
     }
 
     // MARK: - alertLine
@@ -409,7 +420,7 @@ import Testing
     @Test("alertLine: the next alert of the open segment and its countdown, by at_ms then position")
     func alertLine() throws {
         let state = try Self.fold([], timer: Self.alerted)
-        func line(_ s: RunState, _ now: Int, _ timer: TopicTimer? = alerted) -> String? {
+        func line(_ s: RunState, _ now: Int, _ timer: TopicTimer? = RunPresentationTests.alerted) -> String? {
             RunPresentation.alertLine(s, timer: timer, now: RunInstant.date(now))
         }
         #expect(line(state, 18_000) == "Half way · in 0:12")

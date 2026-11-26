@@ -72,7 +72,8 @@ import Testing
             #expect(RunInstant.milliseconds(entry.capturedAt) == timing.endedAt, "\(name): T1")
             #expect(timing.segments.reduce(0) { $0 + $1.activeMs } == timing.activeMs, "\(name): T5")
             #expect(timing.segments.reduce(0) { $0 + $1.pausedMs } == timing.pausedMs, "\(name): T5")
-            #expect(timing == (try RunFold.projectTiming(result.run.state, steps: try Self.timer(of: result.run).steps)))
+            #expect(
+                timing == (try RunFold.projectTiming(result.run.state, steps: try Self.timer(of: result.run).steps)))
             #expect(result.effect == .applied)
         }
     }

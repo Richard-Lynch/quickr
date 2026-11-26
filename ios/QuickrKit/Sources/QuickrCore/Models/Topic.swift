@@ -129,23 +129,142 @@ public struct TopicVersion: Sendable, Hashable {
     }
 }
 
-/// A version's timing (the server's `Timer`, timers.md §2.1): its named steps, timed in this
-/// order. No steps is a plain stopwatch. The wire shape, so it is `Codable` as is.
+/// A version's timing (the server's `Timer`, timers.md §2.1, timers2.md §1.1): its named steps,
+/// timed in this order, its lap types (laps cycle through them: "Run 1, Rest 1, Run 2"), and the
+/// variables its alerts' expressions read. No steps is a plain stopwatch; no lap types, laps
+/// labelled "Lap n" (v1). The wire shape, so it is `Codable` as is.
+///
+/// Decoding accepts the v1 shape `{steps: [{key, label}]}` (older servers, and the store's stored
+/// `timer_json`): missing `laps`, `variables` and `alerts` default to `[]`, and a missing `at_ms`
+/// to nil (a draft's alert; the server fills it, §1.1).
+///
+/// Encoding writes `laps`, `variables` and each `alerts` only when non-empty, so a v1-shaped
+/// timer stays v1 on the wire while the server on this branch still refuses unknown keys
+/// (T2-M1: the stack merge with M1-DB's v2 `Timer` flips this to always-present, the normalised
+/// output of §1.4, and regenerates the request goldens).
 public struct TopicTimer: Codable, Sendable, Hashable {
     public var steps: [Step]
+    public var laps: [LapType]
+    public var variables: [Variable]
 
-    public init(steps: [Step]) {
+    public init(steps: [Step], laps: [LapType] = [], variables: [Variable] = []) {
         self.steps = steps
+        self.laps = laps
+        self.variables = variables
+    }
+
+    enum CodingKeys: String, CodingKey { case steps, laps, variables }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        steps = try c.decode([Step].self, forKey: .steps)
+        laps = try c.decodeIfPresent([LapType].self, forKey: .laps) ?? []
+        variables = try c.decodeIfPresent([Variable].self, forKey: .variables) ?? []
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(steps, forKey: .steps)
+        if !laps.isEmpty { try c.encode(laps, forKey: .laps) }
+        if !variables.isEmpty { try c.encode(variables, forKey: .variables) }
+    }
+
+    /// The step or lap type keyed `key` (one namespace per timer, §1.1): its alerts.
+    public func alerts(step: String?, lapType: String?) -> [Alert] {
+        if let step { return steps.first { $0.key == step }?.alerts ?? [] }
+        if let lapType { return laps.first { $0.key == lapType }?.alerts ?? [] }
+        return []
     }
 
     /// A named checkpoint. Its key is its identity across versions (a step keeps it when renamed).
     public struct Step: Codable, Sendable, Hashable {
         public var key: String
         public var label: String
+        public var alerts: [Alert]
 
-        public init(key: String, label: String) {
+        public init(key: String, label: String, alerts: [Alert] = []) {
             self.key = key
             self.label = label
+            self.alerts = alerts
+        }
+
+        enum CodingKeys: String, CodingKey { case key, label, alerts }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            key = try c.decode(String.self, forKey: .key)
+            label = try c.decode(String.self, forKey: .label)
+            alerts = try c.decodeIfPresent([Alert].self, forKey: .alerts) ?? []
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(key, forKey: .key)
+            try c.encode(label, forKey: .label)
+            if !alerts.isEmpty { try c.encode(alerts, forKey: .alerts) }
+        }
+    }
+
+    /// A named kind of lap (§1.1): its key is the identity of its laps across versions.
+    public struct LapType: Codable, Sendable, Hashable {
+        public var key: String
+        /// 1..64 characters (`ShortLabel`).
+        public var label: String
+        public var alerts: [Alert]
+
+        public init(key: String, label: String, alerts: [Alert] = []) {
+            self.key = key
+            self.label = label
+            self.alerts = alerts
+        }
+
+        enum CodingKeys: String, CodingKey { case key, label, alerts }
+
+        public init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            key = try c.decode(String.self, forKey: .key)
+            label = try c.decode(String.self, forKey: .label)
+            alerts = try c.decodeIfPresent([Alert].self, forKey: .alerts) ?? []
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(key, forKey: .key)
+            try c.encode(label, forKey: .label)
+            if !alerts.isEmpty { try c.encode(alerts, forKey: .alerts) }
+        }
+    }
+
+    /// A named duration alert expressions read (`t`, `rest`); stored lowercase.
+    public struct Variable: Codable, Sendable, Hashable {
+        public var name: String
+        public var ms: Int
+
+        public init(name: String, ms: Int) {
+            self.name = name
+            self.ms = ms
+        }
+    }
+
+    /// A cue that fires when the segment's active time reaches `atMs`, the server's evaluation of
+    /// `at` (an expression, §2) over the timer's variables.
+    public struct Alert: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var at: String
+        /// Output only: nil on a draft the server hasn't evaluated.
+        public var atMs: Int?
+
+        public init(key: String, label: String, at: String, atMs: Int? = nil) {
+            self.key = key
+            self.label = label
+            self.at = at
+            self.atMs = atMs
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case key, label, at
+            case atMs = "at_ms"
         }
     }
 }

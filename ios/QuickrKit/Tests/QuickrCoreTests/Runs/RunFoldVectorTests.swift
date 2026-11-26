@@ -115,7 +115,8 @@ import Testing
     @Test func aMissingStartThrows() {
         let event = RunEvent(id: "0e000000-0000-4000-8000-000000000001", type: .next, at: 0, seg: 0)
         #expect(throws: RunFold.FoldError.missingStart) {
-            try RunFold.fold(runId: "0a000000-0000-4000-8000-000000000000", timer: TopicTimer(steps: []), events: [event])
+            try RunFold.fold(
+                runId: "0a000000-0000-4000-8000-000000000000", timer: TopicTimer(steps: []), events: [event])
         }
     }
 }
