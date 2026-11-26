@@ -20,9 +20,10 @@ import GRDB
 /// `grdb_migrations` exactly as `migrator()` does, so the two agree.
 public enum StoreSchema {
     /// The append-only migrations, in order: `(identifier, statements)`.
-    public static let migrations: [(identifier: String, statements: [String])] = [
-        ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4), ("v5", v5), ("v6", v6),
-    ]
+    public static let migrations: [(identifier: String, statements: [String])] =
+        [
+            ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4), ("v5", v5), ("v6", v6),
+        ] + t2m3Migrations  // T2-M3: registered at the merge (t2-plan.md "iOS store migrations")
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 
