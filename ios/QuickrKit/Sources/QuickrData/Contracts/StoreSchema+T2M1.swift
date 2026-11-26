@@ -3,7 +3,8 @@ import GRDB
 /// Milestone T2-M1's store migrations (t2-plan.md "iOS store migrations"): registered in
 /// ``StoreSchema/migrations`` after the `v` series, with ``t2m1ServerLayerTables`` added to
 /// ``StoreSchema/serverLayerTables``, both at the merge. Identifiers are `t2m1_*`, and no
-/// migration here reads another milestone's columns, so M3's `t2m3_*` may run before or after them.
+/// migration here reads another milestone's columns. They run before M3's `t2m3_*`, which clears
+/// the staging tables listed here (`StoreMigrationOrderTests`).
 extension StoreSchema {
     public static let t2m1Migrations: [(identifier: String, statements: [String])] = [
         ("t2m1_run_closed", t2m1RunClosed)

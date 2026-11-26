@@ -23,7 +23,10 @@ public enum StoreSchema {
     public static let migrations: [(identifier: String, statements: [String])] =
         [
             ("v1", v1), ("v2", v2), ("v3", v3), ("v4", v4), ("v5", v5), ("v6", v6),
-        ] + t2m1Migrations + t2m3Migrations  // T2-M1, T2-M3: registered at the merge, M1 first (t2-plan.md "iOS store migrations")
+        ]
+        // T2-M1, T2-M3: registered at the merge (t2-plan.md "iOS store migrations"), M1 first:
+        // t2m3 clears M1's staging tables (StoreMigrationOrderTests).
+        + t2m1Migrations + t2m3Migrations
 
     public static func migrator() -> DatabaseMigrator { DatabaseMigrator(steps: migrations) }
 

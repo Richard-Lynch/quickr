@@ -65,8 +65,8 @@ import Testing
         #expect(RegistrySchema.migrations[1].identifier == "v2")
         #expect(RegistrySchema.migrations[1].statements == Self.frozen.registryV2)
         for migrations in [StoreSchema.migrations, RegistrySchema.migrations] {
-            // The `v` series first, then the T2 milestones' own (`t2m1_*`, `t2m3_*`, t2-plan.md
-            // "iOS store migrations"), in either order.
+            // The `v` series first, then the T2 milestones' own (`t2m1_*` before `t2m3_*`, t2-plan.md
+            // "iOS store migrations"; `StoreMigrationOrderTests`).
             let series = migrations.map(\.identifier).prefix { $0.hasPrefix("v") }
             #expect(Array(series) == series.indices.map { "v\($0 + 1)" }, "migrations are v1, v2, …")
             #expect(migrations.dropFirst(series.count).allSatisfy { $0.identifier.hasPrefix("t2m") })
