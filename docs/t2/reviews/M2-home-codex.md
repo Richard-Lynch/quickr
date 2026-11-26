@@ -7,6 +7,7 @@
 4. **[P2] Active-card interactions and accessibility have no tests in this branch — [ActiveTopicCard.swift:26](/Users/richie/code/quickr-worktrees/t2-m2-home/ios/App/Home/Tiles/ActiveTopicCard.swift:26).** The added tests cover the model partition, but none exercise the new card: opening it, dispatching Lap/Next, Pause/Resume and Stop, avoiding duplicate controls, or the XXXL and VoiceOver layouts. The plan assigns `HomeTests` and `TileUITests` to the subsequent I2-UITEST package, so this is an outstanding integration requirement rather than evidence that those tests were omitted from this package.
 
 The Resume and “Resuming…” implementations are currently stubs, but §8.2 explicitly permits those fallbacks until their M1 providers land. I did not treat them as standalone defects in this review.
+
 ---
 
 ## Resolutions (i2-home)
