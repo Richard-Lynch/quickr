@@ -2525,6 +2525,42 @@ export type TimingEditSegment = {
 };
 
 /**
+ * TimingLapTypeStats
+ */
+export type TimingLapTypeStats = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Label
+     *
+     * The latest version's label for the key.
+     */
+    label: string;
+    /**
+     * Laps
+     *
+     * Lap segments of the type, over every run.
+     */
+    laps: number;
+    /**
+     * Best Ms
+     *
+     * Over those segments' active_ms.
+     */
+    best_ms: number | null;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
+};
+
+/**
  * TimingLaps
  */
 export type TimingLaps = {
@@ -2676,6 +2712,14 @@ export type TimingSeriesPoint = {
      * Each step segment's key and its active_ms.
      */
     steps: {
+        [key: string]: number;
+    };
+    /**
+     * Lap Types
+     *
+     * Each lap type's key and its lap segments' summed active_ms; untyped laps are left out.
+     */
+    lap_types: {
         [key: string]: number;
     };
 };
@@ -3048,6 +3092,12 @@ export type TopicTiming = {
      * One point per timed entry, by captured_at then entry_id.
      */
     series: Array<TimingSeriesPoint>;
+    /**
+     * Lap Types
+     *
+     * Every lap-type key with a lap segment in range: the current version's lap types in order, then the rest by key. Keyed apart from steps; untyped laps count only toward laps.
+     */
+    lap_types: Array<TimingLapTypeStats>;
 };
 
 /**

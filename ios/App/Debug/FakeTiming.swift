@@ -199,8 +199,17 @@ enum FakeTiming {
                     "entry_id": p.entryId, "captured_at": RunInstant.format(p.capturedAt),
                     "started_at": RunInstant.format(p.startedAt), "active_ms": p.activeMs, "paused_ms": p.pausedMs,
                     "complete": p.complete, "steps": p.steps,
+                    "lap_types": p.lapTypes,  // T2-M4
                 ]
             },
+            // T2-M4: lap-type stats (timers2.md §7.4)
+            "lap_types": s.lapTypes.map { t -> [String: Any] in
+                [
+                    "key": t.key, "label": t.label, "laps": t.laps, "best_ms": value(t.bestMs),
+                    "median_ms": value(t.medianMs), "mean_ms": value(t.meanMs),
+                ]
+            },
+            // end T2-M4
         ]
     }
 }

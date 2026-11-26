@@ -223,6 +223,25 @@ public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
         }
     }
 
+    // T2-M4: lap-type stats (timers2.md §7.4)
+    /// `TimingLapTypeStats`.
+    public struct LapTypeStats: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var laps: Int
+        @RequiredKey public var bestMs: Int?
+        @RequiredKey public var medianMs: Int?
+        @RequiredKey public var meanMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case key, label, laps
+            case bestMs = "best_ms"
+            case medianMs = "median_ms"
+            case meanMs = "mean_ms"
+        }
+    }
+    // end T2-M4
+
     /// `TimingLaps`.
     public struct Laps: Codable, Sendable, Hashable {
         public var runsWithLaps: Int
@@ -256,9 +275,13 @@ public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
         public var pausedMs: Int
         public var complete: Bool
         public var steps: [String: Int]
+        // T2-M4: each lap type's summed active_ms (timers2.md §7.4)
+        public var lapTypes: [String: Int]
+        // end T2-M4
 
         enum CodingKeys: String, CodingKey {
             case complete, steps
+            case lapTypes = "lap_types"  // T2-M4
             case entryId = "entry_id"
             case capturedAt = "captured_at"
             case startedAt = "started_at"
@@ -274,10 +297,14 @@ public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
     public var laps: Laps
     public var paused: Paused
     public var series: [Point]
+    // T2-M4: the current version's lap types first, in order, then the rest by key (timers2.md §7.4)
+    public var lapTypes: [LapTypeStats]
+    // end T2-M4
 
     enum CodingKeys: String, CodingKey {
         case runs, total, steps, laps, paused, series
         case completeRuns = "complete_runs"
+        case lapTypes = "lap_types"  // T2-M4
     }
 
     public func toDomain() -> TopicTimingDTO { self }

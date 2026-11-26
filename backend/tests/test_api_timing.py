@@ -28,14 +28,6 @@ CASES = {c["name"]: c for c in VECTORS}
 SLUG = "routine"
 
 
-def served(stats: dict[str, Any]) -> dict[str, Any]:
-    """The stats as ``getTopicTiming`` serves them before M1-MCP: without the v3 ``lap_types``
-    (timers2.md §7.4), top level and per series point."""
-    out = {k: v for k, v in stats.items() if k != "lap_types"}
-    out["series"] = [{k: v for k, v in p.items() if k != "lap_types"} for p in stats["series"]]
-    return out
-
-
 async def seed(
     db: AsyncSession,
     case: dict[str, Any],
@@ -86,34 +78,26 @@ def expected(case: dict[str, Any], indices: list[int]) -> dict[str, Any]:
     """The reference stats over a subset of the case's entries, with every version."""
     versions = {int(n): to_timer(t) for n, t in case["versions"].items()}
     entries = [to_entry(case["entries"][i]) for i in indices]
-    return served(stats_json(timing_stats.timing_stats(entries, versions, case["current_version"])))
+    return stats_json(timing_stats.timing_stats(entries, versions, case["current_version"]))
 
 
 @pytest.mark.parametrize("name", list(CASES))
 async def test_endpoint_matches_the_vectors(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
     await seed(db, CASES[name])
-    assert await timing(client) == served(CASES[name]["expected"])
+    assert await timing(client) == CASES[name]["expected"]
 
 
 @pytest.mark.parametrize("name", timing_stats_v3_cases())
 async def test_stored_lap_types_reach_the_stats(
-    name: str, db: AsyncSession, client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+    name: str, db: AsyncSession, client: httpx.AsyncClient
 ) -> None:
-    """timers2.md §7.4 through the endpoint: the stats it computes from the stored versions and
-    entries carry the vector's ``lap_types``, top level and per series point. (The
-    ``TopicTiming`` schema serves them from M1-MCP; until then the computed stats are read here.)"""
-    computed: list[timing_stats.TopicTiming] = []
-    real = timing_stats.timing_stats
-
-    def spy(*args: Any) -> timing_stats.TopicTiming:
-        computed.append(real(*args))
-        return computed[-1]
-
-    monkeypatch.setattr(timing_stats, "timing_stats", spy)
+    """timers2.md §7.4 through the endpoint: the stats it serves from the stored versions and
+    entries carry the vector's ``lap_types``, top level and per series point."""
     await seed(db, CASES[name])
-    assert await timing(client) == served(CASES[name]["expected"])
-    assert [stats_json(t) for t in computed] == [CASES[name]["expected"]]
-    assert CASES[name]["expected"]["lap_types"]  # the case does carry lap types
+    body = await timing(client)
+    assert body == CASES[name]["expected"]
+    assert body["lap_types"]  # the case does carry lap types
+    assert any(p["lap_types"] for p in body["series"])
 
 
 async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.AsyncClient) -> None:
@@ -123,7 +107,7 @@ async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.Asyn
     untimed = sum(e["timing"] is None for e in case["entries"])
     assert untimed > 0
     assert (await db.execute(select(func.count()).where(Entry.timing.is_(None)))).scalar_one() == untimed
-    assert await timing(client) == served(case["expected"])
+    assert await timing(client) == case["expected"]
 
 
 async def test_source_and_channel_filter(db: AsyncSession, client: httpx.AsyncClient) -> None:
@@ -177,7 +161,7 @@ async def test_a_removed_step_keeps_its_last_versions_label(
 async def test_untimed_topic_answers_zero_counts(client: httpx.AsyncClient) -> None:
     await make_topic(client)
     await record(client, "sleep-log", {"hours": 7, "wakeups": 0, "quality": "ok"})
-    assert await timing(client, "sleep-log") == served(CASES["empty"]["expected"])
+    assert await timing(client, "sleep-log") == CASES["empty"]["expected"]
 
 
 async def test_unknown_topic_is_not_found(client: httpx.AsyncClient) -> None:
