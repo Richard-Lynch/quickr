@@ -380,7 +380,7 @@ export function RunStart({
           <Button
             size="lg"
             variant="primary"
-            className="flex-1 sm:flex-none"
+            className="w-full sm:w-auto"
             disabled={disabled}
             loading={busy}
             icon={<Icon name="play" strokeWidth={2.4} />}
