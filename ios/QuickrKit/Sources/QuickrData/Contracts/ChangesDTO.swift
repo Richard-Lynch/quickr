@@ -150,8 +150,8 @@ public struct FeedDeletionDTO: Codable, Sendable, Hashable, FeedRowDTO {
     public var topicId: String
     public var deletedAt: Date
     /// A `run` deletion: the run's revision in the page's snapshot, the fence for its earlier
-    /// states; null for a topic cascade and other kinds (timers2.md §5.2). Decoded only: applying it
-    /// is I1-SYNC's.
+    /// states; null for a topic cascade and other kinds (timers2.md §5.2). `ServerLayer` writes the
+    /// run's closed marker from it.
     @RequiredKey public var revision: Int?
 
     enum CodingKeys: String, CodingKey {
@@ -170,6 +170,6 @@ public struct FeedDeletionDTO: Codable, Sendable, Hashable, FeedRowDTO {
         }
         return Deletion(
             kind: kind, seq: seq, id: try .wire(id, "deletion.id"), topicId: try .wire(topicId, "deletion.topic_id"),
-            deletedAt: deletedAt)
+            deletedAt: deletedAt, revision: revision)
     }
 }

@@ -266,7 +266,7 @@ enum OutboxFlush {
         var applied: OutboxApplied
         switch resolution {
         case .ack(let success):
-            switch try AtomicAck.ack(db, itemId: itemId, sender: sender, effect: ackEffect(item, success), at: now) {
+            switch try AtomicAck.ack(db, itemId: itemId, sender: sender, effect: ackEffect(item, success), at: now, wall: wall) {
             case .fenced(let failure): return .fenced(failure)
             case .acked: applied = .acked
             }
