@@ -188,6 +188,61 @@ final class HomeTests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["home.status"].waitForExistence(timeout: 5))
     }
 
+    /// "Active now" (active-surfaces.md §3.1), against the UI-test fake server (the demo store has
+    /// no timed topic): no section while nothing runs; Start on Morning's tile opens it above the
+    /// rest with Morning's card in it, once; Stop and Save close it again.
+    @MainActor
+    func testActiveNowSectionShowsOpenRun() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-QuickrUITest", "-QuickrServer", "https://quickr.test"]
+        app.launch()
+        let active = app.descendants(matching: .any)["home.section.active"]
+        let start = app.descendants(matching: .any)["tile.morning.run"].firstMatch
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        XCTAssertTrue(start.label.contains("Start"), start.label)
+        XCTAssertFalse(active.exists, "no open run, no section")
+
+        start.tap()
+        XCTAssertTrue(active.waitForExistence(timeout: 10))
+        XCTAssertEqual(active.label, "Active now, 1")
+        // Morning shows once, as its card, under the section's header and above every other tile.
+        let morning = app.descendants(matching: .any).matching(identifier: "tile.morning")
+        XCTAssertEqual(morning.count, 1, "the open run's topic shows once")
+        let card = morning.firstMatch
+        XCTAssertGreaterThan(card.frame.minY, active.frame.maxY)
+        for other in ["workout", "mood"] {
+            let tile = app.descendants(matching: .any)["tile.\(other)"]
+            if tile.exists { XCTAssertGreaterThan(tile.frame.minY, card.frame.maxY, "\(other) is below Active now") }
+        }
+        // The card (§3.2): the clocks, the headline, Next with Stop beside it, Pause.
+        let next = card.descendants(matching: .any)["tile.morning.run"].firstMatch
+        XCTAssertTrue(next.label.contains("Next: Dress"), next.label)
+        for id in ["tile.morning.segment", "tile.morning.total", "tile.morning.stop", "tile.morning.pause"] {
+            XCTAssertTrue(card.descendants(matching: .any)[id].firstMatch.exists, id)
+        }
+        // The headline badge's text (its icon carries the badge's id too, labelled "Timer").
+        let headline = card.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == 'run.status' AND label BEGINSWITH 'Running'")
+        ).firstMatch
+        XCTAssertTrue(headline.exists, "the headline reads Running")
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "home-active-now"
+        shot.lifetime = .keepAlways
+        add(shot)
+
+        // Stop: Morning's required question, then Save; nothing is open, so the section goes.
+        Thread.sleep(forTimeInterval: 0.6)  // past the run controls' tap cooldown (450 ms)
+        card.descendants(matching: .any)["tile.morning.stop"].firstMatch.tap()
+        let save = app.descendants(matching: .any)["runDetails.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        app.buttons["Good"].firstMatch.tap()
+        save.tap()
+        XCTAssertTrue(active.waitForNonExistence(timeout: 15), "the section disappears when no run is open")
+        let idle = app.descendants(matching: .any)["tile.morning.run"].firstMatch
+        XCTAssertTrue(idle.waitForExistence(timeout: 10))
+        XCTAssertTrue(idle.label.contains("Start"), idle.label)
+    }
+
     /// The header's wordmark and sync pill grow with Dynamic Type (bar items wouldn't).
     @MainActor
     func testTheHeaderScalesWithDynamicType() {

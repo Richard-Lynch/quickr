@@ -3,7 +3,8 @@ import XCTest
 /// R9 (timers.md §13.3): a timed topic's run, against the UI-test fake server's "Morning"
 /// (steps Shower, Dress, Breakfast, Teeth; a required Mood question). Start on the tile, then on
 /// the run screen Next ×2, Skip (from the More menu), Pause, Resume, Stop; the answers form; Save.
-/// The entry shows the segments the fold makes of that history.
+/// The entry shows the segments the fold makes of that history. And the run screen's controls on a
+/// stopwatch (active-surfaces.md §2): the hero Lap, the secondaries, nothing twice.
 @MainActor
 final class RunUITests: XCTestCase {
     override nonisolated func setUp() {
@@ -37,6 +38,70 @@ final class RunUITests: XCTestCase {
 
     /// Past the run controls' tap cooldown (450 ms), so the next tap is a new one.
     private func pastCooldown() { Thread.sleep(forTimeInterval: 0.6) }
+
+    private func snap(_ app: XCUIApplication, _ name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    /// A stopwatch (Workout, timed with no steps: `launchWithStopwatch`) on the run screen
+    /// (active-surfaces.md §2.1, §2.2): Lap is the primary, full width and at least 72 pt tall;
+    /// Stop and Pause are the 56 pt secondaries under it; Lap shows once, never again in the lap
+    /// table. Then Lap, and Stop opens the answers form (Workout's questions are required).
+    func testLapIsPrimaryWithChunkyControls() {
+        let app = launchWithStopwatch()
+        let tileButton = element(app, "tile.workout.run")
+        tileButton.tap()
+        // Started: the card in "Active now" offers Lap (§3.2).
+        XCTAssertTrue(waitForLabel(tileButton, containing: "Lap"), tileButton.label)
+        pastCooldown()
+        element(app, "tile.workout").coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+
+        let primary = element(app, "run.primary")
+        XCTAssertTrue(primary.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForLabel(primary, containing: "Lap"), primary.label)
+        XCTAssertTrue(waitForValue(element(app, "run.step.lap.1"), "current"))
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(primary.frame.height, 72, "the hero primary is at least 72 pt tall")
+        XCTAssertGreaterThan(primary.frame.width, window.width * 0.8, "the primary is full width")
+
+        // Stop and Pause: secondaries under the primary, side by side, 56 pt, Stop first.
+        let stop = element(app, "run.stop")
+        let pause = element(app, "run.pause")
+        XCTAssertTrue(stop.exists && pause.exists)
+        XCTAssertTrue(stop.label.contains("Stop"), stop.label)
+        XCTAssertFalse(primary.label.contains("Stop"), "Stop is never the primary (§1.2)")
+        for secondary in [stop, pause] {
+            XCTAssertGreaterThanOrEqual(secondary.frame.height, 56, secondary.identifier)
+            XCTAssertLessThan(secondary.frame.height, primary.frame.height, secondary.identifier)
+            XCTAssertGreaterThanOrEqual(secondary.frame.minY, primary.frame.maxY, "\(secondary.identifier) is under")
+        }
+        XCTAssertEqual(stop.frame.minY, pause.frame.minY, accuracy: 1, "one row")
+        XCTAssertLessThan(stop.frame.minX, pause.frame.minX, "Stop, then Pause")
+
+        // No duplicate (§2.2): one Lap button on the screen; the table's rows are not controls.
+        let lapButtons = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Lap'"))
+        XCTAssertEqual(lapButtons.count, 1, "Lap shows once: \(lapButtons.allElementsBoundByIndex.map(\.label))")
+        let lapRow = element(app, "run.step.lap.1")
+        XCTAssertGreaterThanOrEqual(lapRow.frame.minY, stop.frame.maxY, "the table is under the controls")
+        XCTAssertEqual(app.buttons.matching(identifier: "run.step.lap.1").count, 0, "a lap row is not a button")
+        snap(app, "run-lap-primary")
+
+        // Lap: the lap closes and the next opens; the primary is still Lap.
+        primary.tap()
+        XCTAssertTrue(waitForValue(element(app, "run.step.lap.1"), "done"))
+        XCTAssertTrue(waitForValue(element(app, "run.step.lap.2"), "current"))
+        XCTAssertTrue(waitForLabel(primary, containing: "Lap"), primary.label)
+        XCTAssertEqual(lapButtons.count, 1, "still once")
+        pastCooldown()
+
+        // Stop: the run is finishing and its answers form opens.
+        stop.tap()
+        XCTAssertTrue(element(app, "runDetails.save").waitForExistence(timeout: 10), "the answers form")
+        snap(app, "run-stopped-details")
+    }
 
     func testStartNextNextSkipPauseResumeStopAnswerSave() {
         let app = launch()

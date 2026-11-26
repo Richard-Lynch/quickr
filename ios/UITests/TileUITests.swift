@@ -100,6 +100,52 @@ final class TileUITests: XCTestCase {
         XCTAssertTrue(undo.isHittable, "Undo must stay reachable at AX sizes")
     }
 
+    /// The active card's inline controls (active-surfaces.md §3.2), on a stopwatch against the
+    /// UI-test fake server (`launchWithStopwatch`; the demo store has no timed topic): started,
+    /// the card offers Lap with Stop beside it and Pause; Lap records a lap right there, on home;
+    /// Stop stops the run from home (Workout's required questions open its answers form).
+    @MainActor
+    func testActiveCardInlineLapAndStop() {
+        let app = launchWithStopwatch()
+        let element = { (id: String) in app.descendants(matching: .any)[id].firstMatch }
+        element("tile.workout.run").tap()
+
+        let card = element("tile.workout")
+        let lap = card.descendants(matching: .any)["tile.workout.run"].firstMatch
+        let stop = card.descendants(matching: .any)["tile.workout.stop"].firstMatch
+        XCTAssertTrue(element("home.section.active").waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForLabel(lap, prefix: "Lap"), lap.label)
+        XCTAssertTrue(stop.exists)
+        XCTAssertTrue(stop.label.hasPrefix("Stop"), stop.label)
+        XCTAssertTrue(card.descendants(matching: .any)["tile.workout.pause"].firstMatch.exists)
+        // Inline: the primary fills the row, Stop sits beside it.
+        XCTAssertEqual(lap.frame.midY, stop.frame.midY, accuracy: 2, "one row")
+        XCTAssertLessThan(lap.frame.maxX, stop.frame.minX + 1, "Lap, then Stop")
+        XCTAssertGreaterThan(lap.frame.width, stop.frame.width, "the primary takes the row")
+        // The headline badge's text (its icon carries the badge's id too, labelled "Timer").
+        func headline(_ text: String) -> XCUIElement {
+            card.descendants(matching: .any).matching(
+                NSPredicate(format: "identifier == 'run.status' AND label CONTAINS %@", text)
+            ).firstMatch
+        }
+        XCTAssertTrue(headline("Lap 1").exists, "the headline names the open lap")
+        XCTAssertFalse(headline("Lap 2").exists)
+        attach(app, "tiles-active-card")
+
+        Thread.sleep(forTimeInterval: 0.6)  // past the run controls' tap cooldown (450 ms)
+        lap.tap()
+        // A lap, on home: the headline counts it and the card stays (no run screen).
+        XCTAssertTrue(headline("Lap 2").waitForExistence(timeout: 10), "the headline counts the lap")
+        XCTAssertTrue(app.textFields["home.search"].exists, "still on home")
+        XCTAssertFalse(element("run.primary").exists, "the run screen didn't open")
+        XCTAssertTrue(waitForLabel(lap, prefix: "Lap"), "the primary is still Lap: \(lap.label)")
+        attach(app, "tiles-active-card-lapped")
+
+        Thread.sleep(forTimeInterval: 0.6)
+        stop.tap()
+        XCTAssertTrue(element("runDetails.save").waitForExistence(timeout: 10), "stopped: the answers form")
+    }
+
     /// A tile, scrolled fully into view: the home list is lazy, so a tile further down doesn't
     /// exist until it is scrolled to.
     private func tile(_ app: XCUIApplication, _ slug: String) -> XCUIElement {
