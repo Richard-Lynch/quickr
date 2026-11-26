@@ -1,0 +1,9 @@
+I found two actionable issues.
+
+1. **[P1] A valid lap-type key can corrupt bucket averages.** In [timingModels.ts](/Users/richie/code/quickr-worktrees/t2-m4-stats-fe/frontend/src/components/charts/timingModels.ts:77), `times(p)[key] ?? 0` reads inherited properties. `constructor` is a valid timer key, so if one run has that lap type and another does not, the missing lookup returns `Object.prototype.constructor` rather than zero. The resulting mean becomes `NaN`, breaking the chart. The shared helper also exposes steps to the same problem. Check ownership with `Object.hasOwn()` before reading, or normalize the maps to null-prototype dictionaries. Add a test with a `constructor` lap type present in only one of two runs.
+
+2. **[P2] The v3 fixture documentation does not fully specify label selection for an independent port.** [README.md](/Users/richie/code/quickr-worktrees/t2-m4-stats-fe/shared/fixtures/README.md:538) says `labelled` is “as for `series[]`,” but that section only says the values are indices; it does not describe how `pickLabels` selects them or provide its layout inputs. A Swift implementation cannot derive those expected indices from this description alone. Document the bar width, gap, centering, label positions and minimum spacing rule, or link to a precise existing algorithm in the fixture documentation.
+
+The branch’s changed PWA files are within M4 ownership, and F4-STATS is the designated writer for the existing chart-vector generator. I found no shared-file ownership violation in the diff. The mixed typed/untyped and separate step/lap-type namespaces are represented in the vectors; the missing prototype-key case above is the material test gap I found.
+
+This was a static review; I did not run the test suite.

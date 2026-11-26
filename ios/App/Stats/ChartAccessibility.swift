@@ -60,6 +60,8 @@ struct OptionStackDescriptor: AXChartDescriptorRepresentable {
     let title: String
     let model: StackedBarsModel
     let bucket: QuestionSeries.Bucket
+    var measure = "answers"
+    var format: @Sendable (Int) -> String = { ChartFormat.count($0) }
 
     func makeChartDescriptor() -> AXChartDescriptor {
         let labels = model.points.map { spokenBucket($0.start, bucket) }
@@ -68,9 +70,9 @@ struct OptionStackDescriptor: AXChartDescriptorRepresentable {
             summary: "\(ChartFormat.plural(model.points.count, bucket.rawValue)), "
                 + ChartFormat.plural(model.legend.count, "option"),
             xAxis: AXCategoricalDataAxisDescriptor(title: bucket.rawValue.capitalized, categoryOrder: labels),
-            yAxis: AXNumericDataAxisDescriptor(title: "Answers", range: 0...Double(model.max), gridlinePositions: []) {
-                ChartFormat.count(Int($0))
-            },
+            yAxis: AXNumericDataAxisDescriptor(
+                title: measure.capitalized, range: 0...Double(model.max), gridlinePositions: []
+            ) { [format] in format(Int($0)) },
             additionalAxes: [],
             series: model.legend.map { item in
                 AXDataSeriesDescriptor(

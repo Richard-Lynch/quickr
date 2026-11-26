@@ -19,7 +19,7 @@ result.
 | `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                                                                    |
 | `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                                                                           |
 | `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)                                               |
-| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code; also reads `timing-stats-vectors.json`) | vitest drift check; Swift chart models and Overview summaries (M6), activity strip and sparklines (T2 M4) |
+| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code; also reads `timing-stats-vectors.json`) | vitest drift check; Swift chart models and Overview summaries (M6), activity strip, sparklines and lap-type stats (T2 M4) |
 | `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                                                                |
 | `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                                                                         |
 | `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6; timed cases I-MANAGE)                                            |
@@ -504,6 +504,45 @@ Generator version 2 adds three sections (content-display.md §4.2, §4.3); the m
   the same `name` (its `expected.series`), bucketed in `tz`: `steps_by_bucket` is `SeriesPoint[]`
   with `option_counts` keyed by step key (the floored mean per run, a run without the step
   counting 0) and `start` the bucket's local start with its offset.
+
+Generator version 3 adds the lap-type stats (content-display.md §4.1; models in
+`timingModels.ts`, cards in `src/components/runs/TimingOverview.tsx`):
+
+- `timing_models[]` gains `lap_types_by_bucket`: `lapTypesByBucket(series, bucket)`, the same
+  rule as `steps_by_bucket` over each run's `series[].lap_types` instead of its `steps`. Per
+  bucket (runs grouped by the bucket of their `captured_at` in `tz`, oldest first): `count` =
+  the runs in the bucket; `option_counts[k]` = `floor(sum of lap_types[k] over the bucket's
+  runs / count)` for every lap-type key `k` any of those runs has, a run without `k` counting
+  0; `mean`, `min`, `max` null. A bucket whose runs have no typed laps is still listed, with
+  `option_counts` `{}`. Lap-type keys and step keys are separate: a lap type `run` never reads
+  a step `run`'s time (case `lap_types_in_series`), nor the other way round. Untyped laps are
+  in neither.
+- `lap_types[]`: the Overview's lap-type section for the `timing-stats-vectors.json` cases that
+  have `expected.lap_types`, plus `laps` (untyped laps only), by `name`, bucketed in `tz`:
+  - `cards`: one per `expected.lap_types` row, in that order (the server's: the current
+    version's types first): `key`, `label`, `laps` (`plural(laps, 'lap')`: "1 lap", "4
+    laps"), `median`, `best`, `mean` (`fmtDuration` of `median_ms`, `best_ms`, `mean_ms`,
+    or "—" when null) and `color` (`optionColors` over the lap-type keys in card order: the
+    `n`th key gets `var(--color-series-n)` for `n ≤ 6`, then `var(--color-line-strong)`). The median
+    is the big figure. `cards` empty (`laps`) means no lap-type section: the v1 "Runs with
+    laps" and "Lap time (median)" tiles show instead; with cards those two tiles are hidden
+    and the pause tiles stay.
+  - `charts`: the stacked "Time per lap type, per {bucket}" chart under the cards, one per
+    bucket (`day`, `week`, `month`): `stackedModel(lapTypesByBucket(series, bucket), options)`
+    with the lap types (`key`, `label`, card order) as the options. `empty: true` when there
+    are no cards (no chart is drawn). Otherwise every bucket of `lap_types_by_bucket` is drawn
+    (each has at least one run, so none is dropped), in order, and: `max` = the largest bar
+    total, at least 1; `totals` = each bar's sum of `option_counts` (0 for a bucket without
+    typed laps: an empty bar); `legend` = `[key, label]` of the lap types some bar has, in
+    card order, then keys with no card (none in these cases) as `[key, key]`; `segments` =
+    per bar, `[key, ms]` bottom up in legend order, zeros left out; `labelled` per chart
+    width `W` (`meta.widths`) as for a stacked `series[]` chart: with `n` bars, gap `g` = 3
+    (`BARS_LAYOUT`), bar width `bw = min(36, (W - g(n-1)) / n)` and `offset = (W - (bw·n +
+    g(n-1))) / 2`, bar `i`'s label centre is `offset + i(bw + g) + bw/2`, and `pickLabels(xs,
+    52)` keeps, from the last bar backwards, each bar whose centre is at least 52 px left of
+    the last kept one (the last bar is always kept; the `pick[]` cases pin this rule);
+    `labels.short` / `labels.long` = `formatBucket(start)` in `tz`.
+    Values are milliseconds; the tooltip shows them with `fmtDuration`.
 
 ## `run-fold-vectors.json`
 
