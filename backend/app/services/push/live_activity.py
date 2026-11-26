@@ -62,7 +62,14 @@ from app import client_versions
 from app.db import get_sessionmaker
 from app.errors import InvalidRequest
 from app.models import LiveActivityToken, Run, RunAlias, RunStatus, Topic, TopicVersion
-from app.schemas.api import ApnsEnvironment, FieldIssue, LiveActivityIn, LiveActivityOut, RunDevice
+from app.schemas.api import (
+    ApnsEnvironment,
+    FieldIssue,
+    LiveActivityIn,
+    LiveActivityOut,
+    RunDevice,
+    TopicAppearance,  # T2-M3
+)
 from app.schemas.questions import Alert
 from app.schemas.questions import Timer as StoredTimer
 from app.services import run_fold
@@ -71,7 +78,7 @@ from app.services.notification import truncate
 from app.services.push import apns
 from app.services.push.apns import MAX_PAYLOAD_BYTES
 from app.services.push.base import PushFailed, PushGone
-from app.services.topics import parse_timer
+from app.services.topics import appearance_of, parse_timer  # T2-M3: appearance_of
 
 log = logging.getLogger(__name__)
 
@@ -211,13 +218,25 @@ def next_alert(alerts: Sequence[Alert], active_from: int, now: int) -> tuple[int
     return active_from + at_ms, label
 
 
-def attributes(server_id: str, topic_id: UUID | str, topic_name: str) -> dict[str, Any]:
+def attributes(
+    server_id: str,
+    topic_id: UUID | str,
+    topic_name: str,
+    appearance: TopicAppearance | None = None,  # T2-M3
+) -> dict[str, Any]:
     """``RunActivityAttributes``: one activity per (server, topic), and no step list (§10.3)."""
-    return {
+    attrs: dict[str, Any] = {
         "server_id": server_id,
         "topic_id": str(topic_id),
         "topic_name": truncate(topic_name, MAX_LABEL_LENGTH),
     }
+    # T2-M3: the topic's appearance at start (appearance.md §6.5), in the §1.1 wire shape; the
+    # key is optional (absent: the default theme). Bounded by §1.3 and never truncated by the
+    # byte budget (§15).
+    if appearance is not None:
+        attrs["appearance"] = appearance.model_dump(mode="json")
+    # end T2-M3
+    return attrs
 
 
 def _alert_of(state: Mapping[str, Any], attrs: Mapping[str, Any]) -> dict[str, Any]:
@@ -518,7 +537,7 @@ async def _plan(
         if t.device_token != job.except_device:
             sends.append(_Send(t.token, _environment(t.environment), "end" if ended else "update", update))
     if job.start and not ended:
-        attrs = attributes(server_id, topic.id, topic.name)
+        attrs = attributes(server_id, topic.id, topic.name, appearance_of(topic))  # T2-M3: appearance
         start = encode(payload("start", state, timestamp=now, attrs=attrs))
         stmt = select(LiveActivityToken).where(LiveActivityToken.kind == "start", supported)
         for t in (await db.execute(stmt)).scalars():

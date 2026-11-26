@@ -17,7 +17,8 @@ and lap types; the alerts and variables here are what ``alert_at`` and ``alert_l
 ``alert_label``, ``next_label``, ``label`` and ``attributes.topic_name`` to 32 characters in that
 order, then the terminal step. With the 64-character caps the largest M1 body is about 3.2 KB
 (every character a six-byte ``\\u001f`` escape; asserted below), so nothing M1 can send reaches
-4 096 bytes; the margin is M3's ``attributes.appearance``. The two budget cases therefore pin the
+4 096 bytes; the margin is M3's ``attributes.appearance`` (``start_longest_labels_with_appearance``
+pins the largest one on the largest labels, untruncated). The two budget cases therefore pin the
 algorithm at a ``budget.limit`` below 4 096, chosen so the expected steps fire: the encoder is the
 same, only the limit is lowered.
 
@@ -40,6 +41,7 @@ from typing import Any
 
 import pytest
 
+from app.schemas.api import TopicAppearance  # T2-M3
 from app.schemas.questions import Timer as TimerV2
 from app.services import run_fold
 from app.services.entries import fold_timer
@@ -175,11 +177,12 @@ def case(
     status: str | None = None,
     topic_name: str = "Morning routine",
     limit: int = MAX_PAYLOAD_BYTES,
+    appearance: TopicAppearance | None = None,  # T2-M3
 ) -> dict[str, Any]:
     state = la.content_state(
         RUN, revision, state_of(TIMERS[timer], events, status), TIMERS[timer], now=NOW_MS
     )
-    attrs = la.attributes(SERVER_ID, TOPIC_ID, topic_name) if event == "start" else None
+    attrs = la.attributes(SERVER_ID, TOPIC_ID, topic_name, appearance) if event == "start" else None
     body = la.payload(event, state, timestamp=TIMESTAMP, attrs=attrs)
     data, steps = la.fit(body, limit=limit)
     assert len(data) <= limit <= MAX_PAYLOAD_BYTES
@@ -212,6 +215,19 @@ def wire(e: Event) -> dict[str, Any]:
 
 
 START = ev(0, "start", 0)
+
+# T2-M3: the largest appearance §1.3 allows, in bytes (appearance.md §15): the longest colour name,
+# the 16-code-point emoji of appearance-vectors.json's `longest` icon (64 bytes), and ten tags of
+# 24 four-byte code points each, distinct when casefolded. Validated as a request would be.
+LONGEST_ICON = "\U0001f3f4" + "\U000e0067" * 14 + "\U000e007f"
+LARGEST_APPEARANCE = TopicAppearance.model_validate(
+    {
+        "color": "orange",
+        "icon": {"kind": "emoji", "value": LONGEST_ICON},
+        "tags": [chr(0x1F400 + i) * 24 for i in range(10)],
+    }
+)
+# end T2-M3
 
 
 def start_body(timer: str, topic_name: str) -> dict[str, Any]:
@@ -301,6 +317,17 @@ def build() -> dict[str, Any]:
     cases = [
         case("start", "start", "three", [START], revision=1),
         case("start_longest_labels", "start", "long", [START], revision=1, topic_name="\U0001d11e" * 200),
+        # T2-M3: the same, plus the largest appearance (appearance.md §15, adjudication C4)
+        case(
+            "start_longest_labels_with_appearance",
+            "start",
+            "long",
+            [START],
+            revision=1,
+            topic_name="\U0001d11e" * 200,
+            appearance=LARGEST_APPEARANCE,
+        ),
+        # end T2-M3
         case("start_renamed_laps", "start", "renamed", [START], revision=1, topic_name="Smoking"),
         case("update_running", "update", "three", [START, ev(1, "next", 120, seg=0)], revision=2),
         case(
@@ -440,6 +467,8 @@ CASE_NAMES = {
     "update_tiktok_lap", "update_alert_pending", "update_alert_paused", "start_renamed_laps",
     "update_reopened",
     "payload_budget_truncation", "payload_budget_terminal",
+    # T2-M3: appearance.md §15
+    "start_longest_labels_with_appearance",
 }  # fmt: skip
 
 
@@ -481,7 +510,8 @@ def test_vector_shapes() -> None:
             assert len(label) <= la.MAX_LABEL_LENGTH
         if c["event"] == "start":
             assert "steps" not in aps["attributes"]
-            assert set(aps["attributes"]) == {"server_id", "topic_id", "topic_name"}
+            # T2-M3: `appearance` is optional (appearance.md §6.5)
+            assert set(aps["attributes"]) - {"appearance"} == {"server_id", "topic_id", "topic_name"}
             assert len(aps["attributes"]["topic_name"]) <= la.MAX_LABEL_LENGTH
 
 
@@ -588,6 +618,20 @@ def test_budget_cases() -> None:
     for text in (state["label"], state["next_label"], state["alert_label"], aps["attributes"]["topic_name"]):
         assert len(text) == la.MAX_LABEL_LENGTH
         assert len(text.encode()) > 4 * (la.MAX_LABEL_LENGTH - 1)  # four-byte code points
+
+    # T2-M3: the largest appearance on the largest labels still fits in 4 096 bytes untruncated,
+    # and the appearance is carried whole (appearance.md §15: never truncated).
+    themed = by_name["start_longest_labels_with_appearance"]
+    assert "budget" not in themed
+    assert themed["bytes"] <= MAX_PAYLOAD_BYTES
+    assert themed["bytes"] == len(la.dump(themed["payload"]))
+    themed_aps = themed["payload"]["aps"]
+    assert themed_aps["attributes"]["appearance"] == LARGEST_APPEARANCE.model_dump(mode="json")
+    assert len(themed_aps["attributes"]["appearance"]["icon"]["value"]) == 16
+    assert len(themed_aps["attributes"]["appearance"]["icon"]["value"].encode()) == 64
+    assert themed_aps["content-state"] == aps["content-state"]  # the same run as start_longest_labels
+    assert {k: v for k, v in themed_aps["attributes"].items() if k != "appearance"} == aps["attributes"]
+    # end T2-M3
 
     truncation = by_name["payload_budget_truncation"]
     assert truncation["budget"]["steps"] == ["alert_label", "next_label", "label", "topic_name"]

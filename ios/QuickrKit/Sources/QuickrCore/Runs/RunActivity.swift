@@ -151,17 +151,25 @@ public struct RunActivityAttributes: Codable, Sendable, Hashable {
     public var topicId: String
     /// At most 64 characters.
     public var topicName: String
+    // T2-M3
+    /// The topic's appearance when the activity started (appearance.md §6.5): a later change shows
+    /// at the next run. An optional key: absent (an older server, or none sent) is the default
+    /// theme, and nil is encoded by leaving the key out, as the server does.
+    public var appearance: TopicAppearance?
+    // end T2-M3
 
     enum CodingKeys: String, CodingKey {
         case serverId = "server_id"
         case topicId = "topic_id"
         case topicName = "topic_name"
+        case appearance  // T2-M3
     }
 
-    public init(serverId: String, topicId: String, topicName: String) {
+    public init(serverId: String, topicId: String, topicName: String, appearance: TopicAppearance? = nil) {
         self.serverId = serverId
         self.topicId = topicId
         self.topicName = topicName
+        self.appearance = appearance  // T2-M3
     }
 }
 
@@ -191,9 +199,12 @@ public enum RunActivityContent {
     }
 
     /// The server id lowercase, like every id here.
-    public static func attributes(serverId: String, topicId: UUID, topicName: String) -> RunActivityAttributes {
+    public static func attributes(
+        serverId: String, topicId: UUID, topicName: String, appearance: TopicAppearance? = nil  // T2-M3
+    ) -> RunActivityAttributes {
         RunActivityAttributes(
-            serverId: serverId.lowercased(), topicId: topicId.uuidString.lowercased(), topicName: truncate(topicName))
+            serverId: serverId.lowercased(), topicId: topicId.uuidString.lowercased(), topicName: truncate(topicName),
+            appearance: appearance)
     }
 
     /// v1 callers: the pinned version's steps only, and no instant, so no lap type labels and no

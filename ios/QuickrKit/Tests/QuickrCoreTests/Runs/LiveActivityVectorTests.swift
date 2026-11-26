@@ -184,14 +184,15 @@ import Testing
     @Test func startsCarryTheAttributes() throws {
         let vectors = try Self.load()
         let starts = vectors.cases.filter { $0.event == "start" }
-        #expect(starts.count == 5)
+        #expect(starts.count == 6)  // T2-M3: + start_longest_labels_with_appearance
         for c in starts {
             let sent = try #require(c.payload.aps.attributes, "\(c.name)")
             let type = c.payload.aps.attributesType
             #expect(type == "RunActivityAttributes")
             let topicId = try #require(UUID(uuidString: sent.topicId))
             let attributes = RunActivityContent.attributes(
-                serverId: sent.serverId, topicId: topicId, topicName: c.topicName)
+                serverId: sent.serverId, topicId: topicId, topicName: c.topicName,
+                appearance: sent.appearance)  // T2-M3: checked in startAttributesRoundTripTheAppearance
             let (_, built) = Self.fitted(
                 c.payload.aps.contentState, attributes, steps: c.budget?.steps ?? [],
                 length: vectors.meta.budget.labelLength)
@@ -200,6 +201,50 @@ import Testing
             #expect(length <= RunActivityContent.maxLabelLength)
         }
     }
+
+    // T2-M3
+    /// appearance.md §6.5, §15: `attributes.appearance` decodes into `TopicAppearance` (the largest
+    /// one §1.3 allows, on the largest labels) and encodes back to the server's JSON; a start
+    /// without the key decodes to nil and encodes without it.
+    @Test func startAttributesRoundTripTheAppearance() throws {
+        let raw = try #require(
+            try JSONSerialization.jsonObject(with: Fixtures.data(Self.file)) as? [String: Any])
+        let cases = try #require(raw["cases"] as? [[String: Any]])
+        let decoded = try Self.load().cases
+        var themed = 0
+        for (object, c) in zip(cases, decoded) where c.event == "start" {
+            let payload = try #require(object["payload"] as? [String: Any])
+            let aps = try #require(payload["aps"] as? [String: Any])
+            let sentJSON = try #require(aps["attributes"] as? NSDictionary)
+            let sent = try #require(c.payload.aps.attributes, "\(c.name)")
+            #expect((sentJSON["appearance"] != nil) == (sent.appearance != nil), "\(c.name)")
+            let data = try JSONEncoder().encode(sent)
+            #expect(try JSONDecoder().decode(RunActivityAttributes.self, from: data) == sent, "\(c.name)")
+            let encoded = try #require(try JSONSerialization.jsonObject(with: data) as? NSDictionary)
+            #expect(encoded == sentJSON, "\(c.name)")
+            if sent.appearance != nil { themed += 1 }
+        }
+        #expect(themed == 1)
+
+        let largest = try #require(try Self.load().cases.first { $0.name == "start_longest_labels_with_appearance" })
+        let appearance = try #require(largest.payload.aps.attributes?.appearance)
+        #expect(appearance.color == .orange)
+        guard case .emoji(let icon) = appearance.icon else {
+            Issue.record("no emoji icon")
+            return
+        }
+        #expect(icon.unicodeScalars.count == 16)
+        #expect(icon.utf8.count == 64)
+        #expect(appearance.tags.count == 10)
+        #expect(appearance.tags.allSatisfy { $0.unicodeScalars.count == 24 && $0.utf8.count == 96 })
+        #expect(largest.budget == nil, "fits in 4 096 bytes untruncated")
+        #expect(largest.bytes <= 4096)
+        let plain = try #require(try Self.load().cases.first { $0.name == "start_longest_labels" })
+        var stripped = try #require(largest.payload.aps.attributes)
+        stripped.appearance = nil
+        #expect(stripped == plain.payload.aps.attributes)
+    }
+    // end T2-M3
 
     /// What the app encodes is the server's content state: every key, nulls included, with the
     /// same values (no field renamed, dropped or added).
