@@ -170,8 +170,12 @@ function AlertTime({
       </div>
       {formError || !preview.ok ? (
         <div className="flex flex-col gap-0.5">
-          {!formError && !preview.ok && alert.at.trim() ? (
-            <p aria-hidden className="font-mono text-xs break-all text-ink-soft">
+          {!preview.ok && alert.at.trim() ? (
+            <p
+              aria-hidden
+              data-testid="alert-error-mark"
+              className="font-mono text-xs break-all text-ink-soft"
+            >
               {chars.slice(0, preview.pos).join('')}
               <mark className="rounded-sm bg-danger-soft px-px text-danger underline decoration-2">
                 {chars[preview.pos] ?? ' '}

@@ -35,6 +35,7 @@ import {
   withLabel,
   type DraftQuestion,
 } from './builder';
+import { cleanMessage } from '../api/errors';
 import type { Question } from './questions';
 import { emptyScheduleDraft } from './schedule';
 
@@ -623,6 +624,16 @@ describe('timer v2 drafts (timers2.md §1)', () => {
       pos: 0,
       message: "Unknown_variable at 0: unknown variable 'rest'",
     });
+    // The server's message (no "Value error, " prefix: it is a PydanticCustomError) reads the
+    // same through cleanMessage, even with a '[' in it.
+    expect(alertPreview('t+[x', vars)).toEqual({
+      ok: false,
+      pos: 2,
+      message: cleanMessage("syntax at 2: unknown character '['"),
+    });
+    expect(cleanMessage("syntax at 2: unknown character '['")).toBe(
+      "Syntax at 2: unknown character '['",
+    );
     expect(alertPreview('t+', vars)).toEqual({
       ok: false,
       pos: 2,

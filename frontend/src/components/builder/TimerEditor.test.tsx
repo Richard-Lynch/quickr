@@ -178,11 +178,15 @@ describe('alerts editor', () => {
     const message = "Unknown_variable at 0: unknown variable 'x'";
     // Live, before submitting.
     expect(within(group).getByTestId('alert-result').textContent).toBe(message);
+    // The offending character is marked, before and after submitting.
+    const mark = () => within(group).getByTestId('alert-error-mark').querySelector('mark');
+    expect(mark()?.textContent).toBe('x');
     await user.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => {
       expect(at).toHaveAttribute('aria-invalid', 'true');
     });
     expect(at).toHaveAccessibleDescription(message);
+    expect(mark()?.textContent).toBe('x');
     expect(onValid).not.toHaveBeenCalled();
   });
 
