@@ -1,0 +1,3 @@
+- **P1 — Reusing the old slug can replace the form with a different topic.** [TopicLayout.tsx:65](/Users/richie/code/quickr-worktrees/t2-m3a-rvfix-fe/frontend/src/pages/topic/TopicLayout.tsx:65) follows a rename only when the old-slug lookup returns 404. If the topic is renamed elsewhere and another topic takes its old slug before the refetch, that lookup succeeds with the other topic. The layout then passes it to the page, where the form keyed by topic ID remounts and discards the edits. Recovery needs to detect a changed topic ID as well as a 404.
+
+The round-3 token cleanup addresses the reported history-navigation bypass.
