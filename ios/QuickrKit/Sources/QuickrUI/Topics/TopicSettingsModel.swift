@@ -202,7 +202,7 @@ public final class TopicSettingsModel {
 
     // MARK: - Appearance
 
-    public var appearanceDirty: Bool { appearance != AppearanceDraft(savedAppearance) }
+    public var appearanceDirty: Bool { appearance.differs(from: savedAppearance) }
 
     // MARK: - Schedule
 

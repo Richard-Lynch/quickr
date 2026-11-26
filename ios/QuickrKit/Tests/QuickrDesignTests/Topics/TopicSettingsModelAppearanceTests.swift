@@ -147,6 +147,7 @@ extension TopicSettingsModelTests {
     @Test func aRespelledTagIsAChange() async {
         let model = themed(saved: TopicAppearance(tags: ["caf\u{E9}"]))
         model.appearance.tags = ["cafe\u{301}"]
+        #expect(model.detailsDirty, "Save enables and leaving asks (Codex round 2)")
         await model.saveDetails()
         #expect(writer.calls == [.appearance(AppearanceUpdate(tags: ["cafe\u{301}"]), baseRevision: 3)])
     }

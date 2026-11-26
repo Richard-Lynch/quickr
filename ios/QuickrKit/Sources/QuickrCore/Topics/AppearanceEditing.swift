@@ -258,6 +258,14 @@ public struct AppearanceDraft: Sendable, Hashable {
         }
     }
 
+    /// Whether this differs from `saved`, code point by code point (``AppearanceUpdate`` compares
+    /// tags the same way), counting tag text not added yet.
+    public func differs(from saved: TopicAppearance) -> Bool {
+        let opened = AppearanceDraft(saved)
+        return color != opened.color || !icon.unicodeScalars.elementsEqual(opened.icon.unicodeScalars)
+            || !AppearanceUpdate.sameSpelling(tags, opened.tags) || !ServerText.strip(newTag).isEmpty
+    }
+
     public mutating func removeTag(at index: Int) {
         guard tags.indices.contains(index) else { return }
         tags.remove(at: index)
