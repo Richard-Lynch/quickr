@@ -84,6 +84,39 @@ public enum TimerExpr {
     static func isLetter(_ c: Unicode.Scalar) -> Bool { ("a"..."z").contains(c) || ("A"..."Z").contains(c) }
     static func isIdent(_ c: Unicode.Scalar) -> Bool { isLetter(c) || isDigit(c) || c == "_" }
 
+    /// Python's `repr()` of one code point: the server spells an unknown character this way in its
+    /// 422 message (`'\\xa0'`, `'\\u200b'`, `"'"`), so the builder shows the same text.
+    static func pyRepr(_ c: Unicode.Scalar) -> String {
+        let body: String
+        switch c {
+        case "\\": body = "\\\\"
+        case "\t": body = "\\t"
+        case "\n": body = "\\n"
+        case "\r": body = "\\r"
+        case "'": return "\"'\""
+        default:
+            if c != " " && !isPrintable(c) {
+                let hex = String(c.value, radix: 16)
+                let (prefix, width) = c.value < 0x100 ? ("x", 2) : c.value < 0x10000 ? ("u", 4) : ("U", 8)
+                body = "\\" + prefix + String(repeating: "0", count: width - hex.count) + hex
+            } else {
+                body = String(c)
+            }
+        }
+        return "'\(body)'"
+    }
+
+    /// Python's `str.isprintable()` for one code point: not Other (Cc, Cf, Cs, Co, Cn) or a
+    /// Separator (Zl, Zp, Zs; the space is handled by the caller).
+    static func isPrintable(_ c: Unicode.Scalar) -> Bool {
+        switch c.properties.generalCategory {
+        case .control, .format, .surrogate, .privateUse, .unassigned, .lineSeparator, .paragraphSeparator,
+            .spaceSeparator:
+            false
+        default: true
+        }
+    }
+
     /// Reads one token at a time, so the leftmost error is the one reported.
     struct Lexer {
         let text: [Unicode.Scalar]
@@ -114,7 +147,7 @@ public enum TimerExpr {
                 i = start + 1
                 return Token(kind: .op, pos: start, text: String(c))
             }
-            throw ExprError(code: .syntax, pos: start, detail: "unknown character '\(c)'")
+            throw ExprError(code: .syntax, pos: start, detail: "unknown character \(pyRepr(c))")
         }
 
         /// `number [unit]`, matched longest-first: `1.` is the number 1 (the `.` is the next,

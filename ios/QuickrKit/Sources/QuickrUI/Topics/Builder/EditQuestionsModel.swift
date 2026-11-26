@@ -24,11 +24,11 @@ public final class EditQuestionsModel: BuilderEditing {
     public static let leaveWarning = "Your question changes haven’t been published. Leave and lose them?"
 
     /// A report the server gave for the draft as it was then, and that draft's questions and
-    /// steps (what "Publish" sends).
+    /// timer (what "Publish" sends).
     public struct Review: Sendable, Hashable {
         public var report: CompatibilityReport
         public var version: TopicDraft.Version
-        /// The draft's questions and steps it was checked for.
+        /// The draft's questions and timer it was checked for.
         public var checked: Checked
         /// What changed in the timer (`timerChanges`): the report covers questions only.
         public var timerChanges: [String]
@@ -43,6 +43,8 @@ public final class EditQuestionsModel: BuilderEditing {
         public var questions: [DraftQuestion]
         public var timed: Bool
         public var steps: [DraftStep]
+        public var laps: [DraftLapType]
+        public var variables: [DraftVariable]
     }
 
     /// A check answered after the questions changed.
@@ -55,7 +57,8 @@ public final class EditQuestionsModel: BuilderEditing {
     public private(set) var base: Topic
     /// The base version's timer; nil when it isn't timed.
     public private(set) var baseTimer: TopicTimer?
-    public private(set) var stepHistory: [HistoricStep]
+    public private(set) var timerHistory: TimerHistory
+    public var timerItemsOpen: Set<TimerItemID> = []
     public var draft: TopicDraft {
         didSet { if submitted { revalidate() } }
     }
@@ -89,16 +92,16 @@ public final class EditQuestionsModel: BuilderEditing {
     @ObservationIgnored private let onPublished: @MainActor (Topic) -> Void
 
     /// `timer`: the base version's (from its row: the topic's own is nil until that row syncs);
-    /// `stepHistory`: every version's steps (``StepKeys/history(_:)``).
+    /// `history`: every version's steps and lap types (``TimerHistory/init(_:)``).
     public init(
-        topic: Topic, timer: TopicTimer?, stepHistory: [HistoricStep] = [], writer: any VersionWriter,
+        topic: Topic, timer: TopicTimer?, history: TimerHistory = TimerHistory(), writer: any VersionWriter,
         toasts: ToastCenter, limits: Limits = .serverDefaults,
         onPublished: @escaping @MainActor (Topic) -> Void = { _ in }
     ) {
         let draft = Self.draft(for: topic, timer: timer)
         base = topic
         baseTimer = timer
-        self.stepHistory = stepHistory
+        timerHistory = history
         self.draft = draft
         initialDraft = draft
         expansion = QuestionExpansion(.none, questions: draft.questions)
@@ -114,21 +117,11 @@ public final class EditQuestionsModel: BuilderEditing {
             timer: timer)
     }
 
-    /// `history` with a newer version's steps: their labels are the latest, their keys used.
-    static func history(_ history: [HistoricStep], then timer: TopicTimer?) -> [HistoricStep] {
-        Self.history(history, then: (timer?.steps ?? []).map { HistoricStep(key: $0.key, label: $0.label) })
+    private var checked: Checked {
+        Checked(
+            questions: draft.questions, timed: draft.timed, steps: draft.steps, laps: draft.laps,
+            variables: draft.variables)
     }
-
-    /// `history` with `newer`'s keys and labels on top.
-    static func history(_ history: [HistoricStep], then newer: [HistoricStep]) -> [HistoricStep] {
-        var out = history
-        for latest in newer {
-            if let i = out.firstIndex(where: { $0.key == latest.key }) { out[i] = latest } else { out.append(latest) }
-        }
-        return out
-    }
-
-    private var checked: Checked { Checked(questions: draft.questions, timed: draft.timed, steps: draft.steps) }
 
     /// The version publishing creates.
     public var nextVersion: Int { base.currentVersion + 1 }
@@ -264,8 +257,8 @@ public final class EditQuestionsModel: BuilderEditing {
         reload = token
         isReloading = true
         let outcome = await writer.latestTopic(topicId: base.id)
-        // Every version's steps: versions published meanwhile may have added and retired keys
-        // (timers.md §2.1). Without them, the history so far plus the latest version's.
+        // Every version's steps and lap types: versions published meanwhile may have added and
+        // retired keys (timers.md §2.1). Without them, the history so far plus the latest version's.
         var versions: [TopicVersion]?
         if case .done = outcome, case .done(let all) = await writer.versions(topicId: base.id) { versions = all }
         // "Keep my draft" meanwhile: the answer isn't wanted any more.
@@ -291,8 +284,8 @@ public final class EditQuestionsModel: BuilderEditing {
     private func rebase(on topic: Topic, versions: [TopicVersion]?) {
         base = topic
         baseTimer = topic.timer
-        stepHistory = Self.history(stepHistory, then: versions.map(StepKeys.history) ?? [])
-        stepHistory = Self.history(stepHistory, then: topic.timer)
+        timerHistory = timerHistory.then(versions.map(TimerHistory.init) ?? TimerHistory()).then(topic.timer)
+        timerItemsOpen = []
         submitted = false
         let draft = Self.draft(for: topic, timer: topic.timer)
         self.draft = draft

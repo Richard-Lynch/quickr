@@ -599,7 +599,8 @@ final class FakeVersionWriter: VersionWriter {
 
     @Test func opensWithThePublishedLapTypesAlertsAndVariables() {
         #expect(model.draft.laps.map(\.key) == ["run", "rest"])
-        #expect(model.draft.laps.allSatisfy(\.locked))
+        let lapsLocked = model.draft.laps.allSatisfy(\.locked)
+        #expect(lapsLocked)
         #expect(model.draft.laps[0].alerts.map(\.at) == ["t/2"])
         #expect(model.draft.variables.map(\.name) == ["t"])
         #expect(!model.hasUnsavedChanges)
@@ -632,9 +633,9 @@ final class FakeVersionWriter: VersionWriter {
         model.setLapTypeLabel(id, "jog")
         let key: String? = model.draft.laps.last?.key
         #expect(key == "jog")
-        model.setLapTypeLabel(id, "Warm up")
+        model.setLapTypeLabel(id, "Warm")
         let other: String? = model.draft.laps.last?.key
-        #expect(other == "warm_up_2", "never a step's key")
+        #expect(other == "warm_2", "never a step's key")
     }
 
     /// I1-BUILDER acceptance: a key shared by a step and a lap type is refused before any call,

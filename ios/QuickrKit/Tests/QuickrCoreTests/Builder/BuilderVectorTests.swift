@@ -385,7 +385,8 @@ struct BuilderTimerVectors: Decodable {
                 laps: timer.laps.map { DraftLapType(key: $0.key, label: $0.label, alerts: alerts($0.alerts)) },
                 variables: timer.variables.map {
                     DraftVariable(
-                        name: $0.name, duration: $0.ms < 0 ? "-\(DurationText.format(-$0.ms))" : DurationText.format($0.ms))
+                        name: $0.name,
+                        duration: $0.ms < 0 ? "-\(DurationText.format(-$0.ms))" : DurationText.format($0.ms))
                 })
         }
     }

@@ -159,7 +159,8 @@ import Testing
                     steps: [],
                     laps: [
                         .init(
-                            key: "run", label: "Run", alerts: [.init(key: "half", label: "Half", at: "T/2", atMs: 30_000)]),
+                            key: "run", label: "Run",
+                            alerts: [.init(key: "half", label: "Half", at: "T/2", atMs: 30_000)]),
                         .init(key: "rest", label: "Rest"),
                     ],
                     variables: [.init(name: "t", ms: 60_000)]))

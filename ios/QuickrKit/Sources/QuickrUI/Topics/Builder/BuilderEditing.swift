@@ -15,9 +15,12 @@ public protocol BuilderEditing: AnyObject, Observable {
     var newOptionLabels: [DraftQuestion.ID: String] { get set }
     var preview: BuilderPreview { get }
     var limits: Limits { get }
-    /// Every step key the topic's versions have used (``StepKeys/history(_:)``): a new step
-    /// named like a retired one takes its key back; any other gets a key no version has used.
-    var stepHistory: [HistoricStep] { get }
+    /// Every step and lap-type key the topic's versions have used (``TimerHistory``): a new step
+    /// or lap type named like a retired one of its kind takes its key back; any other gets a key
+    /// no version has used, of either kind (one namespace, timers2.md §1.1).
+    var timerHistory: TimerHistory { get }
+    /// The step and lap-type rows open to show their alerts (``isOpen(_:)-(TimerItemID)``).
+    var timerItemsOpen: Set<TimerItemID> { get set }
 }
 
 extension BuilderEditing {
@@ -35,16 +38,84 @@ extension BuilderEditing {
         newOptionLabels[id] = nil
     }
 
-    /// Renames a step; a new step's key follows its label, with the topic's step history.
+    /// Renames a step; a new step's key follows its label, with the topic's timer history.
     public func setStepLabel(_ id: DraftStep.ID, _ label: String) {
-        draft.setStepLabel(id, label, history: stepHistory)
+        draft.setStepLabel(id, label, history: timerHistory)
     }
 
     /// "Add step": a new, unnamed step at the end. Its id, or nil when no more fit.
     @discardableResult
     public func addStep() -> DraftStep.ID? {
-        guard draft.canAddStep else { return nil }
+        guard draft.canAddStep(limits: limits) else { return nil }
         return draft.addStep()
+    }
+
+    // MARK: Timer v2 (timers2.md §1.6)
+
+    /// "Add lap type": a new, unnamed lap type at the end. Its id, or nil when no more fit.
+    @discardableResult
+    public func addLapType() -> DraftLapType.ID? {
+        guard draft.canAddLapType(limits: limits) else { return nil }
+        return draft.addLapType()
+    }
+
+    /// Renames a lap type; a new one's key follows its label, with the topic's timer history.
+    public func setLapTypeLabel(_ id: DraftLapType.ID, _ label: String) {
+        draft.setLapTypeLabel(id, label, history: timerHistory)
+    }
+
+    /// "Add variable": a new, empty variable at the end. Its id, or nil when no more fit.
+    @discardableResult
+    public func addVariable() -> DraftVariable.ID? {
+        guard draft.canAddVariable(limits: limits) else { return nil }
+        return draft.addVariable()
+    }
+
+    /// Whether a step or lap type has room for another alert (`max_alerts`).
+    public func canAddAlert(to item: TimerItemID) -> Bool { draft.alertCount(item) < limits.maxAlerts }
+
+    /// "Add alert" on a step or lap type: a new, unnamed alert at the end, its row opened. Its
+    /// id, or nil when no more fit (or the owner is gone).
+    @discardableResult
+    public func addAlert(to item: TimerItemID) -> DraftAlert.ID? {
+        guard canAddAlert(to: item), let id = draft.addAlert(to: item) else { return nil }
+        timerItemsOpen.insert(item)
+        return id
+    }
+
+    /// Renames an alert; a new one's key follows its label, unique within its owner.
+    public func setAlertLabel(_ item: TimerItemID, _ id: DraftAlert.ID, _ label: String) {
+        draft.setAlertLabel(item, id, label)
+    }
+
+    public func removeAlert(_ item: TimerItemID, _ id: DraftAlert.ID) {
+        draft.removeAlert(item, id)
+    }
+
+    /// An expression's live evaluation with the draft's variables: "at 0:30", or the server's
+    /// message and where it points.
+    public func alertPreview(_ at: String) -> AlertPreview {
+        TopicDraft.alertPreview(at, variables: draft.variables, limits: limits)
+    }
+
+    /// The draft index of a step or lap type, as alert fields name it.
+    public func alertOwner(_ item: TimerItemID) -> AlertOwner? {
+        switch item {
+        case .step(let id): draft.stepIndex(of: id).map(AlertOwner.step)
+        case .lapType(let id): draft.lapTypeIndex(of: id).map(AlertOwner.lap)
+        }
+    }
+
+    /// Whether a step's or lap type's alerts show: by choice, or because one of them shows an error.
+    public func isOpen(_ item: TimerItemID) -> Bool {
+        if timerItemsOpen.contains(item) { return true }
+        guard let owner = alertOwner(item) else { return false }
+        return draftErrors.hasError(inAlertsOf: owner)
+    }
+
+    /// Opens or closes a step's or lap type's alerts.
+    public func toggle(_ item: TimerItemID) {
+        if timerItemsOpen.remove(item) == nil { timerItemsOpen.insert(item) }
     }
 
     /// Some question still on the draft has option text typed but not added.
@@ -60,6 +131,16 @@ extension BuilderEditing {
 }
 
 extension Dictionary where Key == DraftField {
+    /// Whether any alert field (or the alert list) of a step or lap type has an error.
+    public func hasError(inAlertsOf owner: AlertOwner) -> Bool {
+        keys.contains { field in
+            switch field {
+            case .alerts(owner), .alert(owner, _, _): true
+            default: false
+            }
+        }
+    }
+
     /// Whether any field of question `index` has an error (its card shows the alert icon).
     public func hasError(inQuestion index: Int) -> Bool {
         keys.contains { field in

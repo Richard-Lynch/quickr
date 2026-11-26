@@ -154,14 +154,20 @@ public struct TopicDraft: Sendable, Hashable {
     /// The topic is timed (timers.md §2.1): it publishes a `timer` with ``steps``, else none.
     public var timed: Bool
     /// The timer's steps, in order; none while timed is a plain stopwatch. Kept while ``timed``
-    /// is off (and then ignored), so switching it back on restores them.
+    /// is off (and then ignored), so switching it back on restores them, as are the lap types and
+    /// variables.
     public var steps: [DraftStep]
+    /// The timer's lap types, in order (timers2.md §1.1): none, laps are untyped ("Lap n").
+    public var laps: [DraftLapType]
+    /// The variables the alerts refer to.
+    public var variables: [DraftVariable]
     /// Only used when publishing a new version.
     public var changeNote: String
 
     public init(
         name: String = "", slug: String = "", slugEdited: Bool = false, description: String = "",
-        questions: [DraftQuestion], timed: Bool = false, steps: [DraftStep] = [], changeNote: String = ""
+        questions: [DraftQuestion], timed: Bool = false, steps: [DraftStep] = [], laps: [DraftLapType] = [],
+        variables: [DraftVariable] = [], changeNote: String = ""
     ) {
         self.name = name
         self.slug = slug
@@ -170,6 +176,8 @@ public struct TopicDraft: Sendable, Hashable {
         self.questions = questions
         self.timed = timed
         self.steps = steps
+        self.laps = laps
+        self.variables = variables
         self.changeNote = changeNote
     }
 
@@ -178,14 +186,15 @@ public struct TopicDraft: Sendable, Hashable {
     public static func empty() -> TopicDraft { TopicDraft(questions: []) }
 
     /// The latest version of a topic, to edit into the next one (`draftFromTopic`). `timer`: that
-    /// version's (its steps open locked).
+    /// version's (its steps, lap types and alerts open locked).
     public static func editing(
         name: String, slug: String, description: String, questions: [Question], timer: TopicTimer? = nil
     ) -> TopicDraft {
-        let (timed, steps) = TopicDraft.steps(from: timer)
+        let fields = TopicDraft.timerDraft(from: timer)
         return TopicDraft(
             name: name, slug: slug, slugEdited: true, description: description,
-            questions: questions.map { DraftQuestion(question: $0, locked: true) }, timed: timed, steps: steps)
+            questions: questions.map { DraftQuestion(question: $0, locked: true) }, timed: fields.timed,
+            steps: fields.steps, laps: fields.laps, variables: fields.variables)
     }
 
     // MARK: Topic details
