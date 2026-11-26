@@ -600,8 +600,10 @@ truncates `alert_label`, then `next_label`, then `label`, then `topic_name` to
 32 characters each, re-encoding after each step; the appearance attributes
 (colour name ≤ 6 bytes, emoji ≤ 64 bytes, tags ≤ 10 × 24 code points) count
 against the same budget and are **never** truncated — they are bounded by §1.3,
-and the worst case (all four labels at 64 four-byte code points plus the largest
-appearance) is what the vector pins; `Topic.swift` for the stored property
+and the vector pins all four labels at 64 four-byte code points plus the largest
+appearance (untruncated); with six-byte-escape labels the body exceeds 4096
+bytes and the budget's first step (`alert_label`) fits it, the appearance
+untouched (asserted in `test_live_activity_vectors.py`); `Topic.swift` for the stored property
 (patch); `ServerLayer.swift` for the `photo_cache` cascade line (patch, M3b);
 the Alembic head `e6f3a9b4c215` (M1 merges first). Before M3 lands, consumers
 use `TopicTheme.default` / `topicStyle(null)` = `{}` and nothing changes
