@@ -226,7 +226,9 @@ function TimedRecord({
   // The latest entry, for Resume under Start (§6.3); idle only.
   const idle = !details && !open;
   const last = useQuery({ ...lastEntryOptions(topic.slug), enabled: idle });
-  const now = useServerNow(false);
+  const lastEntry = last.data?.items[0];
+  // Ticks while a timed last entry could be resumable, so the offer goes when its window ends.
+  const now = useServerNow(idle && Boolean(lastEntry?.timing));
 
   const title = (
     <span className="flex items-center gap-2">
@@ -337,7 +339,7 @@ function TimedRecord({
         onStart={() => {
           if (ctx) void actions.start(ctx);
         }}
-        reopen={archived ? null : reopenOf(last.data?.items[0], now)}
+        reopen={archived ? null : reopenOf(lastEntry, now)}
         note={
           ctx === null && !archived ? (
             <p className="text-center text-sm text-muted">

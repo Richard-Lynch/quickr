@@ -117,42 +117,40 @@ export function RunControls({
           icon={<Icon name={ICON[primary.kind.type]} strokeWidth={2.6} />}
           onClick={() => onAction(primary)}
         >
-          <span className="line-clamp-2 min-w-0 break-words">{actionTitle(primary.kind)}</span>
+          <span className="min-w-0 break-words">{actionTitle(primary.kind)}</span>
         </Button>
       ) : null}
 
       {secondaries.length > 0 || overflow.length > 0 ? (
-        <div className="flex gap-2">
-          {secondaries.length > 0 ? (
-            <div className="grid min-w-0 flex-1 grid-cols-2 gap-2">
-              {secondaries.map((a) => (
-                // `cn` doesn't merge, so nothing here restates a property `lg`/`secondary` set:
-                // the padding narrows by breakpoint (px-7 leaves no room for "Pause" beside Stop
-                // and More at 390 px) and Stop's danger colour sits on its icon and label.
-                <Button
-                  key={a.id}
-                  size="lg"
-                  variant="secondary"
-                  className="min-w-0 max-sm:px-3"
-                  data-testid={`run-${a.id}`}
-                  aria-label={actionLabel(a.kind, topic)}
-                  disabled={off(a)}
-                  icon={
-                    <Icon
-                      name={ICON[a.kind.type]}
-                      className={cn('size-4.5', a.kind.type === 'stop' && 'text-danger')}
-                      strokeWidth={2.4}
-                    />
-                  }
-                  onClick={() => onAction(a)}
-                >
-                  <span className={cn('truncate', a.kind.type === 'stop' && 'text-danger')}>
-                    {actionTitle(a.kind)}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          ) : null}
+        // Wraps rather than squeezing: on a narrow or zoomed screen Pause/Resume and More move
+        // to a second line before a label would truncate.
+        <div className="flex flex-wrap gap-2">
+          {secondaries.map((a) => (
+            // `cn` doesn't merge, so nothing here restates a property `lg`/`secondary` set: the
+            // padding narrows by breakpoint (px-7 leaves no room for "Pause" beside Stop and More
+            // at 390 px) and Stop's danger colour sits on its icon and label.
+            <Button
+              key={a.id}
+              size="lg"
+              variant="secondary"
+              className="min-w-[7.5rem] flex-1 max-sm:px-3"
+              data-testid={`run-${a.id}`}
+              aria-label={actionLabel(a.kind, topic)}
+              disabled={off(a)}
+              icon={
+                <Icon
+                  name={ICON[a.kind.type]}
+                  className={cn('size-4.5', a.kind.type === 'stop' && 'text-danger')}
+                  strokeWidth={2.4}
+                />
+              }
+              onClick={() => onAction(a)}
+            >
+              <span className={cn('truncate', a.kind.type === 'stop' && 'text-danger')}>
+                {actionTitle(a.kind)}
+              </span>
+            </Button>
+          ))}
           {overflow.length > 0 ? (
             <button
               type="button"
