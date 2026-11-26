@@ -141,10 +141,10 @@ const rows: Row[] = [
   {
     row: '9 open, timer null',
     actions: folded([], null),
-    primary: next('Next'),
+    primary: next(''),
     secondaries: [stop, pause],
     overflow: [discard],
-    tile: openTile(next('Next'), pause),
+    tile: openTile(next(''), pause),
   },
   {
     row: '10 open after a reopen (row 4)',
@@ -179,12 +179,13 @@ const rows: Row[] = [
     tile: noTile,
   },
   {
-    row: "13 stopped, not resumable (today's model)",
+    // M1's idle rows (§1.2): a stopped run within the window is `start` plus `reopen`.
+    row: '13 stopped, within the window',
     actions: folded([x], TIMER, { status: 'stopped' }),
-    primary: null,
-    secondaries: [],
+    primary: startA,
+    secondaries: [a({ type: 'reopen', target: 'x' }, 'secondary')],
     overflow: [],
-    tile: noTile,
+    tile: idleTile,
   },
   {
     row: '14 busy (row 4)',

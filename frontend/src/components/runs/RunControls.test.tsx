@@ -158,7 +158,7 @@ describe('titles and names (§1.3)', () => {
   it.each<[RunActionKind, string, string]>([
     [{ type: 'start' }, 'Start', 'Start Smoke'],
     [{ type: 'next', label: 'Shower' }, 'Next: Shower', 'Next: Shower'],
-    [{ type: 'next', label: 'Next' }, 'Next', 'Next'],
+    [{ type: 'next', label: '' }, 'Next', 'Next'],
     [{ type: 'lap', nextTypeLabel: null }, 'Lap', 'Lap'],
     [{ type: 'lap', nextTypeLabel: 'Rest' }, 'Lap → Rest', 'Lap, then Rest'],
     [{ type: 'skip', label: 'Teeth' }, 'Skip Teeth', 'Skip Teeth'],
