@@ -916,7 +916,9 @@ extension FakeServerState {
 // T2-M1: TikTok (timers2.md §3.1), and which run and lap another device's write names
 extension FakeServer {
     static let tikTokId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c4")!
-    static var seedsTikTok: Bool { UITestLaunch.isActive && ProcessInfo.processInfo.arguments.contains("-QuickrSeedTikTok") }
+    static var seedsTikTok: Bool {
+        UITestLaunch.isActive && ProcessInfo.processInfo.arguments.contains("-QuickrSeedTikTok")
+    }
 
     /// No steps; Run and Rest, Run with a 5 s alert under `-QuickrTikTokAlert`. As the server
     /// returns it (`at_ms` evaluated).
@@ -940,14 +942,16 @@ extension FakeServer {
             version(
                 tikTokId, versionId: "00000000-0000-4000-8000-0000000000d4", questions: "[]", seq: seq,
                 timer: tikTokTimer),
-            topic(tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: seq + 1, timer: tikTokTimer),
+            topic(
+                tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: seq + 1, timer: tikTokTimer),
         ]
     }
 
     /// TikTok as `TopicDetail`, when seeded.
     static func tikTokTopics() -> [String: Data] {
         guard seedsTikTok else { return [:] }
-        let item = topic(tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: 0, timer: tikTokTimer)
+        let item = topic(
+            tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: 0, timer: tikTokTimer)
         guard let object = try? JSONSerialization.jsonObject(with: Data(item.utf8)) as? [String: Any],
             let detail = object["topic"], let data = try? JSONSerialization.data(withJSONObject: detail)
         else { return [:] }
@@ -959,6 +963,15 @@ extension FakeServerState {
     /// The run started last here (by its start), lowercase.
     var latestRunId: String? {
         state.withLock { state in state.runs.runs.values.max { $0.state.startedAt < $1.state.startedAt }?.id }
+    }
+
+    /// The latest run as the server holds it, for a test to wait on: "stopped · laps 3".
+    var latestRunSummary: String? {
+        state.withLock { state in
+            state.runs.runs.values.max { $0.state.startedAt < $1.state.startedAt }.map { run in
+                "\(run.status.rawValue) · laps \(run.events.filter { $0.event.type == .lap }.count)"
+            }
+        }
     }
 
     /// The id of the run's `n`th lap event (1-based, in time order).

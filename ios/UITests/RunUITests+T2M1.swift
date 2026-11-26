@@ -58,7 +58,8 @@ extension RunUITests {
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         let entry = find(app, row.identifier)
 
-        // Another device reopens the run; the pull brings it back open.
+        // Another device reopens the run, once the server has the stop; the pull brings it back open.
+        XCTAssertTrue(waitFor(find(app, "debug.serverRun"), label: "stopped · laps 1", timeout: 15))
         tapRunControl(app, "debug.reopenElsewhere", expecting: "reopened")
         XCTAssertTrue(entry.waitForNonExistence(timeout: 15), "the reopened run's entry is hidden")
 
@@ -86,7 +87,7 @@ extension RunUITests {
         lapOnce(app)
         XCTAssertTrue(waitFor(segment, label: "Rest 2"), segment.label)
         // Every lap has reached the server.
-        XCTAssertTrue(app.staticTexts["Saved on this device"].waitForNonExistence(timeout: 15))
+        XCTAssertTrue(waitFor(find(app, "debug.serverRun"), label: "running · laps 3", timeout: 15))
 
         // Another device removes the second lap boundary (the one that opened Run 2).
         tapRunControl(app, "debug.removeLap2Elsewhere", expecting: "removed")

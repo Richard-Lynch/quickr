@@ -7,7 +7,8 @@ import SwiftUI
 /// removes its second lap boundary. Each is recorded on the fake server
 /// (`FakeServerState.reopenElsewhere`, `removeElsewhere`), which logs the run in the feed, and
 /// then this device pulls, as it would on the push that follows. `debug.runResult` shows the
-/// server's answer: "reopened", "removed", or what was refused.
+/// server's answer: "reopened", "removed", or what was refused; `debug.serverRun` the latest run
+/// as the server holds it ("stopped · laps 3").
 struct UITestRunControls: View {
     @Environment(AppEnvironment.self) private var environment
     @State private var result = ""
@@ -30,6 +31,11 @@ struct UITestRunControls: View {
             Text(result.isEmpty ? "–" : result)
                 .accessibilityLabel(result.isEmpty ? "none" : result)
                 .accessibilityIdentifier("debug.runResult")
+            // The server's side, so a test can wait for its writes to land before another device's.
+            TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                let summary = UITestLaunch.server.latestRunSummary ?? "no run"
+                Text(summary).accessibilityLabel(summary).accessibilityIdentifier("debug.serverRun")
+            }
         }
         .font(.caption)
         .padding(6)

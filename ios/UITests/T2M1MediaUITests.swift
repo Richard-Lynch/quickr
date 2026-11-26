@@ -20,7 +20,8 @@ final class T2M1MediaUITests: XCTestCase {
 
     @MainActor
     func testTimerEditorsAtTheLargestTextSize() {
-        timerEditors(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"],
+        timerEditors(
+            extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"],
             suffix: "-xxxl")
     }
 
@@ -36,14 +37,18 @@ final class T2M1MediaUITests: XCTestCase {
         let settings = app.buttons["home.settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
         settings.tap()
+        // Asked once per simulator: a rerun finds it allowed already.
         let allow = find("notifications.allow", in: app)
+        let allowed = find("notifications.allowed", in: app)
         reveal(allow, in: app)
-        XCTAssertTrue(allow.waitForExistence(timeout: 10))
-        allow.tap()
-        let system = springboard.alerts.buttons["Allow"]
-        XCTAssertTrue(system.waitForExistence(timeout: 10))
-        system.tap()
-        XCTAssertTrue(find("notifications.allowed", in: app).waitForExistence(timeout: 10))
+        if !allowed.exists {
+            XCTAssertTrue(allow.waitForExistence(timeout: 10))
+            allow.tap()
+            let system = springboard.alerts.buttons["Allow"]
+            XCTAssertTrue(system.waitForExistence(timeout: 10))
+            system.tap()
+        }
+        XCTAssertTrue(allowed.waitForExistence(timeout: 10))
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         let tileButton = find("tile.tiktok.run", in: app)
