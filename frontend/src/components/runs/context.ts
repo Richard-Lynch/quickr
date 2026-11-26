@@ -13,7 +13,7 @@ import type { TopicVersionOut } from '../../client';
 import { listTopicVersionsOptions } from '../../client/@tanstack/react-query.gen';
 import type { RunContext } from '../../lib/runs/actions';
 import type { LocalRun } from '../../lib/runs/localView';
-import type { Timer } from '../../lib/runs/types';
+import type { Timer, TimerStep } from '../../lib/runs/types';
 
 type TopicRef = RunContext['topic'];
 
@@ -66,6 +66,19 @@ export function timerOf(
 ): Timer | null | undefined {
   const v = versions?.find((x) => x.version === version);
   return v ? v.timer : undefined;
+}
+
+/**
+ * The timer a run's controls read (`actions`, active-surfaces.md §1.1): its pinned version's
+ * when the versions are known, else one made from the steps the run knows, or null when those
+ * are unknown too (§1.2 row 9). The run panel and the running bar both read it, so their
+ * primaries agree.
+ */
+export function runTimer(
+  pinned: Timer | null | undefined,
+  steps: readonly TimerStep[] | null,
+): Timer | null {
+  return pinned ?? (steps === null ? null : { steps: [...steps] });
 }
 
 /** The topic's versions (by id), for timers and run contexts. */

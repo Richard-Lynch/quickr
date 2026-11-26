@@ -1,0 +1,65 @@
+{
+  "source": "PR #210 description: counts read with xcresulttool by the I2-UITEST agent before cleanup deleted ios/build (written before the durable-evidence rule existed). The bundles no longer exist; this file is a transcription, not an export.",
+  "pr": "https://github.com/Richard-Lynch/quickr/pull/210",
+  "full_ui_plan_failures": [
+    "SettingsUITests.testOnboardingWithAServiceToken (#60/#89, system Save Password sheet, known)",
+    "SettingsUITests.testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain (#60/#89, known)",
+    "RunUITests.testStartNextNextSkipPauseResumeStopAnswerSave (load ~200; passed in the 7ae1b01e rerun; investigated in #239 / #244)"
+  ],
+  "runs": [
+    {
+      "name": "lap-test-recorded",
+      "head": "d7e2c02b",
+      "bundle": "ios/build/results/UI-20261126-073336-FBnoaQ",
+      "total": 1,
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "after-shots",
+      "head": "d7e2c02b",
+      "bundle": "ios/build/results/UI-20261126-073446-JNW3zR",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "full-ui-plan",
+      "head": "d7e2c02b",
+      "bundle": "ios/build/results/UI-20261126-074206-fOyepw",
+      "total": 127,
+      "passed": 104,
+      "failed": 3,
+      "skipped": 20
+    },
+    {
+      "name": "unit-plan",
+      "head": "d7e2c02b",
+      "bundle": "ios/build/results/Unit-20261126-082940-9X1yNy",
+      "total": 1503,
+      "passed": 1475,
+      "failed": 0,
+      "skipped": 28
+    },
+    {
+      "name": "r9-and-widgetviews-after-codex-r3",
+      "head": "7ae1b01e",
+      "bundle": "ios/build/results/UI-20261126-090313-UxY5SK",
+      "total": 5,
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "name": "e2e-own-stack",
+      "head": "7ae1b01e",
+      "bundle": "ios/build/results/UI-20261126-090749-msehtn",
+      "total": 17,
+      "passed": 14,
+      "failed": 0,
+      "skipped": 3
+    }
+  ]
+}

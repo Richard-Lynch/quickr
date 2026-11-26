@@ -13,13 +13,18 @@ import { inputHints } from '../../lib/answerSchema';
 import { initialNumber, parseQuickNumber, quickLogFor, type QuickLog } from '../../lib/quickLog';
 import { dueView, type DueView } from '../../lib/schedule';
 import type { NumericQuestion } from '../../lib/questions';
+import { fmtDuration } from '../../lib/runs/format';
 import { isOpen, type LocalRun } from '../../lib/runs/localView';
 import { NumberInput } from '../answers/AnswerField';
 import { timerOf, useTopicVersions } from '../runs/context';
+import { useReopenOffer, type ReopenOffer } from '../runs/reopen';
+import { actionIcon, actionLabel } from '../runs/RunControls';
 import { RunStatus, RunTileAction } from '../runs/RunTile';
 import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
+import { ActiveTopicCard, isResuming } from './ActiveTopicCard';
+import { useActiveCardControls } from './useActiveCardControls';
 
 /** Topic details are prefetched per tile: they power quick-log and an instant record screen. */
 const DETAIL_STALE_MS = 5 * 60_000;
@@ -62,7 +67,7 @@ export function TopicTile({
 }: {
   topic: TopicSummary;
   now: Date;
-  /** The topic's open or finishing run in the local view, if any. */
+  /** The topic's open or finishing run in the local view, if any. Open: the active card. */
   run?: LocalRun | undefined;
 }) {
   const archived = t.status === 'archived';
@@ -87,20 +92,29 @@ export function TopicTile({
   const found = !archived && questions ? quickLogFor(questions) : null;
   // A single topic logs from the tile itself (`single` above); chips and numbers answer a question.
   const quick = found && found.kind !== 'single' && !timed && !unknown ? found : null;
-  // Quick tiles show (and number tiles start from) the last answer.
+  // An idle timed tile offers Resume of its latest stop (active-surfaces.md §3.3, §6.3).
+  const idleTimed = timed && !archived && !unknown && run === undefined;
+  // Quick tiles show (and number tiles start from) the last answer; idle timed ones resume it.
   const last = useQuery({
     ...lastEntryOptions(t.slug),
     staleTime: DETAIL_STALE_MS,
-    enabled: quick !== null && t.entry_count > 0,
+    enabled: (quick !== null || idleTimed) && t.entry_count > 0,
   });
+  const reopen = useReopenOffer(
+    { id: t.id, slug: t.slug, name: t.name },
+    versions.data,
+    last.data?.items[0],
+    idleTimed,
+  );
   const lastAnswer = quick
     ? last.data?.items[0]?.answers.find((a) => a.key === quick.question.key)
     : undefined;
   const lastText = quick && lastAnswer ? formatAnswer(quick.question, lastAnswer) : null;
   const due = dueView(t.due, now);
-  // An open run stands in for the due state; a finishing one doesn't (timers.md §11.1).
-  const running = run !== undefined && isOpen(run);
-  const isDue = !running && (due.tone === 'due' || due.tone === 'overdue');
+  // An open run makes the tile the active card (active-surfaces.md §6.2), which stands in
+  // for the due state; a finishing one doesn't (timers.md §11.1).
+  if (run !== undefined && isOpen(run)) return <ActiveTile topic={t} run={run} />;
+  const isDue = due.tone === 'due' || due.tone === 'overdue';
   const base = `/t/${t.slug}`;
 
   return (
@@ -141,13 +155,13 @@ export function TopicTile({
           </h2>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-muted">
             {run ? <RunStatus run={run} /> : null}
-            {running ? null : <DueBadge view={due} />}
+            <DueBadge view={due} />
             {archived ? (
               <Badge tone="warn">
                 <Icon name="archive" className="size-3.5" /> Archived
               </Badge>
             ) : null}
-            <span className={running ? 'hidden' : undefined}>
+            <span>
               {t.entry_count === 0 ? (
                 'No entries yet'
               ) : lastText ? (
@@ -162,6 +176,7 @@ export function TopicTile({
           </div>
         </div>
         {quick ? <QuickArea topic={t} quick={quick} last={lastAnswer?.value} /> : null}
+        {reopen ? <ResumeButton offer={reopen} /> : null}
       </div>
       {single ? (
         <button
@@ -212,6 +227,40 @@ export function TopicTile({
         </Link>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * "Resume · 1:44" in the tile's quick slot, under the meta line, while its latest stop is
+ * resumable (§3.3): a text button with a 44 px target, above the tile's link overlay.
+ */
+function ResumeButton({ offer }: { offer: ReopenOffer }) {
+  const kind = { type: 'reopen', target: '' } as const;
+  return (
+    <button
+      type="button"
+      data-testid="run-reopen"
+      aria-label={actionLabel(kind, offer.topic)}
+      onClick={offer.onReopen}
+      className="relative z-10 -my-1 -ml-3 inline-flex min-h-11 items-center gap-1.5 self-start rounded-full px-3 text-sm font-semibold text-accent-strong transition-colors hover:bg-accent-soft active:scale-[0.97] motion-reduce:active:scale-none"
+    >
+      <Icon name={actionIcon(kind)} className="size-4" strokeWidth={2.4} />
+      Resume · <span className="font-mono tabular">{fmtDuration(offer.totalMs)}</span>
+    </button>
+  );
+}
+
+/** A tile whose topic has an open run: the active card, with the run's controls. */
+function ActiveTile({ topic: t, run }: { topic: TopicSummary; run: LocalRun }) {
+  const { controls, timer } = useActiveCardControls({ id: t.id, slug: t.slug, name: t.name }, run);
+  return (
+    <ActiveTopicCard
+      topic={t}
+      run={run}
+      timer={timer}
+      controls={controls}
+      resuming={isResuming(run)}
+    />
   );
 }
 

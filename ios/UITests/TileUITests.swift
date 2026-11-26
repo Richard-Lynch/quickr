@@ -100,6 +100,112 @@ final class TileUITests: XCTestCase {
         XCTAssertTrue(undo.isHittable, "Undo must stay reachable at AX sizes")
     }
 
+    /// The active card's inline controls (active-surfaces.md §3.2), on a stopwatch against the
+    /// UI-test fake server (`launchWithStopwatch`; the demo store has no timed topic): started,
+    /// the card offers Lap with Stop beside it and Pause; Lap records a lap right there, on home;
+    /// Stop stops the run from home (Workout's required questions open its answers form).
+    @MainActor
+    func testActiveCardInlineLapAndStop() {
+        let app = launchWithStopwatch()
+        let element = { (id: String) in app.descendants(matching: .any)[id].firstMatch }
+        element("tile.workout.run").tap()
+
+        let card = element("tile.workout")
+        let lap = card.descendants(matching: .any)["tile.workout.run"].firstMatch
+        let stop = card.descendants(matching: .any)["tile.workout.stop"].firstMatch
+        XCTAssertTrue(element("home.section.active").waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForLabel(lap, prefix: "Lap"), lap.label)
+        XCTAssertTrue(stop.exists)
+        XCTAssertTrue(stop.label.hasPrefix("Stop"), stop.label)
+        XCTAssertTrue(card.descendants(matching: .any)["tile.workout.pause"].firstMatch.exists)
+        // Inline: the primary fills the row, Stop sits beside it.
+        XCTAssertEqual(lap.frame.midY, stop.frame.midY, accuracy: 2, "one row")
+        XCTAssertLessThan(lap.frame.maxX, stop.frame.minX + 1, "Lap, then Stop")
+        XCTAssertGreaterThan(lap.frame.width, stop.frame.width, "the primary takes the row")
+        // The headline badge's text (its icon carries the badge's id too, labelled "Timer").
+        func headline(_ text: String) -> XCUIElement {
+            card.descendants(matching: .any).matching(
+                NSPredicate(format: "identifier == 'run.status' AND label CONTAINS %@", text)
+            ).firstMatch
+        }
+        XCTAssertTrue(headline("Lap 1").exists, "the headline names the open lap")
+        XCTAssertFalse(headline("Lap 2").exists)
+        attach(app, "tiles-active-card")
+
+        Thread.sleep(forTimeInterval: 0.6)  // past the run controls' tap cooldown (450 ms)
+        lap.tap()
+        // A lap, on home: the headline counts it and the card stays (no run screen).
+        XCTAssertTrue(headline("Lap 2").waitForExistence(timeout: 10), "the headline counts the lap")
+        XCTAssertTrue(app.textFields["home.search"].exists, "still on home")
+        XCTAssertFalse(element("run.primary").exists, "the run screen didn't open")
+        XCTAssertTrue(waitForLabel(lap, prefix: "Lap"), "the primary is still Lap: \(lap.label)")
+        attach(app, "tiles-active-card-lapped")
+
+        Thread.sleep(forTimeInterval: 0.6)
+        stop.tap()
+        XCTAssertTrue(element("runDetails.save").waitForExistence(timeout: 10), "stopped: the answers form")
+    }
+
+    /// The active card at the largest accessibility text size (§3.2, §7), on Morning against the
+    /// UI-test fake server: Pause moves under the headline and the primary stacks over a
+    /// full-width Stop; Pause, Stop and the primary can all be reached, and Pause and Stop work.
+    @MainActor
+    func testActiveCardStacksAtAnAccessibilitySize() {
+        let app = XCUIApplication()
+        app.launchArguments =
+            ["-QuickrUITest", "-QuickrServer", "https://quickr.test"] + AccessibilityLaunch.arguments()
+        app.launch()
+        let element = { (id: String) in app.descendants(matching: .any)[id].firstMatch }
+        let start = element("tile.morning.run")
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        reveal(start, in: app)
+        start.tap()
+
+        // Started, Morning moves up into "Active now", above where the list was scrolled to.
+        let active = element("home.section.active")
+        XCTAssertTrue(active.waitForExistence(timeout: 10))
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        for _ in 0..<12 where !(active.exists && active.isHittable) {
+            top.press(forDuration: 0.05, thenDragTo: top.withOffset(CGVector(dx: 0, dy: 300)))
+        }
+        let card = element("tile.morning")
+        let next = card.descendants(matching: .any)["tile.morning.run"].firstMatch
+        let stop = card.descendants(matching: .any)["tile.morning.stop"].firstMatch
+        let pause = card.descendants(matching: .any)["tile.morning.pause"].firstMatch
+        XCTAssertTrue(waitForLabel(next, prefix: "Next"), next.label)
+        // Home has no navigation bar (its header is in the list): scroll until Stop can be tapped.
+        reveal(stop, in: app)
+        XCTAssertGreaterThanOrEqual(stop.frame.minY, next.frame.maxY, "Stop stacks under the primary")
+        XCTAssertEqual(stop.frame.width, next.frame.width, accuracy: 2, "both full width")
+        // Pause moves under the headline (not in the title row) and keeps a 44 pt target.
+        let headline = card.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == 'run.status' AND label BEGINSWITH 'Running'")
+        ).firstMatch
+        XCTAssertTrue(headline.exists, "the headline")
+        XCTAssertGreaterThanOrEqual(pause.frame.minY, headline.frame.maxY, "Pause under the headline")
+        XCTAssertLessThan(pause.frame.maxY, next.frame.minY, "Pause sits above the controls row")
+        XCTAssertGreaterThanOrEqual(pause.frame.height, 44, "a 44 pt target")
+        XCTAssertTrue(next.isHittable && stop.isHittable)
+        attach(app, "tiles-active-card-ax")
+
+        // Pause can be reached and works: scroll it into view (it sits above the row), tap it.
+        let down = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        for _ in 0..<4 where !pause.isHittable {
+            down.press(forDuration: 0.05, thenDragTo: down.withOffset(CGVector(dx: 0, dy: 150)))
+        }
+        XCTAssertTrue(pause.isHittable, "Pause can be reached")
+        Thread.sleep(forTimeInterval: 0.6)  // past the run controls' tap cooldown (450 ms)
+        pause.tap()
+        XCTAssertTrue(
+            card.descendants(matching: .any)["tile.morning.resume"].firstMatch.waitForExistence(timeout: 10),
+            "Pause became Resume")
+
+        Thread.sleep(forTimeInterval: 0.6)
+        reveal(stop, in: app)
+        stop.tap()
+        XCTAssertTrue(element("runDetails.save").waitForExistence(timeout: 10), "the stacked Stop works")
+    }
+
     /// A tile, scrolled fully into view: the home list is lazy, so a tile further down doesn't
     /// exist until it is scrolled to.
     private func tile(_ app: XCUIApplication, _ slug: String) -> XCUIElement {

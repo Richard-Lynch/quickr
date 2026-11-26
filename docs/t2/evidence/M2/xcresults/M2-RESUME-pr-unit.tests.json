@@ -1,0 +1,213 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "C9EAEA56-4741-4D64-8FF1-26D121085073",
+      "deviceName" : "quickR iOS-26-0 t2-m2-resume-a862c9",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "0.0096s",
+                  "durationInSeconds" : 0.009598016738891602,
+                  "name" : "aSingleTopicLogsFromItsControlAndItsWidget()",
+                  "nodeIdentifier" : "WidgetControlTests/aSingleTopicLogsFromItsControlAndItsWidget()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aSingleTopicLogsFromItsControlAndItsWidget()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.0096s",
+                  "durationInSeconds" : 0.009580135345458984,
+                  "name" : "withoutAStoreTheControlIsUnconfigured()",
+                  "nodeIdentifier" : "WidgetControlTests/withoutAStoreTheControlIsUnconfigured()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/withoutAStoreTheControlIsUnconfigured()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.012s",
+                  "durationInSeconds" : 0.01213383674621582,
+                  "name" : "aNumberTopicsControlShowsWhatItLogs()",
+                  "nodeIdentifier" : "WidgetControlTests/aNumberTopicsControlShowsWhatItLogs()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aNumberTopicsControlShowsWhatItLogs()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.012s",
+                  "durationInSeconds" : 0.012169122695922852,
+                  "name" : "aChipTopicsControlLogsItsLastOptionAgainInItsStore()",
+                  "nodeIdentifier" : "WidgetControlTests/aChipTopicsControlLogsItsLastOptionAgainInItsStore()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aChipTopicsControlLogsItsLastOptionAgainInItsStore()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.012s",
+                  "durationInSeconds" : 0.01222085952758789,
+                  "name" : "aWidgetsChipsAndCheckRunPinnedLogs()",
+                  "nodeIdentifier" : "WidgetControlTests/aWidgetsChipsAndCheckRunPinnedLogs()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aWidgetsChipsAndCheckRunPinnedLogs()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.012s",
+                  "durationInSeconds" : 0.012131214141845703,
+                  "name" : "theTimerControlRunsAutoAndSaysWhatAPressDoes()",
+                  "nodeIdentifier" : "WidgetControlTests/theTimerControlRunsAutoAndSaysWhatAPressDoes()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/theTimerControlRunsAutoAndSaysWhatAPressDoes()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.012s",
+                  "durationInSeconds" : 0.012181758880615234,
+                  "name" : "aChipTopicNeverLoggedDoesntGuess()",
+                  "nodeIdentifier" : "WidgetControlTests/aChipTopicNeverLoggedDoesntGuess()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aChipTopicNeverLoggedDoesntGuess()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.0068s",
+                  "durationInSeconds" : 0.006776094436645508,
+                  "name" : "aTopicThatNeedsTheFormHasNoOnePressLog()",
+                  "nodeIdentifier" : "WidgetControlTests/aTopicThatNeedsTheFormHasNoOnePressLog()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aTopicThatNeedsTheFormHasNoOnePressLog()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.012s",
+                  "durationInSeconds" : 0.012080192565917969,
+                  "name" : "aTimedWidgetsButtonsCarryTheRunAndSegmentShown()",
+                  "nodeIdentifier" : "WidgetControlTests/aTimedWidgetsButtonsCarryTheRunAndSegmentShown()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aTimedWidgetsButtonsCarryTheRunAndSegmentShown()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.0067s",
+                  "durationInSeconds" : 0.0067327022552490234,
+                  "name" : "aTimedTopicsLogControlNeverLogsItUntimed()",
+                  "nodeIdentifier" : "WidgetControlTests/aTimedTopicsLogControlNeverLogsItUntimed()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/aTimedTopicsLogControlNeverLogsItUntimed()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.012s",
+                  "durationInSeconds" : 0.012111186981201172,
+                  "name" : "theTimerControlOfALapTypedTimerLaps()",
+                  "nodeIdentifier" : "WidgetControlTests/theTimerControlOfALapTypedTimerLaps()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests/theTimerControlOfALapTypedTimerLaps()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "WidgetControlTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/WidgetControlTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "0.63s",
+                  "durationInSeconds" : 0.6317100524902344,
+                  "name" : "aTapWritesThroughTheActiveStoreOnceInItsCooldown()",
+                  "nodeIdentifier" : "LiveActivityTapTests/aTapWritesThroughTheActiveStoreOnceInItsCooldown()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests/aTapWritesThroughTheActiveStoreOnceInItsCooldown()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.06s",
+                  "durationInSeconds" : 0.06022000312805176,
+                  "name" : "theButtonIntentReachesTheRegisteredHandler()",
+                  "nodeIdentifier" : "LiveActivityTapTests/theButtonIntentReachesTheRegisteredHandler()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests/theButtonIntentReachesTheRegisteredHandler()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.05s",
+                  "durationInSeconds" : 0.04971194267272949,
+                  "name" : "aNotificationStartRequestsOneActivity()",
+                  "nodeIdentifier" : "LiveActivityTapTests/aNotificationStartRequestsOneActivity()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests/aNotificationStartRequestsOneActivity()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "LiveActivityTapTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "0.15s",
+                  "durationInSeconds" : 0.1479792594909668,
+                  "name" : "aDoublePressStartsOnceThenTheNextPressAdvances()",
+                  "nodeIdentifier" : "RunIntentHandlerTests/aDoublePressStartsOnceThenTheNextPressAdvances()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests/aDoublePressStartsOnceThenTheNextPressAdvances()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.055s",
+                  "durationInSeconds" : 0.054708003997802734,
+                  "name" : "aWidgetFromAnotherStoreIsRefused()",
+                  "nodeIdentifier" : "RunIntentHandlerTests/aWidgetFromAnotherStoreIsRefused()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests/aWidgetFromAnotherStoreIsRefused()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.07s",
+                  "durationInSeconds" : 0.07045102119445801,
+                  "name" : "theIntentsAskForWhatTheyShow()",
+                  "nodeIdentifier" : "RunIntentHandlerTests/theIntentsAskForWhatTheyShow()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests/theIntentsAskForWhatTheyShow()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "RunIntentHandlerTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRTests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests",
+          "nodeType" : "Unit test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "Unit",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

@@ -37,22 +37,40 @@ struct TopicProvider: AppIntentTimelineProvider {
                 WidgetBootstrap.log.error("no suggested topic: \(String(describing: error), privacy: .public)")
             }
         }
-        return TopicEntry(date: now, topic: await topic(id: id))
+        return TopicEntry(date: now, topic: await topic(id: id, now: now))
     }
 
-    /// Entries at every due change and refresh point (`WidgetTimeline`); rebuilt after the last.
+    /// Entries at every due change and refresh point (`WidgetTimeline`), and at each pending alert
+    /// of the shown run, from which the alert line shows the next one or goes; rebuilt after the
+    /// last, or at an alert past the ones followed.
     static func timeline(for configuration: SelectTopicIntent, now: Date = .now) async -> Timeline<TopicEntry> {
-        let topic = await topic(id: configuration.topic?.id)
+        let shown = await topicByAlert(id: configuration.topic?.id, now: now)
+        let topic = shown.first?.topic
         let dates = WidgetTimeline.entryDates(for: topic.map { [$0.topic] } ?? [], now: now, skew: topic?.skew ?? 0)
+        let entries = WidgetTimeline.entries(dates, changes: shown.map { ($0.from, $0.topic) })
+        // The last entry's pending alert, which no entry follows (the cap, or past `horizon`).
+        let alert = entries.last?.value?.runDisplay?.alert.map { Date(timeIntervalSince1970: $0.at) }
         return Timeline(
-            entries: dates.map { TopicEntry(date: $0, topic: topic) },
-            policy: .after(WidgetTimeline.reloadDate(after: dates, now: now)))
+            entries: entries.map { TopicEntry(date: $0.date, topic: $0.value) },
+            policy: .after(WidgetTimeline.reloadDate(after: entries.map(\.date), now: now, alert: alert)))
     }
 
-    private static func topic(id: UUID?) async -> WidgetTopic? {
+    /// The topic from `now`, then from each pending alert of its run on (`WidgetReader.topicByAlert`).
+    private static func topicByAlert(id: UUID?, now: Date) async -> [(from: Date, topic: WidgetTopic?)] {
+        guard let id, let reader = WidgetBootstrap.reader() else { return [(now, nil)] }
+        do {
+            let end = now.addingTimeInterval(WidgetTimeline.horizon)
+            return try await reader.topicByAlert(id: id, now: now, until: end)
+        } catch {
+            WidgetBootstrap.log.error("topic \(id) unreadable: \(String(describing: error), privacy: .public)")
+            return [(now, nil)]
+        }
+    }
+
+    private static func topic(id: UUID?, now: Date) async -> WidgetTopic? {
         guard let id, let reader = WidgetBootstrap.reader() else { return nil }
         do {
-            return try await reader.topic(id: id)
+            return try await reader.topic(id: id, now: now)
         } catch {
             WidgetBootstrap.log.error("topic \(id) unreadable: \(String(describing: error), privacy: .public)")
             return nil

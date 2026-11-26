@@ -4,7 +4,7 @@
  * the server's answer, like the record screen, so a rejected answer lands on its field.
  */
 import { useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 
 import { RECORD_WAIT_MS } from '../../api/entries';
 import { invalidateOperations } from '../../api/queryClient';
@@ -20,6 +20,7 @@ import {
   type StartResult,
   type TapBody,
   type TapExpect,
+  type TapOptions,
   type TapType,
 } from '../../lib/runs/actions';
 import { useToast } from '../ui/Toast';
@@ -50,23 +51,99 @@ export type FinishResult =
 export const RUN_TAP_COOLDOWN_MS = 450;
 
 let cooldownMs = RUN_TAP_COOLDOWN_MS;
-/** When each topic's run controls were last tapped (device ms), by lowercase topic id. */
+/**
+ * Monotonic ms since the page loaded. Not `Date.now()`: a device clock set back would leave
+ * every later tap inside the cooldown, and the controls dead, until it caught up (#188).
+ */
+const monotonic = () => performance.now();
+let clock: () => number = monotonic;
+/** When each topic's run controls were last tapped (`clock` ms), by lowercase topic id. */
 const lastTap = new Map<string, number>();
+/** Each cooling topic's timer that ends its cooldown, by lowercase topic id. */
+const coolEnds = new Map<string, number>();
 
-/** Tests: another cooldown (0 turns it off), and forget earlier taps. */
-export function setRunTapCooldown(ms: number): void {
+/** Who re-reads `isCooling`: told when a cooldown starts and when it ends. */
+const coolListeners = new Set<() => void>();
+const notifyCooling = () => {
+  for (const l of coolListeners) l();
+};
+
+/**
+ * Tests: another cooldown (0 turns it off), and forget earlier taps. `now` replaces the
+ * clock, so a test's double tap is a fixed time apart however slow the machine is (#188);
+ * after moving it, `runTapClockMoved` re-reads every cooldown, as its end timer would.
+ */
+export function setRunTapCooldown(ms: number, now: () => number = monotonic): void {
   cooldownMs = ms;
+  clock = now;
   lastTap.clear();
+  for (const t of coolEnds.values()) window.clearTimeout(t);
+  coolEnds.clear();
+  notifyCooling();
+}
+
+/** Tests: the clock given to `setRunTapCooldown` moved. */
+export function runTapClockMoved(): void {
+  notifyCooling();
+}
+
+/** How long `topicId`'s cooldown has left, in ms; 0 when it isn't cooling. */
+function coolLeft(topicId: string): number {
+  const last = lastTap.get(topicId.toLowerCase());
+  if (last === undefined) return 0;
+  const since = clock() - last;
+  // A clock behind the tap (one that isn't monotonic) ends the cooldown, never extends it.
+  return since >= 0 && since < cooldownMs ? cooldownMs - since : 0;
+}
+
+/** Whether `topicId`'s controls are inside a cooldown now. */
+function isCooling(topicId: string): boolean {
+  return coolLeft(topicId) > 0;
+}
+
+/**
+ * Re-read the cooldowns when `id`'s ends. The timer runs on the clock's time: one that fires
+ * a little early waits out the rest rather than leaving the controls off.
+ */
+function scheduleCoolEnd(id: string, after: number): void {
+  window.clearTimeout(coolEnds.get(id));
+  coolEnds.set(
+    id,
+    window.setTimeout(() => {
+      coolEnds.delete(id);
+      const left = coolLeft(id);
+      if (left > 0) scheduleCoolEnd(id, left);
+      else notifyCooling();
+    }, after),
+  );
 }
 
 /** Whether a tap on `topicId`'s controls now is inside its cooldown; if not, it starts one. */
 function coolingDown(topicId: string): boolean {
+  if (isCooling(topicId)) return true;
   const id = topicId.toLowerCase();
-  const now = Date.now();
-  const last = lastTap.get(id);
-  if (last !== undefined && now - last < cooldownMs) return true;
-  lastTap.set(id, now);
+  lastTap.set(id, clock());
+  if (cooldownMs > 0) {
+    notifyCooling();
+    scheduleCoolEnd(id, cooldownMs);
+  }
   return false;
+}
+
+const subscribeCooling = (onChange: () => void) => {
+  coolListeners.add(onChange);
+  return () => {
+    coolListeners.delete(onChange);
+  };
+};
+
+/**
+ * Whether `topicId`'s run controls are inside the tap cooldown, from whichever surface tapped
+ * (a tile's Start, then the panel): the run panel shows its controls disabled meanwhile
+ * (active-surfaces.md §2.2, §9).
+ */
+export function useRunCooldown(topicId: string): boolean {
+  return useSyncExternalStore(subscribeCooling, () => isCooling(topicId));
 }
 
 export interface RunActions {
@@ -83,6 +160,8 @@ export interface RunActions {
     type: TapType,
     body?: TapBody,
     expect?: TapExpect,
+    /** A reopen's or remove's entry, for a run not in the local view (timers2.md §5.3). */
+    opts?: Pick<TapOptions, 'entry' | 'target'>,
   ) => Promise<OutboxItem<RunEventPayload> | null>;
   /**
    * Send the run's answers as `finish` (§3.6) and wait briefly for the server. Throws the
@@ -192,10 +271,12 @@ export function useRunActions(): RunActions {
           ? Promise.resolve(null)
           : guarded(() => startRun(deps, ctx, startOpts)),
       // A discard is confirmed in a sheet first: no double tap to guard (as on iOS).
-      tap: (runId, ctx, type, body, expect) =>
+      tap: (runId, ctx, type, body, expect, opts = {}) =>
         type !== 'discard' && coolingDown(ctx.topic.id)
           ? Promise.resolve(null)
-          : guarded(() => tapRun(deps, runId, ctx, type, body, expect ? { expect } : {})),
+          : guarded(() =>
+              tapRun(deps, runId, ctx, type, body, expect ? { ...opts, expect } : opts),
+            ),
       finish,
     };
   }, [qc, toast, busy]);

@@ -1,0 +1,68 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "FB902170-F048-4853-9805-4E53B478435E",
+      "deviceName" : "quickR iOS-26-0 t2-m2-resume-a862c9",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "24s",
+                  "durationInSeconds" : 24.150890946388245,
+                  "name" : "testResumeShots()",
+                  "nodeIdentifier" : "ResumeShotsUITests/testResumeShots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ResumeShotsUITests/testResumeShots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Failed to not hittable: Button, {{32.0, 102.0}, {342.0, 56.0}}, identifier: 'tile.tiktok.stop', label: 'Stop TikTok'",
+                      "nodeType" : "Failure Message"
+                    }
+                  ],
+                  "duration" : "14s",
+                  "durationInSeconds" : 14.08504605293274,
+                  "name" : "testResumeShotsXXXL()",
+                  "nodeIdentifier" : "ResumeShotsUITests/testResumeShotsXXXL()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ResumeShotsUITests/testResumeShotsXXXL",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                }
+              ],
+              "name" : "ResumeShotsUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ResumeShotsUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

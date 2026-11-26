@@ -154,6 +154,9 @@ struct RootView: View {
             if UITestRunControls.isShown { UITestRunControls() }
         }
         // end T2-M1
+        .overlay(alignment: .bottomLeading) {
+            if UITestClockControl.isShown { UITestClockControl().padding(.leading, 12).padding(.bottom, 80) }
+        }
         #endif
         #if DEBUG || QUICKR_PERF
         .overlay(alignment: .topTrailing) {

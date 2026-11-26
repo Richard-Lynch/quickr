@@ -27,10 +27,15 @@ import Synchronization
 ///   no level headers and refuses nothing;
 /// - `-QuickrServerOutdated`: the fake server refuses this build from the start (a fresh install's
 ///   first connect, client-versions.md §4.1);
+/// - `-QuickrHoldLaterFeed`: the first feed request (the launch's connect) is answered, every
+///   later one is held for the rest of the launch, so the launch's next pull is still in flight
+///   whenever a test taps (#239);
 /// - `-QuickrSeedTikTok` (T2-M1): the fake server also has TikTok, timed with no steps and the lap
 ///   types Run and Rest (timers2.md §3.1's `tiktok`), and no questions; with
 ///   `-QuickrTikTokAlert`, Run has an alert 5 s in. `-QuickrRunControls` shows
-///   `UITestRunControls` (another device's reopen or remove of the latest run).
+///   `UITestRunControls` (another device's reopen or remove of the latest run);
+/// - `-QuickrClockControl` shows `UITestClockControl` ("+16 min": the fake server's clock jumps
+///   ahead, then this device pulls), for the 15-minute Resume window (active-surfaces.md §3.3).
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
@@ -69,6 +74,7 @@ enum UITestLaunch {
         if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
         if ProcessInfo.processInfo.arguments.contains("-QuickrServerBehind") { server.levels = .behind }
         if ProcessInfo.processInfo.arguments.contains("-QuickrServerOutdated") { server.levels = .outdated }
+        if ProcessInfo.processInfo.arguments.contains("-QuickrHoldLaterFeed") { server.holdLaterFeed() }
         return environment
     }
 
@@ -167,6 +173,8 @@ final class FakeServerState: Sendable {
         var levels: FakeServerLevels?
         var rejectNext = false
         var holdFeed = false
+        /// `holdLaterFeed()`: the next feed request is admitted and turns `holdFeed` on.
+        var holdAfterNextFeed = false
         var requests = 0
         /// "METHOD /path" of each request, in order.
         var sent: [String] = []
@@ -185,6 +193,9 @@ final class FakeServerState: Sendable {
         var publishElsewhere = false
         /// The runs started here (`FakeRuns`, UITestRuns.swift).
         var runs = FakeRunBook()
+        /// How far the server's clock runs ahead of the device's (`UITestClockControl`): its
+        /// `X-QuickR-Server-Time` and feed `server_time`, so the app's run clock moves with it.
+        var clockAheadMs = 0
 
         /// The seq of the next feed item.
         var nextSeq: Int { FakeServer.seededHead + 1 + feed.count }
@@ -201,6 +212,14 @@ final class FakeServerState: Sendable {
         get { state.withLock { $0.levels } }
         set { state.withLock { $0.levels = newValue } }
     }
+
+    var clockAheadMs: Int {
+        get { state.withLock { $0.clockAheadMs } }
+        set { state.withLock { $0.clockAheadMs = newValue } }
+    }
+
+    /// Now on the fake server's clock.
+    var now: Date { Date().addingTimeInterval(Double(clockAheadMs) / 1000) }
 
     /// Requests that reached the server (any host path), held ones included.
     var requestCount: Int { state.withLock { $0.requests } }
@@ -223,6 +242,9 @@ final class FakeServerState: Sendable {
             return state.rejectNext
         }
     }
+
+    /// Admits the next feed request, then holds every later one (`holdFeed`).
+    func holdLaterFeed() { state.withLock { $0.holdAfterNextFeed = true } }
 
     /// Holds feed requests until `releaseFeed()` (a cancelled one stops waiting, as URLSession's does).
     func holdFeed() { state.withLock { $0.holdFeed = true } }
@@ -361,6 +383,12 @@ final class FakeServerState: Sendable {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let proceed = state.withLock { state -> Bool in
+                    // `holdLaterFeed()`: this one goes, and turns the hold on in the same lock.
+                    if state.holdAfterNextFeed, !state.holdFeed {
+                        state.holdAfterNextFeed = false
+                        state.holdFeed = true
+                        return true
+                    }
                     guard state.holdFeed, !Task.isCancelled else { return true }
                     state.held[id] = continuation
                     return false
@@ -471,7 +499,7 @@ enum FakeServer {
     }
 
     static func page(after cursor: Int, state: FakeServerState) -> String {
-        let now = ISO8601DateFormatter().string(from: Date())
+        let now = ISO8601DateFormatter().string(from: state.now)
         let (published, head) = state.feed(after: cursor)
         let seeded =
             cursor == 0
@@ -586,7 +614,7 @@ private struct FakeServerTransport: Transport {
         if state.offline { throw TransportError.unreachable("offline (UI test)") }
         var headers: HTTPHeaders = [
             QuickrHeader.serverId: UITestLaunch.fakeServerId, QuickrHeader.epoch: FakeServer.epoch,
-            "Content-Type": "application/json", RunClock.serverTimeHeader: String(RunInstant.milliseconds(Date())),
+            "Content-Type": "application/json", RunClock.serverTimeHeader: String(RunInstant.milliseconds(state.now)),
         ]
         let levels = state.levels
         levels?.add(to: &headers)
