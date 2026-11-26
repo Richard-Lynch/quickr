@@ -249,6 +249,28 @@ import Testing
         #expect(after.runDisplay?.headline == "Rest 1 · lap 2")
     }
 
+    /// A timeline follows the alerts: from `now` "Go" is pending; from its instant (960 s) the
+    /// widget reads again and, Rest having no other alert, shows none. Within `until` only.
+    @Test func theTopicIsReadAgainFromEachPendingAlert() async throws {
+        let h = try OutboxHarness()
+        try await Self.restLap(h)
+        let reader = WidgetReader(store: h.store)
+        let now = Make.t0.addingTimeInterval(120)
+        let go = Make.t0.addingTimeInterval(960)
+        let shown = try await reader.topicByAlert(id: h.topic.id, now: now, until: now.addingTimeInterval(3600))
+        #expect(shown.map(\.from) == [now, go])
+        #expect(shown.first?.topic?.runDisplay?.alert?.label == "Go")
+        #expect(shown.last?.topic?.runDisplay?.alert == nil)
+        #expect(shown.last?.topic?.runDisplay?.headline == "Rest 1 · lap 2")
+        let soon = try await reader.topicByAlert(id: h.topic.id, now: now, until: go.addingTimeInterval(-1))
+        #expect(soon.map(\.from) == [now], "an alert after `until` is the reload's, not an entry")
+        let paused = try OutboxHarness()
+        try await Self.restLap(paused, pause: true)
+        let still = try await WidgetReader(store: paused.store).topicByAlert(
+            id: paused.topic.id, now: now, until: now.addingTimeInterval(3600))
+        #expect(still.count == 1, "no alert is pending while paused")
+    }
+
     /// Paused: the headline stays, the alert line goes (it cannot fire while paused).
     @Test func aPausedLapHidesTheAlert() async throws {
         let h = try OutboxHarness()

@@ -46,9 +46,20 @@ public enum WidgetTimeline {
         return [now] + all.sorted()
     }
 
+    /// A timeline whose content changes at `changes` (each value from its date on; the first is
+    /// the value at `dates[0]`): an entry at each of `dates` and each change, sorted and distinct,
+    /// with the value current then; at most `maxEntries`.
+    public static func entries<Value>(_ dates: [Date], changes: [(from: Date, value: Value)])
+        -> [(date: Date, value: Value)]
+    {
+        guard let first = changes.first else { return [] }
+        let all = Set(dates).union(changes.dropFirst().map(\.from)).sorted().prefix(maxEntries)
+        return all.map { date in (date, changes.last { $0.from <= date }?.value ?? first.value) }
+    }
+
     /// When WidgetKit should ask for the next timeline: after the last entry, or at `alert` (a
-    /// shown run's pending alert, device time) when that comes first, so the alert line moves on
-    /// to the next alert, or goes, instead of staying at 0:00.
+    /// pending alert the entries don't follow past, device time) when that comes first, so the
+    /// alert line moves on to the next alert, or goes, instead of staying at 0:00.
     public static func reloadDate(after dates: [Date], now: Date, alert: Date? = nil) -> Date {
         let last = dates.last.map { max($0, now.addingTimeInterval(15 * 60)) } ?? now.addingTimeInterval(horizon)
         guard let alert, alert > now else { return last }

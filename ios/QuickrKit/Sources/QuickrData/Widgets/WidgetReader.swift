@@ -16,6 +16,24 @@ public struct WidgetReader: Sendable {
         return try await widgetTopic(view.topic, state: storeState(), runs: runs(topicId: id), now: now)
     }
 
+    /// One topic as it reads from `now`, then from each pending alert of its run on, up to `end`
+    /// and at most `limit` alerts: `alert_at` is the next alert after the instant it's read for,
+    /// so from an alert on the widget shows the one after it, or none (a timeline's entries, which
+    /// WidgetKit shows without asking again). The first is `topic(id:now:)`.
+    public func topicByAlert(id: UUID, now: Date, until end: Date, limit: Int = 8) async throws
+        -> [(from: Date, topic: WidgetTopic?)]
+    {
+        var shown: [(from: Date, topic: WidgetTopic?)] = [(now, try await topic(id: id, now: now))]
+        while shown.count <= limit, let last = shown.last,
+            let at = last.topic?.runDisplay?.alert.map({ Date(timeIntervalSince1970: $0.at) }), at > last.from,
+            at <= end
+        {
+            // A millisecond on: `alert_at` is rounded down to the millisecond it's computed for.
+            shown.append((at, try await topic(id: id, now: at.addingTimeInterval(0.001))))
+        }
+        return shown
+    }
+
     /// Active topics, due first (the home list's order at device time `now`, in server time), for
     /// the due-list widget.
     public func dueList(now: Date) async throws -> [WidgetTopic] {

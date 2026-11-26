@@ -272,10 +272,11 @@ public struct TopicWidgetView: View {
                         } else {
                             // The total and, under it, the pending alert trail the segment timer on
                             // one row, as on the Lock Screen (§4.2): stacked, the alert line would
-                            // push the chips out of the medium size.
+                            // push the chips out of the medium size. The segment timer keeps its
+                            // width; a long alert label truncates first.
                             HStack(alignment: .lastTextBaseline, spacing: 8) {
-                                segmentTimer(display)
-                                Spacer(minLength: 8)
+                                segmentTimer(display).layoutPriority(2)
+                                Spacer(minLength: 0)
                                 VStack(alignment: .trailing, spacing: 0) {
                                     RunWidgetTimer(timer: display.totalTimer)
                                         .font(.qr(.footnote))
@@ -585,8 +586,9 @@ public struct RunAlertLine: View {
                 Text(alert.label).lineLimit(1)
                 Text("·")
             }
-            Text(timerInterval: min(Date(), at)...at, countsDown: true).monospacedDigit()
+            Text(timerInterval: min(Date(), at)...at, countsDown: true).monospacedDigit().layoutPriority(1)
         }
+        .lineLimit(1)
         .foregroundStyle(Color.qr.warn)
         .accessibilityElement(children: .combine)
     }
