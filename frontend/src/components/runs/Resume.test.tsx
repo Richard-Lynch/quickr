@@ -175,6 +175,7 @@ describe('the stop toast, checked again at the tap', () => {
     // Each tap waits for the sync to settle: the tile re-renders its offer and card as the
     // acks and refetches land, and a click on a replaced button reaches nothing.
     await settled();
+    const firstEntry = structuredClone(server().entries[0]);
     await user.click(await screen.findByTestId('run-reopen'));
     await waitFor(() => expect(reopens(server())).toHaveLength(1));
     await settled();
@@ -191,6 +192,12 @@ describe('the stop toast, checked again at the tap', () => {
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(2));
     const [older, newer] = screen.getAllByRole('button', { name: 'Resume' });
     if (!older || !newer) throw new Error('two stop toasts, each with its Resume');
+    // A stale latest-entry cache that still ends with the first stop: the entry is fetched
+    // at the tap.
+    await settled();
+    h.qc.setQueriesData<{ items: unknown[] }>({ queryKey: [{ _id: 'listEntries' }] }, (d) =>
+      d ? { ...d, items: [firstEntry] } : d,
+    );
 
     await user.click(older);
     expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
@@ -201,6 +208,33 @@ describe('the stop toast, checked again at the tap', () => {
     await waitFor(() => expect(reopens(server())).toHaveLength(2), { timeout: 4000 });
     expect(reopens(server())[1]?.target).toBe(second?.id);
   });
+  it('a toast whose run is no longer the topic’s latest stop does nothing', async () => {
+    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
+    await waitFor(() => expect(server().entries).toHaveLength(1));
+    // Another run of the topic, started and stopped from the tile: a second toast.
+    await settled();
+    await user.click(await screen.findByRole('button', { name: 'Start Morning' }));
+    await settled();
+    await user.click(await screen.findByTestId('card-stop'));
+    await waitFor(() => expect(server().entries).toHaveLength(2));
+    const later = server().events().at(-1);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(2));
+    const [older, newer] = screen.getAllByRole('button', { name: 'Resume' });
+    if (!older || !newer) throw new Error('two stop toasts, each with its Resume');
+    await settled();
+
+    await user.click(older);
+    expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
+    expect(reopens(server())).toHaveLength(0);
+
+    await user.click(newer);
+    await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
+    expect(reopens(server())[0]?.target).toBe(later?.id);
+  });
+
   it('an older toast whose stop was resumed and stopped again, the re-stop still queued, does nothing; the newer one resumes the re-stop', async () => {
     h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
     const user = userEvent.setup();

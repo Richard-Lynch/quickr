@@ -30,3 +30,14 @@
 1. Fixed (`reopen.ts` `reopenStop`): while the toast's stop is still queued here, the run row is local and its terminal is that stop, so the reopen goes to the row without consulting the (stale) entry; a cached entry that doesn't end with the stop is refetched before it's judged. Test: "… the re-stop still queued, does nothing; the newer one resumes the re-stop" (mutation: dropping the queued-stop path fails it).
 2. Stands. §6.3 keys the offer on the topic's last entry ("while `resumable(lastEntry)`", `last_entry` from the topic summary): logging without the timer after a stop ends the offer, by design.
 3. Fixed (`TopicTile.tsx` `ResumeButton`): `motion-reduce:active:scale-none`, as §7 now says.
+
+## Round 3 (m2-resume-pwa-2, after the round 2 fixes)
+
+1. **[P1] An old toast can still reopen a newer stop of the same run — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:161).** If the latest-entry cache still contains the first stop after a re-stop is acknowledged, `entryOfRun` accepts that cached entry because its terminal matches the old toast. `sendReopen` then calls `tapRun`, which prefers the local run’s current terminal over the supplied entry’s terminal, so the old toast reopens the newer stop. The existing test waits for synchronization and does not cover a stale cache after the re-stop leaves the queue. Validate the intended terminal against the current local run as well, and test that cache state.
+
+2. **[P2] A stop toast can resume a run that is no longer the topic’s latest stop — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:202).** Stop run A, start and stop run B on the same topic, then tap A’s still-visible toast. The checks examine only A’s queued stops and entry; with no open run, they allow A to reopen even though B is the latest stop. The specified toast offer is gated by `resumable`, which requires the topic’s latest stop. Recheck that condition at the tap and cover two different runs in a test.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `entryOfRun`): once the toast's stop has been sent, its entry is fetched at the tap (`getEntry`, fresh), not read from the latest-entry cache; the cached one is used only when the fetch fails (offline), where the server then voids a reopen whose target is no longer the terminal (`not_stopped`, timers2.md §3.4). Test: the older-toast test now leaves a stale cache that still ends with the first stop (mutation: cache-first fails it).
+2. Fixed (`reopen.ts` `reopenStop`): the tap re-runs `resumableInView` over the view read at the tap (`viewAtTap`: `localRuns` over the cached server runs, the outbox and the acked items, as `tapRun` does; a toast's callback outlives the component that made it, so a hook's `runs` would be stale). Test: "a toast whose run is no longer the topic's latest stop does nothing" (mutation: dropping the check fails it).

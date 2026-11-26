@@ -9,14 +9,16 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
 import { lastEntryOptions } from '../../api/entries';
+import { runTapDeps } from '../../api/runs';
 import type { EntryOut, TopicVersionOut } from '../../client';
 import { getEntryOptions } from '../../client/@tanstack/react-query.gen';
-import { outbox } from '../../lib/outbox/client';
 import { isRunEvent } from '../../lib/outbox/kinds';
 import type { EntryRef, RunContext } from '../../lib/runs/actions';
 import { projectTiming, timingFromWire, timingToWire } from '../../lib/runs/fold';
+import { serverNow } from '../../lib/runs/clock';
 import { parseInstant } from '../../lib/runs/instant';
-import { optimisticEntries, runById, type LocalRun } from '../../lib/runs/localView';
+import { serverOffset } from '../../lib/runs/serverClock';
+import { localRuns, optimisticEntries, runById, type LocalRun } from '../../lib/runs/localView';
 import { useRuns } from '../../lib/runs/useRuns';
 import { contextFor } from './context';
 import { resumableInView } from './model';
@@ -143,37 +145,49 @@ export function useReopenOffer(
   };
 }
 
+/** The run's entry in the topic's latest-entry cache, if it is there. */
+function cachedEntryOf(qc: QueryClient, slug: string, runId: string): EntryOut | undefined {
+  const id = runId.toLowerCase();
+  return qc
+    .getQueryData(lastEntryOptions(slug).queryKey)
+    ?.items.find((e) => e.id.toLowerCase() === id);
+}
+
 /**
- * The server's entry of the run, as of the stop `stopId` when it can be: the latest-entry
- * cache when it ends with that stop, else `getEntry` (the cache may predate a re-stop); the
- * cached one when that fails (offline); none when neither has it.
+ * The server's entry of the run, fetched now (`getEntry`): the latest-entry cache may predate
+ * a re-stop or an edit, here or elsewhere. Offline, the cached one, if any; then the server
+ * decides (a reopen whose target is no longer the terminal is void `not_stopped`, timers2.md §3.4).
  */
 async function entryOfRun(
   qc: QueryClient,
   slug: string,
   runId: string,
-  stopId: string,
 ): Promise<EntryOut | undefined> {
-  const id = runId.toLowerCase();
-  const cached = qc
-    .getQueryData(lastEntryOptions(slug).queryKey)
-    ?.items.find((e) => e.id.toLowerCase() === id);
-  if (cached?.timing?.terminal_id?.toLowerCase() === stopId) return cached;
   try {
     return await qc.query({
-      ...getEntryOptions({ path: { entry_id: id } }),
+      ...getEntryOptions({ path: { entry_id: runId.toLowerCase() } }),
       staleTime: 0,
       retry: false,
     });
   } catch {
-    return cached;
+    return cachedEntryOf(qc, slug, runId);
   }
 }
 
-/** The ids (lowercase) of the run's stops queued here, not yet sent. */
-async function queuedStops(runId: string): Promise<string[]> {
+/**
+ * The local view at the tap (as `tapRun` builds it: the cached server runs, the outbox, the
+ * acked items), and the ids (lowercase) of the run's stops queued here, not yet sent. A
+ * toast's callback outlives the component that made it, so the view is read now.
+ */
+async function viewAtTap(
+  qc: QueryClient,
+  runId: string,
+): Promise<{ runs: LocalRun[]; stops: string[] }> {
+  const deps = runTapDeps(qc);
+  const items = await deps.outbox.list();
+  const runs = localRuns(deps.serverRuns(), items, (await deps.acked?.()) ?? []);
   const run = runId.toLowerCase();
-  return (await outbox.list())
+  const stops = items
     .filter(
       (i) =>
         isRunEvent(i) &&
@@ -182,14 +196,15 @@ async function queuedStops(runId: string): Promise<string[]> {
         [i.payload.run_id, ...(i.payload.run_aliases ?? [])].some((id) => id.toLowerCase() === run),
     )
     .map((i) => i.id.toLowerCase());
+  return { runs, stops };
 }
 
 /**
- * Send the reopen of the stop `stopId` of `run`, or nothing (null) when that stop is no longer
- * the run's to resume: another stop of the run is queued here (a re-stop since); or, the stop
- * sent, the run's entry doesn't end with it unedited (re-stopped elsewhere or since, or
- * edited), or isn't known. While the stop is queued the run row is local and its terminal
- * is that stop.
+ * Send the reopen of the stop `stopId` of `run`, or nothing (null) when it is no longer that
+ * stop's to make, as the view is at the tap: another stop of the run is queued here (a
+ * re-stop since); the run's entry (the queued stop's, else the server's, fetched now)
+ * doesn't end with that stop; or `resumableInView` says no (edited, past the window, a later
+ * stop of the topic, an open run: OQ-1, A15).
  */
 async function reopenStop(
   qc: QueryClient,
@@ -199,19 +214,31 @@ async function reopenStop(
   stopId: string,
   ctx: RunContext,
 ): Promise<unknown> {
-  const stops = await queuedStops(runId);
+  const { runs, stops } = await viewAtTap(qc, runId);
   if (stops.some((id) => id !== stopId)) return null;
-  if (stops.includes(stopId)) return taps.tap(runId, ctx, 'reopen');
-  const entry = await entryOfRun(qc, slug, runId, stopId);
-  const t = entry?.timing;
-  if (!entry || !t || t.edited || t.terminal_id?.toLowerCase() !== stopId) return null;
+  const row = runById(runs, runId);
+  const optimistic = candidatesOf(ctx.topic.id, undefined, runs);
+  let entry: Candidate | undefined;
+  if (row && stops.includes(stopId)) {
+    // Queued: the row is local, and its entry is the optimistic one, or (a re-stop of a
+    // reopened run, which updates its entry) the server's with the row's stop.
+    entry = optimistic.find((c) => c.id.toLowerCase() === row.id.toLowerCase());
+    if (!entry) {
+      const served = cachedEntryOf(qc, slug, runId) ?? (await entryOfRun(qc, slug, runId));
+      entry = served ? withLocalStop(served, runs) : undefined;
+    }
+  } else entry = await entryOfRun(qc, slug, runId);
+  if (entry?.timing?.terminal_id?.toLowerCase() !== stopId) return null;
+  const served = qc.getQueryData(lastEntryOptions(slug).queryKey)?.items ?? [];
+  const now = serverNow(Date.now(), serverOffset());
+  if (!resumableInView(entry, [...optimistic, ...served], runs, now)) return null;
   return sendReopen(taps, ctx, entry);
 }
 
 /**
  * The stop toast's Resume (§3.2, §6.3): the reopen of the stop `stopId` just made, for as long
  * as the toast is up (`REOPEN_WINDOW_MS`), checked again at the tap (`reopenStop`). When it
- * can't be (or `tapRun` refuses: another open run, A15), the toast says so.
+ * can't be (or `tapRun` refuses), the toast says so.
  */
 export function useReopenAfterStop(): (
   topic: Pick<TopicRef, 'slug'>,
@@ -224,7 +251,8 @@ export function useReopenAfterStop(): (
   const { toast } = useToast();
   return useCallback(
     (topic, run, stopId, ctx) => () => {
-      void reopenStop(qc, taps, topic.slug, run.id, stopId.toLowerCase(), ctx).then((sent) => {
+      const stop = stopId.toLowerCase();
+      void reopenStop(qc, taps, topic.slug, run.id, stop, ctx).then((sent) => {
         if (sent === null) toast({ title: 'That run can’t be resumed now', tone: 'info' });
       });
     },
