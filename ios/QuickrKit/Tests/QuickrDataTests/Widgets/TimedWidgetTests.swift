@@ -200,10 +200,17 @@ import Testing
         #expect(topic.runButtons(compact: false) == [.lap, .stop])
         #expect(topic.runAuto == .next)
         #expect(topic.runButtons(compact: true) == [.next], "Auto presses Next while a step remains")
+        // The reloads see it: the same activity state with the other Auto is another fingerprint.
+        var other = topic
+        other.runAuto = .stop
+        #expect(WidgetFingerprint([topic]) != WidgetFingerprint([other]))
+        #expect(ControlFingerprint([topic]) != ControlFingerprint([other]))
 
         try await Self.tap(h)
         topic = try await Self.shown(h)
         #expect(topic.runTile == .open(paused: false), "Auto advanced; it didn't stop")
+        #expect(topic.runDisplay?.label == "Breakfast", "the press opened the pending step, not a lap")
+        #expect(topic.run?.stepIndex == 1)
     }
 
     /// Paused: the same primary and Stop (widgets have no Pause chip); the Lock Screen's Resume

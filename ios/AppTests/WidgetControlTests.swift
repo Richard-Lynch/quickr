@@ -186,6 +186,20 @@ import Testing
         #expect(TimerControlValue(typed).icon == "stop")
     }
 
+    /// M2-REVIEW: a lap opened mid-steps on a timer without lap types. Its activity state names no
+    /// next step (a lap never does), but the press is Next (`RunWrites.autoTap`, carried as
+    /// `runAuto` by the reader), so the Control says "Next" with the chevron, not "Stop".
+    @Test func theTimerControlOfALapBeforeAPendingStepSaysNext() {
+        var lap = Self.timed(status: "running", next: nil, stepIndex: nil)
+        #expect(TimerControlValue(lap).detail == "Stop", "the activity state alone reads the carve-out")
+        lap.runAuto = .next
+        let value = TimerControlValue(lap)
+        #expect(value.detail == "Next")
+        #expect(value.icon == "chevron.right")
+        let action: String? = value.intent.action
+        #expect(action == "auto")
+    }
+
     @Test func aTimedWidgetsButtonsCarryTheRunAndSegmentShown() throws {
         let running = Self.timed(status: "running")
         let actions = TopicWidgetEntryView.actions(running)

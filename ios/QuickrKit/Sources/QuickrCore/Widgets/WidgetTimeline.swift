@@ -89,6 +89,9 @@ public struct WidgetFingerprint: Sendable, Hashable {
         var failed: Int
         var scope: EntryScope?
         var run: RunActivityState?
+        /// The one Auto chip's press (`WidgetTopic.runAuto`): the run's local state can change it
+        /// while the activity state reads the same.
+        var runAuto: WidgetRunButton?
         var updateRequired: Bool
     }
 
@@ -105,7 +108,7 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 currentVersion: $0.topic.currentVersion, schedule: $0.topic.schedule,
                 scheduleUpdatedAt: $0.topic.scheduleUpdatedAt, lastCapturedAt: $0.topic.lastCapturedAt,
                 entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed,
-                scope: $0.scope, run: $0.run?.withoutAlert, updateRequired: $0.updateRequired)
+                scope: $0.scope, run: $0.run?.withoutAlert, runAuto: $0.runAuto, updateRequired: $0.updateRequired)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }
@@ -124,6 +127,8 @@ public struct ControlFingerprint: Sendable, Hashable {
         var lastAnswer: AnswerValue?
         var scope: EntryScope?
         var run: RunActivityState?
+        /// What the Control's one press does (`WidgetTopic.runAuto`), its detail and icon.
+        var runAuto: WidgetRunButton?
     }
 
     let topics: [Topic]
@@ -133,7 +138,7 @@ public struct ControlFingerprint: Sendable, Hashable {
             Topic(
                 id: $0.topic.id, name: $0.topic.name, status: $0.topic.status,
                 currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope,
-                run: $0.run?.withoutAlert)
+                run: $0.run?.withoutAlert, runAuto: $0.runAuto)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }
