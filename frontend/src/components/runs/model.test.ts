@@ -16,7 +16,11 @@ import {
   pendingTimedEntries,
   primaryAction,
   primaryActionV1,
+  ENTRY_REOPEN_WINDOW_MS,
+  REOPEN_WINDOW_MS,
   resumable,
+  resumableFromDetail,
+  resumableInView,
   segmentMs,
   skipTarget,
   type RunAction,
@@ -427,24 +431,194 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
     expect(headline(stopped, 'paused', TIMER)).toEqual({ text: 'Paused', counter: null });
   });
 
-  it('alertLine is null and resumable false until I1-CORE / F1-CORE fill them', () => {
+  it('alertLine is null until I1-CORE fills it', () => {
     expect(alertLine(fold('r1', { steps: STEPS }, [start]), TIMER, T0)).toBeNull();
-    const now = new Date(T0).toISOString();
-    const entry: EntryOut = {
-      id: 'r1',
+  });
+});
+
+describe('resumable (timers2.md glossary "Resumable", OQ-1, A15; R18)', () => {
+  const at = (ms: number) => new Date(ms).toISOString();
+  const STOP = T0 + 30 * 60_000;
+  /** A stopped run's entry: started at `started`, stopped at `ended`. */
+  const timed = (
+    id: string,
+    opts: { started?: number; ended?: number; edited?: boolean; terminal?: string | null } = {},
+  ): EntryOut => {
+    const started = opts.started ?? T0;
+    const ended = opts.ended ?? STOP;
+    return {
+      id,
       topic_id: 'topic-1',
       version: 1,
       revision: 1,
       source: 'ui',
       channel: 'ui',
-      captured_at: now,
-      created_at: now,
-      updated_at: now,
+      captured_at: at(ended),
+      created_at: at(ended),
+      updated_at: at(ended),
       notes: '',
       meta: {},
       answers: [],
-      timing: null,
+      timing: {
+        started_at: at(started),
+        ended_at: at(ended),
+        active_ms: ended - started,
+        paused_ms: 0,
+        complete: true,
+        edited: opts.edited ?? false,
+        segments: [],
+        skipped: [],
+        pauses: [],
+        terminal_id: opts.terminal === undefined ? `${id}-stop` : opts.terminal,
+      },
     };
-    expect(resumable(entry, T0)).toBe(false);
+  };
+  /** A pre-v2 stored timing: no `terminal_id` key at all (A12). */
+  const preV2 = (id: string): EntryOut => {
+    const e = timed(id);
+    const timing: Partial<NonNullable<EntryOut['timing']>> = { ...e.timing };
+    delete timing.terminal_id;
+    return { ...e, timing: timing as NonNullable<EntryOut['timing']> };
+  };
+
+  it('uses the iOS windows: 15 minutes, 7 days', () => {
+    expect(REOPEN_WINDOW_MS).toBe(15 * 60 * 1000);
+    expect(ENTRY_REOPEN_WINDOW_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it('tiles and toasts: within 15 minutes of the stop, the boundary included', () => {
+    const entry = timed('e1');
+    expect(resumable(entry, STOP)).toBe(true);
+    expect(resumable(entry, STOP + REOPEN_WINDOW_MS)).toBe(true);
+    expect(resumable(entry, STOP + REOPEN_WINDOW_MS + 1)).toBe(false);
+  });
+
+  it('the entry detail: within 7 days of the start, the boundary included', () => {
+    const entry = timed('e1');
+    expect(resumableFromDetail(entry, T0 + ENTRY_REOPEN_WINDOW_MS)).toBe(true);
+    expect(resumableFromDetail(entry, T0 + ENTRY_REOPEN_WINDOW_MS + 1)).toBe(false);
+    // Measured from the start, not the stop: 7 days after the stop is already past it.
+    expect(resumableFromDetail(entry, STOP + ENTRY_REOPEN_WINDOW_MS)).toBe(false);
+    // Well past the tiles' window, still offered from the detail.
+    expect(resumable(entry, STOP + 60 * 60_000)).toBe(false);
+    expect(resumableFromDetail(entry, STOP + 60 * 60_000)).toBe(true);
+  });
+
+  it('an edited entry is never resumable; an untimed one neither', () => {
+    const edited = timed('e1', { edited: true });
+    expect(resumable(edited, STOP)).toBe(false);
+    expect(resumableFromDetail(edited, STOP)).toBe(false);
+    const untimed: EntryOut = { ...timed('e2'), timing: null };
+    expect(resumable(untimed, STOP)).toBe(false);
+    expect(resumableFromDetail(untimed, STOP)).toBe(false);
+  });
+
+  it('answers, notes and meta changes do not count as edits', () => {
+    const entry = { ...timed('e1'), revision: 4, notes: 'later', meta: { k: 'v' } };
+    expect(resumable(entry, STOP + 1)).toBe(true);
+  });
+
+  it('a pre-v2 entry (no terminal_id) is resumable: Resume sends target null (A12)', () => {
+    const entry = preV2('e1');
+    expect(entry.timing).not.toHaveProperty('terminal_id');
+    expect(resumable(entry, STOP)).toBe(true);
+    expect(resumableFromDetail(entry, STOP)).toBe(true);
+    expect(resumable(timed('e2', { terminal: null }), STOP)).toBe(true);
+    expect(resumableInView(entry, [entry], [], STOP)).toBe(true);
+  });
+
+  describe('resumableInView: the composing half (iOS RunOverlay.resumable)', () => {
+    it('is the entry half when nothing else is in the view', () => {
+      const entry = timed('e1');
+      expect(resumableInView(entry, [entry], [], STOP)).toBe(true);
+      expect(resumableInView(entry, [entry], [], STOP + REOPEN_WINDOW_MS + 1)).toBe(false);
+      const edited = timed('e1', { edited: true });
+      expect(resumableInView(edited, [edited], [], STOP)).toBe(false);
+    });
+
+    it("A15: false while the topic has a locally open run, queued or the server's", () => {
+      const entry = timed('e1');
+      const later = STOP + 10_000;
+      const queued = localRuns([], [runItem('start', { id: 'r2', run: 'r2', at: later })]);
+      expect(resumableInView(entry, [entry], queued, later)).toBe(false);
+      const server = localRuns([serverRun('r2', [ev('r2', 'start', later)])], []);
+      expect(resumableInView(entry, [entry], server, later)).toBe(false);
+      const paused = localRuns(
+        [serverRun('r2', [ev('r2', 'start', later), ev('p1', 'pause', later + 1)])],
+        [],
+      );
+      expect(paused[0]?.status).toBe('paused');
+      expect(resumableInView(entry, [entry], paused, later + 2)).toBe(false);
+      // Another topic's open run doesn't count.
+      const elsewhere = localRuns(
+        [serverRun('r2', [ev('r2', 'start', later)], { topic_id: 'topic-2' })],
+        [],
+      );
+      expect(resumableInView(entry, [entry], elsewhere, later)).toBe(true);
+      // The same topic, its id cased differently: still the topic's open run.
+      const upper = localRuns(
+        [serverRun('r2', [ev('r2', 'start', later)], { topic_id: 'TOPIC-1' })],
+        [],
+      );
+      expect(resumableInView(entry, [entry], upper, later)).toBe(false);
+    });
+
+    it('A15: false once its own run is open again here (reopened), or finishing', () => {
+      const entry = timed('e1');
+      const reopened = localRuns(
+        [serverRun('e1', [ev('e1', 'start', T0)], { status: 'running' })],
+        [],
+      );
+      expect(resumableInView(entry, [entry], reopened, STOP)).toBe(false);
+      const finishing = localRuns(
+        [serverRun('e1', [ev('e1', 'start', T0), ev('x', 'stop', STOP)], { status: 'finishing' })],
+        [],
+      );
+      expect(finishing[0]?.status).toBe('finishing');
+      expect(resumableInView(entry, [entry], finishing, STOP)).toBe(false);
+    });
+
+    it("only the topic's latest stop: a later timed entry or a later stop of a run here", () => {
+      const older = timed('e1');
+      const newer = timed('e2', { started: STOP + 1000, ended: STOP + 60_000 });
+      const now = STOP + 61_000;
+      expect(resumableInView(older, [older, newer], [], now)).toBe(false);
+      expect(resumableInView(newer, [older, newer], [], now)).toBe(true);
+      // Another topic's later entry doesn't count.
+      const elsewhere = { ...newer, topic_id: 'topic-2' };
+      expect(resumableInView(older, [older, elsewhere], [], now)).toBe(true);
+      const cased = { ...newer, id: 'E2', topic_id: 'TOPIC-1' };
+      expect(resumableInView(older, [older, cased], [], now)).toBe(false);
+      // An untimed later entry doesn't count either.
+      const untimed: EntryOut = { ...newer, id: 'e3', timing: null };
+      expect(resumableInView(older, [older, untimed], [], now)).toBe(true);
+      // A newer run that stopped and is finishing has no entry yet, but is the latest stop.
+      const finishing = localRuns(
+        [
+          serverRun('r2', [ev('r2', 'start', STOP + 1000), ev('x2', 'stop', STOP + 60_000)], {
+            status: 'finishing',
+          }),
+        ],
+        [],
+      );
+      expect(resumableInView(older, [older], finishing, now)).toBe(false);
+      // A discarded run here doesn't count.
+      const discarded = localRuns(
+        [],
+        [
+          runItem('start', { id: 'r3', run: 'r3', at: STOP + 1000 }),
+          runItem('discard', { id: 'd3', run: 'r3', at: STOP + 3000 }),
+        ],
+      );
+      expect(discarded.map((r) => r.status)).toEqual(['discarded']);
+      expect(resumableInView(older, [older], discarded, now)).toBe(true);
+    });
+
+    it('breaks a tie on the stop instant by id, as iOS does', () => {
+      const a = timed('e1');
+      const b = timed('e2');
+      expect(resumableInView(a, [a, b], [], STOP)).toBe(false);
+      expect(resumableInView(b, [a, b], [], STOP)).toBe(true);
+    });
   });
 });

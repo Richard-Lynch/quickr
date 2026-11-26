@@ -6,7 +6,9 @@
  */
 import type { EntryOut } from '../../client';
 import type { TapExpect } from '../../lib/runs/actions';
+import { parseInstant } from '../../lib/runs/instant';
 import {
+  isOpen,
   openPauseId,
   optimisticEntries,
   type LocalRun,
@@ -177,14 +179,93 @@ export function alertLine(state: RunState, timer: Timer | null, now: number): st
 }
 
 /**
- * Whether the entry's run can be reopened (active-surfaces.md OQ-1: an unedited timed entry
- * of the latest stop, within 15 minutes). T2-M1 stub half: false until `Timing.terminal_id`
- * exists (F1-CORE).
+ * OQ-1: from the entry detail, a run can be reopened within 7 days of its start (timers2.md
+ * glossary, "Resumable"; content-display.md §3.2). iOS: `RunPresentation.entryReopenWindowMs`.
  */
-export function resumable(entry: EntryOut, now: number): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-meaningless-void-operator -- reserved for v2 state (T2-M1 stub half)
-  void [entry, now];
-  return false;
+export const ENTRY_REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** The entry's timing instants and edited flag, or null for an untimed entry. */
+function timingOf(entry: Pick<EntryOut, 'timing'>): {
+  started_at: number;
+  ended_at: number;
+  edited: boolean;
+} | null {
+  const t = entry.timing;
+  if (!t) return null;
+  return {
+    started_at: parseInstant(t.started_at),
+    ended_at: parseInstant(t.ended_at),
+    edited: t.edited,
+  };
+}
+
+/**
+ * The entry's half of "resumable" (timers2.md glossary, OQ-1) on tiles, toasts and the run
+ * screen: a timed entry whose times are unedited (`timing.edited === false`, i.e.
+ * `run.edited === false`; answers, notes and meta changes don't count), within
+ * `REOPEN_WINDOW_MS` of its stop. A pre-v2 timing (no `terminal_id`) qualifies: its Resume
+ * sends `target: null` (A12). The view's half (the topic's latest stop, no locally open run:
+ * A15) is `resumableInView`, which surfaces call; the entry alone can't tell.
+ * iOS: `RunPresentation.resumable(_:now:)`.
+ */
+export function resumable(entry: Pick<EntryOut, 'timing'>, now: number): boolean {
+  const t = timingOf(entry);
+  if (!t || t.edited) return false;
+  return now - t.ended_at <= REOPEN_WINDOW_MS;
+}
+
+/**
+ * `resumable` from the entry detail (OQ-1, content-display.md §3.2): unedited, within
+ * `ENTRY_REOPEN_WINDOW_MS` of the run's start. The detail hides Resume while the topic has a
+ * locally open or finishing run (A15) and while the entry is pending; that is the page's.
+ * iOS: `RunPresentation.resumableFromDetail(_:now:)`.
+ */
+export function resumableFromDetail(entry: Pick<EntryOut, 'timing'>, now: number): boolean {
+  const t = timingOf(entry);
+  if (!t || t.edited) return false;
+  return now - t.started_at <= ENTRY_REOPEN_WINDOW_MS;
+}
+
+/**
+ * Whether the entry's run is offered "Resume run" on tiles, toasts and the run screen
+ * (timers2.md glossary, OQ-1, A15): `resumable` (an unedited timed entry within 15 minutes of
+ * its stop), the entry is the topic's latest stop (no later timed entry in `entries`, and no
+ * later stop of a run in the view: a finishing run has no entry yet), and the topic has no
+ * locally open run (a reopen would be refused with 409 `conflict`), the entry's own run
+ * included (already reopened here). A later stop on the same instant is broken by id, as
+ * iOS does; ids compare case-insensitively. `entries` are the ones this device has for the topic (others are ignored).
+ * iOS: `RunOverlay.resumable(_:entryId:now:)`.
+ */
+export function resumableInView(
+  entry: Pick<EntryOut, 'id' | 'topic_id' | 'timing'>,
+  entries: readonly Pick<EntryOut, 'id' | 'topic_id' | 'timing'>[],
+  runs: readonly LocalRun[],
+  now: number,
+): boolean {
+  const end = timingOf(entry)?.ended_at;
+  if (end === undefined || !resumable(entry, now)) return false;
+  const id = entry.id.toLowerCase();
+  const topicId = entry.topic_id.toLowerCase();
+  const topicRuns = runs.filter((r) => r.topic_id.toLowerCase() === topicId);
+  const answers = (r: LocalRun) => r.id === id || r.aliases.includes(id);
+  if (topicRuns.some((r) => isOpen(r) || (answers(r) && r.status === 'finishing'))) return false;
+  const later = (otherId: string, otherEnd: number) =>
+    otherEnd > end || (otherEnd === end && otherId.toLowerCase() > id);
+  if (
+    topicRuns.some(
+      (r) =>
+        !answers(r) &&
+        r.status !== 'discarded' &&
+        r.state.ended_at !== null &&
+        later(r.id, r.state.ended_at),
+    )
+  )
+    return false;
+  return !entries.some((e) => {
+    if (e.topic_id.toLowerCase() !== topicId || e.id.toLowerCase() === id) return false;
+    const otherEnd = timingOf(e)?.ended_at;
+    return otherEnd !== undefined && later(e.id, otherEnd);
+  });
 }
 
 /** Convenience over `actions`: the primary, for the tile and the running bar; null when the run isn't open. */
