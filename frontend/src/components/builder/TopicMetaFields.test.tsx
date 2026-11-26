@@ -425,7 +425,8 @@ describe('SettingsPage saves on one topic', () => {
         if (replaced) return replaced;
         if (body.expected_revision !== current.revision)
           return json(409, { code: 'stale_revision', detail: 'Changed elsewhere', errors: [] });
-        const { appearance: a, expected_revision: _, ...meta } = body;
+        const { appearance: a, ...meta } = body;
+        delete meta.expected_revision;
         current = {
           ...current,
           ...(meta as Partial<TopicDetail>),
@@ -603,7 +604,10 @@ describe('SettingsPage saves on one topic', () => {
     server.external({ name: 'Lifting' });
     server.beforeDetails(
       () => undefined,
-      () => void server.external({ description: 'Twice a week' }), // after the refetch
+      () => {
+        server.external({ description: 'Twice a week' }); // after the refetch
+        return undefined;
+      },
     );
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
@@ -616,7 +620,10 @@ describe('SettingsPage saves on one topic', () => {
     const server = fakeServer();
     const { user } = renderSettings();
     await user.click(await screen.findByRole('radio', { name: 'Blue' }));
-    const write = (n: number) => () => void server.external({ description: `Write ${String(n)}` });
+    const write = (n: number) => () => {
+      server.external({ description: `Write ${String(n)}` });
+      return undefined;
+    };
     server.beforeDetails(write(1), write(2), write(3), write(4));
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     expect(
