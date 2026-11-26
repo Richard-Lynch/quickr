@@ -1,17 +1,31 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 
 import { mapApiError } from '../../api/errors';
 import { useUpdateEntry } from '../../api/mutations';
 import type { EntryOut, StepInput as Step, Timing, TimingEdit } from '../../client';
 import { getEntryOptions, getEntryQueryKey } from '../../client/@tanstack/react-query.gen';
 import { formatDateTime } from '../../lib/dates';
-import { spokenDuration, timingRows } from '../../lib/entryTiming';
+import {
+  removeControl,
+  resumableFromDetail,
+  spokenDuration,
+  timingRows,
+  type TimingRow,
+} from '../../lib/entryTiming';
+import { kickOutbox } from '../../lib/outbox/client';
+import { useOutbox } from '../../lib/outbox/useOutbox';
+import { tapRun, type EntryRef, type RunContext } from '../../lib/runs/actions';
+import { timingFromWire, timingToWire } from '../../lib/runs/fold';
 import { fmtDuration } from '../../lib/runs/format';
-import { Button } from '../ui/Button';
+import { isOpen, projectedEntryTiming } from '../../lib/runs/localView';
+import type { LapType } from '../../lib/runs/types';
+import { useRuns } from '../../lib/runs/useRuns';
+import { Button, IconButton } from '../ui/Button';
 import { Badge, Card } from '../ui/Card';
 import { Icon } from '../ui/Icon';
-import { Sheet } from '../ui/Sheet';
+import { ConfirmSheet, Sheet } from '../ui/Sheet';
 import { useToast } from '../ui/Toast';
 import { TimingEditor } from './TimingEditor';
 import { timingFieldOf, type FieldErrors } from './timingEdit';
@@ -20,6 +34,21 @@ interface Props {
   entry: EntryOut & { timing: Timing };
   /** The run's version's steps (labels for skipped steps, and the editor's choices). */
   steps: readonly Step[];
+  /** The run's version's lap types (the lap-type badges' labels, and the editor's). */
+  laps?: readonly LapType[];
+  /**
+   * The run's context for its Remove and Resume taps (content-display.md §3.2): its topic,
+   * version, steps and lap types. Null hides both.
+   */
+  ctx?: RunContext | null;
+  /** Device time, epoch ms (Resume's window). */
+  now?: () => number;
+}
+
+/** What a Remove asks before it is sent (content-display.md §3.2). */
+interface RemoveAsk {
+  target: string;
+  pause: boolean;
 }
 
 /**
@@ -36,8 +65,28 @@ interface Props {
  * form is open), saving stops until the user reloads the times: a draft is never re-based
  * silently, nor saved against a revision it wasn't made from.
  */
-export function TimingSection({ entry, steps }: Props) {
-  const timing = entry.timing;
+export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.now }: Props) {
+  const { items } = useOutbox();
+  const { runs, deps } = useRuns();
+  const navigate = useNavigate();
+  // A14: this device's queued removes of the run, applied to the entry's timing until the
+  // ack replaces the entry (revision unchanged here, a pending mark meanwhile).
+  const projected = useMemo(
+    () => projectedEntryTiming({ id: entry.id, timing: timingFromWire(entry.timing) }, items),
+    [entry.id, entry.timing, items],
+  );
+  const pending = projected.pending;
+  const timing: Timing = pending
+    ? { ...timingToWire(projected.timing), skipped: [...projected.timing.skipped] }
+    : entry.timing;
+  const [ask, setAsk] = useState<RemoveAsk | null>(null);
+  const [tapping, setTapping] = useState<'remove' | 'reopen' | null>(null);
+  // A15: the server would refuse a reopen while the topic has another open run.
+  const topicBusy =
+    ctx !== null &&
+    runs.some((r) => r.topic_id === ctx.topic.id && (isOpen(r) || r.status === 'finishing'));
+  const canResume =
+    ctx !== null && !pending && !topicBusy && resumableFromDetail(entry.timing, now());
   const update = useUpdateEntry();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -104,6 +153,87 @@ export function TimingSection({ entry, steps }: Props) {
     }
   };
 
+  /** The entry the taps are made from: the server's, as the targets are its ids (§5.3). */
+  const ref = (): EntryRef => ({
+    id: entry.id,
+    timing: timingFromWire(entry.timing),
+    revision: entry.revision,
+  });
+
+  const remove = async (target: string) => {
+    if (!ctx) return;
+    setTapping('remove');
+    try {
+      const item = await tapRun(deps, entry.id, ctx, 'remove', {}, { target, entry: ref() });
+      if (item) void kickOutbox(true);
+      else toast({ title: 'That can’t be removed now', tone: 'danger' });
+    } catch (err) {
+      toast({
+        title: 'That wasn’t removed',
+        description: mapApiError(err).message,
+        tone: 'danger',
+      });
+    } finally {
+      setTapping(null);
+      setAsk(null);
+    }
+  };
+
+  const resume = async () => {
+    if (!ctx) return;
+    setTapping('reopen');
+    try {
+      const item = await tapRun(deps, entry.id, ctx, 'reopen', {}, { entry: ref() });
+      if (!item) {
+        toast({ title: 'This run can’t be resumed now', tone: 'danger' });
+        return;
+      }
+      void kickOutbox(true);
+      // The run panel shows the run "Resuming…" until the ack (timers2.md §5.3).
+      void navigate(`/t/${ctx.topic.slug}/record`);
+    } catch (err) {
+      toast({
+        title: 'The run wasn’t resumed',
+        description: mapApiError(err).message,
+        tone: 'danger',
+      });
+    } finally {
+      setTapping(null);
+    }
+  };
+
+  const lapTypeLabel = (key: string) => laps.find((l) => l.key === key)?.label ?? key;
+
+  /** The row's Remove button, if it has one (content-display.md §3.2). */
+  const removeButton = (row: TimingRow, name: string) => {
+    const control = ctx ? removeControl(row, timing) : { kind: 'none' as const };
+    if (control.kind === 'none') return null;
+    const testId =
+      row.kind === 'pause'
+        ? `entry.timing.pause.remove.${String(row.index)}`
+        : `entry.timing.remove.${String(row.index)}`;
+    return (
+      <IconButton
+        label={`Remove ${name}`}
+        size="sm"
+        data-testid={testId}
+        disabled={control.kind === 'disabled' || tapping !== null}
+        title={
+          control.kind === 'disabled'
+            ? 'This lap follows the last step: change it with Edit times'
+            : `Remove ${name}`
+        }
+        className="-my-1.5 hover:bg-danger-soft hover:text-danger"
+        onClick={() => {
+          if (control.kind === 'remove')
+            setAsk({ target: control.target, pause: row.kind === 'pause' });
+        }}
+      >
+        <Icon name="x" className="size-4" />
+      </IconButton>
+    );
+  };
+
   return (
     <Card className="flex flex-col gap-4 p-4 sm:p-5" role="region" aria-label="Timing">
       <header className="flex items-start gap-2">
@@ -113,6 +243,13 @@ export function TimingSection({ entry, steps }: Props) {
             {formatDateTime(timing.started_at)} → {formatDateTime(timing.ended_at)}
           </p>
         </div>
+        {pending ? (
+          <Badge tone="info">
+            <span data-testid="entry.timing.pending" className="inline-flex items-center gap-1">
+              <Icon name="clock" className="size-3.5" /> Waiting to sync
+            </span>
+          </Badge>
+        ) : null}
         {timing.edited ? <Badge tone="info">edited</Badge> : null}
         {timing.complete ? null : <Badge tone="warn">incomplete</Badge>}
       </header>
@@ -139,6 +276,7 @@ export function TimingSection({ entry, steps }: Props) {
               <span className="flex-1">
                 Paused · <span className="font-mono tabular">{fmtDuration(row.ms)}</span>
               </span>
+              {removeButton(row, `pause, ${fmtDuration(row.ms)}`)}
             </li>
           ) : (
             <li
@@ -154,6 +292,13 @@ export function TimingSection({ entry, steps }: Props) {
                   ? label(row.segment.step)
                   : row.segment.label}
               </span>
+              {row.segment.kind === 'lap' && row.segment.lap_type !== null ? (
+                <Badge className="self-center">
+                  <span data-testid={`entry.timing.laptype.${String(row.index)}`}>
+                    {lapTypeLabel(row.segment.lap_type)}
+                  </span>
+                </Badge>
+              ) : null}
               {row.segment.paused_ms > 0 ? (
                 <span className="text-xs text-muted">
                   {fmtDuration(row.segment.paused_ms)} paused
@@ -162,6 +307,7 @@ export function TimingSection({ entry, steps }: Props) {
               <span className="font-mono text-sm font-semibold tabular">
                 {fmtDuration(row.segment.active_ms)}
               </span>
+              {removeButton(row, row.segment.label)}
             </li>
           ),
         )}
@@ -169,13 +315,37 @@ export function TimingSection({ entry, steps }: Props) {
       {timing.skipped.length > 0 ? (
         <p className="text-sm text-muted">Skipped: {timing.skipped.map(label).join(', ')}</p>
       ) : null}
-      <Button
-        className="self-start"
-        icon={<Icon name="clock" />}
-        onClick={() => open(entry.revision, timing)}
-      >
-        Edit times
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        {canResume ? (
+          <Button
+            variant="primary"
+            icon={<Icon name="play" />}
+            data-testid="entry-resume"
+            loading={tapping === 'reopen'}
+            disabled={tapping !== null}
+            onClick={() => void resume()}
+          >
+            {tapping === 'reopen' ? 'Resuming…' : 'Resume run'}
+          </Button>
+        ) : null}
+        <Button icon={<Icon name="clock" />} onClick={() => open(entry.revision, entry.timing)}>
+          Edit times
+        </Button>
+      </div>
+      <ConfirmSheet
+        open={ask !== null}
+        onClose={() => setAsk(null)}
+        onConfirm={() => {
+          if (ask) void remove(ask.target);
+        }}
+        title={ask?.pause ? 'Remove this pause?' : 'Remove this lap?'}
+        body={
+          <p>{ask?.pause ? 'Its time becomes active.' : 'Its time joins the previous segment.'}</p>
+        }
+        confirmLabel="Remove"
+        danger
+        busy={tapping === 'remove'}
+      />
       <Sheet
         open={editing}
         onClose={() => setOpened(null)}
@@ -188,6 +358,7 @@ export function TimingSection({ entry, steps }: Props) {
             key={opened.at}
             timing={opened.timing}
             steps={steps}
+            laps={laps}
             serverErrors={server.errors}
             serverMessage={server.message}
             saving={update.isPending}

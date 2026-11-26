@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
 import type { StepInput as Step, Timing, TimingEdit } from '../../client';
+import { lapLabel } from '../../lib/runs/fold';
 import { fmtDuration } from '../../lib/runs/format';
+import type { LapType } from '../../lib/runs/types';
 import { Button, IconButton } from '../ui/Button';
 import { Banner } from '../ui/Card';
 import { Checkbox, Field, Input, Select } from '../ui/Field';
@@ -23,6 +25,11 @@ interface Props {
   timing: Timing;
   /** The run's version's steps. */
   steps: readonly Step[];
+  /**
+   * The run's version's lap types: a lap row reads the label the save will give it ("Run 2",
+   * timers2.md §3.2, laps relabelled in order), so adding or removing a lap shows the cycle.
+   */
+  laps?: readonly LapType[];
   /** Field errors from the server (paths relative to `timing`), and its banner message. */
   serverErrors: FieldErrors;
   serverMessage: string | null;
@@ -45,6 +52,7 @@ interface Props {
 export function TimingEditor({
   timing,
   steps,
+  laps = [],
   serverErrors,
   serverMessage,
   saving,
@@ -72,6 +80,13 @@ export function TimingEditor({
     touch(path);
     setDraft(next);
   };
+
+  // Each lap row's label after the save: laps numbered in order through the lap types.
+  const rowLabels = draft.segments.map((seg, i) =>
+    seg.kind === 'lap'
+      ? lapLabel(draft.segments.slice(0, i + 1).filter((x) => x.kind === 'lap').length, laps)
+      : (checked.segments[i]?.label ?? ''),
+  );
 
   const used = new Set(draft.segments.map((s) => s.step).filter((k) => k !== null));
   const unreached = steps.filter((s) => !used.has(s.key));
@@ -173,7 +188,7 @@ export function TimingEditor({
                   hint={
                     localTimeNote(seg.ended_at) ??
                     (shown?.active_ms != null
-                      ? `${shown.label}: ${fmtDuration(shown.active_ms)}${
+                      ? `${rowLabels[i] ?? shown.label}: ${fmtDuration(shown.active_ms)}${
                           shown.paused_ms ? ` (${fmtDuration(shown.paused_ms)} paused)` : ''
                         }`
                       : undefined)

@@ -93,3 +93,42 @@ export function spokenDuration(ms: number): string {
 function unit(n: number, one: string): string {
   return `${n} ${one}${n === 1 ? '' : 's'}`;
 }
+
+/**
+ * How long the entry detail offers Resume run: 7 days from the run's start (timers2.md
+ * glossary "Resumable", OQ-1's detail rule; tiles and toasts use 15 minutes from the stop).
+ */
+export const RESUME_FROM_DETAIL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether the entry detail offers Resume run for this timing (content-display.md §3.2): an
+ * unedited timing (timers2.md §3.6: an edited run can't be reopened) whose run started
+ * within {@link RESUME_FROM_DETAIL_MS}. The page also hides it while the entry has a queued
+ * remove and while the topic has a locally open or finishing run (A15).
+ */
+export function resumableFromDetail(timing: Timing | null, now: number): boolean {
+  if (!timing || timing.edited) return false;
+  return now - parseInstant(timing.started_at) <= RESUME_FROM_DETAIL_MS;
+}
+
+/**
+ * A detail row's one-tap Remove (content-display.md §3.2): `none` on a step, the first
+ * segment, an edited timing and a row whose id is null (a pre-v2 timing, A12); `disabled` on
+ * a lap row a `next` opened (the lap after the last step: removing a `next` is `no_target`,
+ * timers2.md §3.4); else `remove` with the event id to send as the `remove`'s target.
+ */
+export type RemoveControl =
+  { kind: 'none' } | { kind: 'disabled' } | { kind: 'remove'; target: string };
+
+export function removeControl(row: TimingRow, timing: Timing): RemoveControl {
+  if (timing.edited) return { kind: 'none' };
+  if (row.kind === 'pause') {
+    return row.pause.id === null ? { kind: 'none' } : { kind: 'remove', target: row.pause.id };
+  }
+  const { segment, index } = row;
+  if (segment.kind !== 'lap' || index === 0 || segment.event_id === null) return { kind: 'none' };
+  // Only a lap event's boundary can go: a `next` (or the reserved `skip`) is a step's.
+  return segment.opened_by === 'lap'
+    ? { kind: 'remove', target: segment.event_id }
+    : { kind: 'disabled' };
+}

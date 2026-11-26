@@ -342,3 +342,50 @@ describe('EntriesPage rows', () => {
     expect(within(pending).getByTestId('entry-timing').textContent).toBe('2:00');
   });
 });
+
+/**
+ * OQ-14 (timers2.md §5.3, content-display.md §3.2): an entry whose run is open or finishing
+ * on this device (here: a Resume queued from it) is the run's, not listed as an entry; the
+ * total still counts it.
+ */
+describe('EntriesPage OQ-14', () => {
+  /** A Resume tapped on `TIMED`'s detail, still queued: the run is projected resuming. */
+  function queueReopen(): OutboxItem[] {
+    const t = timed.timing;
+    if (!t) throw new Error('timed has a timing');
+    const item = runItem('reopen', {
+      id: '6f1c0000-0000-4000-8000-0000000000a9',
+      run: TIMED,
+      at: Date.parse(t.ended_at) + 60_000,
+      target: null,
+      steps: [],
+      entry: { timing: t, revision: timed.revision },
+    });
+    return [
+      {
+        ...item,
+        payload: { ...item.payload, topic: { id: TOPIC_ID, slug: topic.slug, name: topic.name } },
+      },
+    ];
+  }
+
+  it('lists the entry while its run is closed', async () => {
+    stubServer([timed, untimed]);
+    renderPage();
+    expect(await cards()).toHaveLength(2);
+  });
+
+  it('leaves out an entry whose run is open here, and still counts it', async () => {
+    queued = queueReopen();
+    stubServer([timed, untimed]);
+    renderPage();
+    const rows = await cards();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).not.toContain('12:40');
+    expect(screen.queryByRole('list', { name: 'Not yet synced' })).toBeNull();
+    expect(screen.getByText(/^2 entries/)).toBeInTheDocument();
+    // The desktop table too.
+    const table = screen.getByRole('table');
+    expect(within(table).getAllByRole('row')).toHaveLength(2); // the header and one entry
+  });
+});

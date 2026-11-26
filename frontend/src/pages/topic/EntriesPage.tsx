@@ -376,8 +376,12 @@ export function EntriesPage() {
     () => ({ questionsOf: questionsByVersion(topic, versions.data), timer: topic.timer }),
     [topic, versions.data],
   );
-  const items = entries.data?.pages.flatMap((p) => p.items) ?? [];
-  const serverIds = new Set(items.map((e) => e.id.toLowerCase()));
+  const listed = entries.data?.pages.flatMap((p) => p.items) ?? [];
+  const serverIds = new Set(listed.map((e) => e.id.toLowerCase()));
+  // OQ-14 (timers2.md §5.3): an entry whose run is open or finishing here is the run's;
+  // the total still counts it.
+  const { hiddenEntries } = useRuns();
+  const items = listed.filter((e) => !hiddenEntries.has(e.id.toLowerCase()));
   const total = entries.data?.pages[0]?.total ?? 0;
   const outbox = useOutbox();
   const queuedHere = outbox.items.filter(

@@ -2,7 +2,15 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Timing, TimingSegment } from '../client';
-import { spokenChip, spokenDuration, timingChip, timingRows } from './entryTiming';
+import {
+  RESUME_FROM_DETAIL_MS,
+  removeControl,
+  resumableFromDetail,
+  spokenChip,
+  spokenDuration,
+  timingChip,
+  timingRows,
+} from './entryTiming';
 
 const at = (s: number) => new Date(Date.UTC(2026, 9, 23, 8, 0, s)).toISOString();
 
@@ -118,5 +126,59 @@ describe('spokenDuration', () => {
     [7_201_000, '2 hours 1 second'],
   ])('%i ms reads "%s"', (ms, text) => {
     expect(spokenDuration(ms)).toBe(text);
+  });
+});
+
+describe('removeControl (content-display.md §3.2)', () => {
+  const opened = (
+    seg: TimingSegment,
+    opened_by: TimingSegment['opened_by'],
+    event_id: string | null,
+  ): TimingSegment => ({ ...seg, opened_by, event_id });
+  const t = timing([
+    opened(segment('lap', 0, 10), 'lap', 'e0'), // as if it had an id: still the first
+    opened(segment('lap', 10, 20), 'lap', 'e1'),
+    opened(segment('lap', 20, 30), 'next', 'e2'),
+    opened(segment('step', 30, 40), 'next', 'e3'),
+    opened(segment('lap', 40, 50), 'lap', null),
+  ]);
+  t.pauses = [
+    { start: at(12), end: at(14), id: 'p0' },
+    { start: at(42), end: at(44), id: null },
+  ];
+  const control = (kind: 'segment' | 'pause', index: number) => {
+    const row = timingRows(t).find((r) => r.kind === kind && r.index === index);
+    if (!row) throw new Error('no row');
+    return removeControl(row, t);
+  };
+
+  it('targets a lap row’s event id and a pause’s id', () => {
+    expect(control('segment', 1)).toEqual({ kind: 'remove', target: 'e1' });
+    expect(control('pause', 0)).toEqual({ kind: 'remove', target: 'p0' });
+  });
+
+  it('is disabled on a lap a next opened, and absent on the first segment, a step and null ids', () => {
+    expect(control('segment', 2)).toEqual({ kind: 'disabled' });
+    expect(control('segment', 0)).toEqual({ kind: 'none' });
+    expect(control('segment', 3)).toEqual({ kind: 'none' });
+    expect(control('segment', 4)).toEqual({ kind: 'none' });
+    expect(control('pause', 1)).toEqual({ kind: 'none' });
+  });
+
+  it('is absent everywhere on an edited timing', () => {
+    const edited = { ...t, edited: true };
+    for (const row of timingRows(edited)) expect(removeControl(row, edited).kind).toBe('none');
+  });
+});
+
+describe('resumableFromDetail', () => {
+  const start = Date.parse(at(0));
+  const t = timing([segment('lap', 0, 10)]);
+
+  it('holds for 7 days from the run’s start, unedited only', () => {
+    expect(resumableFromDetail(t, start + RESUME_FROM_DETAIL_MS)).toBe(true);
+    expect(resumableFromDetail(t, start + RESUME_FROM_DETAIL_MS + 1)).toBe(false);
+    expect(resumableFromDetail({ ...t, edited: true }, start + 1000)).toBe(false);
+    expect(resumableFromDetail(null, start)).toBe(false);
   });
 });
