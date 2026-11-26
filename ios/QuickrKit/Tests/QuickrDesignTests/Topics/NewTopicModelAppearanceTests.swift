@@ -100,6 +100,20 @@ extension NewTopicModelTests {
         #expect(model.appearanceErrors.isEmpty)
     }
 
+    /// Milestone review C4: a 422 on the tag typed but not added (sent last) lands on "Add a tag".
+    @Test func aServerErrorOnThePendingTagLandsOnAddATag() async {
+        model.draft.setName("Water")
+        add("Gym", to: model)
+        model.appearance.newTag = "run"
+        writer.topicResult = .rejected(
+            Problem(
+                code: .invalidRequest, detail: "Request validation failed",
+                errors: [FieldIssue(location: Self.appearancePath(.key("tags"), .index(1)), message: "bad tag")]))
+        await model.create()
+        #expect(model.appearanceErrors[.newTag] == "Bad tag")
+        #expect(model.appearanceErrors[.tags] == nil)
+    }
+
     /// Codex I3-EDIT #1: a tag typed but not added is sent, never dropped.
     @Test func aTagTypedButNotAddedIsSent() async {
         model.draft.setName("Water")
