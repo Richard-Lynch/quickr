@@ -43,6 +43,31 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(topic.revision == 2)
     }
 
+    /// The normalised v2 `Timer` (timers2.md §1.4) reaches the domain whole: lap types,
+    /// variables and alerts with their `at_ms`, not only the steps.
+    @Test func aV2TimerMapsLapTypesVariablesAndAlerts() throws {
+        let json = #"""
+            {"steps": [{"key": "warmup", "label": "Warmup", "alerts": [
+                {"key": "half", "label": "Half", "at": "t/2", "at_ms": 30000}]}],
+             "laps": [{"key": "run", "label": "Run", "alerts": []},
+                      {"key": "rest", "label": "Rest", "alerts": [{"key": "go", "label": "Go", "at": "rest", "at_ms": 20000}]}],
+             "variables": [{"name": "t", "ms": 60000}, {"name": "rest", "ms": 20000}]}
+            """#
+        let timer = try WireCoding.decoder().decode(TopicTimerDTO.self, from: Data(json.utf8)).toDomain()
+        #expect(
+            timer.steps == [
+                .init(
+                    key: "warmup", label: "Warmup", alerts: [.init(key: "half", label: "Half", at: "t/2", atMs: 30000)])
+            ])
+        #expect(
+            timer.laps == [
+                .init(key: "run", label: "Run"),
+                .init(key: "rest", label: "Rest", alerts: [.init(key: "go", label: "Go", at: "rest", atMs: 20000)]),
+            ])
+        #expect(timer.variables == [.init(name: "t", ms: 60000), .init(name: "rest", ms: 20000)])
+        #expect(TopicTimerDTO(timer).toDomain() == timer)
+    }
+
     @Test func intervalScheduleAndNullDue() throws {
         let water = try decode(TopicDetailDTO.self, "getTopic.interval")
         #expect(water.schedule == .interval(.init(everyMinutes: 180, timezone: "Europe/London", notify: false)))

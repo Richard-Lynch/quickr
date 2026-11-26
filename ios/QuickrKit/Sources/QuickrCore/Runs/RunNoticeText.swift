@@ -17,6 +17,8 @@ public enum RunNoticeText {
         case .stop: "Stop"
         case .finish: "details"
         case .discard: "Discard"
+        case .reopen: "Resume"
+        case .remove: "Remove"
         }
     }
 
@@ -38,6 +40,8 @@ public enum RunNoticeText {
         case .entryDeleted: return "\(topic)’s run was deleted."
         case .alreadyClosed: return "\(topic) was already stopped."
         case .merged, .beforeStart, .tooLong, .stale, .noStep, .alreadyPaused, .notPaused: return nil
+        // T2-M1: timers2.md §9.3's texts for these land with I1-WRITES (RunNoticeTextTests).
+        case .reverted, .notStopped, .deleted, .noTarget: return nil
         }
     }
 }

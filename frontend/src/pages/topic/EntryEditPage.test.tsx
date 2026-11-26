@@ -56,6 +56,7 @@ const timing: EntryOut['timing'] = {
   paused_ms: 0,
   complete: true,
   edited: false,
+  terminal_id: null,
   segments: [
     {
       kind: 'lap',
@@ -65,6 +66,9 @@ const timing: EntryOut['timing'] = {
       ended_at: '2026-10-23T08:01:00Z',
       active_ms: 60_000,
       paused_ms: 0,
+      lap_type: null,
+      event_id: null,
+      opened_by: null,
     },
   ],
   skipped: [],
@@ -195,6 +199,7 @@ const steppedTiming: NonNullable<EntryOut['timing']> = {
   paused_ms: 0,
   complete: true,
   edited: false,
+  terminal_id: null,
   segments: [
     {
       kind: 'step',
@@ -204,6 +209,9 @@ const steppedTiming: NonNullable<EntryOut['timing']> = {
       ended_at: '2026-10-23T08:02:00Z',
       active_ms: 120_000,
       paused_ms: 0,
+      lap_type: null,
+      event_id: null,
+      opened_by: null,
     },
     {
       kind: 'step',
@@ -213,6 +221,9 @@ const steppedTiming: NonNullable<EntryOut['timing']> = {
       ended_at: '2026-10-23T08:05:00.500Z',
       active_ms: 180_500,
       paused_ms: 0,
+      lap_type: null,
+      event_id: null,
+      opened_by: null,
     },
   ],
   skipped: [],

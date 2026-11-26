@@ -112,7 +112,7 @@ describe('stamping a run event', () => {
     const second: RunEvent = { ...first, id: '00000000-0000-4000-8000-000000000002', seg: 1 };
     second.at = stampRunEvent(5000, 0, [start.at, first.at]);
     expect(second.at).toBe(first.at + 1);
-    const state = fold(run, steps, [start, first, second]);
+    const state = fold(run, { steps }, [start, first, second]);
     expect(Object.values(state.effects).map((e) => e.effect)).toEqual([
       'applied',
       'applied',

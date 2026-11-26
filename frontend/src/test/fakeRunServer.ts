@@ -17,7 +17,10 @@ import type {
 } from '../client';
 import { fold, projectTiming, stateToWire, timingToWire } from '../lib/runs/fold';
 import { formatInstant, parseInstant } from '../lib/runs/instant';
-import type { RunEvent, RunStatus } from '../lib/runs/types';
+import type { FoldTimer, RunEvent, RunStatus } from '../lib/runs/types';
+
+/** An event as `RunOut` lists it (fold v4 types are wider until M1-RUNS regenerates it). */
+type ApiEvent = RunOut['events'][number];
 
 export interface RecordedRequest {
   method: string;
@@ -76,15 +79,16 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
     },
   };
 
-  const stepsOf = (version: number) =>
-    versions.find((v) => v.version === version)?.timer?.steps ?? [];
+  /** The version's timer as the fold reads it (`{ steps: [] }` for an untimed one). */
+  const timerOf = (version: number): FoldTimer =>
+    versions.find((v) => v.version === version)?.timer ?? { steps: [] };
   const questionsOf = (version: number) =>
     versions.find((v) => v.version === version)?.questions ?? topic.questions;
 
   function runOut(id: string): RunOut {
     const r = server.runs.get(id);
     if (!r) throw new Error(`no run ${id}`);
-    const state = fold(r.id, stepsOf(r.version), r.events);
+    const state = fold(r.id, timerOf(r.version), r.events);
     return {
       id: r.id,
       topic_id: r.topic_id,
@@ -96,17 +100,17 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
       edited: false,
       events: r.events.map((e) => ({
         id: e.id,
-        type: e.type,
+        type: e.type as ApiEvent['type'], // the client has no reopen/remove until M1-RUNS
         at: formatInstant(e.at),
         seg: e.seg,
         step: e.step,
         pause_id: e.pause_id,
         arrival: e.arrival,
         effect: state.effects[e.id]?.effect ?? 'applied',
-        reason: state.effects[e.id]?.reason ?? null,
+        reason: (state.effects[e.id]?.reason ?? null) as ApiEvent['reason'],
         source: 'ui',
       })),
-      state: { ...stateToWire(state), status: r.status },
+      state: { ...stateToWire(state), status: r.status } as RunOut['state'],
       aliases: [],
     };
   }
@@ -116,8 +120,8 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
     answers: RunEventIn['answers'],
     notes: string | null | undefined,
   ) {
-    const state = fold(r.id, stepsOf(r.version), r.events);
-    const timing = timingToWire(projectTiming(state, stepsOf(r.version)));
+    const state = fold(r.id, timerOf(r.version), r.events);
+    const timing = timingToWire(projectTiming(state, timerOf(r.version)));
     const types = new Map(questionsOf(r.version).map((q) => [q.key, q.type]));
     const now = new Date().toISOString();
     const entry: EntryOut = {
@@ -191,7 +195,7 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
       arrival: ++arrival,
     });
     r.revision += 1;
-    const state = fold(r.id, stepsOf(r.version), r.events);
+    const state = fold(r.id, timerOf(r.version), r.events);
     if (state.status === 'stopped' && (r.status === 'running' || r.status === 'paused')) {
       const required = questionsOf(r.version).some((q) => q.required);
       if (required && body.answers == null) r.status = 'finishing';

@@ -3,7 +3,7 @@ import QuickrCore
 import QuickrTestSupport
 import Testing
 
-/// R1 (timers.md §13.3): Swift/Python parity for the timing stats models. Every case in
+/// R1 (timers.md §13.3) / R13 (timers2.md §12.3): Swift/Python parity for the timing stats v3 models. Every case in
 /// shared/fixtures/timing-stats-vectors.json (generated from backend/app/services/timing_stats.py
 /// by `make vectors`) gives the same answer here. One test walks every case.
 @Suite struct TimingStatsVectorTests {
@@ -31,6 +31,22 @@ import Testing
 
         enum CodingKeys: String, CodingKey {
             case key, label, current, done, skipped
+            case bestMs = "best_ms"
+            case medianMs = "median_ms"
+            case meanMs = "mean_ms"
+        }
+    }
+
+    struct LapType: Codable, Equatable {
+        var key: String
+        var label: String
+        var laps: Int
+        var bestMs: Int?
+        var medianMs: Int?
+        var meanMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case key, label, laps
             case bestMs = "best_ms"
             case medianMs = "median_ms"
             case meanMs = "mean_ms"
@@ -67,9 +83,11 @@ import Testing
         var pausedMs: Int
         var complete: Bool
         var steps: [String: Int]
+        var lapTypes: [String: Int]
 
         enum CodingKeys: String, CodingKey {
             case complete, steps
+            case lapTypes = "lap_types"
             case entryId = "entry_id"
             case capturedAt = "captured_at"
             case startedAt = "started_at"
@@ -84,6 +102,7 @@ import Testing
         var completeRuns: Int
         var total: Summary
         var steps: [Step]
+        var lapTypes: [LapType]
         var laps: Laps
         var paused: Paused
         var series: [Point]
@@ -91,6 +110,7 @@ import Testing
         enum CodingKeys: String, CodingKey {
             case runs, total, steps, laps, paused, series
             case completeRuns = "complete_runs"
+            case lapTypes = "lap_types"
         }
 
         init(_ t: TimingStats.TopicTiming) {
@@ -102,13 +122,18 @@ import Testing
                     key: $0.key, label: $0.label, current: $0.current, done: $0.done, skipped: $0.skipped,
                     bestMs: $0.bestMs, medianMs: $0.medianMs, meanMs: $0.meanMs)
             }
+            lapTypes = t.lapTypes.map {
+                LapType(
+                    key: $0.key, label: $0.label, laps: $0.laps, bestMs: $0.bestMs, medianMs: $0.medianMs,
+                    meanMs: $0.meanMs)
+            }
             laps = Laps(runsWithLaps: t.laps.runsWithLaps, medianMs: t.laps.medianMs, meanMs: t.laps.meanMs)
             paused = Paused(runsWithPauses: t.paused.runsWithPauses, medianMs: t.paused.medianMs)
             series = t.series.map {
                 Point(
                     entryId: $0.entryId, capturedAt: RunInstant.format($0.capturedAt),
                     startedAt: RunInstant.format($0.startedAt), activeMs: $0.activeMs, pausedMs: $0.pausedMs,
-                    complete: $0.complete, steps: $0.steps)
+                    complete: $0.complete, steps: $0.steps, lapTypes: $0.lapTypes)
             }
         }
     }
@@ -127,7 +152,7 @@ import Testing
         }
 
         var name: String
-        var versions: [String: [RunWire.Step]?]
+        var versions: [String: RunWire.Timer?]
         var currentVersion: Int
         var entries: [Entry]
         var expected: Topic
@@ -145,7 +170,13 @@ import Testing
 
     @Test func casesHaveUniqueNames() throws {
         let cases = try Self.load()
-        #expect(cases.count >= 15)
+        #expect(cases.count >= 21)
+        for name in [
+            "lap_types_one", "lap_types_cycle", "lap_types_renamed_across_versions", "lap_types_untyped_mixed",
+            "lap_types_in_series",
+        ] {
+            #expect(cases.contains { $0.name == name }, "timers2.md §7.4 case \(name)")
+        }
         #expect(Set(cases.map(\.name)).count == cases.count)
     }
 
@@ -153,10 +184,10 @@ import Testing
         let cases = try Self.load()
         var ran: [String] = []
         for c in cases {
-            var versions: [Int: [TopicTimer.Step]?] = [:]
-            for (number, steps) in c.versions {
+            var versions: [Int: TopicTimer?] = [:]
+            for (number, timer) in c.versions {
                 versions.updateValue(
-                    steps.map { $0.map(\.domain) }, forKey: try #require(Int(number), "\(c.name): version \(number)"))
+                    timer.map(\.domain), forKey: try #require(Int(number), "\(c.name): version \(number)"))
             }
             let entries = try c.entries.map { e in
                 TimingStats.TimedEntry(

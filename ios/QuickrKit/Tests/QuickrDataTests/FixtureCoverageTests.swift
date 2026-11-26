@@ -48,7 +48,7 @@ import Testing
         let endpoint = try #require(Endpoints.named(fixture.operationId))
         let root = try JSONSerialization.jsonObject(with: body, options: .fragmentsAllowed)
         let variants = Self.withOneKeyRemoved(root, path: "")
-        for (path, variant) in variants {
+        for (path, variant) in variants where !Self.optionalOnTheWire(path) {
             let data = try JSONSerialization.data(withJSONObject: variant, options: .fragmentsAllowed)
             #expect(throws: (any Error).self, "\(name): decoded without \(path)") {
                 try endpoint.decodeResponse(data)
@@ -92,6 +92,29 @@ import Testing
         #expect(page.items.first?.appearance.tags == ["Health"])
     }
     // end T2-M3
+
+    /// Keys that are required in `openapi.json` but that clients read as plain optionals, on
+    /// purpose: the v2 ids and lap types of a stored timing are absent on a pre-v2 one
+    /// (timers2.md §3.3: "iOS decodes all four as plain optionals"), and a `Timer`'s v2 lists
+    /// default to `[]` for the v1 shape (§1.4). A `RunState`'s own fields stay required.
+    static func optionalOnTheWire(_ path: String) -> Bool {
+        let patterns = [
+            #"/segments/\d+/(lap_type|event_id|opened_by)$"#, #"/pauses/\d+/id$"#, #"/timing/terminal_id$"#,
+            #"/timer/(laps|variables)$"#, #"/timer/(steps|laps)/\d+/alerts$"#,
+        ]
+        return patterns.contains { path.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    @Test func theOptionalKeysAreOnlyThoseOfAStoredTiming() {
+        #expect(Self.optionalOnTheWire("/entry/timing/terminal_id"))
+        #expect(Self.optionalOnTheWire("/run/state/segments/1/event_id"))
+        #expect(Self.optionalOnTheWire("/run/state/pauses/0/id"))
+        #expect(!Self.optionalOnTheWire("/run/state/terminal_id"))
+        #expect(!Self.optionalOnTheWire("/run/state/lap_count"))
+        #expect(!Self.optionalOnTheWire("/run/state/next_lap_type"))
+        #expect(!Self.optionalOnTheWire("/run/state/open/lap_type"))
+        #expect(!Self.optionalOnTheWire("/run/state/segments/1/label"))
+    }
 
     private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema", "effects"]
 

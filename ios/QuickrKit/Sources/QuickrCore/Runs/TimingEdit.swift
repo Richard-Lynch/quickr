@@ -177,33 +177,42 @@ public struct TimingDraft: Sendable, Hashable {
             self.pauses = pauses
         }
 
-        /// The `Timing` the server rebuilds from it (`edited_timing`): labels from `steps`, laps
-        /// numbered in order, each segment's paused time its overlap with the pauses.
+        /// v1 callers: a rebuild over `steps` and no lap types, without a terminal id.
         public func timing(steps: [TopicTimer.Step]) -> Timing {
-            let labels = Dictionary(steps.map { ($0.key, $0.label) }, uniquingKeysWith: { first, _ in first })
+            timing(timer: TopicTimer(steps: steps), terminalId: nil)
+        }
+
+        /// The `Timing` the server rebuilds from it (`edited_timing`, `make_timing`): labels from
+        /// the timer's steps, laps labelled by its lap types in order (timers2.md §3.2), each
+        /// segment's paused time its overlap with the pauses. An edit's timing carries no event
+        /// ids; it keeps `terminalId` (§3.3).
+        public func timing(timer: TopicTimer, terminalId: String?) -> Timing {
+            let labels = Dictionary(timer.steps.map { ($0.key, $0.label) }, uniquingKeysWith: { first, _ in first })
             var laps = 0
             var from = startedAt
             var out: [RunSegment] = []
+            let plain = pauses.map { RunPause(start: $0.start, end: $0.end) }
             for segment in segments {
-                let label: String
+                let typing: (lapType: String?, label: String)
                 if let step = segment.step {
-                    label = labels[step] ?? step
+                    typing = (nil, labels[step] ?? step)
                 } else {
                     laps += 1
-                    label = RunFold.lapLabel(laps)
+                    typing = RunFold.lapTyping(laps, timer.laps)
                 }
-                let paused = TimingDraft.overlap(from, segment.endedAt, pauses)
+                let paused = TimingDraft.overlap(from, segment.endedAt, plain)
                 out.append(
                     RunSegment(
-                        kind: segment.kind, step: segment.step, label: label, startedAt: from,
-                        endedAt: segment.endedAt, activeMs: segment.endedAt - from - paused, pausedMs: paused))
+                        kind: segment.kind, step: segment.step, label: typing.label, startedAt: from,
+                        endedAt: segment.endedAt, activeMs: segment.endedAt - from - paused, pausedMs: paused,
+                        lapType: typing.lapType))
                 from = segment.endedAt
             }
-            let paused = pauses.reduce(0) { $0 + $1.end - $1.start }
+            let paused = plain.reduce(0) { $0 + $1.end - $1.start }
             return Timing(
                 startedAt: startedAt, endedAt: from, activeMs: from - startedAt - paused, pausedMs: paused,
-                complete: RunFold.isComplete(steps: steps, segments: out, skipped: skipped), edited: true,
-                segments: out, skipped: skipped, pauses: pauses)
+                complete: RunFold.isComplete(steps: timer.steps, segments: out, skipped: skipped), edited: true,
+                segments: out, skipped: skipped, pauses: plain, terminalId: terminalId)
         }
     }
 
@@ -231,6 +240,12 @@ public struct TimingDraft: Sendable, Hashable {
     /// (`checkTimingDraft`). The rules are the server's (`edited_timing`, and the `captured_at`
     /// bounds at `now`, epoch ms), in the client's own words.
     public func check(steps: [TopicTimer.Step], now: Int) -> Checked {
+        check(timer: TopicTimer(steps: steps), now: now)
+    }
+
+    /// As `check(steps:now:)`, with laps labelled by the timer's lap types (timers2.md §3.2).
+    public func check(timer: TopicTimer, now: Int) -> Checked {
+        let steps = timer.steps
         var errors: [String: String] = [:]
         func fail(_ path: String, _ message: String) {
             if errors[path] == nil { errors[path] = message }
@@ -309,7 +324,7 @@ public struct TimingDraft: Sendable, Hashable {
             let label: String
             if segment.kind == .lap {
                 laps += 1
-                label = RunFold.lapLabel(laps)
+                label = RunFold.lapTyping(laps, timer.laps).label
             } else {
                 label = segment.step.flatMap { labels[$0] ?? $0 } ?? "Step"
             }
