@@ -77,6 +77,8 @@ public protocol TopicWriter: AnyObject {
     /// themed elsewhere meanwhile answers `staleRevision` instead of being overwritten.
     func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
         -> TopicWriteOutcome<Topic>
+    /// The server's topic now: the fresh copy a `staleRevision` details save is checked against.
+    func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic>
     /// Sets the schedule, or removes it (nil).
     func saveSchedule(_ schedule: Schedule?, topicId: UUID) async -> TopicWriteOutcome<Topic>
     /// Deletes an archived topic.

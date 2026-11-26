@@ -284,14 +284,55 @@ extension TopicSettingsModelTests {
                 == .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 4))
     }
 
-    /// A change made elsewhere (another device) that this screen hasn't seen still answers 409.
-    @Test func aChangeFromElsewhereStillConflicts() async {
+    /// Another device changed the field being edited (no sync yet): the conflict shows, the edit
+    /// stays, nothing is sent again.
+    @Test func aChangeFromElsewhereToTheSameFieldConflicts() async {
         let model = themed()
-        writer.server.revision = 4  // another device saved; no sync yet
+        writer.server.revision = 4
+        writer.server.appearance.color = .indigo
         model.appearance.color = .pink
         await model.saveDetails()
         #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
-        #expect(model.appearance.color == .pink, "the edit stays to retry")
+        #expect(model.appearance.color == .pink, "the edit stays")
+        #expect(writer.latestCalls == 1)
+        #expect(writer.calls.count == 1, "not sent again")
+        #expect(model.topic.appearance.color == .indigo, "the screen has the fresh copy")
+    }
+
+    /// Another device changed a different field (no sync yet): the same edits go once more on the
+    /// fresh revision, and no conflict shows.
+    @Test func aChangeFromElsewhereToAnotherFieldResendsOnce() async {
+        let model = themed()
+        writer.server.revision = 4
+        writer.server.description = "Changed on the iPad"
+        model.appearance.color = .pink
+        await model.saveDetails()
+        let change = TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink)))
+        #expect(writer.calls == [.details(change, expectedRevision: 3), .details(change, expectedRevision: 4)])
+        #expect(writer.latestCalls == 1)
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved"])
+        #expect(model.topic.description == "Changed on the iPad" && model.topic.appearance.color == .pink)
+        #expect(model.description == "Changed on the iPad" && !model.detailsDirty)
+    }
+
+    /// A sync that changed the edited field keeps the old base: the save answers 409 and the
+    /// conflict shows rather than overwriting it.
+    @Test func aSyncThatChangedTheEditedFieldKeepsTheConflict() async {
+        let model = themed()
+        model.appearance.color = .pink
+        var newer = model.topic
+        newer.appearance.color = .indigo
+        newer.revision = 4
+        writer.server = newer
+        model.topicChanged(newer)
+        #expect(model.appearance.color == .pink, "the edit stays")
+        await model.saveDetails()
+        #expect(
+            writer.calls == [
+                .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 3)
+            ])
+        #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
     }
 
     /// Codex final #1: a newer copy that the store brought while the save was in flight wins over

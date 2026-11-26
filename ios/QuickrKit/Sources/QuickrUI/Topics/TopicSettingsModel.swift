@@ -12,6 +12,8 @@ import QuickrCore
 @MainActor @Observable
 public final class TopicSettingsModel {
     public private(set) var topic: Topic
+    /// The copy the Details edits started from: a save diffs against it and sends its revision.
+    private var detailsBase: Topic
 
     // MARK: Details
 
@@ -67,6 +69,7 @@ public final class TopicSettingsModel {
         onDeleted: @escaping @MainActor () -> Void = {}
     ) {
         self.topic = topic
+        detailsBase = topic
         self.writer = writer
         self.toasts = toasts
         self.limits = limits
@@ -83,29 +86,30 @@ public final class TopicSettingsModel {
 
     public var isArchived: Bool { topic.status == .archived }
 
-    /// The store has a newer copy of the topic (a sync, an archive). Like the PWA's forms, which
-    /// are keyed by the saved values, a section whose saved values changed starts over from them;
-    /// the others keep their edits and rebase on the new revision (the next save sends it).
-    ///
-    /// A copy older than the one on screen is ignored: an observation already in flight when this
-    /// screen's own save returned would otherwise put the old revision back, and the next save
-    /// would answer `staleRevision` for a change this device made.
     /// A save's answer, unless the store already brought a newer copy while it was in flight
-    /// (that copy includes this save).
+    /// (that copy includes this save). The Details edits rebase on it as on a synced copy.
     private func adopt(_ updated: Topic) {
-        if updated.revision >= topic.revision { topic = updated }
+        guard updated.revision >= topic.revision else { return }
+        topic = updated
+        rebaseDetails(on: updated)
     }
 
+    /// The store has a newer copy of the topic (a sync, an archive, this screen's own save).
+    ///
+    /// - **Details** compare field by field, as the PWA's `MetaForm` does: when the newer copy
+    ///   changed none of the fields being edited, it becomes the base (the next save sends its
+    ///   revision) and the untouched fields take its values; the edits stay. When it changed an
+    ///   edited field, the base stays, so the save answers `staleRevision` instead of overwriting
+    ///   the other change.
+    /// - **Schedule** starts over from the saved schedule when that changed.
+    ///
+    /// A copy older than the one on screen is ignored: an observation already in flight when this
+    /// screen's own save returned would otherwise put the old revision back.
     public func topicChanged(_ newer: Topic) {
         guard newer.revision >= topic.revision else { return }
         let old = topic
         topic = newer
-        if (old.name, old.slug, old.description) != (newer.name, newer.slug, newer.description)
-            // Code point by code point: a respelled tag is a change (the filter matches spelling).
-            || AppearanceDraft(old.appearance).differs(from: newer.appearance)
-        {
-            resetDetails()
-        }
+        if !isSavingDetails { rebaseDetails(on: newer) }
         if old.scheduleUpdatedAt != newer.scheduleUpdatedAt || old.schedule != newer.schedule {
             resetSchedule()
         }
@@ -113,11 +117,61 @@ public final class TopicSettingsModel {
 
     // MARK: - Details
 
-    public var detailsDirty: Bool {
-        name != topic.name || slug != topic.slug || description != topic.description || appearanceDirty
+    /// A Details field, compared on its own.
+    enum DetailsField: CaseIterable, Hashable {
+        case name, slug, description
+        case appearance(AppearanceDraft.Part)
+
+        static let allCases: [DetailsField] =
+            [.name, .slug, .description] + AppearanceDraft.Part.allCases.map(DetailsField.appearance)
     }
 
+    /// The fields the user has edited since `detailsBase`.
+    private var editedFields: [DetailsField] {
+        let parts = appearance.edited(from: detailsBase.appearance)
+        return DetailsField.allCases.filter { field in
+            switch field {
+            case .name: name != detailsBase.name
+            case .slug: slug != detailsBase.slug
+            case .description: description != detailsBase.description
+            case .appearance(let part): parts.contains(part)
+            }
+        }
+    }
+
+    /// Whether any of `fields` differs between two copies of the topic.
+    private static func changed(_ fields: [DetailsField], from a: Topic, to b: Topic) -> Bool {
+        let parts = AppearanceDraft(a.appearance).edited(from: b.appearance)
+        return fields.contains { field in
+            switch field {
+            case .name: a.name != b.name
+            case .slug: a.slug != b.slug
+            case .description: a.description != b.description
+            case .appearance(let part): parts.contains(part)
+            }
+        }
+    }
+
+    /// `newer` becomes the base unless it changed an edited field; the fields not edited take its
+    /// values.
+    private func rebaseDetails(on newer: Topic) {
+        let edited = editedFields
+        guard !Self.changed(edited, from: detailsBase, to: newer) else { return }
+        detailsBase = newer
+        for field in DetailsField.allCases where !edited.contains(field) {
+            switch field {
+            case .name: name = newer.name
+            case .slug: slug = newer.slug
+            case .description: description = newer.description
+            case .appearance(let part): appearance.take(part, from: newer.appearance)
+            }
+        }
+    }
+
+    public var detailsDirty: Bool { !editedFields.isEmpty }
+
     public func resetDetails() {
+        detailsBase = topic
         name = topic.name
         slug = topic.slug
         description = topic.description
@@ -128,12 +182,15 @@ public final class TopicSettingsModel {
     }
 
     /// "Save details": validates like the form, sends only the changed fields (the appearance's
-    /// among them) in one PATCH, with the revision on screen.
+    /// among them) in one PATCH, with the base's revision. A `staleRevision` from a change made
+    /// elsewhere that left the edited fields alone is sent again once, on a fresh copy's revision
+    /// (the PWA's `MetaForm`); only an edited field changed elsewhere shows the conflict.
     public func saveDetails() async {
         guard !isSavingDetails else { return }
         detailsAttempts += 1
         detailsBanner = nil
-        let draft = TopicDraft.editing(name: name, slug: slug, description: description, questions: topic.questions)
+        let draft = TopicDraft.editing(
+            name: name, slug: slug, description: description, questions: detailsBase.questions)
         let validDetails = draft.validatedDetails(limits: limits)
         let validAppearance = appearance.validated(limits: limits)
         switch validDetails {
@@ -144,16 +201,25 @@ public final class TopicSettingsModel {
         guard case .success(let details) = validDetails, case .success(let newAppearance) = validAppearance else {
             return
         }
-        var change = TopicDetailsChange(details, from: topic) ?? TopicDetailsChange()
-        change.appearance = AppearanceUpdate(newAppearance, from: topic.appearance)
+        let base = detailsBase
+        var change = TopicDetailsChange(details, from: base) ?? TopicDetailsChange()
+        change.appearance = AppearanceUpdate(newAppearance, from: base.appearance)
         guard change != TopicDetailsChange() else {
             toasts.show(Toast("Nothing to save", tone: .info))
             return
         }
         isSavingDetails = true
         defer { isSavingDetails = false }
-        let oldSlug = topic.slug
-        let outcome = await writer.saveDetails(change, topicId: topic.id, expectedRevision: topic.revision)
+        let oldSlug = base.slug
+        var outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: base.revision)
+        if case .staleRevision = outcome, case .done(let fresh) = await writer.latestTopic(topicId: base.id) {
+            if Self.changed(editedFields, from: base, to: fresh) {
+                // An edited field changed elsewhere: the conflict shows, the edits stay.
+                adopt(fresh)
+            } else {
+                outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: fresh.revision)
+            }
+        }
         guard detailsSaved(outcome) else { return }
         resetDetails()
         toasts.show(Toast("Saved"))
@@ -190,7 +256,7 @@ public final class TopicSettingsModel {
 
     // MARK: - Appearance
 
-    public var appearanceDirty: Bool { appearance.differs(from: topic.appearance) }
+    public var appearanceDirty: Bool { appearance.differs(from: detailsBase.appearance) }
 
     // MARK: - Schedule
 

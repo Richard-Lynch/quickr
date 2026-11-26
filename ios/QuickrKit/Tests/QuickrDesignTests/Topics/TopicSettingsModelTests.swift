@@ -71,6 +71,13 @@ final class FakeTopicWriter: TopicWriter {
 
     func unsyncedChanges(topicId: UUID) async -> Int { unsynced }
 
+    var latestCalls = 0
+
+    func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
+        latestCalls += 1
+        return .done(server)
+    }
+
     func setArchived(_ archived: Bool, topicId: UUID, baseRevision: Int) async throws {
         calls.append(.archive(archived, baseRevision: baseRevision))
         if let archiveError { throw archiveError }
@@ -180,16 +187,19 @@ final class FakeTopicWriter: TopicWriter {
         #expect(titles.isEmpty)
     }
 
-    @Test func aNewerTopicResetsCleanSectionsOnlyWhenTheirValuesChanged() {
+    /// Field by field (the PWA's `MetaForm`, #220): a newer copy that changed no edited field
+    /// gives the untouched fields its values and keeps the edits.
+    @Test func aNewerTopicUpdatesTheUntouchedFieldsAndKeepsTheEdits() {
         model.description = "editing"
         var newer = Self.topic
         newer.status = .archived  // an archive: details untouched
         model.topicChanged(newer)
         #expect(model.description == "editing")
         newer.name = "Renamed elsewhere"
+        newer.revision = 4
         model.topicChanged(newer)
         #expect(model.name == "Renamed elsewhere")
-        #expect(model.description == "How do you feel", "the form starts over from the new values")
+        #expect(model.description == "editing", "the edit stays")
     }
 
     // MARK: Schedule

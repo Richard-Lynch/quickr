@@ -247,6 +247,36 @@ public struct AppearanceDraft: Sendable, Hashable {
             || !AppearanceUpdate.sameSpelling(tags, opened.tags) || !ServerText.strip(newTag).isEmpty
     }
 
+    /// The appearance's parts, each compared on its own (a conflict is per field, appearance.md §7).
+    public enum Part: CaseIterable, Sendable, Hashable {
+        case color
+        case icon
+        case tags
+    }
+
+    /// The parts that differ from `saved`, code point by code point; tag text not added yet counts
+    /// as editing the tags.
+    public func edited(from saved: TopicAppearance) -> Set<Part> {
+        let opened = AppearanceDraft(saved)
+        var out: Set<Part> = []
+        if color != opened.color { out.insert(.color) }
+        if !icon.unicodeScalars.elementsEqual(opened.icon.unicodeScalars) { out.insert(.icon) }
+        if !AppearanceUpdate.sameSpelling(tags, opened.tags) || !ServerText.strip(newTag).isEmpty {
+            out.insert(.tags)
+        }
+        return out
+    }
+
+    /// Takes `part` from `saved` (a newer copy), leaving the other parts as edited.
+    public mutating func take(_ part: Part, from saved: TopicAppearance) {
+        let opened = AppearanceDraft(saved)
+        switch part {
+        case .color: color = opened.color
+        case .icon: icon = opened.icon
+        case .tags: tags = opened.tags
+        }
+    }
+
     public mutating func removeTag(at index: Int) {
         guard tags.indices.contains(index) else { return }
         tags.remove(at: index)
