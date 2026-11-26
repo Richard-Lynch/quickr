@@ -37,6 +37,7 @@ struct TopicTile: View {
                 // "Active now" (active-surfaces.md §3.2): the run's own card, opening its run screen.
                 let link = TopicLinkRef(id: topic.topic.id)
                 ActiveTopicCard(topic: topic, run: run, onOpen: { environment.router.open(.run(link)) })
+                    .topicTheme(for: topic.topic)
             } else if state.isTimed {
                 timedTile(state)
             } else {
@@ -68,9 +69,38 @@ struct TopicTile: View {
                 }
             }
         } quick: {
-            EmptyView()
+            // Interactive, so under the meta line in the quick slot (the meta passes taps through).
+            if state == .idle, let reopen = Self.reopen(topic, now: serverNow) {
+                reopenButton(reopen, slug: topic.slug)
+            }
         }
         .accessibilityIdentifier("tile.\(topic.slug)")
+    }
+
+    /// An idle timed tile's "Resume · 1:44" (active-surfaces.md §3.3, §1.2 row 2): the latest
+    /// entry's run reopened, for OQ-1's 15 minutes after its stop.
+    struct Reopen {
+        /// `reopen(target:)`, the target being the latest local entry's `timing.terminalId`.
+        var action: RunAction
+        /// The stopped run's total, for the title.
+        var totalMs: Int
+        var perform: () -> Void
+    }
+
+    /// Seam, pending M1: needs the latest local entry's `timing.terminalId` (timers2.md §3.3; not
+    /// in `Timing` yet), `RunPresentation.resumable(entry, now:)` over it, and the reopen write
+    /// (I1-WRITES). Until then nothing is resumable and the tile shows no Resume (§8.2).
+    static func reopen(_ topic: Topic, now: Date) -> Reopen? { nil }
+
+    private func reopenButton(_ reopen: Reopen, slug: String) -> some View {
+        let label = CardLabel(reopen.action, topic: topic.topic.name)
+        return Button(action: reopen.perform) {
+            Label("Resume · \(DurationFormat.format(reopen.totalMs))", systemImage: label.systemImage)
+        }
+        .buttonStyle(.qr(.ghost, size: .small))
+        .disabled(!reopen.action.enabled)
+        .accessibilityLabel(label.spoken)
+        .accessibilityIdentifier("tile.\(slug).reopen")
     }
 
     /// The block: Start, or Add details. None for an archived topic with no run (a start would be
