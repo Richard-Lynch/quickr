@@ -88,10 +88,16 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
     @RequiredKey public var timer: TopicTimerDTO?
+    // T2-M3
+    /// `TopicSummary.appearance` (appearance.md §1.1): optional until the store keeps it
+    /// (I3-STORE makes it a required key); not mapped to the domain yet.
+    public var appearance: TopicAppearance?
+    // end T2-M3
     public var questions: [QuestionDTO]
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer, questions
+        case appearance  // T2-M3
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -131,9 +137,14 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
     @RequiredKey public var timer: TopicTimerDTO?
+    // T2-M3
+    /// See `TopicDetailDTO.appearance`.
+    public var appearance: TopicAppearance?
+    // end T2-M3
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer
+        case appearance  // T2-M3
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"

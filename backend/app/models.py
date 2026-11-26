@@ -75,6 +75,13 @@ class Topic(Base):
     schedule_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     # due_since of the last slot a push notification was sent for (scheduler dedupe).
     last_notified_due_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # T2-M3: appearance (docs/specs/appearance.md §1.2; validated by services/appearance.py).
+    # Not versioned: a PATCH bumps `revision`. A colour name, the stored emoji (NFC, <= 16 code
+    # points) and the tags list (stored spelling; `?tag=` matches it exactly).
+    color: Mapped[str | None] = mapped_column(String(16), default=None)
+    icon: Mapped[str | None] = mapped_column(String(16), default=None)
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    # end T2-M3
 
     versions: Mapped[list[TopicVersion]] = relationship(
         back_populates="topic", cascade="all, delete-orphan", order_by="TopicVersion.version"

@@ -41,6 +41,7 @@ const topic: TopicDetail = {
   schedule_updated_at: null,
   due: null,
   timer: null,
+  appearance: { color: null, icon: null, tags: [] }, // T2-M3
   questions: [],
 };
 

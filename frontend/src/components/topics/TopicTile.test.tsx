@@ -31,6 +31,7 @@ const vitamins: TopicSummary = {
   schedule_updated_at: null,
   due: null,
   timer: null,
+  appearance: { color: null, icon: null, tags: [] }, // T2-M3
 };
 
 function renderTile(topic: TopicSummary) {

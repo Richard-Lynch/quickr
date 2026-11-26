@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter, ValidationError
@@ -26,12 +26,15 @@ from app.models import (
     TopicVersion,
 )
 from app.schemas.api import (
+    AppearanceUpdate,
     CompatibilityReport,
     DueStatus,
     FieldIssue,
     StatusFilter,
+    TopicAppearance,
     TopicCreate,
     TopicDetail,
+    TopicIcon,
     TopicPage,
     TopicSort,
     TopicSummary,
@@ -41,6 +44,7 @@ from app.schemas.api import (
 )
 from app.schemas.base import issues_from
 from app.schemas.questions import Question, QuestionSet, Timer
+from app.services.appearance import ColorName
 from app.services.compat import check_compatibility
 from app.services.feed import log_change, tombstone, writer
 from app.services.schedule import compute_due, dump_schedule, parse_schedule
@@ -116,6 +120,29 @@ def _entry_stats_subquery() -> Any:
     )
 
 
+# T2-M3: appearance (docs/specs/appearance.md §1)
+def appearance_of(topic: Topic) -> TopicAppearance:
+    """The stored appearance, as validated on write (not re-checked: a rule tightened later never
+    makes a stored topic unreadable)."""
+    icon = None if topic.icon is None else TopicIcon.model_construct(kind="emoji", value=topic.icon)
+    color = cast("ColorName | None", topic.color)
+    return TopicAppearance.model_construct(color=color, icon=icon, tags=list(topic.tags))
+
+
+def _set_appearance(topic: Topic, a: TopicAppearance | AppearanceUpdate) -> None:
+    """Write the fields ``a`` holds; an ``AppearanceUpdate`` leaves its omitted fields alone."""
+    given = a.model_fields_set if isinstance(a, AppearanceUpdate) else {"color", "icon", "tags"}
+    if "color" in given:
+        topic.color = a.color
+    if "icon" in given:
+        topic.icon = None if a.icon is None else a.icon.value
+    if "tags" in given and a.tags is not None:
+        topic.tags = list(a.tags)
+
+
+# end T2-M3
+
+
 def _due(topic: Topic, last_captured: datetime | None, now: datetime) -> DueStatus | None:
     schedule = parse_schedule(topic.schedule)
     if schedule is None:
@@ -157,6 +184,9 @@ async def _summaries(
                     schedule_updated_at=topic.schedule_updated_at,
                     due=_due(topic, last_captured, now),
                     timer=parse_timer(timer_raw),
+                    # T2-M3
+                    appearance=appearance_of(topic),
+                    # end T2-M3
                 ),
                 questions,
             )
@@ -215,15 +245,20 @@ async def list_topics(
     status: StatusFilter = "active",
     sort: TopicSort = "due",
     due_only: bool = False,
+    tag: str | None = None,
     limit: int = 50,
     offset: int = 0,
     now: datetime | None = None,
 ) -> TopicPage:
+    """``tag``: only topics holding that tag, in its stored spelling exactly (appearance.md §5:
+    tags are unique ignoring case on write, and a chip sends the stored text)."""
     stmt, stats = _base_select()
     count_stmt = select(func.count(Topic.id))
     filters = []
     if status != "all":
         filters.append(Topic.status == TopicStatus(status))
+    if tag is not None:
+        filters.append(Topic.tags.has_key(tag))  # JSONB `?`: a string element of the array
     if q:
         pattern = f"%{q.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%"
         filters.append(
@@ -327,6 +362,8 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         schedule=dump_schedule(body.schedule),
         schedule_updated_at=func.now() if body.schedule is not None else None,
     )
+    if body.appearance is not None:
+        _set_appearance(topic, body.appearance)
     first = TopicVersion(
         id=uuid4(),
         version=1,
@@ -360,6 +397,8 @@ async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDe
         if new != topic.schedule:  # an unchanged schedule keeps its reference point
             topic.schedule = new
             topic.schedule_updated_at = func.now() if new is not None else None
+    if body.appearance is not None:  # a change of appearance alone still bumps and re-sends
+        _set_appearance(topic, body.appearance)
     topic.revision += 1
     try:
         await db.flush()

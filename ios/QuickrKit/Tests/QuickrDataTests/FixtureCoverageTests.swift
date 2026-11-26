@@ -49,6 +49,10 @@ import Testing
         let root = try JSONSerialization.jsonObject(with: body, options: .fragmentsAllowed)
         let variants = Self.withOneKeyRemoved(root, path: "")
         for (path, variant) in variants {
+            // T2-M3: `appearance` is decoded optionally until I3-STORE makes it a required key
+            // (and keeps it in the store); drop this exemption then.
+            if path.split(separator: "/").contains("appearance") { continue }
+            // end T2-M3
             let data = try JSONSerialization.data(withJSONObject: variant, options: .fragmentsAllowed)
             #expect(throws: (any Error).self, "\(name): decoded without \(path)") {
                 try endpoint.decodeResponse(data)
@@ -80,6 +84,18 @@ import Testing
         #expect(page.items.map(\.slug) == ["water", "everything"])
         #expect(page.items.map { $0.timer?.steps.map(\.key) } == [nil, ["pour", "drink"]])
     }
+
+    // T2-M3: the DTOs decode the server's appearance (appearance.md §1.1); not mapped yet.
+    @Test func topicDTOsDecodeTheAppearance() throws {
+        let detail = try WireCoding.decoder().decode(
+            TopicDetailDTO.self, from: try #require(try Fixtures.api("getTopic").body))
+        #expect(detail.appearance == TopicAppearance(color: .teal, icon: .emoji("🧪"), tags: ["Health"]))
+        let page = try WireCoding.decoder().decode(
+            PageDTO<TopicSummaryDTO>.self, from: try #require(try Fixtures.api("listTopics.tag").body))
+        #expect(page.items.map(\.slug) == ["everything"])
+        #expect(page.items.first?.appearance?.tags == ["Health"])
+    }
+    // end T2-M3
 
     private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema", "effects"]
 

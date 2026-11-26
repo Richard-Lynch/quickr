@@ -482,7 +482,24 @@ export const zLimits = z.object({
     max_alerts: z.int().default(8),
     max_expr_length: z.int().default(64),
     max_var_name_length: z.int().default(16),
-    max_short_label_length: z.int().default(64)
+    max_short_label_length: z.int().default(64),
+    max_tags: z.int().default(10),
+    max_tag_length: z.int().default(24),
+    max_icon_length: z.int().default(16),
+    color_names: z.array(z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
+    ]))
 });
 
 /**
@@ -1142,6 +1159,87 @@ export const zTimingSummary = z.object({
 });
 
 /**
+ * TopicIcon
+ */
+export const zTopicIcon = z.object({
+    kind: z.literal('emoji'),
+    value: z.string()
+});
+
+/**
+ * AppearanceUpdate
+ *
+ * Partial appearance update: an omitted field is unchanged; ``color: null`` and ``icon: null``
+ * clear; ``tags: []`` clears the tags.
+ */
+export const zAppearanceUpdate = z.object({
+    color: z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
+    ]).nullish(),
+    icon: zTopicIcon.nullish(),
+    tags: z.array(z.string()).optional()
+});
+
+/**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export const zTopicAppearanceInput = z.object({
+    color: z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
+    ]).nullish(),
+    icon: zTopicIcon.nullish(),
+    tags: z.array(z.string()).optional().default([])
+});
+
+/**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export const zTopicAppearanceOutput = z.object({
+    color: z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
+    ]).nullable(),
+    icon: zTopicIcon.nullable(),
+    tags: z.array(z.string()).default([])
+});
+
+/**
  * TopicStatus
  */
 export const zTopicStatus = z.enum(['active', 'archived']);
@@ -1177,7 +1275,8 @@ export const zTopicUpdate = z.object({
         zDailyScheduleInput,
         zIntervalScheduleInput
     ]).nullish(),
-    expected_revision: z.int().gte(1).nullish()
+    expected_revision: z.int().gte(1).nullish(),
+    appearance: zAppearanceUpdate.optional()
 });
 
 /**
@@ -1293,7 +1392,8 @@ export const zTopicCreate = z.object({
         zDailyScheduleInput,
         zIntervalScheduleInput
     ]).nullish(),
-    timer: zTimerInput.nullish()
+    timer: zTimerInput.nullish(),
+    appearance: zTopicAppearanceInput.nullish()
 });
 
 /**
@@ -1320,6 +1420,7 @@ export const zTopicDetail = z.object({
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
     timer: zTimerOutput.nullable(),
+    appearance: zTopicAppearanceOutput,
     questions: z.array(z.union([
         zIntQuestionOutput,
         zDoubleQuestionOutput,
@@ -1363,7 +1464,8 @@ export const zTopicSummary = z.object({
     ]).nullable(),
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
-    timer: zTimerOutput.nullable()
+    timer: zTimerOutput.nullable(),
+    appearance: zTopicAppearanceOutput
 });
 
 /**
@@ -1504,6 +1606,7 @@ export const zListTopicsQuery = z.object({
         '-activity'
     ]).optional().default('due'),
     due_only: z.boolean().optional().default(false),
+    tag: z.string().max(24).nullish(),
     limit: z.int().gte(1).lte(200).optional().default(50),
     offset: z.int().gte(0).optional().default(0)
 });

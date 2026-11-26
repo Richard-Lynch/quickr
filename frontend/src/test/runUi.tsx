@@ -68,6 +68,7 @@ export function timedTopic(opts: { steps?: TimerStep[] | null; questions?: Quest
     schedule_updated_at: null,
     due: null,
     timer: steps === null ? null : normalTimer({ steps }),
+    appearance: { color: null, icon: null, tags: [] }, // T2-M3
     questions,
   };
   const versions: TopicVersionOut[] = [

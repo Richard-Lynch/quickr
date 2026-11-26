@@ -57,6 +57,7 @@ from app.services import entries as entry_svc
 from app.services import runs as run_svc
 from app.services import stats as stats_svc
 from app.services import topics as topic_svc
+from app.services.appearance import COLOR_NAMES, ColorName
 
 INSTRUCTIONS = """\
 quickR records structured answers ("entries") against config-driven "topics".
@@ -83,7 +84,13 @@ the answers then makes it. `list_runs` shows open and finishing runs. A stopped
 run's times are corrected with `edit_run_timing` on its entry (same id as the run);
 `update_entry` can't change a timed entry's captured_at. `record_entry` on a timed
 topic records an untimed entry.
-"""
+
+A topic's `appearance` is a colour, one emoji and tags: set them with `color`, `icon`
+and `tags` on `create_topic`/`update_topic` (`clear_color`/`clear_icon` remove them,
+`tags: []` clears the tags). Colours: {colors}. The emoji is
+one emoji (a flag or keycap counts as one); tags are short labels, unique ignoring case.
+`list_topics` with `tag` lists the topics holding that tag (exact spelling).
+""".replace("{colors}", ", ".join(COLOR_NAMES))
 
 
 class DomainErrorMiddleware(Middleware):
@@ -134,13 +141,14 @@ async def list_topics(
         TopicSort, Field(description="'due' = due first, then by next due time, then by activity.")
     ] = "due",
     due_only: Annotated[bool, Field(description="Only topics waiting for an entry now.")] = False,
+    tag: Annotated[str | None, Field(description="Only topics with this tag (exact spelling).")] = None,
     limit: Annotated[int, Field(ge=1, le=200)] = 50,
     offset: Annotated[int, Field(ge=0)] = 0,
 ) -> TopicPage:
     """List/search topics (name, slug, description and question labels), with due status."""
     async with _db() as db:
         return await topic_svc.list_topics(
-            db, q=query, status=status, sort=sort, due_only=due_only, limit=limit, offset=offset
+            db, q=query, status=status, sort=sort, due_only=due_only, tag=tag, limit=limit, offset=offset
         )
 
 
@@ -167,21 +175,28 @@ async def create_topic(
     description: str = "",
     schedule: Annotated[Schedule | None, Field(description="Optional daily or interval schedule.")] = None,
     timer: Annotated[Timer | None, Field(description="Optional: makes the topic timed.")] = None,
+    color: Annotated[ColorName | None, Field(description="Optional palette colour.")] = None,
+    icon: Annotated[str | None, Field(description="Optional emoji, e.g. '💧'.")] = None,
+    tags: Annotated[list[str] | None, Field(description="Optional tags (labels).")] = None,
 ) -> TopicDetail:
     """Create a topic with an initial (version 1) question list. An empty list makes a single
     topic: logging it records an entry with no answers (record_entry with answers {})."""
+    fields: dict[str, object] = {
+        "name": name,
+        "slug": slug,
+        "description": description,
+        "questions": questions,
+        "schedule": schedule,
+        "timer": timer,
+    }
+    if color is not None or icon is not None or tags is not None:
+        fields["appearance"] = {
+            "color": color,
+            "icon": None if icon is None else {"kind": "emoji", "value": icon},
+            "tags": tags or [],
+        }
     async with _db() as db:
-        return await topic_svc.create_topic(
-            db,
-            TopicCreate(
-                name=name,
-                slug=slug,
-                description=description,
-                questions=questions,
-                schedule=schedule,
-                timer=timer,
-            ),
-        )
+        return await topic_svc.create_topic(db, TopicCreate.model_validate(fields))
 
 
 @mcp.tool
@@ -192,11 +207,26 @@ async def update_topic(
     description: str | None = None,
     schedule: Annotated[Schedule | None, Field(description="New schedule (replaces the old one).")] = None,
     clear_schedule: Annotated[bool, Field(description="Remove the topic's schedule.")] = False,
+    color: Annotated[ColorName | None, Field(description="New palette colour.")] = None,
+    clear_color: Annotated[bool, Field(description="Remove the topic's colour.")] = False,
+    icon: Annotated[str | None, Field(description="New emoji, e.g. '💧'.")] = None,
+    clear_icon: Annotated[bool, Field(description="Remove the topic's emoji.")] = False,
+    tags: Annotated[list[str] | None, Field(description="New tags (replace the old; [] clears).")] = None,
 ) -> TopicDetail:
-    """Update topic metadata (name/slug/description/schedule). Questions change via versions."""
+    """Update topic metadata (name/slug/description/schedule/appearance). Questions change via
+    versions."""
     fields: dict[str, object] = {"name": name, "slug": slug, "description": description}
     if schedule is not None or clear_schedule:
         fields["schedule"] = None if clear_schedule else schedule
+    appearance: dict[str, object] = {}
+    if color is not None or clear_color:
+        appearance["color"] = None if clear_color else color
+    if icon is not None or clear_icon:
+        appearance["icon"] = None if clear_icon else {"kind": "emoji", "value": icon}
+    if tags is not None:
+        appearance["tags"] = tags
+    if appearance:
+        fields["appearance"] = appearance
     async with _db() as db:
         return await topic_svc.update_topic(db, ref, TopicUpdate.model_validate(fields))
 
