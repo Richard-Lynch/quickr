@@ -127,6 +127,21 @@ describe('the tap cooldown’s clock (#188)', () => {
     expect(await mine(before)).toEqual(['lap', 'lap']);
   });
 
+  it('an end timer that fires before the clock reaches the end waits out the rest', async () => {
+    const { result } = setup();
+    // Moved by hand without telling the controls: only the end timer can re-enable them.
+    let t = 0;
+    setRunTapCooldown(50, () => t);
+    await act(async () => {
+      await result.current.tap('r1', CTX, 'lap');
+    });
+    // The 50 ms timer has fired (it was due first), but the clock is still at the tap.
+    await act(() => new Promise((r) => setTimeout(r, 80)));
+    expect(result.current.cooling).toBe(true);
+    t = 50;
+    await waitFor(() => expect(result.current.cooling).toBe(false));
+  });
+
   it('runs on monotonic time: the device clock moving changes nothing', async () => {
     const { result } = setup();
     // The app's own clock (no injected one), with monotonic time held still by hand, so a
