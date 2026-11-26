@@ -199,7 +199,7 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
   const resume = a({ type: 'resume' }, 'secondary');
   const discard = a({ type: 'discard' }, 'destructive');
   const lap = a({ type: 'lap', nextTypeLabel: null }, 'primary');
-  const next = (label: string) => a({ type: 'next', label }, 'primary');
+  const next = (label: string | null) => a({ type: 'next', label }, 'primary');
   const skip = (label: string) => a({ type: 'skip', label }, 'overflow');
 
   interface Row {
@@ -271,13 +271,13 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
       row: '9 timer null, running',
       events: [],
       timer: null,
-      expected: [next('Next'), stop, pause, discard],
+      expected: [next(null), stop, pause, discard],
     },
     {
       row: '9 timer null, paused',
       events: [p],
       timer: null,
-      expected: [next('Next'), stop, resume, discard],
+      expected: [next(null), stop, resume, discard],
     },
     {
       row: '12 finishing',

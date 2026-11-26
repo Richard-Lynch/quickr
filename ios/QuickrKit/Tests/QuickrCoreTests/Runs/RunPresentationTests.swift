@@ -253,10 +253,10 @@ import Testing
                 expected: [lap, stopS, resume, discard]),
             ActionRow(
                 row: "9 timer nil, running", events: [], folded: plain, timer: nil,
-                expected: [action(.next(label: "Next"), .primary), stopS, pause, discard]),
+                expected: [action(.next(label: nil), .primary), stopS, pause, discard]),
             ActionRow(
                 row: "9 timer nil, paused", events: [p], folded: plain, timer: nil,
-                expected: [action(.next(label: "Next"), .primary), stopS, resume, discard]),
+                expected: [action(.next(label: nil), .primary), stopS, resume, discard]),
             ActionRow(
                 row: "10 reopened, step open: revert instead of discard", events: [stop, reopen], folded: plain,
                 timer: plain,
@@ -275,7 +275,7 @@ import Testing
                 folded: lapsOnly, timer: lapsOnly, expected: [lap, stopS, pause, revert]),
             ActionRow(
                 row: "10 reopened, timer nil", events: [stop, reopen], folded: plain, timer: nil,
-                expected: [action(.next(label: "Next"), .primary), stopS, pause, revert]),
+                expected: [action(.next(label: nil), .primary), stopS, pause, revert]),
             ActionRow(
                 row: "12 finishing", events: [stop], folded: plain, status: .finishing, timer: plain,
                 expected: [action(.addDetails, .primary), discard]),
