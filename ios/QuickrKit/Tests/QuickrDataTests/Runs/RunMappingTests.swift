@@ -33,14 +33,14 @@ import Testing
 
     /// The steps of the fixtures' topic versions: listTopicVersions (the "everything" topic), and
     /// the step-less "Dishwasher" (test_api_fixtures.py `runs`).
-    static func steps(of run: Run) throws -> [TopicTimer.Step] {
+    static func timer(of run: Run) throws -> TopicTimer {
         let versions = try decode([TopicVersionDTO].self, try #require(try Fixtures.api("listTopicVersions").body))
         if let version = versions.first(where: { $0.version == run.version }), let timer = version.timer,
             run.topicId == UUID(uuidString: "00000000-0000-4000-8000-000000000001")
         {
-            return timer.steps
+            return timer
         }
-        return []
+        return TopicTimer(steps: [])
     }
 
     @Test func everyRecordedRunRefoldsToItsRecordedState() throws {
@@ -50,7 +50,7 @@ import Testing
             // The server decides a finishing run's discard outside the fold (§3.7).
             guard run.status != .discarded else { continue }
             let state = try RunFold.fold(
-                runId: run.id.uuidString, steps: try Self.steps(of: run), events: run.foldEvents)
+                runId: run.id.uuidString, timer: try Self.timer(of: run), events: run.foldEvents)
             var recorded = run.state
             if recorded.status == .finishing { recorded.status = .stopped }  // the fold says stopped (§3.5)
             // The server adds `finish` effects, which it decides outside the fold (§3.6).
@@ -72,7 +72,7 @@ import Testing
             #expect(RunInstant.milliseconds(entry.capturedAt) == timing.endedAt, "\(name): T1")
             #expect(timing.segments.reduce(0) { $0 + $1.activeMs } == timing.activeMs, "\(name): T5")
             #expect(timing.segments.reduce(0) { $0 + $1.pausedMs } == timing.pausedMs, "\(name): T5")
-            #expect(timing == (try RunFold.projectTiming(result.run.state, steps: try Self.steps(of: result.run))))
+            #expect(timing == (try RunFold.projectTiming(result.run.state, steps: try Self.timer(of: result.run).steps)))
             #expect(result.effect == .applied)
         }
     }
@@ -93,6 +93,8 @@ import Testing
         ("/run/events/0/reason", "\"stale\""),
         ("/run/state/effects/0a000000-0000-4000-8000-000000000001/reason", "\"nope\""),
         ("/run/state/segments/0/kind", "\"lap\""),
+        ("/run/state/segments/0/opened_by", "\"jump\""),
+        ("/run/events/1/type", "\"rewind\""),
         ("/event/effect", "\"void\""),
     ])
     func contractViolationsFailTheMapping(path: String, value: String) throws {
@@ -101,6 +103,47 @@ import Testing
         object = Self.setting(object, path: path.split(separator: "/").map(String.init), to: value)
         let data = try JSONSerialization.data(withJSONObject: object)
         #expect(throws: (any Error).self, "\(path)") { try Self.decode(RunEventResultDTO.self, data) }
+    }
+
+    /// The v2 fields map (timers2.md §3.3): the terminal stop, the lap count, the segments'
+    /// openers and the pauses' ids.
+    @Test func v2FieldsMap() throws {
+        let run = try Self.decode(RunDTO.self, try #require(try Fixtures.api("getRun").body))
+        #expect(run.state.terminalId == "0e000000-0000-4000-8000-000000000006")
+        #expect(run.state.lapCount == 1)
+        #expect(run.state.nextLapType == nil)
+        #expect(run.state.segments.map(\.openedBy) == [.start, .next])
+        #expect(run.state.segments.map(\.eventId) == [nil, "0e000000-0000-4000-8000-000000000001"])
+        #expect(run.state.pauses.map(\.id) == ["0e000000-0000-4000-8000-000000000003"])
+        #expect(run.state.reopenId == nil)
+        // A stored entry's timing keeps its terminal id.
+        let stop = try Self.result("recordRunEvent.stop")
+        #expect(stop.entry?.timing?.terminalId == stop.run.state.terminalId)
+        // Round trip through the store's JSON shape.
+        #expect(try RunDTO(run).toDomain() == run)
+    }
+
+    /// `run-fold-vectors.json` `timings`: a stored pre-v2 timing decodes with null ids and lap
+    /// types, and writes back as served.
+    @Test func aPreV2StoredTimingDecodesWithNullIds() throws {
+        struct File: Decodable {
+            struct Stored: Decodable {
+                var name: String
+                var stored: TimingDTO
+                var expected: TimingDTO
+            }
+            var timings: [Stored]
+        }
+        let file = try JSONDecoder().decode(File.self, from: Fixtures.data("run-fold-vectors.json"))
+        #expect(!file.timings.isEmpty)
+        for t in file.timings {
+            let timing = try t.stored.toDomain()
+            #expect(timing.terminalId == nil, "\(t.name)")
+            #expect(timing.segments.allSatisfy { $0.lapType == nil && $0.eventId == nil && $0.openedBy == nil })
+            #expect(timing.pauses.allSatisfy { $0.id == nil })
+            #expect(TimingDTO(timing) == t.expected, "\(t.name)")
+            #expect(try t.expected.toDomain() == timing, "\(t.name)")
+        }
     }
 
     static func setting(_ object: [String: Any], path: [String], to json: String) -> [String: Any] {

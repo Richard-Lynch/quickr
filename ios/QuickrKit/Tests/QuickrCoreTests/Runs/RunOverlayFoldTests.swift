@@ -92,4 +92,48 @@ import Testing
         #expect(segments == server.segments)
         #expect(segments.allSatisfy { $0.activeMs >= 0 })
     }
+
+    // MARK: - Fold v4 (timers2.md §10: `overlay` lap labelling is untyped until the version is stored)
+
+    static let tiktok = TopicTimer(
+        steps: [], laps: [TopicTimer.LapType(key: "run", label: "Run"), TopicTimer.LapType(key: "rest", label: "Rest")])
+
+    /// A tiktok run on the server: Run 1 closed at 60 s, Rest 1 open.
+    static func typedServer() throws -> RunState {
+        try RunFold.fold(
+            runId: "r1", timer: tiktok,
+            events: [RunEvent(id: "r1", type: .start, at: 0), RunEvent(id: "l1", type: .lap, at: 60 * s, seg: 0)])
+    }
+
+    @Test func anOverlayLapIsUntypedAndCountsLaps() throws {
+        let server = try Self.typedServer()
+        #expect(server.open?.label == "Rest 1")
+        #expect(server.nextLapType == "run")
+        let lapped = RunFold.overlay(server, events: [RunEvent(id: "l2", type: .lap, at: 70 * Self.s, seg: 1)])
+        let open = try #require(lapped.open)
+        #expect(open.label == "Lap 2")
+        #expect(open.lapType == nil)
+        #expect(lapped.lapCount == 2)
+        #expect(lapped.nextLapType == nil, "the next lap's type is unknown without the version")
+        // The closed segment keeps the server's label and type.
+        #expect(lapped.segments.last?.label == "Rest 1")
+        #expect(lapped.segments.last?.lapType == "rest")
+        #expect(lapped.segments.last?.eventId == nil, "an open segment carries no opener id: the server fills it")
+    }
+
+    @Test func anOverlayStopSetsTheTerminalId() throws {
+        let stopped = RunFold.overlay(try Self.typedServer(), events: [RunEvent(id: "S1", type: .stop, at: 90 * Self.s)])
+        #expect(stopped.status == .stopped)
+        #expect(stopped.terminalId == "s1")
+        #expect(stopped.lapCount == 2)
+        #expect(stopped.nextLapType == nil)
+        #expect(stopped.open == nil)
+    }
+
+    @Test(arguments: [RunEventType.reopen, .remove])
+    func reopenAndRemoveAreLeftToTheServer(type: RunEventType) throws {
+        let server = try Self.typedServer()
+        let state = RunFold.overlay(server, events: [RunEvent(id: "x1", type: type, at: 80 * Self.s, target: "l1")])
+        #expect(state == server)
+    }
 }
