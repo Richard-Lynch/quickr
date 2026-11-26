@@ -70,30 +70,32 @@ public struct RunActivityDisplay: Sendable, Hashable {
     public var topicName: String
     /// The segment's label: a step's, or "Lap n".
     public var label: String
-    /// The open segment's label with its counter ("Rest 2 · lap 4", "Shower · 2 of 5"): the
-    /// Lock Screen's second line and the expanded Dynamic Island's centre. Until the content
-    /// state carries M1's lap fields (I2-LA-FIELDS) it is `label` (active-surfaces.md §8.2).
+    /// The open segment's label with its counter, as the run screen's (`RunPresentation.headline`):
+    /// "Rest 2 · lap 4" in a typed lap, "Lap 3" in an untyped one, "Shower · 2 of 5" in a step;
+    /// the bare label once ended, and without `lap_count` (a v1 state). The Lock Screen's second
+    /// line and the expanded Dynamic Island's centre.
     public var headline: String
     /// "2 of 5" in a step; nil in a lap and without steps.
     public var position: String?
     /// The 1-based step number in a step; nil in a lap and without steps.
     public var stepNumber: String?
-    /// The compact Dynamic Island's lap counter ("L4") while a lap is open; nil until the content
-    /// state carries `lap_count` (I2-LA-FIELDS), so the step number keeps that slot.
+    /// The compact Dynamic Island's lap counter ("L4": `lap_count + 1`) while a lap is open; nil
+    /// in a step, once ended, without `lap_count` (a v1 state) and when the steps aren't known.
     public var lapCounter: String?
     /// The content state's `next_label` while open: the step Next would start. Nil when none is
     /// known. (M1's state also sets it during a lap, to the lap type a Lap opens: that reading is
     /// `lapNextLabel`.)
     public var nextLabel: String?
-    /// What a Lap opens when the lap types say ("Rest"), for the §1.3 title "Lap → Rest"; nil
-    /// until the content state carries `lap_type` (I2-LA-FIELDS): today's `next_label` names the
-    /// next *step* during a lap, which a Lap does not open, so the title stays "Lap".
+    /// What a Lap opens when the lap types say ("Rest"), for the §1.3 title "Lap → Rest": the
+    /// content state's `next_label` while a typed lap is open (timers2.md §8.1). Nil in a step
+    /// and in an untyped lap, where `next_label` can only be the step Next would start, which a
+    /// Lap does not open.
     public var lapNextLabel: String?
     /// While running or paused: the open segment's active time, and the run's.
     public var segmentTimer: Timer?
     public var totalTimer: Timer?
-    /// The pending alert while running: nil while paused, once ended, when none is pending, and
-    /// until the content state carries `alert_at` (I2-LA-FIELDS).
+    /// The pending alert while running (`alert_at`, `alert_label`): nil while paused, once ended,
+    /// and when none is pending. The label is empty when the payload budget dropped it.
     public var alert: Alert?
     /// Once ended: "Saved · 7:42", "Add details" or "Discarded".
     public var endedText: String?
@@ -122,10 +124,14 @@ public struct RunActivityDisplay: Sendable, Hashable {
         }
     }
 
-    /// The title VoiceOver reads (§1.3): "Lap, then Rest"; otherwise `title(for:)`.
+    /// The title VoiceOver reads (§1.3): "Lap, then Rest", "Stop Morning routine"; otherwise
+    /// `title(for:)`.
     public func spokenTitle(for button: Button) -> String {
-        if button == .lap, let next = lapNextLabel { return "Lap, then \(next)" }
-        return title(for: button)
+        switch button {
+        case .lap: lapNextLabel.map { "Lap, then \($0)" } ?? title(for: button)
+        case .stop: "Stop \(topicName)"
+        case .next, .pause, .resume: title(for: button)
+        }
     }
 
     public init(state: RunActivityState, topicName: String) {
@@ -154,6 +160,20 @@ public struct RunActivityDisplay: Sendable, Hashable {
                 start: state.startedAt + Double(state.pausedMsBeforeSeg + state.pausedMsInSeg) / 1000,
                 pausedAt: pausedAt)
             nextLabel = state.nextLabel
+            // A lap is open when no step is (`step_index` is set in every step of known steps).
+            if state.stepIndex == nil, state.stepsUnknown != true, let closed = state.lapCount {
+                let n = closed + 1
+                lapCounter = "L\(n)"
+                if state.lapType != nil {
+                    headline = "\(state.label) · lap \(n)"
+                    lapNextLabel = state.nextLabel
+                }
+            } else if let position {
+                headline = "\(state.label) · \(position)"
+            }
+            if phase == .running, let at = state.alertAt {
+                alert = Alert(label: state.alertLabel ?? "", at: at)
+            }
             // §4.1: Next only when a step is open and another follows, or when the steps aren't
             // known here (a step may remain whatever `next_label` says); else Lap, a lap being
             // open or the last step.

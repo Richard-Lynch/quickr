@@ -124,7 +124,7 @@ struct RunActivityTimer: View {
 }
 
 /// "⏰ Half way · 0:12", counting down to the alert and staying at 0:00 until the next update
-/// (the activity cannot sound: timers2.md §9).
+/// (the activity cannot sound: timers2.md §9); "⏰ 0:12" when the payload budget dropped the label.
 struct RunActivityAlertLine: View {
     let alert: RunActivityDisplay.Alert
 
@@ -132,8 +132,10 @@ struct RunActivityAlertLine: View {
         let at = Date(timeIntervalSince1970: alert.at)
         HStack(spacing: 4) {
             Image(systemName: "alarm")
-            Text(alert.label).lineLimit(1)
-            Text("·")
+            if !alert.label.isEmpty {
+                Text(alert.label).lineLimit(1)
+                Text("·")
+            }
             Text(timerInterval: min(Date(), at)...at, countsDown: true).monospacedDigit()
         }
         .foregroundStyle(Color.qr.warn)
