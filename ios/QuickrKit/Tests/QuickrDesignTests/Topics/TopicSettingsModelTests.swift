@@ -31,10 +31,14 @@ final class FakeTopicWriter: TopicWriter {
         return topicResult ?? .done(server)
     }
 
+    /// Runs while a save is in flight, before it answers (a sync landing meanwhile).
+    var whileSaving: (@MainActor () -> Void)?
+
     func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
         -> TopicWriteOutcome<Topic>
     {
         calls.append(.details(change, expectedRevision: expectedRevision))
+        whileSaving?()
         if let topicResult { return topicResult }
         // The server's `expected_revision` check, which `SessionTopicWriter` sends with an
         // appearance change (`TopicWrites.updateAppearance`).

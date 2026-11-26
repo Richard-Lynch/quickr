@@ -293,4 +293,29 @@ extension TopicSettingsModelTests {
         #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
         #expect(model.appearance.color == .pink, "the edit stays to retry")
     }
+
+    /// Codex final #1: a newer copy that the store brought while the save was in flight wins over
+    /// the save's (older) answer, so the next save sends the newest revision.
+    @Test func aNewerCopyDuringASaveWinsOverItsAnswer() async {
+        let model = themed()
+        model.name = "Feelings"
+        var newer = model.topic
+        newer.name = "Feelings"
+        newer.appearance.tags = ["Gym", "run", "swim"]
+        newer.revision = 5
+        writer.whileSaving = { [model] in
+            model.topicChanged(newer)
+        }
+        await model.saveDetails()
+        writer.whileSaving = nil
+        #expect(model.topic.revision == 5)
+        #expect(model.appearance.tags == ["Gym", "run", "swim"])
+        writer.server = model.topic
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(
+            writer.calls.last
+                == .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 5))
+        #expect(model.detailsBanner == nil)
+    }
 }

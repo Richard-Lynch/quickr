@@ -90,6 +90,12 @@ public final class TopicSettingsModel {
     /// A copy older than the one on screen is ignored: an observation already in flight when this
     /// screen's own save returned would otherwise put the old revision back, and the next save
     /// would answer `staleRevision` for a change this device made.
+    /// A save's answer, unless the store already brought a newer copy while it was in flight
+    /// (that copy includes this save).
+    private func adopt(_ updated: Topic) {
+        if updated.revision >= topic.revision { topic = updated }
+    }
+
     public func topicChanged(_ newer: Topic) {
         guard newer.revision >= topic.revision else { return }
         let old = topic
@@ -158,7 +164,7 @@ public final class TopicSettingsModel {
     private func detailsSaved(_ outcome: TopicWriteOutcome<Topic>) -> Bool {
         switch outcome {
         case .done(let updated):
-            topic = updated
+            adopt(updated)
             return true
         case .rejected(var problem?):
             // The `appearance.*` issues go on the editor's fields; the rest map as before.
@@ -234,7 +240,7 @@ public final class TopicSettingsModel {
         switch outcome {
         case .done(let updated):
             // The PWA's form is keyed by `schedule_updated_at`: it reopens from the saved schedule.
-            topic = updated
+            adopt(updated)
             resetSchedule()
             toasts.show(Toast(value == nil ? "Schedule removed" : "Schedule saved"))
         case .rejected(let problem?):
