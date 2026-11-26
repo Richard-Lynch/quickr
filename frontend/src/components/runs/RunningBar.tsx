@@ -72,10 +72,12 @@ function RunningItem({ run }: { run: LocalRun }) {
   if (!topic) return null;
   const paused = run.status === 'paused';
   return (
-    <li className="flex items-center gap-2">
+    // Wraps rather than truncating the primary: when its title doesn't fit beside the topic
+    // (a long step name, a narrow or zoomed screen), the button moves to a line of its own.
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <Link
         to={`/t/${topic.slug}/record`}
-        className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full px-2 text-sm"
+        className="flex min-h-11 min-w-0 flex-[1_1_12rem] items-center gap-2 rounded-full px-2 text-sm"
       >
         <Icon
           name={paused ? 'pause' : 'timer'}
@@ -91,22 +93,21 @@ function RunningItem({ run }: { run: LocalRun }) {
         </span>
       </Link>
       {primary ? (
-        // The topic in the name: the bar may list several runs. The title truncates rather
-        // than squeezing the topic's name and clock out at 390 px.
+        // The topic in the name: the bar may list several runs.
         <button
           type="button"
           aria-label={`${actionLabel(primary.action.kind, topic.name)} · ${topic.name}`}
           disabled={primary.disabled}
           onClick={primary.onTap}
           data-testid="bar-primary"
-          className="inline-flex h-11 max-w-[45%] shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 text-sm font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:transform-none"
+          className="ml-auto inline-flex min-h-11 max-w-full shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-1.5 text-left text-sm leading-tight font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:transform-none"
         >
           <Icon
             name={actionIcon(primary.action.kind)}
             className="size-4 shrink-0"
             strokeWidth={2.6}
           />
-          <span className="truncate">{actionTitle(primary.action.kind)}</span>
+          <span className="min-w-0 break-words">{actionTitle(primary.action.kind)}</span>
         </button>
       ) : null}
     </li>

@@ -241,7 +241,8 @@ describe('the running bar', () => {
 /**
  * The acceptance of F2-BAR (docs/t2/M2-plan.md): the bar's button is the run screen's primary,
  * state by state (active-surfaces.md §1.2 rows 4–9). Each state is rendered twice, the bar on
- * the topic page and the panel on the record page, and the two titles and icons compared.
+ * the topic page and the panel on the record page, and the two titles and icons compared; then
+ * the bar's tap sends the primary's event.
  */
 describe('the running bar’s primary is the run panel’s', () => {
   type Fixture = ReturnType<typeof timedTopic>;
@@ -319,6 +320,10 @@ describe('the running bar’s primary is the run panel’s', () => {
     await waitFor(() => expect(bar).toBeEnabled());
     expect(shown(bar)).toEqual(onPanel);
     expect(onPanel.title).toBe(title);
+    // And the bar's tap is the primary's.
+    await userEvent.click(bar);
+    await sent(h, 1);
+    expect(h.server.events()[0]?.type).toBe(title.startsWith('Lap') ? 'lap' : 'next');
   });
 });
 

@@ -4,7 +4,7 @@
  * §1.2); finishing shows "Add details".
  * `TopicTile` lays them out like its Log action.
  */
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import type { TopicVersionOut } from '../../client';
 import type { RunContext } from '../../lib/runs/actions';
@@ -111,7 +111,10 @@ export function RunTileAction({
     );
   }
 
-  if (primary) {
+  // An open run shows its primary, or nothing while it has none (a queued reopen, §1.2 row
+  // 11): never Start.
+  if (run && isOpen(run)) {
+    if (!primary) return null;
     return (
       <button
         type="button"
@@ -164,6 +167,7 @@ export function useOpenRunPrimary(
   run: LocalRun | undefined,
 ): { action: RunAction; disabled: boolean; onTap: () => void } | null {
   const taps = useRunActions();
+  const navigate = useNavigate();
   const versions = useTopicVersions(run?.topic_id ?? '', Boolean(run));
   const runCtx = useRunContext(run, topic);
   const cooling = useRunCooldown(run?.topic_id ?? '');
@@ -172,16 +176,20 @@ export function useOpenRunPrimary(
   const steps = runCtx ? runCtx.steps : run.steps;
   const timer = runTimer(timerOf(versions.data, run.version), steps);
   const action = controlsLayout(runActions(run.state, run.status, timer, now)).primary;
-  // An open run's primary is Next or Lap (§1.2); anything else would be a dead button here.
-  if (action?.kind.type !== 'next' && action?.kind.type !== 'lap') return null;
+  // None: a queued reopen before its ack (§1.2 row 11) has no controls anywhere.
+  if (!action) return null;
   // Captured at render: a second tap before the bar catches up targets what it showed.
   const expect = expectOf(run, steps);
-  const type = action.kind.type;
+  const kind = action.kind;
   return {
     action,
     disabled: runCtx === null || taps.busy || cooling || !action.enabled,
     onTap: () => {
-      if (runCtx) void taps.tap(run.id, runCtx, type, {}, expect);
+      // An open run's primary is Next or Lap (§1.2). Placement is by role, so a primary of
+      // another kind still shows; the run panel, which handles every kind, takes its tap.
+      if (kind.type === 'next' || kind.type === 'lap') {
+        if (runCtx) void taps.tap(run.id, runCtx, kind.type, {}, expect);
+      } else void navigate(`/t/${topic.slug}/record`);
     },
   };
 }
