@@ -112,19 +112,82 @@ signed in to the same server.
 
 ## M3a · appearance
 
-- [ ] **Widget tint with colour and emoji.** Add the small and medium topic
-      widgets for `Smoke` (teal, 🚬). Expected: in full-colour mode the accent
-      bar and glyph are teal/🚬; in tinted and accented Home Screen modes the
-      glyph stays legible and the tint follows the system.
-- [ ] **Live Activity tint and glyph.** Start `Smoke`, lock. Expected: the
-      activity background is the teal `tintSoft`, the glyph 🚬 precedes the
-      name. (Attributes are set at start: change the colour mid-run and expect
-      no change until the next run.)
-- [ ] **Reminder notification title with emoji prefix.** Schedule a reminder on
-      `Smoke` for a minute ahead, lock. Expected: the title reads "🚬 Smoke".
-- [ ] **Tag filter.** Tag `Smoke` with `habit`; on home use the tag filter.
-      Expected: only tagged topics show; the chip appears on the tile footer and
-      the topic header.
+These items come from [evidence/M3a.md](evidence/M3a.md) §8. Items marked **after
+T2-WIRE** need M2's surfaces to render the theme (T2-WIRE-I). Until T2-WIRE has
+merged, the expected result is the untinted default, which is not a failure.
+Setup: `Smoke` themed teal 🚬 with the tag `habit`, and `Intervals` themed
+orange 🏃, as in the setup at the top of this file.
+
+- [ ] **First launch after the upgrade re-pulls themed topics.** Do this before
+      any other M3a item.
+  - Steps: install the TestFlight build, but don't open it. After the
+    server deploy (deploy order, step 3), set the setup's colours, emoji and tag
+    on `Smoke` and `Intervals` **from the PWA**. Then open the iOS app for the
+    first time, online, and wait for the first sync.
+  - Expected: with no edit on the phone, `Smoke`'s topic screen shows the header
+    with 🚬, "Smoke", the `habit` chip and a teal rule under it. `Intervals`
+    shows 🏃 and an orange rule. Settings → Details → Appearance reads
+    `Teal · 🚬 · 1 tag` for `Smoke`.
+  - If a topic stays unthemed, the store's cursor reset or the `t2m1`/`t2m3`
+    migration order failed (evidence §3.5). File a `t2-followup` issue with the
+    build number.
+- [ ] **Emoji keyboard in the Appearance editor.**
+  - Steps: on the phone, open `Smoke` → Settings → Details → Appearance. Tap the
+    Emoji field and switch to the emoji keyboard with the globe key.
+  - Expected:
+    - Picking 🚬 shows it in the field with no error.
+    - A long-press skin-tone variant (for example 👍🏽) is accepted.
+    - A flag (for example 🇮🇪) is accepted.
+    - A second emoji typed after the first, a letter, or a digit shows an
+      inline error under the field and keeps Save details from sending.
+    - The ✕ ("Remove emoji") clears the field.
+  - Finish: back in Details, Save details. The header shows the new emoji, and
+    the PWA shows the same emoji after a refresh.
+- [ ] **Reminder notification title with the emoji prefix.**
+  - Steps: in `Smoke`'s settings, set a schedule so that the topic falls due
+    2–3 minutes from now. Save, lock the phone and wait.
+  - Expected:
+    - The reminder's title reads exactly "🚬 Smoke", with one space after the
+      emoji.
+    - On a topic without an emoji (clear `Intervals`' emoji first and repeat),
+      the title is the plain name.
+    - If the PWA has push enabled, its notification title also starts with 🚬.
+- [ ] **Live Activity tint and glyph (after T2-WIRE).**
+  - Steps: from the **second device or the PWA**, start `Smoke`, so this phone's
+    Live Activity comes by push-to-start, which carries the appearance. Lock the
+    phone.
+  - Expected:
+    - The Lock Screen activity's background is teal's soft wash (light
+      `#d4eeea`, dark `#113330`), and its primary button is the teal tint.
+    - 🚬 comes before "Smoke".
+    - Stop stays red (§4.3: semantic colours never change).
+  - Then change `Smoke`'s colour to orange while it runs. Expected: the activity
+    keeps teal until the next run, because attributes are set at start.
+  - Repeat with the start tapped **on this phone**. Until #226 is fixed, expect
+    the untinted default there. That is a known gap, not a new failure.
+- [ ] **Widget tint in full-colour, tinted and accented modes (after
+      T2-WIRE).**
+  - Steps: add the small and medium topic widgets for `Smoke`.
+  - Expected:
+    - **Default (full-colour) Home Screen:** a teal accent bar and primary chip,
+      with 🚬 before the name.
+    - **Tinted mode** (long-press the Home Screen → Edit → Customize → Tinted):
+      no teal fills; 🚬 is still shown as text and is legible; nothing else
+      changes.
+    - **Dark/accented mode:** the same. The emoji may render monochrome, which
+      is accepted (spec §6.6).
+    - A topic without a colour looks exactly as it did before M3a.
+- [ ] **Tile tint and glyph on Home (after T2-WIRE).**
+  - Steps: open Home.
+  - Expected:
+    - `Smoke`'s idle tile has a teal accent bar and border, the Log/Start block
+      in teal with white text, and 🚬 before the title.
+    - The tile footer shows at most three tag chips, then "+N".
+    - An untinted topic's tile is unchanged.
+    - Check in light and dark, and at the largest text size.
+- [ ] **Tag filter (after T2-WIRE).** Tag `Smoke` with `habit`; on Home tap the
+      chip or use the tag filter. Expected: only tagged topics show; the chip
+      appears on the tile footer and in the topic header.
 
 ## M3b · photos
 
