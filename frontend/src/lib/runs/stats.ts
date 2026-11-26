@@ -133,7 +133,9 @@ export function timingStats(
         segmentLabels.set(s.step, s.label);
       } else if (s.lap_type !== null) {
         push(typed, s.lap_type, s.active_ms);
-        byType[s.lap_type] = (byType[s.lap_type] ?? 0) + s.active_ms;
+        // Own keys only: a lap type may be called `constructor`.
+        const sum = Object.hasOwn(byType, s.lap_type) ? (byType[s.lap_type] ?? 0) : 0;
+        byType[s.lap_type] = sum + s.active_ms;
       }
     }
     for (const key of t.skipped) skipped.set(key, (skipped.get(key) ?? 0) + 1);

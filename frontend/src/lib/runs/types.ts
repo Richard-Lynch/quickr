@@ -72,8 +72,11 @@ export interface TimerAlert {
   label: string;
   /** An expression (timers2.md §2) over the timer's variables. */
   at: string;
-  /** `at` evaluated by the server, in milliseconds (output only). */
-  at_ms: number;
+  /**
+   * `at` evaluated by the server, in milliseconds: output only, so an input timer may
+   * leave it out (the server ignores a sent value and fills its own).
+   */
+  at_ms?: number;
 }
 export interface TimerStep {
   key: string;
