@@ -57,8 +57,8 @@ from app.schemas.questions import Question
 from app.services import push as push_svc
 from app.services.appearance import reminder_title
 from app.services.feed import feed_identity
-from app.services.notification import MAX_SHOWN_OPTIONS, descriptor
-from app.services.push import Notification
+from app.services.notification import MAX_SHOWN_OPTIONS, descriptor, truncate
+from app.services.push import Notification, apns
 from app.services.quicklog import QuickLogChips, QuickLogNumber, quick_log_for
 from app.services.schedule import compute_due, due_message, parse_schedule
 from app.services.topics import parse_questions
@@ -196,11 +196,11 @@ def reminder(
     quick_log: QuickLogDescriptor | None,
 ) -> Notification:
     """The due notification for one topic's slot (also sent by ``scripts/send_reminder.py``).
-    ``title`` is ``appearance.reminder_title(name, icon)``: both channels render it (APNs cuts it
-    to 120 scalars from the end, so the emoji stays)."""
+    ``title`` is ``appearance.reminder_title(name, icon)``, cut here to 120 scalars from the end
+    (so the emoji stays) for both channels: Web Push sends it as is, APNs would cut it the same."""
     return Notification(
         kind="due",
-        title=title,
+        title=truncate(title, apns.MAX_TITLE_LENGTH),
         body=message,
         url=f"/t/{slug}/record",
         tag=f"due-{topic_id}",

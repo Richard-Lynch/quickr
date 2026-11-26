@@ -171,8 +171,9 @@ def build() -> dict[str, Any]:
                 "dropped); then at most max_tags. loc is tags.{i} for a tag, tags for the count; the "
                 "first failing tag wins, before the count.",
                 "reminder_titles: the title is '{icon} {topic_name}' with an icon, else topic_name; "
-                "expected is that title cut to max_title_length Unicode scalars with '…' (APNs and the "
-                "iOS local reminder); the cut is from the end, so the emoji stays.",
+                "expected is that title cut to max_title_length Unicode scalars with '…' (the due "
+                "Notification's title, so Web Push and APNs, and the iOS local reminder); "
+                "the cut is from the end, so the emoji stays.",
             ],
         },
         "palette": [

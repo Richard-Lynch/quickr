@@ -701,7 +701,8 @@ async def test_reminder_title_carries_the_emoji_on_both_channels(
     titles = {n.topic_slug: n.title for n in sent}
     assert titles["water"] == "💧 Water"
     assert titles["plain"] == "Plain"  # a colour alone adds nothing
-    assert {s.payload["title"] for s in outbox} == set(titles.values())  # Web Push: as composed
+    assert {s.payload["title"] for s in outbox} == set(titles.values())  # Web Push: the same title
+    assert all(len(s.payload["title"]) <= apns.MAX_TITLE_LENGTH for s in outbox)  # cut, emoji kept
     for n in sent:  # APNs: cut to 120 scalars from the end, so the emoji stays
         title = apns.render(n)["aps"]["alert"]["title"]
         assert len(title) <= apns.MAX_TITLE_LENGTH
