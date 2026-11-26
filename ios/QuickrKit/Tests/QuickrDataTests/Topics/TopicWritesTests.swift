@@ -290,6 +290,8 @@ import Testing
         #expect(try await local(harness.topic.id)?.currentVersion == 3)
         #expect(syncs.reasons == [.afterOnlineOnly])
         #expect(harness.server.requests.last?.method == .get)
+        // By the immutable id, never the slug: a slug changed elsewhere can't make it 404.
+        #expect(harness.server.requests.last?.url.lastPathComponent == harness.topic.id.wireString)
     }
 
     @Test func aVersionCheckOrPublishOnAnotherEpochIsResyncing() async throws {

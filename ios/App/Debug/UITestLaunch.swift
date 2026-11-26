@@ -425,6 +425,8 @@ enum FakeServer {
     static func topic(
         _ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int, timer: String = "null"
     ) -> String {
+        // T2-M3: the template's first line carries the topic's `appearance` (a raw string can't hold
+        // the marker).
         #"""
         {"kind": "topic", "seq": \#(seq), "topic": {"appearance": {"color": null, "icon": null, "tags": []},
          "archived_at": null, "created_at": "2026-01-01T00:00:00Z",
@@ -675,7 +677,7 @@ private struct FakeServerTransport: Transport {
                 "archived_at": NSNull(), "schedule": schedule,
                 "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
                 "timer": body["timer"] ?? NSNull(), "questions": questions,
-                "appearance": body["appearance"] ?? ["color": NSNull(), "icon": NSNull(), "tags": [String]()],
+                "appearance": body["appearance"] ?? ["color": NSNull(), "icon": NSNull(), "tags": [String]()],  // T2-M3
             ]
             state.put(topic)
             // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.

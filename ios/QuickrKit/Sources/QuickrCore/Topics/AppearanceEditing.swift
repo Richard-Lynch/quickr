@@ -184,11 +184,15 @@ public enum AppearanceField: Sendable, Hashable {
 }
 
 extension AppearanceDraft {
-    /// The field for a server path (`appearance.tags.3`); a tag index the draft doesn't have
-    /// lights up the tag list instead, so the message is never hidden.
+    /// The field for a server path (`appearance.tags.3`). The index one past the chips is the tag
+    /// typed but not added (``validated(limits:)`` sends it last), so it lands on "Add a tag" while
+    /// that text is there; any other index the draft doesn't have lights up the tag list instead,
+    /// so the message is never hidden.
     public func field(serverPath path: String) -> AppearanceField? {
         guard let field = AppearanceField(serverPath: path) else { return nil }
-        if case .tag(let i) = field, !tags.indices.contains(i) { return .tags }
+        if case .tag(let i) = field, !tags.indices.contains(i) {
+            return i == tags.count && !ServerText.strip(newTag).isEmpty ? .newTag : .tags
+        }
         return field
     }
 }

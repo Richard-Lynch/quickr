@@ -47,7 +47,23 @@ public enum TopicWriteMessage {
     public static let notReady = "This server hasn’t finished syncing yet. Try again in a moment."
     public static let switched = "quickR switched to another server. Open this topic again."
     public static let resyncing = "quickR is resyncing, try again in a moment."
-    public static let staleRevision = "This topic was changed elsewhere. It shows the latest now; try again."
+    /// The latest copy couldn't be read, so nothing on screen moved.
+    public static let staleRevision = "This topic was changed elsewhere. Try again."
+    /// A Details save still answered `staleRevision` after its last attempt (``TopicSettingsModel``).
+    public static let contention = "This topic keeps changing elsewhere. Try again in a moment."
+    /// A Details save's edited fields were changed elsewhere: the other fields show the latest copy
+    /// and the edits stay, so the next save keeps them. `fields` as on screen ("colour").
+    public static func conflict(_ fields: [String]) -> String {
+        let list: String
+        switch fields.count {
+        case 0, 1: list = fields.first ?? "topic"
+        case 2: list = "\(fields[0]) and \(fields[1])"
+        default: list = fields.dropLast().joined(separator: ", ") + " and " + fields[fields.count - 1]
+        }
+        return fields.count > 1
+            ? "The \(list) were changed elsewhere. Your edits are still here; save again to keep them."
+            : "The \(list) was changed elsewhere. Your edit is still here; save again to keep it."
+    }
     public static let notFound = "This topic isn’t on the server any more."
     public static let busy = "Sync is busy, try again in a moment."
 }

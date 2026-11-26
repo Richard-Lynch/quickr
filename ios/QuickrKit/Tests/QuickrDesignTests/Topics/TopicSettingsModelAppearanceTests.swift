@@ -115,12 +115,17 @@ extension TopicSettingsModelTests {
         #expect(model.appearanceErrors[.icon] == AppearanceMessage.iconText)
     }
 
-    @Test func aStaleRevisionSaysSoAndKeepsTheEdit() async {
+    /// The latest copy can't be read: nothing on screen moves, and the message says only to try
+    /// again.
+    @Test func aStaleRevisionWithoutTheLatestCopySaysSoAndKeepsTheEdit() async {
         let model = themed()
         writer.topicResult = .staleRevision
+        writer.latestResult = .offline
         model.appearance.color = .pink
         await model.saveDetails()
         #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
+        #expect(!model.detailsBanner!.contains("latest"), "the screen doesn't show a newer copy")
+        #expect(writer.calls.count == 1)
         #expect(model.appearance.color == .pink)
         #expect(model.topic.appearance == Self.saved)
     }
@@ -284,19 +289,144 @@ extension TopicSettingsModelTests {
                 == .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 4))
     }
 
-    /// Another device changed the field being edited (no sync yet): the conflict shows, the edit
-    /// stays, nothing is sent again.
+    /// Another device changed the field being edited (no sync yet): the conflict names it, the
+    /// edit stays, nothing is sent again, and the other fields show the fresh copy.
     @Test func aChangeFromElsewhereToTheSameFieldConflicts() async {
+        let model = themed()
+        writer.server.revision = 4
+        writer.server.appearance.color = .indigo
+        writer.server.description = "Changed on the iPad"
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(model.detailsBanner == TopicWriteMessage.conflict(["colour"]))
+        #expect(
+            model.detailsBanner
+                == "The colour was changed elsewhere. Your edit is still here; save again to keep it.")
+        #expect(model.appearance.color == .pink, "the edit stays")
+        #expect(model.description == "Changed on the iPad", "an untouched field takes the fresh copy")
+        #expect(model.detailsDirty)
+        #expect(writer.latestCalls == 1)
+        #expect(writer.latestIds == [model.topic.id], "read by the topic's id")
+        #expect(writer.calls.count == 1, "not sent again")
+        #expect(model.topic.appearance.color == .indigo, "the screen has the fresh copy")
+    }
+
+    /// Milestone review C1: after the conflict the base is the fresh copy, so the next Save is a
+    /// deliberate overwrite on its revision and goes through.
+    @Test func aConflictThenASecondSaveSucceeds() async {
         let model = themed()
         writer.server.revision = 4
         writer.server.appearance.color = .indigo
         model.appearance.color = .pink
         await model.saveDetails()
-        #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
+        #expect(model.detailsBanner == TopicWriteMessage.conflict(["colour"]))
+        await model.saveDetails()
+        let change = TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink)))
+        #expect(writer.calls == [.details(change, expectedRevision: 3), .details(change, expectedRevision: 4)])
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved"])
+        #expect(model.topic.revision == 5 && model.topic.appearance.color == .pink)
+        #expect(!model.detailsDirty)
+    }
+
+    /// Several edited fields changed elsewhere: the message names each, in the form's order.
+    @Test func aConflictNamesEachChangedField() async {
+        let model = themed()
+        writer.server.revision = 4
+        writer.server.name = "Renamed"
+        writer.server.appearance.tags = ["Swim"]
+        writer.server.appearance.icon = .emoji("🏊")
+        model.name = "Feelings"
+        model.appearance.icon = "☺"
+        model.removeTag(at: 0)
+        await model.saveDetails()
+        let expected =
+            "The name, emoji and tags were changed elsewhere. "
+            + "Your edits are still here; save again to keep them."
+        #expect(model.detailsBanner == expected)
+        #expect(model.name == "Feelings" && model.appearance.tags == ["run"])
+    }
+
+    /// An edited field changed elsewhere to the same value is no conflict: the change goes again.
+    @Test func theSameChangeFromElsewhereIsNoConflict() async {
+        let model = themed()
+        writer.server.revision = 4
+        writer.server.appearance.color = .pink
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(writer.calls.count == 2)
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved"])
+    }
+
+    /// Milestone review X2: another unrelated write lands between the re-read and the resend: the
+    /// save reads again and still goes through (the third and last attempt).
+    @Test func twoUnrelatedWritesInARowStillSave() async {
+        let model = themed()
+        writer.server.revision = 4
+        writer.server.description = "Changed on the iPad"
+        writer.whileSaving = { [writer] in
+            // The second send meets another change made elsewhere.
+            guard writer.calls.count == 2 else { return }
+            writer.server.revision = 5
+            writer.server.name = "Renamed on the Mac"
+        }
+        model.appearance.color = .pink
+        await model.saveDetails()
+        let change = TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink)))
+        #expect(
+            writer.calls == [
+                .details(change, expectedRevision: 3), .details(change, expectedRevision: 4),
+                .details(change, expectedRevision: 5),
+            ])
+        #expect(writer.latestCalls == 2)
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved"])
+        #expect(model.name == "Renamed on the Mac" && model.description == "Changed on the iPad")
+        #expect(model.topic.revision == 6 && model.topic.appearance.color == .pink)
+    }
+
+    /// Milestone review X2: every send meets another unrelated change: after three sends the save
+    /// stops with "keeps changing", not a conflict, and the edit stays for the next Save.
+    @Test func threeContentionsSayBusy() async {
+        let model = themed()
+        writer.whileSaving = { [writer] in
+            writer.server.revision += 1
+            writer.server.description = "Edit \(writer.server.revision)"
+        }
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(writer.calls.count == 3)
+        #expect(writer.calls.map(\.expectedRevision) == [3, 4, 5])
+        #expect(model.detailsBanner == TopicWriteMessage.contention)
+        #expect(model.detailsBanner != TopicWriteMessage.conflict(["colour"]))
         #expect(model.appearance.color == .pink, "the edit stays")
-        #expect(writer.latestCalls == 1)
-        #expect(writer.calls.count == 1, "not sent again")
-        #expect(model.topic.appearance.color == .indigo, "the screen has the fresh copy")
+        #expect(titles.isEmpty)
+        // The contention eases: the next Save goes through on the newest copy.
+        writer.whileSaving = nil
+        await model.saveDetails()
+        #expect(writer.calls.last?.expectedRevision == 6)
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved"])
+    }
+
+    /// Milestone review C4: a 422 on the tag typed but not added (sent last) lands on "Add a tag".
+    @Test func aServerErrorOnThePendingTagLandsOnAddATag() async {
+        let model = themed()
+        model.appearance.newTag = "swim"
+        writer.topicResult = .rejected(
+            Problem(
+                code: .invalidRequest, detail: "Request validation failed",
+                errors: [FieldIssue(location: NewTopicModelTests.appearancePath(.key("tags"), .index(2)), message: "x")]
+            ))
+        await model.saveDetails()
+        #expect(model.appearanceErrors == [.newTag: "X"])
+        #expect(model.appearance.newTag == "swim")
+        // Without the pending text, the same index lights up the list.
+        model.appearance.newTag = ""
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(model.appearanceErrors == [.tags: "X"])
     }
 
     /// Another device changed a different field (no sync yet): the same edits go once more on the
@@ -332,7 +462,7 @@ extension TopicSettingsModelTests {
             writer.calls == [
                 .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 3)
             ])
-        #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
+        #expect(model.detailsBanner == TopicWriteMessage.conflict(["colour"]))
     }
 
     /// Codex final #1: a newer copy that the store brought while the save was in flight wins over
@@ -368,7 +498,7 @@ extension TopicSettingsModelTests {
         model.name = "Feelings"
         await model.saveDetails()
         #expect(writer.calls == [.details(TopicDetailsChange(name: "Feelings"), expectedRevision: 3)])
-        #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
+        #expect(model.detailsBanner == TopicWriteMessage.conflict(["name"]))
         #expect(model.name == "Feelings")
     }
 
@@ -392,5 +522,13 @@ extension TopicSettingsModelTests {
         await model.saveDetails()
         #expect(writer.calls.last == .details(TopicDetailsChange(name: "Feelings"), expectedRevision: 4))
         #expect(model.detailsBanner == nil)
+    }
+}
+
+extension FakeTopicWriter.Call {
+    /// A Details save's `expected_revision`; nil for the other calls.
+    var expectedRevision: Int? {
+        if case .details(_, let revision) = self { return revision }
+        return nil
     }
 }

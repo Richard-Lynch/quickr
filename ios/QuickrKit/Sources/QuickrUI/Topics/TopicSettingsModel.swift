@@ -125,25 +125,44 @@ public final class TopicSettingsModel {
 
         static let allCases: [DetailsField] =
             [.name, .slug, .description] + AppearanceDraft.Part.allCases.map(DetailsField.appearance)
+
+        /// Its name in a message, as on screen.
+        var label: String {
+            switch self {
+            case .name: "name"
+            case .slug: "URL slug"
+            case .description: "description"
+            case .appearance(.color): "colour"
+            case .appearance(.icon): "emoji"
+            case .appearance(.tags): "tags"
+            }
+        }
     }
 
+    /// A Details save is sent at most this many times when other changes keep answering
+    /// `staleRevision` (the first send included).
+    static let maxSaveAttempts = 3
+
     /// The fields the user has edited since `detailsBase`.
-    private var editedFields: [DetailsField] {
-        let parts = appearance.edited(from: detailsBase.appearance)
+    private var editedFields: [DetailsField] { fields(differingFrom: detailsBase) }
+
+    /// The fields whose value on screen differs from `topic`'s.
+    private func fields(differingFrom topic: Topic) -> [DetailsField] {
+        let parts = appearance.edited(from: topic.appearance)
         return DetailsField.allCases.filter { field in
             switch field {
-            case .name: name != detailsBase.name
-            case .slug: slug != detailsBase.slug
-            case .description: description != detailsBase.description
+            case .name: name != topic.name
+            case .slug: slug != topic.slug
+            case .description: description != topic.description
             case .appearance(let part): parts.contains(part)
             }
         }
     }
 
-    /// Whether any of `fields` differs between two copies of the topic.
-    private static func changed(_ fields: [DetailsField], from a: Topic, to b: Topic) -> Bool {
+    /// Those of `fields` that differ between two copies of the topic.
+    private static func changed(_ fields: [DetailsField], from a: Topic, to b: Topic) -> [DetailsField] {
         let parts = AppearanceDraft(a.appearance).edited(from: b.appearance)
-        return fields.contains { field in
+        return fields.filter { field in
             switch field {
             case .name: a.name != b.name
             case .slug: a.slug != b.slug
@@ -156,8 +175,15 @@ public final class TopicSettingsModel {
     /// `newer` becomes the base unless it changed an edited field; the fields not edited take its
     /// values.
     private func rebaseDetails(on newer: Topic) {
+        guard Self.changed(editedFields, from: detailsBase, to: newer).isEmpty else { return }
+        moveDetailsBase(to: newer)
+    }
+
+    /// `newer` becomes the base even when it changed an edited field (a conflict the screen has
+    /// shown): the fields not edited take its values, the edits stay, and the next save sends its
+    /// revision, so it keeps them.
+    private func moveDetailsBase(to newer: Topic) {
         let edited = editedFields
-        guard !Self.changed(edited, from: detailsBase, to: newer) else { return }
         detailsBase = newer
         for field in DetailsField.allCases where !edited.contains(field) {
             switch field {
@@ -183,9 +209,14 @@ public final class TopicSettingsModel {
     }
 
     /// "Save details": validates like the form, sends only the changed fields (the appearance's
-    /// among them) in one PATCH, with the base's revision. A `staleRevision` from a change made
-    /// elsewhere that left the edited fields alone is sent again once, on a fresh copy's revision
-    /// (the PWA's `MetaForm`); only an edited field changed elsewhere shows the conflict.
+    /// among them) in one PATCH, with the base's revision. On a `staleRevision` the server's copy
+    /// is read again by the topic's id (its slug may have changed):
+    ///
+    /// - It changed none of the edited fields: the same change goes again on its revision, up to
+    ///   ``maxSaveAttempts`` sends in all; then "keeps changing elsewhere" (contention, not a
+    ///   conflict).
+    /// - It changed an edited field: the conflict names the field(s) and the base moves to it
+    ///   (the other fields show it, the edits stay), so the next save is a deliberate overwrite.
     public func saveDetails() async {
         guard !isSavingDetails else { return }
         detailsAttempts += 1
@@ -214,17 +245,34 @@ public final class TopicSettingsModel {
         isSavingDetails = true
         let oldSlug = base.slug
         var outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: base.revision)
-        if case .staleRevision = outcome, case .done(let fresh) = await writer.latestTopic(topicId: base.id) {
-            if Self.changed(edited, from: base, to: fresh) {
-                // An edited field changed elsewhere: the conflict shows, the edits stay.
-                adopt(fresh)
-            } else {
-                outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: fresh.revision)
+        var attempts = 1
+        var conflict: (fields: [DetailsField], fresh: Topic)?
+        var contended = false
+        while case .staleRevision = outcome, case .done(let fresh) = await writer.latestTopic(topicId: base.id) {
+            adopt(fresh)
+            // An edited field changed elsewhere to the value on screen is no conflict.
+            let differing = fields(differingFrom: fresh)
+            let changed = Self.changed(edited, from: base, to: fresh).filter(differing.contains)
+            if !changed.isEmpty {
+                conflict = (changed, fresh)
+                break
             }
+            guard attempts < Self.maxSaveAttempts else {
+                contended = true
+                break
+            }
+            attempts += 1
+            outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: fresh.revision)
         }
         let saved = detailsSaved(outcome)
         isSavingDetails = false
         guard saved else {
+            if let conflict {
+                moveDetailsBase(to: conflict.fresh)
+                detailsBanner = TopicWriteMessage.conflict(conflict.fields.map(\.label))
+            } else if contended {
+                detailsBanner = TopicWriteMessage.contention
+            }
             // Copies that arrived during the save are considered now.
             rebaseDetails(on: topic)
             return
