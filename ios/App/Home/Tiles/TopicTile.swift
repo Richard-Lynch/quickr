@@ -93,13 +93,12 @@ struct TopicTile: View {
     static func reopen(_ topic: Topic, now: Date) -> Reopen? { nil }
 
     private func reopenButton(_ reopen: Reopen, slug: String) -> some View {
-        let label = CardLabel(reopen.action, topic: topic.topic.name)
-        return Button(action: reopen.perform) {
-            Label("Resume · \(DurationFormat.format(reopen.totalMs))", systemImage: label.systemImage)
+        Button(action: reopen.perform) {
+            Label("Resume · \(DurationFormat.format(reopen.totalMs))", systemImage: reopen.action.systemImage)
         }
         .buttonStyle(.qr(.ghost, size: .small))
         .disabled(!reopen.action.enabled)
-        .accessibilityLabel(label.spoken)
+        .accessibilityLabel(reopen.action.spokenTitle(topic: topic.topic.name))
         .accessibilityIdentifier("tile.\(slug).reopen")
     }
 

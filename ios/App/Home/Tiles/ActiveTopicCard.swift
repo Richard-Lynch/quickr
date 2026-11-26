@@ -26,7 +26,7 @@ struct ActiveTopicCard: View {
     var body: some View {
         let now = environment.runTicker.serverNow
         let paused = run.status == .paused
-        let timer = run.steps.map(TopicTimer.init(steps:))
+        let timer = run.timer
         let resuming = Self.isResuming(run)
         // A queued reopen shows no controls until the ack (§1.2 row 11, §3.3).
         let controls =
@@ -40,7 +40,7 @@ struct ActiveTopicCard: View {
         let slug = topic.topic.slug
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 8) {
-                summary(now: now, timer: timer, paused: paused, resuming: resuming, slug: slug)
+                summary(now: now, paused: paused, resuming: resuming, slug: slug)
                 if !stacked, let action = controls.pauseResume { pauseButton(action, slug: slug) }
             }
             if stacked, let action = controls.pauseResume { pauseButton(action, slug: slug) }
@@ -77,7 +77,7 @@ struct ActiveTopicCard: View {
 
     /// The title, the clocks and the headline: for VoiceOver one element that opens the run, read
     /// first (§7).
-    private func summary(now: Int, timer: TopicTimer?, paused: Bool, resuming: Bool, slug: String) -> some View {
+    private func summary(now: Int, paused: Bool, resuming: Bool, slug: String) -> some View {
         let segment = RunPresentation.segmentMs(run.state, now: now)
         let total = RunPresentation.activeMs(run.state, now: now)
         return VStack(alignment: .leading, spacing: 6) {
@@ -101,7 +101,7 @@ struct ActiveTopicCard: View {
                 }
             }
             QuickrBadge(
-                Self.headline(run, timer: timer, resuming: resuming), icon: paused ? .pause : .timer,
+                Self.headline(run, resuming: resuming), icon: paused ? .pause : .timer,
                 tone: paused ? .warn : .accent
             )
             .accessibilityIdentifier("run.status")
@@ -137,15 +137,14 @@ struct ActiveTopicCard: View {
     /// The small Pause/Resume text button: in the title row, under the headline at accessibility
     /// sizes (§3.2). A 44 pt target (the small size's hit area).
     private func pauseButton(_ action: RunAction, slug: String) -> some View {
-        let label = CardLabel(action, topic: topic.topic.name)
-        return Button {
+        Button {
             perform(action)
         } label: {
-            Label(label.title, systemImage: label.systemImage)
+            Label(action.title, systemImage: action.systemImage)
         }
         .buttonStyle(.qr(.ghost, size: .small))
         .disabled(!action.enabled || busy)
-        .accessibilityLabel(label.spoken)
+        .accessibilityLabel(action.spokenTitle(topic: topic.topic.name))
         .accessibilityIdentifier("tile.\(slug).\(action.id)")
         // Last in the card's order (§7): summary 3, primary 2, Stop 1, then this.
         .accessibilitySortPriority(0)
@@ -157,11 +156,10 @@ struct ActiveTopicCard: View {
         let layout = stacked ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
         return layout {
             if let primary = controls.primary {
-                let label = CardLabel(primary, topic: topic.topic.name)
                 Button {
                     perform(primary)
                 } label: {
-                    Label(label.title, systemImage: label.systemImage)
+                    Label(primary.title, systemImage: primary.systemImage)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
                         .multilineTextAlignment(.center)
@@ -169,23 +167,22 @@ struct ActiveTopicCard: View {
                 }
                 .buttonStyle(.qr(.primary, size: .large))
                 .disabled(!primary.enabled || busy)
-                .accessibilityLabel(label.spoken)
+                .accessibilityLabel(primary.spokenTitle(topic: topic.topic.name))
                 .accessibilityIdentifier("tile.\(slug).run")
                 .accessibilitySortPriority(2)
             }
             if let stop = controls.stop {
-                let label = CardLabel(stop, topic: topic.topic.name)
                 Button {
                     perform(stop)
                 } label: {
-                    Label(label.title, systemImage: label.systemImage)
+                    Label(stop.title, systemImage: stop.systemImage)
                         .frame(maxWidth: stacked ? .infinity : nil)
                         .frame(minWidth: stacked ? nil : QuickrMetrics.logBlockWidth)
                 }
                 .buttonStyle(.qr(.secondary, size: .large))
                 .fixedSize(horizontal: !stacked, vertical: false)
                 .disabled(!stop.enabled || busy)
-                .accessibilityLabel(label.spoken)
+                .accessibilityLabel(stop.spokenTitle(topic: topic.topic.name))
                 .accessibilityIdentifier("tile.\(slug).stop")
                 .accessibilitySortPriority(1)
             }
@@ -224,44 +221,16 @@ struct ActiveTopicCard: View {
 
     // MARK: - Text
 
-    /// "Running · Rest 2 · lap 4" / "Paused · Shower" (`RunPresentation.headline`); "Running" alone
+    /// "Running · Rest 2 · lap 4" / "Paused · Shower" (`RunHeadline`); "Running" alone
     /// when nothing is open; "Resuming…" while a reopen is queued.
-    static func headline(_ run: LocalRun, timer: TopicTimer?, resuming: Bool) -> String {
+    static func headline(_ run: LocalRun, resuming: Bool) -> String {
         if resuming { return "Resuming…" }
         let status = run.status == .paused ? "Paused" : "Running"
-        guard run.state.open != nil else { return status }
-        return "\(status) · \(RunPresentation.headline(run.state, status: run.status, timer: timer).text)"
+        return RunHeadline.text(run).map { "\(status) · \($0)" } ?? status
     }
 
     /// Seam, pending M1: the queued, unacked `reopen` of timers2.md §5.3 ("Resuming…", no
     /// controls until the ack, §3.3). M1 has no such projection on `LocalRun` yet, so a reopened
     /// run shows as plain "Running" (§8.2).
     static func isResuming(_ run: LocalRun) -> Bool { false }
-}
-
-/// A run action's title, SF Symbol and VoiceOver label on the home tiles (active-surfaces.md
-/// §1.3).
-struct CardLabel {
-    var title: String
-    var systemImage: String
-    var spoken: String
-
-    init(_ action: RunAction, topic: String) {
-        switch action.kind {
-        case .start: (title, systemImage, spoken) = ("Start", "play", "Start \(topic)")
-        case .next(let label): (title, systemImage, spoken) = ("Next: \(label)", "chevron.right", "Next: \(label)")
-        case .lap(nil): (title, systemImage, spoken) = ("Lap", "flag", "Lap")
-        case .lap(let next?): (title, systemImage, spoken) = ("Lap → \(next)", "flag", "Lap, then \(next)")
-        case .skip(let label): (title, systemImage, spoken) = ("Skip \(label)", "forward.end", "Skip \(label)")
-        case .pause: (title, systemImage, spoken) = ("Pause", "pause", "Pause")
-        case .resume: (title, systemImage, spoken) = ("Resume", "play", "Resume")
-        case .stop: (title, systemImage, spoken) = ("Stop", "stop", "Stop \(topic)")
-        case .addDetails: (title, systemImage, spoken) = ("Add details", "pencil", "Add details to \(topic)")
-        case .reopen:
-            (title, systemImage, spoken) = ("Resume run", "arrow.uturn.backward", "Resume the last run of \(topic)")
-        case .revert:
-            (title, systemImage, spoken) = ("Undo resume…", "arrow.uturn.forward", "Undo the resume and keep the stop")
-        case .discard: (title, systemImage, spoken) = ("Discard run…", "trash", "Discard run")
-        }
-    }
 }
