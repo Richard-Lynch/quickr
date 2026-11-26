@@ -231,6 +231,47 @@ async function openEditor(user: ReturnType<typeof userEvent.setup>) {
   return screen.getByRole('form', { name: 'Edit times' });
 }
 
+describe('EntryEditPage timing rows', () => {
+  it('lists the pauses as rows between the segments they fall in, in time order', async () => {
+    // pauses[0] (8:03:10–8:03:30) is in Dry; pauses[1] (8:00:30–8:00:50) in Wash.
+    stubServer(
+      entry({
+        ...steppedTiming,
+        paused_ms: 40_000,
+        pauses: [
+          { start: '2026-10-23T08:03:10Z', end: '2026-10-23T08:03:30Z' },
+          { start: '2026-10-23T08:00:30Z', end: '2026-10-23T08:00:50Z' },
+        ],
+      }),
+      undefined,
+      stepped,
+    );
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    const rows = within(within(section).getByRole('list', { name: 'Segments' })).getAllByRole(
+      'listitem',
+    ) as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+    expect(rows.map((r) => r.dataset.testid)).toEqual([
+      'entry.timing.segment.0',
+      'entry.timing.pause.1',
+      'entry.timing.segment.1',
+      'entry.timing.pause.0',
+    ]);
+    expect(rows[1].textContent).toBe('Paused · 0:20');
+    expect(rows[1]).toHaveAccessibleName('Paused, 20 seconds');
+    expect(rows[0].textContent).toContain('Wash');
+    expect(rows[2].textContent).toContain('Dry');
+  });
+
+  it('shows no pause rows for a run without pauses', async () => {
+    stubServer(entry(steppedTiming), undefined, stepped);
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    expect(within(section).getByTestId('entry.timing.segment.1')).toBeInTheDocument();
+    expect(within(section).queryByTestId('entry.timing.pause.0')).toBeNull();
+  });
+});
+
 describe('EntryEditPage Edit times', () => {
   it('sends the edited timing with expected_revision and no captured_at', async () => {
     const patches = stubServer({ ...entry(steppedTiming), revision: 4 }, undefined, stepped);
