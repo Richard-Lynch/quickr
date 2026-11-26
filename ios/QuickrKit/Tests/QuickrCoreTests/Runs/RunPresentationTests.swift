@@ -472,15 +472,47 @@ import Testing
         #expect(line(stopped, 6_000) == nil)
     }
 
-    @Test("resumable stays false here: the latest-stop and open-run rules are I1-WRITES' (store context)")
-    func resumableIsWrites() throws {
-        let now = Date()
-        let entry = Entry(
-            id: UUID(), topicId: UUID(), version: 1, revision: 1, source: "ios", channel: .ios, capturedAt: now,
-            createdAt: now, updatedAt: now, answers: [:],
-            timing: Timing(
-                startedAt: 0, endedAt: 5, activeMs: 5, pausedMs: 0, complete: true, edited: false, segments: [],
-                skipped: [], pauses: []))
-        #expect(RunPresentation.resumable(entry, now: now) == false)
+    private static func timedEntry(endedAt: Int, startedAt: Int? = nil, edited: Bool = false, timed: Bool = true)
+        -> Entry
+    {
+        let at = RunInstant.date(endedAt)
+        return Entry(
+            id: UUID(), topicId: UUID(), version: 1, revision: 2, source: "ios", channel: .ios, capturedAt: at,
+            createdAt: at, updatedAt: at, answers: [:],
+            timing: timed
+                ? Timing(
+                    startedAt: startedAt ?? endedAt - 60_000, endedAt: endedAt, activeMs: 60_000, pausedMs: 0,
+                    complete: true, edited: edited, segments: [], skipped: [], pauses: [], terminalId: "s1")
+                : nil)
+    }
+
+    @Test("R18 · resumable (OQ-1): an unedited timed entry within 15 minutes of its stop; answers don't count")
+    func resumableWindow() throws {
+        let stop = 1_800_000_000_000
+        let window = RunPresentation.reopenWindowMs
+        let entry = Self.timedEntry(endedAt: stop)
+        #expect(RunPresentation.resumable(entry, now: RunInstant.date(stop)))
+        #expect(RunPresentation.resumable(entry, now: RunInstant.date(stop + window)))
+        #expect(!RunPresentation.resumable(entry, now: RunInstant.date(stop + window + 1)), "after 15 minutes")
+        // A TimingEdit blocks it; answers, notes and meta changes (the revision) don't.
+        #expect(!RunPresentation.resumable(Self.timedEntry(endedAt: stop, edited: true), now: RunInstant.date(stop)))
+        var answered = entry
+        answered.revision = 5
+        answered.notes = "later"
+        #expect(RunPresentation.resumable(answered, now: RunInstant.date(stop + 1)))
+        // An untimed entry has no run.
+        #expect(!RunPresentation.resumable(Self.timedEntry(endedAt: stop, timed: false), now: RunInstant.date(stop)))
+    }
+
+    @Test("R18 · resumable from the entry detail: within 7 days of the run's start (OQ-1)")
+    func resumableFromDetail() throws {
+        let start = 1_800_000_000_000
+        let entry = Self.timedEntry(endedAt: start + 60_000, startedAt: start)
+        let week = RunPresentation.entryReopenWindowMs
+        #expect(week == 7 * 24 * 3600 * 1000)
+        #expect(RunPresentation.resumableFromDetail(entry, now: RunInstant.date(start + week)))
+        #expect(!RunPresentation.resumableFromDetail(entry, now: RunInstant.date(start + week + 1)))
+        let edited = Self.timedEntry(endedAt: start + 60_000, startedAt: start, edited: true)
+        #expect(!RunPresentation.resumableFromDetail(edited, now: RunInstant.date(start + 1)))
     }
 }

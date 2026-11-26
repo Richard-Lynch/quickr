@@ -1,0 +1,13 @@
+I found two actionable deviations.
+
+1. **P1 — A remote revert after the reopen is acknowledged produces no notice.** [Outbox.swift](/Users/richie/code/quickr-worktrees/t2-m1-writes-ios/ios/QuickrKit/Sources/QuickrData/Outbox/Outbox.swift:676) records notices only while applying the acknowledgement for a local outbox item. If this device’s reopen is acknowledged as applied and another device later discards it, the changed effect arrives in the run feed; there is no corresponding `RunVoid` evaluation on that path. The reopening device therefore misses the §9.3 `reverted` notice. Detect a transition of a locally originated reopen to `reverted` when applying a run update, and persist a deduplicated notice there. Add a two-device test in which the reopen ack precedes the remote discard.
+
+2. **P2 — Resume can be offered for an older stop when the latest run is finishing.** [RunOverlay+Reopen.swift](/Users/richie/code/quickr-worktrees/t2-m1-writes-ios/ios/QuickrKit/Sources/QuickrData/Store/RunOverlay+Reopen.swift:261) excludes open runs and the candidate entry’s own finishing run, but determines the latest stop solely from visible timed entries. A newer run that stopped without required answers is finishing and has no entry, so an older entry within the 15-minute window can be considered the latest stop. Include locally known stopped and finishing runs when determining the topic’s latest stop, and test an older saved entry followed by a newer finishing run.
+
+I did not find another concrete deviation in the requested paths. This review was based on source and diff inspection; I did not run the test suites.
+---
+
+## Resolution (t2-m1-writes-ios)
+
+1. **P1, a remote revert after the reopen was acked gives no notice.** Justified and filed as #228 (`t2-followup`). After a revert the run is closed, so the feed carries a `run` deletion (`{id, revision}`), not the run's events. iOS can't see the `reverted` effect without an extra `getRun`, and it keeps no record of its acked reopens. The PWA (#198) has the same limit: its notices come from acks too. Today's mitigation: a tap this device queued after the reopen is acked `after_stop` with a notice. The fix needs a decision that covers both clients, so it's in #228. The ack path is implemented and tested (`revertedElsewhereIsNoticed`, `revertedHereIsSilent`, `noticeRecipients`).
+2. **P2, Resume offered past a newer finishing run.** Fixed. `RunOverlay.resumable` now also counts a later stop of any run still in the local view (finishing, or stopped and queued) when it decides which stop is the latest. Test: `RunLocalViewTests` "resumable: not for an older entry once a newer run stopped and is finishing". A mutation check confirms the test fails without the fix.

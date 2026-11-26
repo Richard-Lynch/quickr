@@ -223,10 +223,19 @@ import Testing
             try Self.dump(db, tables: storeTables, columns: try Self.storeV1Columns(db, tables: storeTables))
         }
         // Today's topic reads join v2's `topic_version.timer_json` (a v1 file has none, so every
-        // timer is null): add the column, read, and roll back, leaving the file v1.
+        // timer is null), and today's entry reads consult v3's runs (an open run hides its entry,
+        // timers2.md §5.3; a v1 file has none): add them, read, and roll back, leaving the file v1.
         var viewsBefore: Views?
         try before.inTransaction { db in
             try db.execute(sql: "ALTER TABLE topic_version ADD COLUMN timer_json TEXT")
+            try db.execute(
+                sql: """
+                    CREATE TABLE run (
+                      id TEXT PRIMARY KEY NOT NULL, topic_id TEXT NOT NULL, status TEXT NOT NULL,
+                      revision INTEGER NOT NULL, started_at INTEGER NOT NULL, run_json TEXT NOT NULL);
+                    CREATE TABLE run_alias (
+                      id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL, topic_id TEXT NOT NULL);
+                    """)
             viewsBefore = try Self.views(db)
             return .rollback
         }

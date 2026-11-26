@@ -103,9 +103,9 @@ public enum RunPresentation {
     ///   open run: A15) are `resumable`'s and the surface's. A topic with no run doesn't call this.
     /// - A finishing run: `addDetails`, `discard` (row 12).
     ///
-    /// Not expressible here: rows 11 (a queued reopen: I1-WRITES' "resuming" projection shows no
-    /// controls) and 14 (busy: I1-WRITES' cooldown sets `enabled`). Every action returned is
-    /// enabled.
+    /// Not expressible here: rows 11 (a queued reopen's "resuming" run shows no controls) and 14
+    /// (busy: every `enabled` false). `RunActions.actions(for:timer:now:)` adds both. Every
+    /// action returned here is enabled.
     // Verbatim from timers2.md §10 (A13).
     public static func actions(_ state: RunState, status: RunStatus, timer: TopicTimer?, now: Date) -> [RunAction] {
         switch status {
@@ -189,12 +189,25 @@ public enum RunPresentation {
         return "\(next.label) · in \(DurationFormat.format(next.at - active))"
     }
 
-    /// Whether the entry's run can be reopened (active-surfaces.md OQ-1: an unedited timed entry
-    /// of the topic's latest stop, within 15 minutes, while the topic has no other open run).
-    /// T2-M1: false until I1-WRITES, which owns the store-level half (the latest stop, the open
-    /// run); `Entry` alone can't tell.
+    /// OQ-1: from the entry detail, a run can be reopened within 7 days of its start.
+    public static let entryReopenWindowMs = 7 * 24 * 60 * 60 * 1000
+
+    /// The entry's half of "resumable" (timers2.md glossary, OQ-1) on tiles, toasts and the run
+    /// screen: a timed entry whose times are unedited (`timing.edited == false`, i.e.
+    /// `run.edited == false`; answers, notes and meta changes don't count), within
+    /// `reopenWindowMs` of its stop. The store's half (the entry is the topic's latest stop, the
+    /// topic has no locally open run: A15, and the run isn't open here already) is
+    /// `RunOverlay.resumable(_:entryId:now:)`, which surfaces call; `Entry` alone can't tell.
     public static func resumable(_ entry: Entry, now: Date) -> Bool {
-        return false
+        guard let timing = entry.timing, !timing.edited else { return false }
+        return RunInstant.milliseconds(now) - timing.endedAt <= reopenWindowMs
+    }
+
+    /// `resumable` from the entry detail (OQ-1): unedited, within `entryReopenWindowMs` of the
+    /// run's start.
+    public static func resumableFromDetail(_ entry: Entry, now: Date) -> Bool {
+        guard let timing = entry.timing, !timing.edited else { return false }
+        return RunInstant.milliseconds(now) - timing.startedAt <= entryReopenWindowMs
     }
 
     // MARK: - The step list
