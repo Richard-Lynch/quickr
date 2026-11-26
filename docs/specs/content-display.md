@@ -175,6 +175,10 @@ Consumers: `backend/tests` (the reference itself), PWA
   page, not per topic. `home-vectors.json` gains `last_entry` per topic; its
   cases (ordering, due state) are unchanged (M4-LASTENTRY, amended 2026-11-25:
   Swift decodes that file as `[TopicDetailDTO]`, so the key must be present).
+- **Delivery note (2026-11-30):** M4 ships the field, the staleness bound and
+  the `TopicSummaryLine` component. Rendering it on the PWA and iOS tiles is
+  T2-WIRE-F / T2-WIRE-I (M2's surfaces), and the optimistic enqueue patch below
+  is #169 (M1's `outboxEffects.ts`).
 - **Feed note:** `FeedTopic` embeds `TopicDetail`, so `last_entry` rides along,
   but it is a **derived** field like `entry_count` and `last_captured_at`
   (`api.py:1217-1223` docstring): it is **not** re-sent when entries change.
@@ -285,7 +289,9 @@ ported to `QuickrCore/Charts/ChartModels.swift`.
   one card per lap type: label, `laps` count, median (big), best and mean
   (`data-testid="laptype-{key}"`, `overview.timing.laptype.<key>`), coloured by
   `optionColors(lapTypeKeys)` as steps are (`:25`). The v1 "Runs with laps / Lap
-  time (median)" tiles remain for untyped laps.
+  time (median)" tiles remain when the topic has no lap types; with lap types the
+  cards replace them (amended 2026-11-30: `getTopicTiming` doesn't report untyped
+  laps separately, so a mixed topic's untyped figures are #204).
 - **Stacked chart:** `lapTypesByBucket(series, bucket)` in
   `charts/timingModels.ts` beside `stepsByBucket` (`timingModels.ts:63`): mean
   active ms per run per lap type per bucket; rendered with `StackedBars` under
