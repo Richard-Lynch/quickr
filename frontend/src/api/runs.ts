@@ -6,7 +6,7 @@
  */
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
 
-import { listRuns, type RunOut } from '../client';
+import { listRuns, type FeedDeletion, type RunOut } from '../client';
 import { listRunsQueryKey } from '../client/@tanstack/react-query.gen';
 import { getOutboxSnapshot, isOnline, outbox } from '../lib/outbox/client';
 import { isCachedResponse } from '../lib/runs/serverClock';
@@ -179,13 +179,12 @@ export function upsertServerRun(
  * A `run` deletion (`FeedDeletion`, timers2.md §5.1: the run closed, or was deleted with its
  * topic) under §5.2's rules: against a cached row it applies iff its revision is above the
  * row's, deleting the row (and fencing its aliases for good); it writes, or raises, the
- * marker. A null or missing `revision` (a topic cascade; or a server before M1-FEED) fences
- * for good. The PWA has no feed today: its closes come from its own responses
+ * marker. A null `revision` (a topic cascade) fences for good. The PWA has no feed today: its closes come from its own responses
  * ({@link upsertServerRun}); this is the same rule for a deletion it learns of.
  */
 export function applyRunDeletion(
   qc: QueryClient,
-  deletion: { id: string; revision?: number | null },
+  deletion: Pick<FeedDeletion, 'id' | 'revision'>,
 ): void {
   const revision = deletion.revision ?? Infinity;
   const old = cachedServerRuns(qc);

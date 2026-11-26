@@ -200,10 +200,10 @@ describe('run_closed markers (timers2.md §5.2)', () => {
       expect(ids(qc)).toEqual([[id(7), 5]]);
     });
 
-    it('null (a topic cascade) or absent fences for good', () => {
+    it('null (a topic cascade) fences for good', () => {
       const qc = fresh();
       applyRunDeletion(qc, { id: id(8), revision: null });
-      applyRunDeletion(qc, { id: id(9) });
+      applyRunDeletion(qc, { id: id(9), revision: null });
       expect(listed(qc, [open(id(8), 99), open(id(9), 99)])).toEqual([]);
       upsertServerRun(qc, open(id(8), 99), { ack: reopenAck });
       expect(ids(qc)).toEqual([]);
