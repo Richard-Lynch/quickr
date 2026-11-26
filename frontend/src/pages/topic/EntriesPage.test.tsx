@@ -192,6 +192,9 @@ function stubServer(items: EntryOut[], versionsUp: boolean | Promise<void> = tru
   );
 }
 
+/** The rendered page's query client (to wait on a query's state, or refetch). */
+let qc: QueryClient;
+
 function renderPage() {
   const router = createMemoryRouter(
     [
@@ -203,10 +206,9 @@ function renderPage() {
     ],
     { initialEntries: ['/t/intervals/entries'] },
   );
+  qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider
-      client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
-    >
+    <QueryClientProvider client={qc}>
       <ToastProvider>
         <RouterProvider router={router} />
       </ToastProvider>
@@ -395,6 +397,33 @@ describe('EntriesPage A14 projection', () => {
     expect(within(timingCell).getByTestId('entry-pending')).toBeInTheDocument();
   });
 
+  it('gives way to the server’s entry on the ack', async () => {
+    queued = [runItem('remove', { id: 'x1', run: TIMED, at: T0, target: `${EVENT}1`, steps: [] })];
+    stubServer([removable]);
+    renderPage();
+    const [queuedRow] = (await cards()) as [HTMLElement];
+    expect(within(queuedRow).getByTestId('entry-pending')).toBeInTheDocument();
+    // The ack: the item leaves the outbox and the server's entry (revision bumped) is listed.
+    const segments = removable.timing?.segments ?? [];
+    const [first, , third] = segments;
+    if (!first || !third) throw new Error('fixture');
+    const acked = entry(TIMED, {
+      revision: 2,
+      timing: removable.timing && {
+        ...removable.timing,
+        segments: [{ ...first, ended_at: '2026-10-23T08:08:00Z', active_ms: 480_000 }, third],
+      },
+    });
+    queued = [];
+    stubServer([acked]);
+    await act(() => qc.invalidateQueries());
+    await waitFor(() => {
+      expect(screen.queryAllByTestId('entry-pending')).toHaveLength(0);
+    });
+    const [ackedRow] = (await cards()) as [HTMLElement];
+    expect(within(ackedRow).getByTestId('entry-timing').textContent).toBe('12:40 · 2 laps');
+  });
+
   it('shows the server’s timing, unmarked, with no remove queued for the run', async () => {
     queued = [
       runItem('remove', { id: 'x1', run: UNTIMED, at: T0, target: `${EVENT}1`, steps: [] }),
@@ -435,11 +464,11 @@ describe('EntriesPage summaries before the entry’s version is known (§1.2)', 
     stubServer([timed, oldTimed, old], false);
     renderPage();
     const rows = await cards();
-    const calls = (fetch as unknown as { mock: { calls: [Request][] } }).mock.calls;
+    // Once the versions query has failed (retries are off), not while it is loading.
     await waitFor(() => {
-      expect(calls.some(([r]) => r.url.includes('/versions'))).toBe(true);
+      const [query] = qc.getQueryCache().findAll({ queryKey: [{ _id: 'listTopicVersions' }] });
+      expect(query?.state.status).toBe('error');
     });
-    await act(() => Promise.resolve());
     expect(summaries(rows)).toEqual(['12:40 · 3 laps · Reps: 12', '12:40 · 3 laps', null]);
   });
 });
