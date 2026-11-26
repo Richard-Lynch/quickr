@@ -4,8 +4,9 @@ import QuickrCore
 /// What the Overview's Timing section shows (timers.md §9, §11.2; the PWA's `TimingOverview`),
 /// from `getTopicTiming`: best, median and mean run time over **complete** runs only (OPEN 2),
 /// with how many runs that is; the run time of every run over time; each step's median with its
-/// best marked, retired steps flagged; skipped counts; laps and paused time. Durations are
-/// `m:ss` / `h:mm:ss` (`fmtDuration`).
+/// best marked, retired steps flagged; skipped counts; laps and paused time. A topic with lap types
+/// (content-display.md §4.1) gets one card per type and a stacked time per type in place of the
+/// v1 lap tiles. Durations are `m:ss` / `h:mm:ss` (`fmtDuration`).
 public struct TimingOverviewText: Sendable, Hashable {
     public struct Step: Sendable, Hashable, Identifiable {
         public var id: String { key }
@@ -29,6 +30,21 @@ public struct TimingOverviewText: Sendable, Hashable {
         public var activeMs: Int
         /// Each step segment's key and its active time.
         public var steps: [String: Int]
+        /// Each lap type's key and the run's summed active time in it (untyped laps aren't in it).
+        public var lapTypes: [String: Int]
+    }
+
+    /// A lap type's card (the PWA's `lapTypeCards`): label, lap count, median (the big figure),
+    /// best and mean.
+    public struct LapType: Sendable, Hashable, Identifiable {
+        public var id: String { key }
+        public var key: String
+        public var label: String
+        /// "4 laps".
+        public var laps: String
+        public var median: String
+        public var best: String
+        public var mean: String
     }
 
     /// Each step's mean time per run in one bucket (the PWA's `stepsByBucket`): a run that didn't
@@ -41,6 +57,28 @@ public struct TimingOverviewText: Sendable, Hashable {
     }
 
     public struct StepMean: Sendable, Hashable {
+        public var key: String
+        public var ms: Int
+    }
+
+    /// Each lap type's mean time per run in one bucket (the PWA's `lapTypesByBucket`), as
+    /// ``StepBucket`` is for steps: a run without the type counts as 0. Lap-type and step keys are
+    /// separate, and untyped laps are in neither.
+    public struct LapTypeBucket: Sendable, Hashable {
+        public var start: Date
+        public var count: Int
+        /// By lap-type key, in the cards' order; keys no run in the bucket has are left out.
+        public var meanMs: [LapTypeMean]
+
+        /// The bucket as the stacked bars draw it (`option_counts` keyed by lap type, in ms).
+        public var point: QuestionSeries.Point {
+            QuestionSeries.Point(
+                start: start, count: count, mean: nil, min: nil, max: nil,
+                optionCounts: Dictionary(uniqueKeysWithValues: meanMs.map { ($0.key, $0.ms) }))
+        }
+    }
+
+    public struct LapTypeMean: Sendable, Hashable {
         public var key: String
         public var ms: Int
     }
@@ -81,6 +119,11 @@ public struct TimingOverviewText: Sendable, Hashable {
         }
     }
     public var steps: [Step]
+    /// One card per lap type, in the server's order (the current version's first). When there are
+    /// any, they replace the "Runs with laps" and "Lap time (median)" tiles; the pause tiles stay.
+    public var lapTypes: [LapType]
+    /// The lap types as the stacked chart's options and colour order (key, label; card order).
+    public var lapTypeOptions: [EnumOption] { lapTypes.map { EnumOption(value: $0.key, label: $0.label) } }
     public var runsWithLaps: String
     public var lapMedian: String
     public var runsWithPauses: String
@@ -100,7 +143,9 @@ public struct TimingOverviewText: Sendable, Hashable {
             "Best, median and mean over complete runs: \(timing.completeRuns.formatted()) of \(Self.plural(timing.runs, "run"))"
         points = timing.series.compactMap { point in
             RunInstant.parse(point.capturedAt).map {
-                Point(endedAt: RunInstant.date($0), activeMs: point.activeMs, steps: point.steps)
+                Point(
+                    endedAt: RunInstant.date($0), activeMs: point.activeMs, steps: point.steps,
+                    lapTypes: point.lapTypes)
             }
         }
         let longest = timing.steps.compactMap(\.medianMs).max() ?? 0
@@ -114,6 +159,11 @@ public struct TimingOverviewText: Sendable, Hashable {
                 best: Self.duration(s.bestMs), share: share(s.medianMs), bestShare: share(s.bestMs),
                 counts: Self.plural(s.done, "run") + (s.skipped > 0 ? " · skipped \(s.skipped.formatted())×" : ""))
         }
+        lapTypes = timing.lapTypes.map { t in
+            LapType(
+                key: t.key, label: t.label, laps: Self.plural(t.laps, "lap"), median: Self.duration(t.medianMs),
+                best: Self.duration(t.bestMs), mean: Self.duration(t.meanMs))
+        }
         runsWithLaps = timing.laps.runsWithLaps.formatted()
         lapMedian = Self.duration(timing.laps.medianMs)
         runsWithPauses = timing.paused.runsWithPauses.formatted()
@@ -122,17 +172,35 @@ public struct TimingOverviewText: Sendable, Hashable {
 
     /// The time per step per bucket, stacked (`stepsByBucket`), in the steps' order.
     public func stepTotals(by bucket: QuestionSeries.Bucket, calendar: Calendar) -> [StepBucket] {
+        meanPerRun(by: bucket, calendar: calendar, order: steps.map(\.key), times: \.steps).map {
+            StepBucket(start: $0.start, count: $0.count, meanMs: $0.means.map { StepMean(key: $0.key, ms: $0.ms) })
+        }
+    }
+
+    /// The time per lap type per bucket, stacked (`lapTypesByBucket`), in the cards' order. A
+    /// bucket whose runs have no typed laps is still listed, with no means (an empty bar).
+    public func lapTypeTotals(by bucket: QuestionSeries.Bucket, calendar: Calendar) -> [LapTypeBucket] {
+        meanPerRun(by: bucket, calendar: calendar, order: lapTypes.map(\.key), times: \.lapTypes).map {
+            LapTypeBucket(
+                start: $0.start, count: $0.count, meanMs: $0.means.map { LapTypeMean(key: $0.key, ms: $0.ms) })
+        }
+    }
+
+    /// Each key's floored mean per run in each bucket, oldest first: `order`'s keys first, then
+    /// any other key a run has, sorted. A run without a key counts as 0.
+    private func meanPerRun(
+        by bucket: QuestionSeries.Bucket, calendar: Calendar, order: [String], times: KeyPath<Point, [String: Int]>
+    ) -> [(start: Date, count: Int, means: [(key: String, ms: Int)])] {
         let groups = grouped(by: bucket, calendar: calendar)
-        let order = steps.map(\.key)
         return groups.keys.sorted().map { start in
             let runs = groups[start] ?? []
-            let seen = Set(runs.flatMap(\.steps.keys))
+            let seen = Set(runs.flatMap { $0[keyPath: times].keys })
             let keys = order.filter(seen.contains) + seen.subtracting(order).sorted()
             // Durations are non-negative, so integer division is the floor.
             let means = keys.map { key in
-                StepMean(key: key, ms: runs.reduce(0) { $0 + ($1.steps[key] ?? 0) } / Swift.max(1, runs.count))
+                (key: key, ms: runs.reduce(0) { $0 + ($1[keyPath: times][key] ?? 0) } / Swift.max(1, runs.count))
             }
-            return StepBucket(start: start, count: runs.count, meanMs: means)
+            return (start: start, count: runs.count, means: means)
         }
     }
 

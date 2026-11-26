@@ -94,6 +94,48 @@ import Testing
         #expect(means == [150, 50], "floor(301 / 2); dress 100 and 0")
     }
 
+    /// A typed topic (content-display.md §4.1): one card per lap type in the server's order, and
+    /// `lapTypesByBucket` with a run lacking a type counting 0. Keys that are special elsewhere
+    /// (`constructor` on a JS object) are plain keys, and a lap type `run` never reads step `run`.
+    @Test func lapTypeCardsAndTimePerLapType() throws {
+        let rows = """
+            "lap_types": [
+              {"key": "run", "label": "Run", "laps": 3, "best_ms": 45000, "median_ms": 60000, "mean_ms": 58333},
+              {"key": "constructor", "label": "Constructor", "laps": 1, "best_ms": 20000, "median_ms": 20000,
+               "mean_ms": 20000},
+              {"key": "old", "label": "Old", "laps": 0, "best_ms": null, "median_ms": null, "mean_ms": null}],
+            """
+        let series = [
+            #"{"entry_id": "0a000000-0000-4000-8000-000000000001", "captured_at": "2026-03-02T09:00:00Z", "started_at": "2026-03-02T08:00:00Z", "active_ms": 300, "paused_ms": 0, "complete": true, "steps": {"run": 999}, "lap_types": {"run": 100, "constructor": 20000}}"#,
+            #"{"entry_id": "0a000000-0000-4000-8000-000000000002", "captured_at": "2026-03-02T19:00:00Z", "started_at": "2026-03-02T18:00:00Z", "active_ms": 101, "paused_ms": 0, "complete": false, "steps": {}, "lap_types": {"run": 101}}"#,
+            #"{"entry_id": "0a000000-0000-4000-8000-000000000003", "captured_at": "2026-03-03T19:00:00Z", "started_at": "2026-03-03T18:00:00Z", "active_ms": 50, "paused_ms": 0, "complete": true, "steps": {}, "lap_types": {}}"#,
+        ].joined(separator: ",")
+        let head = Self.three.components(separatedBy: #""lap_types": [],"#)[0]
+        let rest = Self.three.components(separatedBy: #""lap_types": [],"#)[1].components(separatedBy: #""series":"#)[0]
+        let text = TimingOverviewText(try Self.decode(head + rows + rest + #""series": [\#(series)]}"#))
+        let cards = text.lapTypes.map { [$0.key, $0.label, $0.laps, $0.median, $0.best, $0.mean] }
+        #expect(
+            cards == [
+                ["run", "Run", "3 laps", "1:00", "0:45", "0:58"],
+                ["constructor", "Constructor", "1 lap", "0:20", "0:20", "0:20"],
+                ["old", "Old", "0 laps", "—", "—", "—"],
+            ])
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let days = text.lapTypeTotals(by: .day, calendar: calendar)
+        let keys: [[String]] = days.map { $0.meanMs.map(\.key) }
+        let means: [[Int]] = days.map { $0.meanMs.map(\.ms) }
+        let counts: [Int] = days.map(\.count)
+        #expect(keys == [["run", "constructor"], []], "the cards' order; a day without typed laps is an empty bar")
+        #expect(means == [[100, 10000], []], "floor(201 / 2); constructor 20000 and 0")
+        #expect(counts == [2, 1])
+        let point = try #require(days.first?.point)
+        #expect(point.optionCounts == ["run": 100, "constructor": 10000])
+        #expect(point.mean == nil && point.count == 2)
+        let steps = text.stepTotals(by: .day, calendar: calendar).first?.meanMs.map(\.ms)
+        #expect(steps == [499], "step run is its own key: floor(999 / 2)")
+    }
+
     @Test func stepsShowMedianBestRetiredAndSkipped() throws {
         let text = TimingOverviewText(try Self.decode(Self.three))
         let labels = text.steps.map(\.label)
@@ -110,6 +152,7 @@ import Testing
         #expect(shower.bestShare == 0.8)
         #expect(text.lapMedian == "0:15")
         #expect(text.pausedMedian == "—")
+        #expect(text.lapTypes.isEmpty, "untyped laps only: the v1 lap tiles")
     }
 
     @Test func theFixtureDecodesAndShows() throws {
