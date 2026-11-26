@@ -126,6 +126,23 @@ import Testing
         Case(name: "updateTopic.schedule_cleared") { client in
             _ = try await client.updateTopic(ref: topicId.wireString, TopicUpdateDTO(schedule: .null))
         },
+        // T2-M3: the Details save with the appearance (appearance.md §1.1, §7): one PATCH with
+        // `expected_revision`; `null` and `[]` clear, an omitted field is unchanged.
+        Case(name: "updateTopic.appearance") { client in
+            let change = TopicDetailsChange(
+                name: "Everything themed", appearance: AppearanceUpdate(color: .some(.teal), icon: .some(nil), tags: [])
+            )
+            _ = try await client.updateTopic(
+                ref: topicId.wireString, TopicRequests.details(change, expectedRevision: 1))
+        },
+        Case(name: "createTopic.appearance") { client in
+            _ = try await client.createTopic(
+                TopicCreateDTO(
+                    name: "Smoking", slug: "smoking",
+                    questions: [Question(key: "count", label: "Count", kind: .int(.init(min: 0, max: 40)))],
+                    appearance: TopicAppearance(color: .amber, icon: .emoji("🚬"), tags: ["Habit", "Health"])))
+        },
+        // end T2-M3
         Case(name: "archiveTopic") { client in
             _ = try await client.archiveTopic(ref: topicId.wireString, expectedRevision: 1)
         },

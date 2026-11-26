@@ -89,9 +89,8 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     @RequiredKey public var due: DueStatusDTO?
     @RequiredKey public var timer: TopicTimerDTO?
     // T2-M3
-    /// `TopicSummary.appearance` (appearance.md §1.1): optional until the store keeps it
-    /// (I3-STORE makes it a required key); not mapped to the domain yet.
-    public var appearance: TopicAppearance?
+    /// `TopicSummary.appearance` (appearance.md §1.1, §8): always present, every key required.
+    public var appearance: AppearanceDTO
     // end T2-M3
     public var questions: [QuestionDTO]
 
@@ -109,12 +108,14 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     }
 
     public func toDomain() throws -> Topic {
-        Topic(
+        var topic = Topic(
             id: try .wire(id, "topic.id"), slug: slug, name: name, description: description, status: status,
             currentVersion: currentVersion, revision: revision, questionCount: questionCount, entryCount: entryCount,
             lastCapturedAt: lastCapturedAt, createdAt: createdAt, updatedAt: updatedAt, archivedAt: archivedAt,
             schedule: try schedule?.toDomain(), scheduleUpdatedAt: scheduleUpdatedAt, due: due?.toDomain(),
             timer: timer?.toDomain(), questions: try questions.toDomain())
+        topic.appearance = appearance.toDomain()  // T2-M3
+        return topic
     }
 }
 
@@ -139,7 +140,7 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     @RequiredKey public var timer: TopicTimerDTO?
     // T2-M3
     /// See `TopicDetailDTO.appearance`.
-    public var appearance: TopicAppearance?
+    public var appearance: AppearanceDTO
     // end T2-M3
 
     enum CodingKeys: String, CodingKey {
@@ -156,12 +157,14 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     }
 
     public func toDomain() throws -> TopicSummary {
-        TopicSummary(
+        var summary = TopicSummary(
             id: try .wire(id, "topic.id"), slug: slug, name: name, description: description, status: status,
             currentVersion: currentVersion, revision: revision, questionCount: questionCount, entryCount: entryCount,
             lastCapturedAt: lastCapturedAt, createdAt: createdAt, updatedAt: updatedAt, archivedAt: archivedAt,
             schedule: try schedule?.toDomain(), scheduleUpdatedAt: scheduleUpdatedAt, due: due?.toDomain(),
             timer: timer?.toDomain())
+        summary.appearance = appearance.toDomain()  // T2-M3
+        return summary
     }
 }
 

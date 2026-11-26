@@ -18,11 +18,14 @@ import { Badge, Banner, EmptyState, VersionTag } from '../../components/ui/Card'
 import { cn } from '../../components/ui/cn';
 import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
+import { TopicGlyph } from '../../components/ui/TopicGlyph';
+import { topicStyle } from '../../lib/appearance';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { describeSchedule, dueView } from '../../lib/schedule';
 import { DueBadge } from '../../components/topics/TopicTile';
 import { zProblem } from '../../client/zod.gen';
+import { appearanceOf } from '../../lib/topicAppearanceSeam';
 
 interface TopicContext {
   topic: TopicDetail;
@@ -122,6 +125,14 @@ export function TopicTabs() {
   const search = range ? `?range=${range}` : '';
   const archived = topic.status === 'archived';
   const base = `/t/${topic.slug}`;
+  // appearance.md §6.3, §4.3: no colour leaves the header exactly as it was (no style, accent
+  // chrome); a colour themes the header and the active-tab rule. The glyph shows for an emoji, or
+  // the initial when there's a colour; the chips are neutral badges (§5).
+  const appearance = appearanceOf(topic);
+  const tinted = appearance?.color != null;
+  const theme = topicStyle(appearance);
+  const showGlyph = tinted || appearance?.icon != null;
+  const tags = appearance?.tags ?? [];
 
   return (
     <>
@@ -152,7 +163,7 @@ export function TopicTabs() {
         }
       />
       <Page className="gap-4">
-        <section className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3" style={theme}>
           <div className="flex flex-wrap items-center gap-2">
             <VersionTag version={topic.current_version} />
             {archived ? (
@@ -168,6 +179,15 @@ export function TopicTabs() {
               {formatRelative(topic.last_captured_at)}
             </span>
           </div>
+          {tags.length > 0 ? (
+            <ul aria-label="Tags" className="flex flex-wrap gap-1.5">
+              {tags.map((tag) => (
+                <li key={tag}>
+                  <Badge>{tag}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {topic.schedule && !archived ? (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
               <DueBadge view={dueView(topic.due)} />
@@ -180,6 +200,16 @@ export function TopicTabs() {
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
               <h1 className="font-display text-3xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl">
+                {showGlyph ? (
+                  // The name follows, so the glyph's own label would only repeat it.
+                  <span
+                    aria-hidden="true"
+                    data-testid="topic-glyph"
+                    className="mr-2 align-[-0.12em]"
+                  >
+                    <TopicGlyph appearance={appearance} name={topic.name} size={32} />
+                  </span>
+                ) : null}
                 {topic.name}
               </h1>
               {topic.description ? (
@@ -207,6 +237,7 @@ export function TopicTabs() {
 
         <nav
           aria-label="Topic sections"
+          style={theme}
           className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 -mx-4 border-b border-line bg-paper/90 px-4 backdrop-blur-md select-none sm:top-[calc(4rem+env(safe-area-inset-top))] sm:-mx-6 sm:px-6"
         >
           <ul className="flex gap-1">
@@ -219,7 +250,10 @@ export function TopicTabs() {
                     cn(
                       'relative flex h-12 items-center gap-2 px-3 text-sm font-semibold transition-colors',
                       isActive
-                        ? 'text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-accent'
+                        ? cn(
+                            'text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full',
+                            tinted ? 'after:bg-topic-tint' : 'after:bg-accent',
+                          )
                         : 'text-muted hover:text-ink',
                     )
                   }

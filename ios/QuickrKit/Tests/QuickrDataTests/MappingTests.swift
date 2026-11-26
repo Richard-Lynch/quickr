@@ -1,8 +1,10 @@
 import Foundation
+import GRDB
 import QuickrCore
-import QuickrData
 import QuickrTestSupport
 import Testing
+
+@testable import QuickrData
 
 private func decode<Response: WireResponse>(_ type: Response.Type, _ name: String) throws -> Response.Domain {
     let fixture = try Fixtures.api(name)
@@ -287,6 +289,41 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(types.map(\.type) == [.int, .double, .str, .enum])
         #expect(types.first?.jsonSchema["title"] == .string("IntQuestion"))
     }
+
+    // T2-M3
+    /// The appearance of a feed `topic` item reaches `ViewTopic` through the store (appearance.md
+    /// §8), in both layers (a rebuild stages it and the swap copies it), and a later item that
+    /// clears it clears it.
+    @Test func feedTopicsCarryTheirAppearanceToTheView() async throws {
+        let page = try decode(ChangePageDTO.self, "listChanges.bootstrap")
+        let topics = page.items.compactMap { item -> Topic? in
+            if case .topic(_, let topic) = item { return topic }
+            return nil
+        }
+        let s = try TestStore()
+        try s.write { db in
+            for topic in topics {
+                _ = try ServerLayer.upsert(db, topic: topic)
+                _ = try ServerLayer.upsert(db, topic: topic, into: .stage)
+            }
+        }
+        let views = try await s.store.topics.topics()
+        #expect(Set(views.map(\.appearance)) == Set(topics.map(\.appearance)))
+        let themed = try #require(views.first { $0.topic.slug == "everything" })
+        #expect(themed.appearance == TopicAppearance(color: .teal, icon: .emoji("🧪"), tags: ["Health"]))
+        #expect(themed.topic.appearance == themed.appearance)
+        let staged = try s.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM stage_topic").map { try TopicAppearance(serverRow: $0) }
+        }
+        #expect(Set(staged) == Set(topics.map(\.appearance)))
+
+        var cleared = themed.topic
+        cleared.revision += 1
+        cleared.appearance = .empty
+        try s.write { db in _ = try ServerLayer.upsert(db, topic: cleared) }
+        #expect(try await s.store.topics.topic(id: cleared.id)?.appearance == .empty)
+    }
+    // end T2-M3
 }
 
 @Suite(.timeLimit(.minutes(5))) struct RequestDTOTests {
