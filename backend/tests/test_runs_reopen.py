@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from app.db import get_sessionmaker
-from app.models import Entry, FeedKind, RunEvent
+from app.models import Entry, FeedKind, Run, RunEvent
 from tests.fake_apns import FakeApns, token
 from tests.test_api_runs import (
     NOW,
@@ -602,3 +602,42 @@ async def test_an_applied_reopen_pushes_start(client: httpx.AsyncClient, fake_ap
     void = await run.tap("reopen", 120, target=stop, device=device(phone_a))
     assert void["event"]["reason"] == "not_stopped"
     assert [aps(s)["event"] for s in to(fake_apns, b)] == []
+
+
+async def test_an_entry_deleted_while_its_run_is_open_again_stays_gone(client: httpx.AsyncClient) -> None:
+    """Issue #183's default: the re-stop closes the run without recreating the deleted entry."""
+    run, stop = await stopped_run(client)
+    await run.tap("reopen", 110, target=stop)
+    assert (await client.delete(f"/entries/{run.id}")).status_code == 204
+    before = await head()
+    result = await run.tap("stop", 150)
+    assert (result["event"]["effect"], result["run"]["status"], result["entry"]) == (
+        "applied",
+        "stopped",
+        None,
+    )
+    assert (await client.get(f"/entries/{run.id}")).status_code == 404
+    assert await log_rows(before) == [("run", "delete", run.id)]
+    assert (await run.tap("lap", 120, seg=1))["event"]["reason"] == "entry_deleted"
+
+
+async def test_a_replay_compares_the_target_as_sent(client: httpx.AsyncClient) -> None:
+    run, stop = await stopped_run(client)
+    reopen = str(uuid4())
+    await run.tap("reopen", 110, id=reopen, target=stop)
+    assert (await run.tap("reopen", 110, id=reopen, target=stop))["event"]["effect"] == "applied"
+    conflict = await run.tap("reopen", 110, id=reopen, status=409)  # explicit first, null now
+    assert conflict["code"] == "event_conflict"
+
+
+async def test_a_null_target_resolves_on_a_state_stored_before_fold_v4(client: httpx.AsyncClient) -> None:
+    """A run stopped before ``terminal_id`` existed in its stored state still resumes (§3.3)."""
+    run, stop = await stopped_run(client)
+    async with get_sessionmaker()() as db:
+        row = await db.get_one(Run, UUID(run.id))
+        row.state = {k: v for k, v in row.state.items() if k != "terminal_id"}
+        await db.commit()
+    reopen = str(uuid4())
+    result = await run.tap("reopen", 110, id=reopen)
+    assert result["event"]["effect"] == "applied"
+    assert await stored_target(reopen) == UUID(stop)

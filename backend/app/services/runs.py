@@ -231,8 +231,7 @@ async def record_event(db: AsyncSession, run_id: UUID, body: RunEventIn, channel
     if body.type == "reopen":
         await _check_reopen(db, run)
         if target is None:  # "the current terminal" (timers2.md §4.2): stored resolved
-            terminal = run.state.get("terminal_id")
-            target = None if terminal is None else UUID(terminal)
+            target = await _terminal_id(db, run)
     effect = _decide(run, body)
     if body.type == "stop" and effect is None:  # a decided stop is never folded: its time can't hurt
         _check_stop_at(run, at)
@@ -277,8 +276,9 @@ async def _replay(db: AsyncSession, run: Run, body: RunEventIn, at: datetime) ->
         and stored.seg == body.seg
         and stored.step == body.step
         and stored.pause_id == body.pause_id
-        # A reopen sent without a target stored the one it resolved to (timers2.md §4.2).
-        and (stored.target_id == body.target or (body.type == "reopen" and body.target is None))
+        # A reopen sent without a target stored the one it resolved to (timers2.md §4.2): the
+        # target as sent is compared, not the resolved one.
+        and (None if stored.payload.get("target_resolved") else stored.target_id) == body.target
         and (body.type != "start" or body.topic_id == run.topic_id)
     )
     if not same:
@@ -326,6 +326,8 @@ def _new_event(
             payload[name] = value
     if decided is not None:
         payload["effect"] = {"effect": decided[0], "reason": decided[1]}
+    if body.type == "reopen" and body.target is None:
+        payload["target_resolved"] = True  # sent without one: target_id is the server's choice
     return RunEvent(
         id=body.id,
         run_id=run_id,
@@ -636,6 +638,14 @@ async def _reverted(db: AsyncSession, run: Run, version: TopicVersion, state: ru
     run.ended_at = run_fold.from_ms(state.ended_at)
     run.state = {**run.state, "status": run.status.value}
     await _close(db, run)
+
+
+async def _terminal_id(db: AsyncSession, run: Run) -> UUID | None:
+    """The run's current terminal stop, for a reopen sent without a target: None while the run
+    is open or once it is discarded (the fold voids the reopen ``no_target``)."""
+    if run.status not in (RunStatus.stopped, RunStatus.finishing):
+        return None
+    return (await _terminal_stop(db, run)).id
 
 
 async def _terminal_stop(db: AsyncSession, run: Run) -> RunEvent:
