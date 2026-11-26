@@ -54,6 +54,67 @@ public enum EntryTimingModel {
         return rows
     }
 
+    /// A typed lap's neutral badge (content-display.md §3.2): its type's label in the run's
+    /// version (`lapTypes`), or the key when the version isn't known; nil for a step or an untyped
+    /// lap.
+    public static func lapTypeBadge(_ segment: RunSegment, lapTypes: [TopicTimer.LapType]) -> String? {
+        guard segment.kind == .lap, let key = segment.lapType else { return nil }
+        return lapTypes.first { $0.key == key }?.label ?? key
+    }
+
+    // MARK: - Remove (content-display.md §3.2)
+
+    /// A row's one-tap Remove: the event it targets (timers2.md §3.3, A7), whether it can be sent,
+    /// the confirmation it asks first, and its accessibility identifier.
+    public struct Remove: Sendable, Hashable {
+        /// A lap's `event_id` (the event that opened it) or a pause's `id` (a gap pause carries
+        /// the reopened stop's: removing it removes the gap).
+        public let target: String
+        /// False on a lap opened by anything but a `lap` (the lap after the last step is opened by
+        /// a `next`, whose `remove` is `no_target`, timers2.md §3.4): shown, disabled.
+        public let enabled: Bool
+        public let title: String
+        public let message: String
+        /// `entry.timing.remove.<i>` on a segment row, `entry.timing.pause.remove.<j>` on a pause.
+        public let identifier: String
+
+        public init(target: String, enabled: Bool, title: String, message: String, identifier: String) {
+            self.target = target
+            self.enabled = enabled
+            self.title = title
+            self.message = message
+            self.identifier = identifier
+        }
+    }
+
+    /// Remove on `row` of `timing`, or nil: never on an edited timing (the server voids it,
+    /// `run_edited`, timers2.md §3.6), a step, the first segment, or a row without an id (a
+    /// pre-v2 stored timing, A12: Edit times still works there).
+    public static func remove(_ row: Row, in timing: Timing) -> Remove? {
+        guard !timing.edited else { return nil }
+        switch row {
+        case .segment(let index, let segment):
+            guard index > 0, segment.kind == .lap, let target = segment.eventId else { return nil }
+            return Remove(
+                target: target, enabled: segment.openedBy == .lap, title: "Remove this lap?",
+                message: "Its time joins the previous segment.", identifier: "entry.timing.remove.\(index)")
+        case .pause(let index, let pause):
+            guard let target = pause.id else { return nil }
+            return Remove(
+                target: target, enabled: true, title: "Remove this pause?", message: "Its time becomes active.",
+                identifier: "entry.timing.pause.remove.\(index)")
+        }
+    }
+
+    // MARK: - Resume run (content-display.md §3.2)
+
+    /// Whether the detail offers "Resume run" (`entry.resume`): `resumableFromDetail` (unedited,
+    /// within 7 days of the run's start, OQ-1), the entry not pending, and the topic without a
+    /// locally open or finishing run (A15: the server would answer 409 `conflict`).
+    public static func offersResume(_ entry: Entry, pending: Bool, topicHasLocalRun: Bool, now: Date) -> Bool {
+        !pending && !topicHasLocalRun && RunPresentation.resumableFromDetail(entry, now: now)
+    }
+
     /// The list row's chip for a timed entry; nil for an untimed one (timers.md §11.1).
     public static func chip(_ timing: Timing?, timer: TopicTimer?) -> Chip? {
         guard let timing else { return nil }

@@ -94,6 +94,8 @@ public final class EditModel: EntryDetailsEditing {
     public var isTimed: Bool { entry.timing != nil }
     /// The run's version's steps (labels for skipped steps, and Edit times' choices).
     public let timerSteps: [TopicTimer.Step]
+    /// The run's version's lap types (Edit times types laps by position, timers2.md §3.2).
+    public let timerLapTypes: [TopicTimer.LapType]
     /// The open Edit times sheet.
     public var timingEditor: TimingEditModel?
     /// The entry changed elsewhere while the answers or notes are being edited: what it says now.
@@ -137,12 +139,14 @@ public final class EditModel: EntryDetailsEditing {
     public init(
         topic: Topic, entry: Entry, questions: [Question], localOnly: Bool, syncProblem: String? = nil,
         fix: EditFix? = nil, writer: any EntryEditing, toasts: EntryToasts, scope: EntryScope,
-        timerSteps: [TopicTimer.Step] = [], timingWriter: (any EntryTimingWriting)? = nil,
-        timingClock: TimingEditClock = .current, limits: Limits = .serverDefaults,
+        timerSteps: [TopicTimer.Step] = [], timerLapTypes: [TopicTimer.LapType] = [],
+        timingWriter: (any EntryTimingWriting)? = nil, timingClock: TimingEditClock = .current,
+        limits: Limits = .serverDefaults,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.topic = topic
         self.timerSteps = timerSteps
+        self.timerLapTypes = timerLapTypes
         self.timingWriter = timingWriter
         self.timingClock = timingClock
         self.localOnly = localOnly
@@ -305,8 +309,8 @@ public final class EditModel: EntryDetailsEditing {
     public func openTimingEditor() {
         guard let timing = entry.timing, timingEditUnavailable == nil, let timingWriter else { return }
         let editor = TimingEditModel(
-            entryId: entry.id, timing: timing, revision: entry.revision, steps: timerSteps, writer: timingWriter,
-            clock: timingClock, now: now)
+            entryId: entry.id, timing: timing, revision: entry.revision, steps: timerSteps, lapTypes: timerLapTypes,
+            writer: timingWriter, clock: timingClock, now: now)
         // A change seen elsewhere and not reloaded yet: these times may be behind it.
         if let changedElsewhere { editor.entryChanged(revision: changedElsewhere.revision) }
         timingEditor = editor

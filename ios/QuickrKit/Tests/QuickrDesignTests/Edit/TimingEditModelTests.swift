@@ -301,4 +301,54 @@ private let utc = TimingEditClock(timeZone: TimeZone(identifier: "UTC")!)
         m.openTimingEditor()
         #expect(m.timingEditor == nil)
     }
+
+    // MARK: - Lap types (content-display.md §3.2, timers2.md §3.2)
+
+    /// With the version's lap types, a lap row's choice names the type its position gives it, and
+    /// the hints and the save are typed the server's way (laps by position; TimingEdit carries no
+    /// type). Without lap types it's plain "Lap".
+    @Test func lapRowsAreTypedByPosition() throws {
+        let laps: [TopicTimer.LapType] = [.init(key: "run", label: "Run"), .init(key: "rest", label: "Rest")]
+        func lap(_ n: Int, _ a: String, _ b: String) -> RunSegment {
+            RunSegment(
+                kind: .lap, step: nil, label: "Lap \(n)", startedAt: ms(a), endedAt: ms(b),
+                activeMs: ms(b) - ms(a), pausedMs: 0)
+        }
+        let typed = Timing(
+            startedAt: ms("07:00:00"), endedAt: ms("07:09:00"), activeMs: 540_000, pausedMs: 0, complete: true,
+            edited: false,
+            segments: [
+                timing.segments[0], lap(1, "07:04:00", "07:06:00"), lap(2, "07:06:00", "07:09:00"),
+            ], skipped: ["dress"], pauses: [])
+        let editor = TimingEditModel(
+            entryId: timedEntry.id, timing: typed, revision: 3, steps: steps, lapTypes: laps, writer: writer,
+            clock: utc, now: { now })
+        #expect(editor.lapChoice(1) == "Lap · Run 1")
+        #expect(editor.lapChoice(2) == "Lap · Rest 1")
+        #expect(editor.lapChoice(0) == "Lap · Run 1", "the step row, as a lap, would be the first")
+        #expect(editor.checked.segments.map(\.label) == ["Shower", "Run 1", "Rest 1"])
+        let edit = try #require(editor.checked.edit)
+        let saved = edit.timing(timer: TopicTimer(steps: steps, laps: laps), terminalId: nil)
+        #expect(saved.segments.map(\.lapType) == [nil, "run", "rest"])
+
+        // Turning the step into a lap retypes every lap after it.
+        editor.draft.setSegmentStep(0, nil)
+        #expect(editor.checked.segments.map(\.label) == ["Run 1", "Rest 1", "Run 2"])
+        #expect(editor.lapChoice(2) == "Lap · Run 2")
+
+        let plain = TimingEditModel(
+            entryId: timedEntry.id, timing: typed, revision: 3, steps: steps, writer: writer, clock: utc, now: { now })
+        #expect(plain.lapChoice(1) == "Lap")
+        #expect(plain.checked.segments.map(\.label) == ["Shower", "Lap 1", "Lap 2"])
+    }
+
+    /// The edit screen hands the version's lap types to Edit times.
+    @Test func theEditScreenPassesTheLapTypes() throws {
+        let laps: [TopicTimer.LapType] = [.init(key: "run", label: "Run")]
+        let m = EditModel(
+            topic: topic, entry: timedEntry, questions: [question], localOnly: false, writer: entryWriter,
+            toasts: EntryToasts(center: center, writer: RecordFakeWriter()), scope: EntryScope("server-A/1"),
+            timerSteps: steps, timerLapTypes: laps, timingWriter: writer, timingClock: utc, now: { now })
+        #expect(try editor(m).lapTypes == laps)
+    }
 }

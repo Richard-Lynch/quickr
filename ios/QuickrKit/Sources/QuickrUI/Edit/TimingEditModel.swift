@@ -29,6 +29,9 @@ public final class TimingEditModel {
     public let entryId: UUID
     /// The run's version's steps: the labels and the segments' choices.
     public let steps: [TopicTimer.Step]
+    /// The run's version's lap types (timers2.md §3.2): laps are typed by their position, so a
+    /// lap's type follows from where it sits, and a save relabels them the server's way.
+    public let lapTypes: [TopicTimer.LapType]
     /// The revision the times came from: what a save is checked against.
     public private(set) var revision: Int
     public var draft: TimingDraft {
@@ -51,11 +54,13 @@ public final class TimingEditModel {
     @ObservationIgnored private let clock: TimingEditClock
 
     public init(
-        entryId: UUID, timing: Timing, revision: Int, steps: [TopicTimer.Step], writer: any EntryTimingWriting,
-        clock: TimingEditClock = .current, now: @escaping @Sendable () -> Date = { Date() }
+        entryId: UUID, timing: Timing, revision: Int, steps: [TopicTimer.Step], lapTypes: [TopicTimer.LapType] = [],
+        writer: any EntryTimingWriting, clock: TimingEditClock = .current,
+        now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.entryId = entryId
         self.steps = steps
+        self.lapTypes = lapTypes
         self.revision = revision
         latestRevision = revision
         self.writer = writer
@@ -74,7 +79,21 @@ public final class TimingEditModel {
     public var isStale: Bool { conflict || latestRevision != revision }
 
     public var checked: TimingDraft.Checked {
-        draft.check(steps: steps, now: RunInstant.milliseconds(now()))
+        draft.check(timer: TopicTimer(steps: steps, laps: lapTypes), now: RunInstant.milliseconds(now()))
+    }
+
+    /// The segment picker's lap choice for segment `index`: "Lap", or with lap types the type the
+    /// lap gets where it sits ("Lap · Rest 2", content-display.md §3.2). Laps are typed by
+    /// position (TimingEdit carries no type), so a lap moved or added takes its new position's.
+    public func lapChoice(_ index: Int) -> String {
+        guard !lapTypes.isEmpty else { return "Lap" }
+        var draft = draft
+        if draft.segments.indices.contains(index), draft.segments[index].kind != .lap {
+            draft.setSegmentStep(index, nil)
+        }
+        let laps = draft.segments.prefix(index + 1).count { $0.kind == .lap }
+        guard laps > 0 else { return "Lap" }
+        return "Lap · \(RunFold.lapTyping(laps, lapTypes).label)"
     }
 
     /// A field's message: the client's once Save was tapped, else the server's until it's edited.
