@@ -148,7 +148,7 @@ final class TileUITests: XCTestCase {
 
     /// The active card at the largest accessibility text size (§3.2, §7), on Morning against the
     /// UI-test fake server: Pause moves under the headline and the primary stacks over a
-    /// full-width Stop; both can be tapped.
+    /// full-width Stop; Pause, Stop and the primary can all be reached, and Pause and Stop work.
     @MainActor
     func testActiveCardStacksAtAnAccessibilitySize() {
         let app = XCUIApplication()
@@ -177,10 +177,31 @@ final class TileUITests: XCTestCase {
         reveal(stop, in: app)
         XCTAssertGreaterThanOrEqual(stop.frame.minY, next.frame.maxY, "Stop stacks under the primary")
         XCTAssertEqual(stop.frame.width, next.frame.width, accuracy: 2, "both full width")
+        // Pause moves under the headline (not in the title row) and keeps a 44 pt target.
+        let headline = card.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier == 'run.status' AND label BEGINSWITH 'Running'")
+        ).firstMatch
+        XCTAssertTrue(headline.exists, "the headline")
+        XCTAssertGreaterThanOrEqual(pause.frame.minY, headline.frame.maxY, "Pause under the headline")
         XCTAssertLessThan(pause.frame.maxY, next.frame.minY, "Pause sits above the controls row")
+        XCTAssertGreaterThanOrEqual(pause.frame.height, 44, "a 44 pt target")
         XCTAssertTrue(next.isHittable && stop.isHittable)
         attach(app, "tiles-active-card-ax")
+
+        // Pause can be reached and works: scroll it into view (it sits above the row), tap it.
+        let down = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        for _ in 0..<4 where !pause.isHittable {
+            down.press(forDuration: 0.05, thenDragTo: down.withOffset(CGVector(dx: 0, dy: 150)))
+        }
+        XCTAssertTrue(pause.isHittable, "Pause can be reached")
         Thread.sleep(forTimeInterval: 0.6)  // past the run controls' tap cooldown (450 ms)
+        pause.tap()
+        XCTAssertTrue(
+            card.descendants(matching: .any)["tile.morning.resume"].firstMatch.waitForExistence(timeout: 10),
+            "Pause became Resume")
+
+        Thread.sleep(forTimeInterval: 0.6)
+        reveal(stop, in: app)
         stop.tap()
         XCTAssertTrue(element("runDetails.save").waitForExistence(timeout: 10), "the stacked Stop works")
     }

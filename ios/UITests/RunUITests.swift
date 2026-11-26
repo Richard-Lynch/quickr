@@ -151,13 +151,23 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(element(app, "run.resume").waitForExistence(timeout: 10), "the stacked Pause works")
     }
 
-    /// No control sits in the step and lap table (§2.2): no button below the secondaries, and no
-    /// `run.lap` anywhere.
+    /// No control sits in the step and lap table (§2.2): its rows (`run.step.*`, each one
+    /// accessibility element) are below the secondaries, no button overlaps any of them, and there
+    /// is no `run.lap` anywhere. The stopwatch's table is a couple of rows, all on screen.
     private func assertNoControlsInTable(
         _ app: XCUIApplication, below secondary: XCUIElement, file: StaticString = #filePath, line: UInt = #line
     ) {
-        let floor = secondary.frame.maxY
-        let inTable = app.buttons.allElementsBoundByIndex.filter { $0.frame.minY >= floor && $0.frame.height > 0 }
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'run.step.'"))
+            .allElementsBoundByIndex.map(\.frame)
+        XCTAssertFalse(rows.isEmpty, "the table's rows", file: file, line: line)
+        for row in rows {
+            XCTAssertGreaterThanOrEqual(
+                row.minY, secondary.frame.maxY, "rows under the controls", file: file, line: line)
+            XCTAssertTrue(app.windows.firstMatch.frame.contains(row), "row \(row) on screen", file: file, line: line)
+        }
+        let inTable = app.buttons.allElementsBoundByIndex.filter { button in
+            rows.contains { $0.intersects(button.frame) }
+        }
         XCTAssertEqual(inTable.map(\.identifier), [], "buttons in the table", file: file, line: line)
         XCTAssertFalse(element(app, "run.lap").exists, "no run.lap control", file: file, line: line)
     }
