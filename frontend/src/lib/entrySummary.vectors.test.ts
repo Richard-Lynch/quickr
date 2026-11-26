@@ -52,11 +52,15 @@ describe('entry summary vectors (shared with the backend and iOS)', () => {
     const names = vectors.cases.map((c) => c.name);
     expect(names.length).toBeGreaterThanOrEqual(20);
     expect(new Set(names).size).toBe(names.length);
-    // content-display.md §1.3, without the typed-lap cases M4-STATS adds with M1's lap types.
+    // content-display.md §1.3.
     for (const name of [
       'timing_only_no_laps',
       'timing_one_lap',
       'timing_three_laps',
+      'timing_tiktok',
+      'timing_renamed',
+      'timing_mixed_typed_untyped',
+      'timing_lap_type_not_in_timer',
       'timing_hour_plus',
       'timing_paused_ignored',
       'answers_int_unit',
@@ -110,9 +114,8 @@ describe('entry summary vectors (shared with the backend and iOS)', () => {
 });
 
 describe('typed laps', () => {
-  // The typed-lap branch, until M4-STATS adds its vectors with M1's lap types: the
-  // reference's rule on the lap types directly (timing_tiktok, timing_renamed,
-  // timing_mixed_typed_untyped and timing_lap_type_not_in_timer of §1.3).
+  // The typed-lap rule on the lap types directly, beyond the vectors' typed cases: an empty
+  // key reads as untyped, and a key the timer declares twice takes its last label.
   const tiktok = [
     ['run', 'Run'],
     ['rest', 'Rest'],

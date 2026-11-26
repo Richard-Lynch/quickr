@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Context, Decimal
-from typing import Any
 
 import regex
 
@@ -23,7 +22,6 @@ from app.schemas.api import (
     IntAnswer,
     StrAnswer,
     Timing,
-    TimingSegment,
 )
 from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, Question, StrQuestion, Timer
 from app.services.run_fold import fmt_duration
@@ -76,10 +74,10 @@ def timing_summary(timing: Timing, timer: Timer | None) -> str:
     laps = [s for s in timing.segments if s.kind == "lap"]
     if not laps:
         return text
-    typed = [t for t in (_lap_type(s) for s in laps) if t]
+    typed = [s.lap_type for s in laps if s.lap_type]
     if not typed:
         return f"{text}{SEPARATOR}{_laps(len(laps))}"
-    labels = dict(_declared_lap_types(timer))
+    labels = {lt.key: lt.label for lt in timer.laps} if timer is not None else {}
     keys = [k for k in labels if k in typed]
     keys += [k for k in dict.fromkeys(typed) if k not in labels]
     for k in keys:
@@ -150,17 +148,3 @@ def _option_label(question: EnumQuestion, value: str) -> str:
 
 def _laps(n: int) -> str:
     return f"{n} lap" if n == 1 else f"{n} laps"
-
-
-# Lap types are M1's (timers2.md: `TimingSegment.lap_type`, `Timer.laps`). Until that
-# stack lands the attributes don't exist, so they are read dynamically; M4-STATS turns
-# these into plain attribute access when it adds the typed vectors.
-def _lap_type(segment: TimingSegment) -> str | None:
-    lap_type: str | None = getattr(segment, "lap_type", None)
-    return lap_type
-
-
-def _declared_lap_types(timer: Timer | None) -> list[tuple[str, str]]:
-    """``(key, label)`` of the timer's lap types in declared order; empty when untimed."""
-    laps: Sequence[Any] = getattr(timer, "laps", ()) if timer is not None else ()
-    return [(lt.key, lt.label) for lt in laps]
