@@ -13,7 +13,14 @@ import type { LocalRun } from '../../lib/runs/localView';
 import type { Timer } from '../../lib/runs/types';
 import { timerOf, useRunContext, useTopicVersions } from '../runs/context';
 import { tileControls } from '../runs/controlsLayout';
-import { actions as runActions, activeMs, expectOf, type RunAction } from '../runs/model';
+import {
+  actions as runActions,
+  activeMs,
+  expectOf,
+  REOPEN_WINDOW_MS,
+  type RunAction,
+} from '../runs/model';
+import { useReopenAfterStop } from '../runs/reopen';
 import { useServerNow } from '../runs/RunClock';
 import { actionIcon, actionLabel, actionTitle } from '../runs/RunControls';
 import { finishUrl, hasQuestions } from '../runs/RunTile';
@@ -36,6 +43,7 @@ export function useActiveCardControls(
   const taps = useRunActions();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const reopenAfterStop = useReopenAfterStop();
   const versions = useTopicVersions(run.topic_id);
   const runCtx = useRunContext(run, topic);
   const now = useServerNow(run.status === 'running');
@@ -54,7 +62,16 @@ export function useActiveCardControls(
         void navigate(finishUrl(topic.slug, run));
       } else {
         const total = activeMs(run.state, parseInstant(item.payload.event.at));
-        toast({ title: `Saved ${topic.name}: ${fmtDuration(total)}` });
+        // Resume while the stop is resumable (§3.2, OQ-1): the toast is up for that window.
+        toast({
+          title: `Saved ${topic.name}: ${fmtDuration(total)}`,
+          ...(runCtx
+            ? {
+                duration: REOPEN_WINDOW_MS,
+                action: { label: 'Resume', onClick: reopenAfterStop(topic, run, runCtx) },
+              }
+            : {}),
+        });
       }
     });
   };

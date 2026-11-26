@@ -12,22 +12,10 @@ import { fold } from '../../lib/runs/fold';
 import type { LocalRun } from '../../lib/runs/localView';
 import type { Timer } from '../../lib/runs/types';
 import { CTX, ev, T0 } from '../../test/runs';
-import type * as model from './model';
 import { actions, type RunAction, type RunActionKind, type RunActionRole } from './model';
 import { actionLabel, actionTitle, RunControls } from './RunControls';
 import { RunPanel } from './RunPanel';
 import type { RunActions } from './useRunActions';
-
-// `actions` as the model has it, unless a test forces a list: the "Resuming…" projection's `[]`
-// (§1.2 row 11) is M1's (timers2.md §5.3) and today's fold can't produce it.
-const forced = vi.hoisted(() => ({ list: null as RunAction[] | null }));
-vi.mock('./model', async (importOriginal) => {
-  const real = await importOriginal<typeof model>();
-  return {
-    ...real,
-    actions: (...args: Parameters<typeof real.actions>) => forced.list ?? real.actions(...args),
-  };
-});
 
 const a = (kind: RunActionKind, role: RunActionRole, enabled = true): RunAction => ({
   kind,
@@ -158,7 +146,10 @@ describe('titles and names (§1.3)', () => {
   it.each<[RunActionKind, string, string]>([
     [{ type: 'start' }, 'Start', 'Start Smoke'],
     [{ type: 'next', label: 'Shower' }, 'Next: Shower', 'Next: Shower'],
-    [{ type: 'next', label: 'Next' }, 'Next', 'Next'],
+    // Steps unknown (§1.2 row 9): `next("")`, a plain "Next".
+    [{ type: 'next', label: '' }, 'Next', 'Next'],
+    // A step that happens to be called "Next" is named like any other.
+    [{ type: 'next', label: 'Next' }, 'Next: Next', 'Next: Next'],
     [{ type: 'lap', nextTypeLabel: null }, 'Lap', 'Lap'],
     [{ type: 'lap', nextTypeLabel: 'Rest' }, 'Lap → Rest', 'Lap, then Rest'],
     [{ type: 'skip', label: 'Teeth' }, 'Skip Teeth', 'Skip Teeth'],
@@ -193,26 +184,27 @@ describe('the run panel', () => {
     resuming: false,
     has_entry: false,
   };
-  const noTaps: RunActions = {
+  const tap = vi.fn<RunActions['tap']>(() => Promise.resolve(null));
+  const taps: RunActions = {
     busy: false,
     start: () => Promise.resolve(null),
-    tap: () => Promise.resolve(null),
+    tap,
     finish: () => Promise.resolve({ status: 'none' }),
   };
-  const panel = () =>
+  const panel = (shown: LocalRun = run, onReverted = () => undefined) =>
     render(
       <RunPanel
-        run={run}
+        run={shown}
         ctx={{ ...CTX, steps: [] }}
         topic="Smoke"
-        actions={noTaps}
+        actions={taps}
         onStopped={() => undefined}
         onDiscarded={() => undefined}
+        onReverted={onReverted}
       />,
     );
 
   it('header, then controls, then the table: the controls sit above the laps', () => {
-    forced.list = null;
     panel();
     const card = screen.getByLabelText('Run');
     const controls = within(card).getByRole('group', { name: 'Run controls' });
@@ -224,14 +216,53 @@ describe('the run panel', () => {
   });
 
   it('a queued reopen before its ack shows "Resuming…" and no controls', () => {
-    forced.list = [];
-    try {
-      panel();
-    } finally {
-      forced.list = null;
-    }
+    panel({ ...run, resuming: true });
     expect(screen.getByText('Resuming…')).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Run controls' })).toBeNull();
     expect(screen.queryAllByRole('button')).toEqual([]);
+  });
+
+  /** Row 10: the run reopened (start, stop, reopen of that stop), running again. */
+  const reopenedRun = (): LocalRun => {
+    const events = [
+      ev('r1', 'start', T0),
+      ev('x1', 'stop', T0 + 5_000),
+      ev('o1', 'reopen', T0 + 9_000, { target: 'x1' }),
+    ];
+    return { ...run, state: fold('r1', { steps: [] }, events), events, has_entry: true };
+  };
+
+  it('a reopened run offers "Undo resume…" instead of "Discard run…" (§1.2 row 10)', async () => {
+    const user = userEvent.setup();
+    panel(reopenedRun());
+    expect(screen.getByText('Running')).toBeInTheDocument();
+    await user.click(screen.getByTestId('run-more'));
+    expect(screen.getByTestId('run-revert')).toHaveTextContent('Undo resume…');
+    expect(screen.getByTestId('run-revert')).toHaveAccessibleName(
+      'Undo the resume and keep the stop',
+    );
+    expect(screen.queryByTestId('run-discard')).toBeNull();
+  });
+
+  it('Undo resume… confirms, then sends the revert as the run’s discard', async () => {
+    const user = userEvent.setup();
+    const reverted = vi.fn();
+    const item = { id: 'd1' } as Awaited<ReturnType<RunActions['tap']>>;
+    tap.mockResolvedValueOnce(item);
+    panel(reopenedRun(), reverted);
+    await user.click(screen.getByTestId('run-more'));
+    await user.click(screen.getByTestId('run-revert'));
+    expect(tap).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Undo resume' }));
+    expect(tap).toHaveBeenCalledWith('r1', expect.anything(), 'discard', {}, expect.anything());
+    await vi.waitFor(() => expect(reverted).toHaveBeenCalledOnce());
+  });
+
+  it('a run never reopened keeps "Discard run…"', async () => {
+    const user = userEvent.setup();
+    panel();
+    await user.click(screen.getByTestId('run-more'));
+    expect(screen.getByTestId('run-discard')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-revert')).toBeNull();
   });
 });

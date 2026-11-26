@@ -14,7 +14,13 @@ import {
   type ControlsLayout,
   type TileControls,
 } from './controlsLayout';
-import { actions, type RunAction, type RunActionKind, type RunActionRole } from './model';
+import {
+  actions,
+  REOPEN_WINDOW_MS,
+  type RunAction,
+  type RunActionKind,
+  type RunActionRole,
+} from './model';
 
 const STEPS: TimerStep[] = [
   { key: 'shower', label: 'Shower' },
@@ -54,10 +60,10 @@ const off = (action: RunAction): RunAction => ({ ...action, enabled: false });
 function folded(
   events: RunEvent[],
   timer: Timer | null,
-  opts: { steps?: TimerStep[]; status?: RunStatus } = {},
+  opts: { steps?: TimerStep[]; status?: RunStatus; now?: number } = {},
 ): RunAction[] {
   const state = fold('r1', { steps: opts.steps ?? STEPS }, [start, ...events]);
-  return actions(state, opts.status ?? state.status, timer, T0);
+  return actions(state, opts.status ?? state.status, timer, opts.now ?? T0);
 }
 
 interface Row extends ControlsLayout {
@@ -141,10 +147,10 @@ const rows: Row[] = [
   {
     row: '9 open, timer null',
     actions: folded([], null),
-    primary: next('Next'),
+    primary: next(''),
     secondaries: [stop, pause],
     overflow: [discard],
-    tile: openTile(next('Next'), pause),
+    tile: openTile(next(''), pause),
   },
   {
     row: '10 open after a reopen (row 4)',
@@ -179,12 +185,20 @@ const rows: Row[] = [
     tile: noTile,
   },
   {
-    row: "13 stopped, not resumable (today's model)",
+    row: '13 stopped, folded: within the window, Start and Resume',
     actions: folded([x], TIMER, { status: 'stopped' }),
-    primary: null,
+    primary: startA,
+    secondaries: [a({ type: 'reopen', target: 'x' }, 'secondary')],
+    overflow: [],
+    tile: idleTile,
+  },
+  {
+    row: '13 stopped, folded: past the window, Start only',
+    actions: folded([x], TIMER, { status: 'stopped', now: s(5) + REOPEN_WINDOW_MS + 1 }),
+    primary: startA,
     secondaries: [],
     overflow: [],
-    tile: noTile,
+    tile: idleTile,
   },
   {
     row: '14 busy (row 4)',
