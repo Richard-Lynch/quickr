@@ -54,7 +54,10 @@ describe('RunControls', () => {
   it('Lap is the primary of a lap topic, at the hero size, with Stop and Pause beside it', () => {
     // A stopwatch (no steps) one lap in: today's `actions` straight from the fold.
     const timer: Timer = { steps: [] };
-    const state = fold('r1', [], [ev('r1', 'start', T0), ev('l1', 'lap', T0 + 1000, { seg: 0 })]);
+    const state = fold('r1', { steps: [] }, [
+      ev('r1', 'start', T0),
+      ev('l1', 'lap', T0 + 1000, { seg: 0 }),
+    ]);
     setup(actions(state, 'running', timer, T0 + 2000));
     const primary = screen.getByTestId('run-primary');
     expect(primary).toHaveAccessibleName('Lap');
@@ -179,7 +182,7 @@ describe('the run panel', () => {
     topic: CTX.topic,
     version: 1,
     status: 'running',
-    state: fold('r1', [], [ev('r1', 'start', T0)]),
+    state: fold('r1', { steps: [] }, [ev('r1', 'start', T0)]),
     events: [],
     aliases: [],
     server: null,

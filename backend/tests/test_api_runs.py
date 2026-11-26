@@ -35,6 +35,12 @@ OPTIONAL = [{"key": "note", "label": "Note", "type": "str", "required": False}]
 VECTORS = json.loads((FIXTURES_DIR / "run-fold-vectors.json").read_text())
 
 
+def server_ready(case: dict[str, Any]) -> bool:
+    """Whether the endpoint can take the case today: no ``reopen`` or ``remove`` (their write path
+    is M1-RUNS, which widens this to every case, timers2.md T18)."""
+    return all(e["type"] not in ("reopen", "remove") for e in case["events"])
+
+
 def frozen_clock(monkeypatch: pytest.MonkeyPatch, at: datetime) -> None:
     class Frozen(datetime):
         @classmethod
@@ -129,7 +135,7 @@ async def event_count() -> int:
 # --- T1: every fold vector through the endpoint ---------------------------------------------
 
 
-@pytest.mark.parametrize("case", VECTORS["cases"], ids=lambda c: c["name"])
+@pytest.mark.parametrize("case", [c for c in VECTORS["cases"] if server_ready(c)], ids=lambda c: c["name"])
 async def test_fold_vectors_through_the_endpoint(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, case: dict[str, Any]
 ) -> None:
@@ -137,7 +143,7 @@ async def test_fold_vectors_through_the_endpoint(
     start = run_fold.from_ms(run_fold.parse_instant(events[0]["at"]))
     # Late enough for every event (at most 24h ahead), early enough for the start (7 days old).
     frozen_clock(monkeypatch, start + timedelta(days=7) - timedelta(hours=1))
-    topic = await timed(client, steps=VECTORS["step_sets"][case["steps"]])
+    topic = await timed(client, timer=VECTORS["timer_sets"][case["timer"]])  # lap types included
     run_id = VECTORS["meta"]["run_id"]
     expected = case["expected"]
     effects = expected["state"]["effects"]
@@ -213,8 +219,14 @@ async def test_start_creates_a_running_run(client: httpx.AsyncClient) -> None:
         "step": "shower",
         "label": "Shower",
         "started_at": "2026-10-23T08:00:00Z",
+        "lap_type": None,
     }
     assert out["state"]["next_step"] == "breakfast"
+    assert (out["state"]["terminal_id"], out["state"]["next_lap_type"], out["state"]["lap_count"]) == (
+        None,
+        None,
+        0,
+    )
     assert out["events"] == [
         {
             "id": run.id,
@@ -602,7 +614,7 @@ async def test_pause_and_resume(client: httpx.AsyncClient) -> None:
     assert resumed["run"]["status"] == "running"
     assert resumed["run"]["revision"] == 4
     assert resumed["run"]["state"]["pauses"] == [
-        {"start": "2026-10-23T08:00:10Z", "end": "2026-10-23T08:00:15Z"}
+        {"start": "2026-10-23T08:00:10Z", "end": "2026-10-23T08:00:15Z", "id": pause["event"]["id"]}
     ]
     assert resumed["run"]["events"][-1]["pause_id"] == pause["event"]["id"]
     # Every change to an open run logs a run upsert.

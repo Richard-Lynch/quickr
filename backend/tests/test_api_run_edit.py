@@ -61,6 +61,8 @@ async def patch(client: httpx.AsyncClient, entry: Any, body: dict[str, Any], sta
 
 # --- the edit (§3.8) ------------------------------------------------------------------------------
 
+NO_IDS = {"lap_type": None, "event_id": None, "opened_by": None}  # an edited segment's (timers2.md §3.3)
+
 
 async def test_edit_rebuilds_the_timing(client: httpx.AsyncClient) -> None:
     run, entry = await stopped_run(client)
@@ -86,6 +88,7 @@ async def test_edit_rebuilds_the_timing(client: httpx.AsyncClient) -> None:
                 "ended_at": "2026-10-23T08:00:50Z",
                 "active_ms": 60_001 - 10_000,
                 "paused_ms": 10_000,  # pauses stay whole: each segment gets its overlap (T5)
+                **NO_IDS,
             },
             {
                 "kind": "step",
@@ -95,11 +98,15 @@ async def test_edit_rebuilds_the_timing(client: httpx.AsyncClient) -> None:
                 "ended_at": "2026-10-23T08:02:00Z",
                 "active_ms": 70_000 - 5_000,
                 "paused_ms": 5_000,
+                **NO_IDS,
             },
         ],
         "skipped": [],
-        "pauses": [{"start": "2026-10-23T08:00:40Z", "end": "2026-10-23T08:00:55Z"}],
+        "pauses": [{"start": "2026-10-23T08:00:40Z", "end": "2026-10-23T08:00:55Z", "id": None}],
+        # timers2.md §3.3: an edit nulls the segment and pause ids and keeps the terminal stop's.
+        "terminal_id": entry["timing"]["terminal_id"],
     }
+    assert entry["timing"]["terminal_id"] is not None
     assert edited["captured_at"] == timing["ended_at"]  # T1
     assert (edited["revision"], edited["notes"]) == (entry["revision"] + 1, "fixed the times")
     assert await log_rows(before) == [("entry", "upsert", entry["id"])]  # the run is closed: no run row

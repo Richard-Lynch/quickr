@@ -107,7 +107,7 @@ enum RunHeadline {
 extension LocalRun {
     /// The pinned version's timer, for M1's presentation model; nil when its steps aren't known
     /// here (the v1 fallback: a plain Next, no Skip).
-    var timer: TopicTimer? { steps.map(TopicTimer.init(steps:)) }
+    var timer: TopicTimer? { steps.map { TopicTimer(steps: $0) } }
 }
 
 /// The next alert and its countdown ("Half way · in 0:12"), under the headline; nothing when

@@ -42,7 +42,7 @@ const topic: TopicDetail = {
 const version: TopicVersionOut = {
   version: 1,
   questions: [],
-  timer: { steps: [] },
+  timer: { steps: [], laps: [], variables: [] },
   change_note: '',
   created_at: '2026-10-01T00:00:00Z',
   entry_count: 1,
@@ -55,6 +55,7 @@ const timing: EntryOut['timing'] = {
   paused_ms: 0,
   complete: true,
   edited: false,
+  terminal_id: null,
   segments: [
     {
       kind: 'lap',
@@ -64,6 +65,9 @@ const timing: EntryOut['timing'] = {
       ended_at: '2026-10-23T08:01:00Z',
       active_ms: 60_000,
       paused_ms: 0,
+      lap_type: null,
+      event_id: null,
+      opened_by: null,
     },
   ],
   skipped: [],
@@ -178,9 +182,11 @@ const stepped: TopicVersionOut = {
   ...version,
   timer: {
     steps: [
-      { key: 'wash', label: 'Wash' },
-      { key: 'dry', label: 'Dry' },
+      { key: 'wash', label: 'Wash', alerts: [] },
+      { key: 'dry', label: 'Dry', alerts: [] },
     ],
+    laps: [],
+    variables: [],
   },
 };
 
@@ -192,6 +198,7 @@ const steppedTiming: NonNullable<EntryOut['timing']> = {
   paused_ms: 0,
   complete: true,
   edited: false,
+  terminal_id: null,
   segments: [
     {
       kind: 'step',
@@ -201,6 +208,9 @@ const steppedTiming: NonNullable<EntryOut['timing']> = {
       ended_at: '2026-10-23T08:02:00Z',
       active_ms: 120_000,
       paused_ms: 0,
+      lap_type: null,
+      event_id: null,
+      opened_by: null,
     },
     {
       kind: 'step',
@@ -210,6 +220,9 @@ const steppedTiming: NonNullable<EntryOut['timing']> = {
       ended_at: '2026-10-23T08:05:00.500Z',
       active_ms: 180_500,
       paused_ms: 0,
+      lap_type: null,
+      event_id: null,
+      opened_by: null,
     },
   ],
   skipped: [],

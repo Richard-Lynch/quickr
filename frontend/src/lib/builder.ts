@@ -11,7 +11,7 @@
 import { z } from 'zod';
 
 import { FALLBACK_LIMITS, patternOf } from '../api/limits';
-import type { Limits, Timer } from '../client';
+import type { Limits, TimerInput as Timer } from '../client';
 import {
   zDoubleQuestionInput,
   zEnumQuestionInput,

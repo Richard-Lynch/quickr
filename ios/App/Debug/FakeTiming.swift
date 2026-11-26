@@ -141,8 +141,8 @@ enum FakeTiming {
                 ]))
         case "timing":
             let stats = TimingStats.compute(
-                [.init(entryId: entryId.wireString, capturedAt: timing.endedAt, timing: timing)], versions: [1: steps],
-                currentVersion: 1)
+                [.init(entryId: entryId.wireString, capturedAt: timing.endedAt, timing: timing)],
+                versions: [1: TopicTimer(steps: steps)], currentVersion: 1)
             return HTTPResponse(status: 200, headers: headers, body: data(timingStatsJSON(stats)))
         default:
             return nil
