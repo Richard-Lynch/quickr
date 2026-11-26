@@ -8,9 +8,9 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { runsQueryKey } from '../../api/runs';
 import { outbox } from '../../lib/outbox/client';
 import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
-import type { FakeRunServer } from '../../test/fakeRunServer';
 import { renderRunApp, RUN_ID, type Harness } from '../../test/runUi';
 
 let h: Harness | null = null;
@@ -113,37 +113,14 @@ describe('the stop toast', () => {
 });
 
 describe('the stop toast, checked again at the tap', () => {
-  /** The fake server's `getEntry` (the toast fetches the entry when it isn't cached). */
-  const withGetEntry = (s: FakeRunServer) => {
-    const base = s.fetch;
-    s.fetch = (input, init) => {
-      const url = new URL(
-        input instanceof Request ? input.url : input instanceof URL ? input.href : input,
-        'https://q.test',
-      );
-      const m = /^\/api\/v1\/entries\/([^/]+)$/.exec(url.pathname);
-      const entry = m ? s.entries.find((e) => e.id === decodeURIComponent(m[1] ?? '')) : undefined;
-      if (entry) {
-        s.requests.push({ method: 'GET', path: url.pathname, body: undefined });
-        return Promise.resolve(
-          new Response(JSON.stringify(entry), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }),
-        );
-      }
-      return base(input, init);
-    };
-  };
-
   /** No queued item and no fetch in flight. */
   const settled = async () => {
     await waitFor(async () => expect(await outbox.list()).toHaveLength(0));
     await waitFor(() => expect(h?.qc.isFetching()).toBe(0));
   };
 
-  it('with the latest entry not cached, fetches the run’s entry and reopens that stop', async () => {
-    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+  it('with the latest entry not cached, fetches it and reopens that stop', async () => {
+    h = renderRunApp('/t/morning/record', lapTopic());
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
@@ -156,16 +133,18 @@ describe('the stop toast, checked again at the tap', () => {
     h.qc.setQueriesData<{ items: unknown[] }>({ queryKey: [{ _id: 'listEntries' }] }, (d) =>
       d ? { ...d, items: [] } : d,
     );
+    const lists = () =>
+      server().requests.filter((r) => r.method === 'GET' && r.path.endsWith('/entries')).length;
+    const before = lists();
     await user.click(resume);
     await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
     expect(reopens(server())[0]?.target).toBe(stop?.id);
-    expect(
-      server().requests.some((r) => r.method === 'GET' && /\/entries\/[^/]+$/.test(r.path)),
-    ).toBe(true);
+    // Fetched at the tap: the latest entry, now.
+    expect(lists()).toBeGreaterThan(before);
   });
 
   it('an older toast whose stop was resumed and stopped again since does nothing, and says so', async () => {
-    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+    h = renderRunApp('/t/morning/record', lapTopic());
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
@@ -208,12 +187,55 @@ describe('the stop toast, checked again at the tap', () => {
     await waitFor(() => expect(reopens(server())).toHaveLength(2), { timeout: 4000 });
     expect(reopens(server())[1]?.target).toBe(second?.id);
   });
-  it('a toast whose run is no longer the topic’s latest stop does nothing', async () => {
-    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+  it('offline, an older toast with a stale cache does nothing while the run row has the re-stop', async () => {
+    let offline = false;
+    h = renderRunApp('/t/morning/record', lapTopic(), (s) => {
+      const base = s.fetch;
+      s.fetch = (input, init) =>
+        offline ? Promise.reject(new TypeError('Failed to fetch')) : base(input, init);
+    });
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
     await waitFor(() => expect(server().entries).toHaveLength(1));
+    await settled();
+    const firstEntry = structuredClone(server().entries[0]);
+    await user.click(await screen.findByTestId('run-reopen'));
+    await waitFor(() => expect(reopens(server())).toHaveLength(1));
+    await settled();
+    await user.click(await screen.findByTestId('card-stop'));
+    const second = await waitFor(() => {
+      const stops = server()
+        .events()
+        .filter((e) => e.type === 'stop');
+      expect(stops).toHaveLength(2);
+      return stops[1];
+    });
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(2));
+    const [older] = screen.getAllByRole('button', { name: 'Resume' });
+    if (!older) throw new Error('the first stop’s toast');
+    await settled();
+    // Offline now: the cache still ends with the first stop, the run row with the re-stop.
+    offline = true;
+    h.qc.setQueriesData<{ items: unknown[] }>({ queryKey: [{ _id: 'listEntries' }] }, (d) =>
+      d ? { ...d, items: [firstEntry] } : d,
+    );
+    const runId = firstEntry?.id ?? '';
+    h.qc.setQueryData(runsQueryKey(), [server().runOut(runId)]);
+    expect(server().runOut(runId).state.terminal_id).toBe(second?.id);
+
+    await user.click(older);
+    expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
+    expect(await outbox.list()).toHaveLength(0);
+  });
+
+  it('a toast whose run is no longer the topic’s latest stop does nothing', async () => {
+    h = renderRunApp('/t/morning/record', lapTopic());
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
+    await waitFor(() => expect(server().entries).toHaveLength(1));
+    const firstEntry = structuredClone(server().entries[0]);
     // Another run of the topic, started and stopped from the tile: a second toast.
     await settled();
     await user.click(await screen.findByRole('button', { name: 'Start Morning' }));
@@ -225,6 +247,12 @@ describe('the stop toast, checked again at the tap', () => {
     const [older, newer] = screen.getAllByRole('button', { name: 'Resume' });
     if (!older || !newer) throw new Error('two stop toasts, each with its Resume');
     await settled();
+    // The later run has left the local view, and the latest-entry cache still has the first
+    // run's entry: the tap fetches the latest entry.
+    expect(h.qc.getQueryData<unknown[]>(runsQueryKey()) ?? []).toHaveLength(0);
+    h.qc.setQueriesData<{ items: unknown[] }>({ queryKey: [{ _id: 'listEntries' }] }, (d) =>
+      d ? { ...d, items: [firstEntry] } : d,
+    );
 
     await user.click(older);
     expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
@@ -236,7 +264,7 @@ describe('the stop toast, checked again at the tap', () => {
   });
 
   it('an older toast whose stop was resumed and stopped again, the re-stop still queued, does nothing; the newer one resumes the re-stop', async () => {
-    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+    h = renderRunApp('/t/morning/record', lapTopic());
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
