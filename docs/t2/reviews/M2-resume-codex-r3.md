@@ -19,7 +19,7 @@ The toast's watcher is now `ResumableRun.watchOffer` in QuickrData (host-testabl
 2. **Fixed.** The window is the observed offer's own: `offer.isOffered(at: now())`, from its stop's
    `endedAt`, on the run clock read at each tick (so an offset change counts at once).
 3. **Fixed.** An observation that fails or ends marks the offer lapsed and dismisses the toast.
-4. **Fixed.** `ResumeOfferWatchTests` (5 tests, host): another run becomes the latest stop, no
+4. **Fixed for the helper; the App wiring stands untested** (see round 4). `ResumeOfferWatchTests` (host): another run becomes the latest stop, no
    offer (a start or an edit), a failed and an ended observation, the window closing exactly after
    15 minutes on a moved clock, and a toast that went by itself (no dismissal; the watch ends).
    The backward-offset case on the run screen stands as in round 2.

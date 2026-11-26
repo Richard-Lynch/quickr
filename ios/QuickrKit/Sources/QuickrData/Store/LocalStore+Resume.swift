@@ -93,12 +93,16 @@ extension ResumableRun {
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) async {
         let watch = OfferWatch()
+        // Iterates until the watch cancels it (breaking out early would leave the observation
+        // running while anything else holds the stream).
         let observing = Task { @MainActor in
             do {
-                for try await offer in offers {
-                    guard isShown() else { return }
-                    guard let offer, offer.runId == runId.lowercased() else { break }
-                    watch.offer = offer
+                for try await offer in offers where !watch.lapsed {
+                    if let offer, offer.runId == runId.lowercased() {
+                        watch.offer = offer
+                    } else {
+                        watch.lapsed = true
+                    }
                 }
             } catch {
                 // The store closed or failed: eligibility can't be shown any more.
