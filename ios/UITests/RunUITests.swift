@@ -99,8 +99,10 @@ final class RunUITests: XCTestCase {
         // The entry: Shower, Dress and Teeth timed, Breakfast skipped, one pause.
         tile.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
         selectTopicTab("Entries", in: app)
-        let row = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'entry.'"))
-            .firstMatch
+        // The row itself, not its `entry.<id>.summary`/`.timing` children.
+        let row = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier MATCHES %@", "^entry\\.[0-9a-fA-F-]{36}$")
+        ).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10))
         row.tap()
         XCTAssertTrue(element(app, "entry.timing").waitForExistence(timeout: 10))
