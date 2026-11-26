@@ -9,7 +9,7 @@ import SwiftUI
 /// session, toasts and drafts.
 ///
 /// Accessibility identifiers: `tile.<slug>` on the tile; inside it, `chip.<value>`,
-/// `quick.number` and `quick.check`.
+/// `quick.number` and `quick.check`. A topic with an open run is an `ActiveTopicCard` instead.
 struct TopicTile: View {
     let topic: ViewTopic
     /// HOME's ticking device clock, for "Last … ago".
@@ -32,24 +32,32 @@ struct TopicTile: View {
 
     var body: some View {
         let state = RunTileState(timed: topic.topic.timer != nil, run: run?.status)
-        if state.isTimed {
-            timedTile(state)
-        } else {
-            plainTile
+        Group {
+            if case .open = state, let run {
+                // "Active now" (active-surfaces.md §3.2): the run's own card, opening its run screen.
+                let link = TopicLinkRef(id: topic.topic.id)
+                ActiveTopicCard(topic: topic, run: run, onOpen: { environment.router.open(.run(link)) })
+                    .topicTheme(for: topic.topic)
+            } else if state.isTimed {
+                timedTile(state)
+            } else {
+                plainTile
+            }
         }
+        // Here, not on the idle tile: by the time a Start returns, the tile may be the card.
+        .qrHaptic(.logged, trigger: starts)
     }
 
-    /// A timed topic (timers.md §11.1, §11.2): never a one-tap log or quick answers. Idle shows
-    /// Start; an open run "Running · 4:12" and Next or Stop, in place of the due badge and accent;
-    /// a finishing one "Add details", keeping its due state.
+    /// A timed topic without an open run (timers.md §11.1, §11.2): never a one-tap log or quick
+    /// answers. Idle shows Start; a finishing run "Add details", keeping its due state. (An open
+    /// run is an `ActiveTopicCard`.)
     private func timedTile(_ state: RunTileState) -> some View {
         let topic = topic.topic
         let due = DueView(due: TopicListing.due(of: topic, at: serverNow) ?? topic.due, now: serverNow)
-        let open: Bool = if case .open = state { true } else { false }
         // With a run, the tile opens its run screen (§11.2); idle, the topic.
         let link = TopicLinkRef(id: topic.id)
         return TileView(
-            title: topic.name, isDue: !open && (due.tone == .due || due.tone == .overdue),
+            title: topic.name, isDue: due.tone == .due || due.tone == .overdue,
             onOpen: state == .idle ? onOpen : { environment.router.open(.run(link)) }, action: runAction(state)
         ) {
             VStack(alignment: .leading, spacing: 4) {
@@ -61,14 +69,41 @@ struct TopicTile: View {
                 }
             }
         } quick: {
-            EmptyView()
+            // Interactive, so under the meta line in the quick slot (the meta passes taps through).
+            if state == .idle, let reopen = Self.reopen(topic, now: serverNow) {
+                reopenButton(reopen, slug: topic.slug)
+            }
         }
         .accessibilityIdentifier("tile.\(topic.slug)")
-        .qrHaptic(.logged, trigger: starts)
     }
 
-    /// The block: Start, the run's primary button, or Add details. None for an archived topic
-    /// with no run (a start would be refused).
+    /// An idle timed tile's "Resume · 1:44" (active-surfaces.md §3.3, §1.2 row 2): the latest
+    /// entry's run reopened, for OQ-1's 15 minutes after its stop.
+    struct Reopen {
+        /// `reopen(target:)`, the target being the latest local entry's `timing.terminalId`.
+        var action: RunAction
+        /// The stopped run's total, for the title.
+        var totalMs: Int
+        var perform: () -> Void
+    }
+
+    /// Seam, pending M1: needs the latest local entry's `timing.terminalId` (timers2.md §3.3; not
+    /// in `Timing` yet), `RunPresentation.resumable(entry, now:)` over it, and the reopen write
+    /// (I1-WRITES). Until then nothing is resumable and the tile shows no Resume (§8.2).
+    static func reopen(_ topic: Topic, now: Date) -> Reopen? { nil }
+
+    private func reopenButton(_ reopen: Reopen, slug: String) -> some View {
+        Button(action: reopen.perform) {
+            Label("Resume · \(DurationFormat.format(reopen.totalMs))", systemImage: reopen.action.systemImage)
+        }
+        .buttonStyle(.qr(.ghost, size: .small))
+        .disabled(!reopen.action.enabled)
+        .accessibilityLabel(reopen.action.spokenTitle(topic: topic.topic.name))
+        .accessibilityIdentifier("tile.\(slug).reopen")
+    }
+
+    /// The block: Start, or Add details. None for an archived topic with no run (a start would be
+    /// refused).
     private func runAction(_ state: RunTileState) -> TileAction? {
         let topic = topic.topic
         let ref = TopicRef(id: topic.id, slug: topic.slug, name: topic.name)
@@ -96,22 +131,7 @@ struct TopicTile: View {
                 environment.router.open(.runDetails(link, runId: runId))
             }
         case .open:
-            guard let run else { return nil }
-            let primary = RunPresentation.primary(run.state, steps: run.steps)
-            let expect = RunTapExpect(run)
-            return TileAction(
-                icon: primary.isNext ? .chevronRight : .stop, title: primary.isNext ? "Next" : "Stop",
-                label: "\(primary.title) · \(topic.name)", identifier: id, loud: true,
-                disabled: actions.isBusy(topic.id)
-            ) {
-                Task {
-                    if primary.isNext {
-                        await actions.tap(.next, run: run, expect: expect)
-                    } else if let outcome = await actions.stop(run: run, topicName: topic.name, expect: expect) {
-                        showStopOutcome(outcome, ref: link, in: environment)
-                    }
-                }
-            }
+            return nil  // an ActiveTopicCard, with its own controls
         }
     }
 
