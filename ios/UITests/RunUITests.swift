@@ -172,6 +172,20 @@ final class RunUITests: XCTestCase {
         XCTAssertFalse(element(app, "run.lap").exists, "no run.lap control", file: file, line: line)
     }
 
+    /// #239: Start on Morning's tile the moment it exists after launch, with no settle wait. The
+    /// fake server answers the connect's feed request and holds every later one
+    /// (`-QuickrHoldLaterFeed`), so the launch's next pull is still in flight at the tap however
+    /// fast or slow the machine is. One tap starts the run: the local view shows it at once.
+    func testStartTheMomentTheTileShows() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrHoldLaterFeed"]
+        app.launch()
+        let tileButton = element(app, "tile.morning.run")
+        XCTAssertTrue(tileButton.waitForExistence(timeout: 20))
+        tileButton.tap()
+        XCTAssertTrue(waitForLabel(tileButton, containing: "Next: Dress"), tileButton.label)
+    }
+
     func testStartNextNextSkipPauseResumeStopAnswerSave() {
         let app = launch()
         let tile = element(app, "tile.morning")
