@@ -127,9 +127,11 @@ struct RunAlertLine: View {
 
 /// What Stop leads to, on any surface: the answers form, or "Saved X: 7:42" with **Resume**
 /// (active-surfaces.md §3.2, OQ-1): a reopen of `run`, the one just stopped. A run stopped this
-/// moment is resumable (its stop is the latest, unedited, seconds old), so the toast offers it
-/// at once; the tap re-checks the store (`LocalStore.resumable`), since the toast can outlive a
-/// later start, an edit of the entry or another device's stop, and then does nothing.
+/// moment is resumable (its stop is the latest, unedited, seconds old), so the toast offers it at
+/// once, and only while it stays so: `watchResume` dismisses the toast once the store stops
+/// offering this run (a later start, an edit of the entry, another device's stop) or its window
+/// closes. The tap re-checks the store too (`LocalStore.resumable`), so a tap racing either does
+/// nothing.
 @MainActor
 func showStopOutcome(
     _ outcome: RunActions.StopOutcome, run: LocalRun, ref: TopicLinkRef, in environment: AppEnvironment
@@ -149,6 +151,37 @@ func showStopOutcome(
                 await actions.reopen(runId: runId, topicId: topicId)
             }
         }
-        environment.toasts.show(Toast("Saved \(name): \(DurationFormat.format(total))", action: resume))
+        let toasts = environment.toasts
+        let id = toasts.show(Toast("Saved \(name): \(DurationFormat.format(total))", action: resume))
+        if let store { watchResume(toast: id, runId: runId, topicId: topicId, store: store, in: environment) }
+    }
+}
+
+/// Dismisses the stop toast `toast` once its Resume is no longer offered: the store's latest stop
+/// isn't `runId` any more, or OQ-1's window closes (on the run clock). Ends with the toast.
+@MainActor
+private func watchResume(toast id: Int, runId: String, topicId: UUID, store: LocalStore, in environment: AppEnvironment)
+{
+    let (toasts, ticker) = (environment.toasts, environment.runTicker)
+    let shown = { toasts.items.contains { $0.id == id } }
+    let watch = Task { @MainActor in
+        do {
+            for try await latest in store.observeResumable(topicId: topicId) {
+                guard shown() else { return }
+                if latest?.runId != runId { return toasts.dismiss(id) }
+            }
+        } catch {
+            // The store closed: the toast's tap re-checks, and does nothing.
+        }
+    }
+    Task { @MainActor in
+        // The window, from the stop: at most 15 minutes, ended early when the toast goes.
+        let closes = RunInstant.milliseconds(Date()) + ticker.offsetMs + RunPresentation.reopenWindowMs
+        while shown() {
+            if RunInstant.milliseconds(Date()) + ticker.offsetMs > closes { break }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        watch.cancel()
+        if shown() { toasts.dismiss(id) }
     }
 }
