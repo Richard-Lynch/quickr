@@ -625,8 +625,9 @@ afterEach(async () => {
 
 /**
  * The entry page for `RUN` against the fake run server (its `getEntry` serves the stored
- * entry), with the page's outbox flushing on its own as in the app. `offline`: run events
- * never reach the server (a network error), so they stay queued.
+ * entry), with the page's outbox flushing on its own as in the app. `offline`: the device is
+ * offline (`navigator.onLine` false, and a run event would meet a network error), so run
+ * events stay queued.
  */
 function renderActions(
   fixture: { topic: TopicDetail; versions: TopicVersionOut[] },
@@ -654,6 +655,8 @@ function renderActions(
     }),
   );
   Element.prototype.scrollIntoView = () => undefined;
+  // Offline as the app sees it: nothing is flushed, so no send is in flight at teardown.
+  const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(!opts.offline);
   setAckedStore(memoryAckedStore());
   setNoticeStore(memoryNoticeStore());
   setRunTapCooldown(0);
@@ -684,6 +687,7 @@ function renderActions(
   teardown = async () => {
     cleanup();
     stop();
+    onLine.mockRestore();
     disconnect();
     qc.clear();
     await outbox.clear();
@@ -866,6 +870,17 @@ describe('EntryEditPage entry actions: Remove', () => {
     expect(within(section).getByTestId('run-total').textContent).toBe('1:20');
     expect(a.server.entries[0]?.revision).toBe(1);
     expect(a.server.events()).toEqual([]);
+  });
+
+  it('offline: Edit times waits for the queued remove (an edit now would void it)', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    const section = await a.section();
+    expect(await within(section).findByRole('button', { name: 'Edit times' })).toBeEnabled();
+    await confirmRemove(a, 'Remove Rest 1');
+    await within(section).findByTestId('entry.timing.pending');
+    expect(within(section).getByRole('button', { name: 'Edit times' })).toBeDisabled();
   });
 });
 

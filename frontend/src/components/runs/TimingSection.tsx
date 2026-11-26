@@ -328,7 +328,14 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
             {tapping === 'reopen' ? 'Resuming…' : 'Resume run'}
           </Button>
         ) : null}
-        <Button icon={<Icon name="clock" />} onClick={() => open(entry.revision, entry.timing)}>
+        {/* A save now would mark the run edited and void the queued remove (timers2.md
+            §3.6): the times can be edited once it is acked. */}
+        <Button
+          icon={<Icon name="clock" />}
+          disabled={pending}
+          title={pending ? 'Waiting for a removal to sync' : undefined}
+          onClick={() => open(entry.revision, entry.timing)}
+        >
           Edit times
         </Button>
       </div>

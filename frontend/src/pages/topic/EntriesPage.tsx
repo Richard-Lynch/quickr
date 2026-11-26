@@ -379,7 +379,8 @@ export function EntriesPage() {
   const listed = entries.data?.pages.flatMap((p) => p.items) ?? [];
   const serverIds = new Set(listed.map((e) => e.id.toLowerCase()));
   // OQ-14 (timers2.md §5.3): an entry whose run is open or finishing here is the run's;
-  // the total still counts it.
+  // the total still counts it, and the empty state and Load more follow the listed rows,
+  // so a page of hidden entries never strands the next one.
   const { hiddenEntries } = useRuns();
   const items = listed.filter((e) => !hiddenEntries.has(e.id.toLowerCase()));
   const total = entries.data?.pages[0]?.total ?? 0;
@@ -425,7 +426,7 @@ export function EntriesPage() {
             <Skeleton key={i} className="h-28 rounded-card" />
           ))}
         </div>
-      ) : items.length === 0 && queuedHere > 0 ? null : items.length === 0 ? (
+      ) : listed.length === 0 && queuedHere > 0 ? null : listed.length === 0 ? (
         <EmptyState
           title={topic.entry_count === 0 ? 'No entries yet' : 'No entries match'}
           action={

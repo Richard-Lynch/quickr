@@ -4,7 +4,7 @@
  * entry of a timed topic, and the desktop table's Timing column.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -387,5 +387,37 @@ describe('EntriesPage OQ-14', () => {
     // The desktop table too.
     const table = screen.getByRole('table');
     expect(within(table).getAllByRole('row')).toHaveLength(2); // the header and one entry
+  });
+
+  it('keeps Load more when every loaded entry is hidden', async () => {
+    queued = queueReopen();
+    // One entry per page: the first page holds only the hidden one.
+    const pages = [timed, untimed];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: Request) => {
+        const url = new URL(input.url);
+        if (url.pathname.endsWith('/entries')) {
+          const offset = Number(url.searchParams.get('offset') ?? 0);
+          const page: EntryPage = {
+            items: pages.slice(offset, offset + 1),
+            total: pages.length,
+            offset,
+            limit: 1,
+          };
+          return Promise.resolve(json(200, page));
+        }
+        if (url.pathname.endsWith('/versions')) return Promise.resolve(json(200, versions));
+        if (url.pathname.endsWith('/runs')) return Promise.resolve(json(200, []));
+        return Promise.resolve(json(404, { code: 'not_found', detail: 'nf', errors: [] }));
+      }),
+    );
+    renderPage();
+    const more = await screen.findByRole('button', { name: /load more/i });
+    expect(screen.queryByText('No entries match')).toBeNull();
+    more.click();
+    // The second page's entry, the untimed one.
+    await waitFor(async () => expect(await cards()).toHaveLength(1));
+    expect((await cards())[0]?.textContent).not.toContain('12:40');
   });
 });
