@@ -6150,6 +6150,18 @@
             "type": "string",
             "format": "date-time",
             "title": "Deleted At"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision",
+            "description": "A run deletion: the run's revision in the page's snapshot, which bounds every earlier state of the run. Null for a run that went with its topic and for other kinds (timers2.md \u00a75.2)."
           }
         },
         "additionalProperties": false,
@@ -6159,10 +6171,11 @@
           "seq",
           "id",
           "topic_id",
-          "deleted_at"
+          "deleted_at",
+          "revision"
         ],
         "title": "FeedDeletion",
-        "description": "A permanently deleted id. A topic deletion also deletes all of its versions, entries and\nruns. A ``run`` deletion means the run is no longer open or finishing: it stopped, was\ndiscarded, or went with its topic."
+        "description": "A permanently deleted id. A topic deletion also deletes all of its versions, entries and\nruns. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,\nwas discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item\nwith a higher ``revision`` can follow its deletion (timers2.md \u00a75.1, \u00a75.2)."
       },
       "FeedEntry": {
         "properties": {
@@ -7503,7 +7516,11 @@
                   "stale",
                   "no_step",
                   "already_paused",
-                  "not_paused"
+                  "not_paused",
+                  "reverted",
+                  "not_stopped",
+                  "deleted",
+                  "no_target"
                 ]
               },
               {
@@ -7540,7 +7557,9 @@
               "resume",
               "stop",
               "finish",
-              "discard"
+              "discard",
+              "reopen",
+              "remove"
             ],
             "title": "Type"
           },
@@ -7592,6 +7611,19 @@
             ],
             "title": "Pause Id",
             "description": "resume (required): the pause event it ends."
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target",
+            "description": "reopen and remove only: the event acted on. remove (required): a pause, a lap, or a reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server resolves and stores."
           },
           "topic_id": {
             "anyOf": [
@@ -7752,7 +7784,9 @@
               "resume",
               "stop",
               "finish",
-              "discard"
+              "discard",
+              "reopen",
+              "remove"
             ],
             "title": "Type"
           },
@@ -7795,6 +7829,19 @@
             ],
             "title": "Pause Id"
           },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target",
+            "description": "A reopen's or remove's target as stored: a reopen sent without one carries the stop the server resolved it to (timers2.md \u00a74.2); null for other types."
+          },
           "arrival": {
             "type": "integer",
             "title": "Arrival",
@@ -7823,7 +7870,11 @@
                   "stale",
                   "no_step",
                   "already_paused",
-                  "not_paused"
+                  "not_paused",
+                  "reverted",
+                  "not_stopped",
+                  "deleted",
+                  "no_target"
                 ]
               },
               {
@@ -7846,6 +7897,7 @@
           "seg",
           "step",
           "pause_id",
+          "target",
           "arrival",
           "effect",
           "reason",
@@ -7913,7 +7965,11 @@
                   "stale",
                   "no_step",
                   "already_paused",
-                  "not_paused"
+                  "not_paused",
+                  "reverted",
+                  "not_stopped",
+                  "deleted",
+                  "no_target"
                 ]
               },
               {
@@ -8881,12 +8937,12 @@
           "label": {
             "type": "string",
             "title": "Label",
-            "description": "The latest version's label for the key."
+            "description": "The latest version's label for the lap type."
           },
           "laps": {
             "type": "integer",
             "title": "Laps",
-            "description": "Lap segments of the type, over every run."
+            "description": "Lap segments of this type, over every timed run."
           },
           "best_ms": {
             "anyOf": [
@@ -9187,7 +9243,7 @@
             },
             "type": "object",
             "title": "Lap Types",
-            "description": "Each lap type's key and its lap segments' summed active_ms; untyped laps are left out."
+            "description": "Each lap type and its lap segments' summed active_ms; untyped laps are left out."
           }
         },
         "additionalProperties": false,
@@ -9944,6 +10000,14 @@
             "title": "Steps",
             "description": "Every step key seen in range: the current version's steps in step order, then the rest by key."
           },
+          "lap_types": {
+            "items": {
+              "$ref": "#/components/schemas/TimingLapTypeStats"
+            },
+            "type": "array",
+            "title": "Lap Types",
+            "description": "Every lap type with a lap segment in range: the current version's lap types in order, then the rest by key. Keyed apart from steps; untyped laps count only toward laps."
+          },
           "laps": {
             "$ref": "#/components/schemas/TimingLaps"
           },
@@ -9957,14 +10021,6 @@
             "type": "array",
             "title": "Series",
             "description": "One point per timed entry, by captured_at then entry_id."
-          },
-          "lap_types": {
-            "items": {
-              "$ref": "#/components/schemas/TimingLapTypeStats"
-            },
-            "type": "array",
-            "title": "Lap Types",
-            "description": "Every lap-type key with a lap segment in range: the current version's lap types in order, then the rest by key. Keyed apart from steps; untyped laps count only toward laps."
           }
         },
         "additionalProperties": false,
@@ -9974,10 +10030,10 @@
           "complete_runs",
           "total",
           "steps",
+          "lap_types",
           "laps",
           "paused",
-          "series",
-          "lap_types"
+          "series"
         ],
         "title": "TopicTiming",
         "description": "Timing stats over the timed entries in range (timers.md \u00a79). Durations are active\ntime in integer milliseconds; untimed entries count toward nothing here."

@@ -8,8 +8,8 @@ import QuickrCore
 //
 // A stored timing's v2 fields (`terminal_id`, a segment's `lap_type`, `event_id` and
 // `opened_by`, a pause's `id`) are plain optionals: absent on a pre-v2 stored timing (timers2.md
-// §3.3). A `RunState`'s own v2 fields are required keys. `RunEventOut.target` is a plain optional
-// until the server's write path serves it (§7.1).
+// §3.3). A `RunState`'s own v2 fields are required keys, and so is `RunEventOut.target` (§7.1);
+// both read as absent from a run cached before they existed.
 
 /// One segment of a finished run (`TimingSegment`).
 public struct TimingSegmentDTO: Codable, Sendable, Hashable {
@@ -84,12 +84,33 @@ public struct RunEventDTO: Codable, Sendable, Hashable {
     public var effect: String
     @RequiredKey public var reason: String?
     public var source: String
-    /// The resolved target of a reopen or remove.
-    public var target: String?
+    /// The resolved target of a reopen or remove (a reopen sent without one: the stop the
+    /// server resolved it to); null for other types.
+    @RequiredKey public var target: String?
 
     enum CodingKeys: String, CodingKey {
         case id, type, at, seg, step, arrival, effect, reason, source, target
         case pauseId = "pause_id"
+    }
+}
+
+extension RunEventDTO {
+    /// `target` is required on the wire; a run cached before the server served it lacks it.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        type = try c.decode(String.self, forKey: .type)
+        at = try c.decode(String.self, forKey: .at)
+        _seg = try c.decode(RequiredKey<Int>.self, forKey: .seg)
+        _step = try c.decode(RequiredKey<String>.self, forKey: .step)
+        _pauseId = try c.decode(RequiredKey<String>.self, forKey: .pauseId)
+        arrival = try c.decode(Int.self, forKey: .arrival)
+        effect = try c.decode(String.self, forKey: .effect)
+        _reason = try c.decode(RequiredKey<String>.self, forKey: .reason)
+        source = try c.decode(String.self, forKey: .source)
+        _target =
+            decoder.isStoredJSON && !c.contains(.target)
+            ? RequiredKey(wrappedValue: nil) : try c.decode(RequiredKey<String>.self, forKey: .target)
     }
 }
 

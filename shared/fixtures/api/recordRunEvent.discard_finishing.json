@@ -21,6 +21,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -33,6 +34,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "stop"
         },
         {
@@ -45,6 +47,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "discard"
         }
       ],

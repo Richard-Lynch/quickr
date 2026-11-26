@@ -50,6 +50,7 @@ const labelOf = (steps: readonly TimerStep[], key: string | null): string | null
 
 export type RunActionKind =
   | { type: 'start' }
+  /** `label`: the step it opens ("Next: {label}"); empty when the steps are unknown, a plain "Next". */
   | { type: 'next'; label: string }
   | { type: 'lap'; nextTypeLabel: string | null }
   | { type: 'skip'; label: string }
@@ -76,6 +77,12 @@ export interface Headline {
   counter: string | null;
 }
 
+/**
+ * OQ-1: how long after its stop a run is offered "Resume run" on tiles, toasts and the run
+ * screen (timers2.md glossary, "Resumable"). iOS: `RunPresentation.reopenWindowMs`.
+ */
+export const REOPEN_WINDOW_MS = 15 * 60 * 1000;
+
 const action = (kind: RunActionKind, role: RunActionRole): RunAction => ({
   kind,
   role,
@@ -87,14 +94,18 @@ const action = (kind: RunActionKind, role: RunActionRole): RunAction => ({
  * The run's actions in display order: the primary first, then secondaries, then overflow,
  * destructive last (active-surfaces.md §1.1). The on-screen primary rule (timers2.md §10):
  * Lap when the open segment is a lap or no named step remains, else Next with the step it
- * opens; Stop is never primary. `timer === null` (steps unknown) is the v1 fallback: a plain
- * `next("Next")` and no `skip`, no `lap`.
+ * opens; Stop is never primary. `timer === null` (steps unknown) is the v1 fallback:
+ * `next` with an empty label, which §1.3 renders as a plain "Next", and no `skip`, no `lap`.
  *
- * T2-M1 stub half: `lap.nextTypeLabel` is null until `RunState.next_lap_type` exists
- * (F1-CORE); `reopen`/`revert` are never returned until the reopen event lands (F1-OUTBOX);
+ * A closed run (`stopped`/`discarded`) is idle (rows 1–3): `start` (primary). A stopped run
+ * with a `terminal_id` also offers `reopen` (secondary) within `REOPEN_WINDOW_MS` of its stop
+ * (row 13); the store-level rules (unedited, latest stop, no other open run) are `resumable`'s
+ * and the surface's. A topic with no run doesn't call this.
+ *
+ * T2-M1 stub half: `lap.nextTypeLabel` is null until `RunState.next_lap_type` is read here
+ * (F1-CORE); `revert` is never returned until `RunState` carries the reopen (F1-OUTBOX);
  * row 14 (busy: every `enabled === false`) waits for a cooldown notion in `RunStatus`
- * (F1-OUTBOX). A closed run (`stopped`/`discarded`) yields `[]` today (row 13 without
- * `resumable`).
+ * (F1-OUTBOX).
  */
 // Verbatim from timers2.md §10 (A13): state + status, never a LocalRun.
 export function actions(
@@ -103,8 +114,6 @@ export function actions(
   timer: Timer | null,
   now: number,
 ): RunAction[] {
-  // eslint-disable-next-line @typescript-eslint/no-meaningless-void-operator -- reserved for v2 state (T2-M1 stub half)
-  void now; // the reopen window (row 13) reads it once `Timing.terminal_id` exists
   switch (status) {
     case 'finishing':
       return [
@@ -112,8 +121,18 @@ export function actions(
         action({ type: 'discard' }, 'destructive'),
       ];
     case 'stopped':
-    case 'discarded':
-      return [];
+    case 'discarded': {
+      const out = [action({ type: 'start' }, 'primary')];
+      const end = state.ended_at;
+      if (
+        status === 'stopped' &&
+        state.terminal_id !== null &&
+        end !== null &&
+        now - end <= REOPEN_WINDOW_MS
+      )
+        out.push(action({ type: 'reopen', target: state.terminal_id }, 'secondary'));
+      return out;
+    }
     case 'running':
     case 'paused':
       break;
@@ -123,7 +142,7 @@ export function actions(
   const nextLabel = labelOf(steps ?? [], state.next_step);
   const primary: RunAction =
     steps === null
-      ? action({ type: 'next', label: 'Next' }, 'primary')
+      ? action({ type: 'next', label: '' }, 'primary')
       : open?.kind === 'lap' || nextLabel === null
         ? action({ type: 'lap', nextTypeLabel: null }, 'primary')
         : action({ type: 'next', label: nextLabel }, 'primary');

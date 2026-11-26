@@ -51,13 +51,18 @@ public struct Deletion: Sendable, Hashable {
     public var id: UUID
     public var topicId: UUID
     public var deletedAt: Date
+    /// A `run` deletion's fence: the run's revision in the page's snapshot, so every earlier state
+    /// of the run is older (timers2.md §5.2). nil for a topic cascade (the row is gone) and for
+    /// every other kind.
+    public var revision: Int?
 
-    public init(kind: EntityKind, seq: Int, id: UUID, topicId: UUID, deletedAt: Date) {
+    public init(kind: EntityKind, seq: Int, id: UUID, topicId: UUID, deletedAt: Date, revision: Int? = nil) {
         self.kind = kind
         self.seq = seq
         self.id = id
         self.topicId = topicId
         self.deletedAt = deletedAt
+        self.revision = revision
     }
 
     public enum EntityKind: String, Sendable, Hashable, CaseIterable, Codable {
@@ -65,7 +70,8 @@ public struct Deletion: Sendable, Hashable {
         case topic
         case version
         /// A run that closed (stopped or discarded) or was deleted: "no longer open" (timers.md
-        /// §2.4). A topic's deletion also lists its runs' aliases under this kind.
+        /// §2.4), not that the id is gone: a closed run may upsert again after a `reopen`
+        /// (timers2.md §5.1). A topic's deletion also lists its runs' aliases under this kind.
         case run
     }
 }

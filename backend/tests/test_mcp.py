@@ -49,6 +49,7 @@ async def test_lists_tools_with_schemas(mcp_client: Client[Any]) -> None:
         "start_run",
         "run_action",
         "list_runs",
+        "get_run",
         "edit_run_timing",
     }
     for tool in tools.values():
@@ -548,3 +549,152 @@ async def test_run_action_stamps_after_the_latest_tap(
         "2026-05-01T12:00:00.002000Z",
     ]
     assert [e["effect"] for e in lap["run"]["events"]] == ["applied"] * 3
+
+
+# --- timers v2 (timers2.md §7.3, T28 and T32) ---------------------------------------------------
+
+TIMER_V2 = {
+    "steps": [
+        {"key": "warm_up", "label": "Warm up", "alerts": [{"key": "half", "label": "Half", "at": "t/2"}]}
+    ],
+    "laps": [{"key": "run", "label": "Run", "alerts": []}, {"key": "rest", "label": "Rest", "alerts": []}],
+    "variables": [{"name": "t", "ms": 600_000}],
+}
+
+
+async def test_create_and_publish_take_the_v2_timer(mcp_client: Client[Any]) -> None:
+    topic = await call(mcp_client, "create_topic", name="Intervals", questions=[], timer=TIMER_V2)
+    assert topic["timer"] == normal_timer(TIMER_V2)
+    assert topic["timer"]["steps"][0]["alerts"][0]["at_ms"] == 300_000  # the server fills at_ms
+    renamed = {**TIMER_V2, "laps": [{"key": "run", "label": "Jog", "alerts": []}]}
+    published = await call(
+        mcp_client, "publish_topic_version", ref="intervals", questions=[], base_version=1, timer=renamed
+    )
+    assert (published["current_version"], published["timer"]["laps"]) == (
+        2,
+        [{"key": "run", "label": "Jog", "alerts": []}],
+    )
+    bad = {**TIMER_V2, "laps": [{"key": "warm_up", "label": "Dup", "alerts": []}]}
+    with pytest.raises(ToolError, match="warm_up"):
+        await mcp_client.call_tool("create_topic", {"name": "Bad", "questions": [], "timer": bad})
+
+
+async def test_check_topic_version_takes_the_timer(mcp_client: Client[Any]) -> None:
+    """``timer`` is passed through as REST's: given (a timer, or null for untimed), a timer
+    change with no question changes is a change; left out, only the questions are compared."""
+    await call(mcp_client, "create_topic", name="Intervals", questions=[], timer=TIMER_V2)
+
+    async def check(**args: Any) -> dict[str, Any]:
+        return await call(mcp_client, "check_topic_version", ref="intervals", questions=[], **args)
+
+    assert (await check())["ok"] is False  # no changes
+    assert (await check(timer=TIMER_V2))["ok"] is False  # the same timer: still no changes
+    assert (await check(timer={**TIMER_V2, "variables": [{"name": "t", "ms": 1}]}))["ok"] is True
+    assert (await check(timer=None))["ok"] is True  # timing switched off
+    tools = {t.name: t for t in await mcp_client.list_tools()}
+    assert "timer" not in tools["check_topic_version"].input_schema.get("required", [])
+    with pytest.raises(ToolError, match="unknown variable 'u'"):
+        await mcp_client.call_tool(
+            "check_topic_version",
+            {
+                "ref": "intervals",
+                "questions": [],
+                "timer": {
+                    "steps": [{"key": "a", "label": "A", "alerts": [{"key": "x", "label": "X", "at": "u"}]}]
+                },
+            },
+        )
+
+
+async def _stopped_run(mcp_client: Client[Any]) -> tuple[str, dict[str, Any]]:
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    stopped = await call(mcp_client, "run_action", run_id=run_id, action="stop")
+    assert stopped["run"]["status"] == "stopped"
+    return run_id, stopped
+
+
+async def test_run_action_reopen_defaults_to_the_terminal(mcp_client: Client[Any]) -> None:
+    run_id, stopped = await _stopped_run(mcp_client)
+    terminal = stopped["run"]["state"]["terminal_id"]
+    assert terminal == stopped["event"]["id"]
+    reopened = await call(mcp_client, "run_action", run_id=run_id, action="reopen")
+    assert (reopened["event"]["effect"], reopened["run"]["status"]) == ("applied", "running")
+    assert reopened["run"]["events"][-1]["target"] == terminal
+    assert reopened["run"]["ended_at"] is None
+    # Running now: there is no terminal to reopen.
+    with pytest.raises(ToolError, match="the run isn't stopped"):
+        await mcp_client.call_tool("run_action", {"run_id": run_id, "action": "reopen"})
+    # Discard after a reopen reverts it: stopped again, the entry kept.
+    reverted = await call(mcp_client, "run_action", run_id=run_id, action="discard")
+    assert (reverted["run"]["status"], reverted["run"]["state"]["terminal_id"]) == ("stopped", terminal)
+    assert reverted["run"]["events"][-2]["reason"] == "reverted"
+
+
+async def test_run_action_reopen_with_an_explicit_target(mcp_client: Client[Any]) -> None:
+    run_id, stopped = await _stopped_run(mcp_client)
+    start = stopped["run"]["events"][0]["id"]
+    again = await call(mcp_client, "run_action", run_id=run_id, action="stop")  # void: already closed
+    for target, reason in ((start, "no_target"), (again["event"]["id"], "not_stopped")):
+        void = await call(mcp_client, "run_action", run_id=run_id, action="reopen", target=target)
+        assert (void["event"]["effect"], void["event"]["reason"]) == ("void", reason)
+    applied = await call(
+        mcp_client, "run_action", run_id=run_id, action="reopen", target=stopped["event"]["id"]
+    )
+    assert (applied["event"]["effect"], applied["run"]["events"][-1]["target"]) == (
+        "applied",
+        stopped["event"]["id"],
+    )
+
+
+async def test_run_action_remove_requires_a_target(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    pause = await call(mcp_client, "run_action", run_id=run_id, action="pause")
+    await call(mcp_client, "run_action", run_id=run_id, action="resume")
+    with pytest.raises(ToolError, match="target"):
+        await mcp_client.call_tool("run_action", {"run_id": run_id, "action": "remove"})
+    removed = await call(
+        mcp_client, "run_action", run_id=run_id, action="remove", target=pause["event"]["id"]
+    )
+    assert removed["event"]["effect"] == "applied"
+    assert removed["run"]["state"]["pauses"] == []
+    by_id = {e["id"]: e for e in removed["run"]["events"]}
+    assert by_id[pause["event"]["id"]]["reason"] == "deleted"
+    # A lap removed from the stopped run's entry is a late merge.
+    lap = await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    stopped = await call(mcp_client, "run_action", run_id=run_id, action="stop")
+    assert [s["kind"] for s in stopped["entry"]["timing"]["segments"]] == ["lap", "lap"]
+    late = await call(mcp_client, "run_action", run_id=run_id, action="remove", target=lap["event"]["id"])
+    assert late["event"]["effect"] == "applied"
+    assert late["entry"]["revision"] == stopped["entry"]["revision"] + 1
+    assert [s["kind"] for s in late["entry"]["timing"]["segments"]] == ["lap"]
+    # Only a reopen or a remove names a target.
+    with pytest.raises(ToolError, match="target"):
+        await mcp_client.call_tool(
+            "run_action", {"run_id": run_id, "action": "stop", "target": pause["event"]["id"]}
+        )
+
+
+async def test_get_run(mcp_client: Client[Any]) -> None:
+    run_id, stopped = await _stopped_run(mcp_client)
+    run = await call(mcp_client, "get_run", run_id=run_id)
+    assert run == stopped["run"]
+    assert run["state"]["terminal_id"] == stopped["event"]["id"]
+    with pytest.raises(ToolError, match="not found"):
+        await mcp_client.call_tool("get_run", {"run_id": "0a000000-0000-4000-8000-00000000ffff"})
+
+
+def test_instructions_cover_timers_v2() -> None:
+    from app.mcp_server import INSTRUCTIONS
+
+    text = " ".join(INSTRUCTIONS.split())
+    for phrase in (
+        "`run_action` reopen",
+        "`run_action` remove",
+        "`get_run` any run",
+        "laps: [{key, label, alerts}]",
+        "variables: [{name, ms}]",
+        "the server fills `at_ms`",
+    ):
+        assert phrase in text, phrase

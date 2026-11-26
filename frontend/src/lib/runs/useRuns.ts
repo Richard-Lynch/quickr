@@ -15,7 +15,7 @@ import type { OutboxItem } from '../outbox/types';
 import { useOutbox } from '../outbox/useOutbox';
 import type { RunTapDeps } from './actions';
 import { getAckedSnapshot, subscribeAcked } from './acked';
-import { isOpen, localRuns, openRunTopics, type LocalRun } from './localView';
+import { hiddenEntryIds, isOpen, localRuns, openRunTopics, type LocalRun } from './localView';
 
 export const RUNS_POLL_MS = 10_000;
 
@@ -26,6 +26,11 @@ export interface UseRuns {
   runs: readonly LocalRun[];
   /** Topics with an open run, for `dueCount` and `splitByDue`. */
   openTopics: ReadonlySet<string>;
+  /**
+   * Entries not to list as entries: their run is open or finishing here (a reopen,
+   * timers2.md §5.3, OQ-14). Counts, due state and stats still include them.
+   */
+  hiddenEntries: ReadonlySet<string>;
   /** The server's answer has arrived at least once (or came from the persisted cache). */
   loaded: boolean;
   /** For `startRun` and `tapRun`. */
@@ -62,6 +67,7 @@ export function useRuns(opts: { timedPageVisible?: boolean } = {}): UseRuns {
   const serverRuns = query.data ?? NO_RUNS;
   const runs = useMemo(() => localRuns(serverRuns, items, acked), [serverRuns, items, acked]);
   const openTopics = useMemo(() => openRunTopics(runs), [runs]);
+  const hiddenEntries = useMemo(() => hiddenEntryIds(runs), [runs]);
   const deps = useMemo(() => runTapDeps(qc), [qc]);
-  return { runs, openTopics, loaded: query.data !== undefined, deps };
+  return { runs, openTopics, hiddenEntries, loaded: query.data !== undefined, deps };
 }

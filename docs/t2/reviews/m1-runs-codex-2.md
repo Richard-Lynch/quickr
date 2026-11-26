@@ -1,0 +1,5 @@
+- **High — [changes.py:118](/Users/richie/code/quickr-worktrees/t2-m1-runs/backend/app/services/changes.py:118): Run deletions omit the revision fence required by §7.1.** A client can receive a stop deletion and later receive a delayed response containing an older open-run revision. Without the deletion’s run revision, it cannot reliably reject that stale response while still accepting a subsequent reopen with a newer revision. The specification assigns this feed change to the subsequent M1-FEED work, so it remains an integration gap in the reviewed diff.
+
+Both findings from the first review are fixed: null-target reopens now find the applied stop for pre-v2 state, and replay comparison preserves whether the target was sent as null.
+
+This was a code and specification review; I did not run the test suite.
