@@ -9,8 +9,8 @@ extension RunAction {
     public var title: String {
         switch kind {
         case .start: "Start"
-        // `next("Next")` is the steps-unknown fallback (timers2.md §10): a plain "Next".
-        case .next(let label): label == "Next" ? label : "Next: \(label)"
+        // `next("")` is the steps-unknown fallback (§1.2 row 9): no step label, a plain "Next".
+        case .next(let label): label.isEmpty ? "Next" : "Next: \(label)"
         case .lap(let next): next.map { "Lap → \($0)" } ?? "Lap"
         case .skip(let label): "Skip \(label)"
         case .pause: "Pause"
