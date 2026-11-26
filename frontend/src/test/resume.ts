@@ -28,3 +28,9 @@ export function lapTopic(): ReturnType<typeof timedTopic> {
 /** The server's reopen events, in order. */
 export const reopens = (server: FakeRunServer) =>
   server.events().filter((e) => e.type === 'reopen');
+
+/**
+ * OQ-1's Resume window, 15 minutes, written out rather than imported: a change to
+ * `REOPEN_WINDOW_MS` must fail the tests that pin the spec's window.
+ */
+export const WINDOW_MS = 15 * 60_000;

@@ -9,9 +9,8 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { outbox } from '../../lib/outbox/client';
-import { lapTopic, reopens, seedStopped, STOP_ID } from '../../test/resume';
+import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
 import { renderRunApp, RUN_ID, type Harness } from '../../test/runUi';
-import { REOPEN_WINDOW_MS } from './model';
 
 let h: Harness | null = null;
 /** The harness's fake server (the test has rendered the app). */
@@ -45,7 +44,7 @@ describe('Resume under Start', () => {
 
   it('past the window: Start only', async () => {
     h = renderRunApp('/t/morning/record', lapTopic(), (s) =>
-      seedStopped(s, REOPEN_WINDOW_MS + 120_000, REOPEN_WINDOW_MS + 1_000),
+      seedStopped(s, WINDOW_MS + 120_000, WINDOW_MS + 1_000),
     );
     expect(await screen.findByRole('button', { name: 'Start' })).toBeInTheDocument();
     // The latest entry has loaded, and is too old to resume.

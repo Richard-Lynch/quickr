@@ -10,9 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TopicSummary } from '../../client';
 import { outbox } from '../../lib/outbox/client';
 import type { EntryCreatePayload } from '../../lib/outbox/kinds';
-import { lapTopic, reopens, seedStopped, STOP_ID } from '../../test/resume';
+import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
 import { renderRunApp, type Harness } from '../../test/runUi';
-import { REOPEN_WINDOW_MS } from '../runs/model';
 import { ToastProvider } from '../ui/Toast';
 import { TopicTile } from './TopicTile';
 
@@ -164,7 +163,7 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
 
   it('past the window: no Resume, Start only', async () => {
     h = renderRunApp('/', lapTopic(), (s) =>
-      seedStopped(s, REOPEN_WINDOW_MS + 120_000, REOPEN_WINDOW_MS + 1_000),
+      seedStopped(s, WINDOW_MS + 120_000, WINDOW_MS + 1_000),
     );
     expect(await screen.findByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
     await waitFor(() =>
@@ -175,9 +174,7 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
 
   it('goes when the window ends', async () => {
     // Stopped 14:59 ago: offered now, gone a couple of seconds later (the offer ticks).
-    h = renderRunApp('/', lapTopic(), (s) =>
-      seedStopped(s, REOPEN_WINDOW_MS + 60_000, REOPEN_WINDOW_MS - 1_000),
-    );
+    h = renderRunApp('/', lapTopic(), (s) => seedStopped(s, WINDOW_MS + 60_000, WINDOW_MS - 1_000));
     expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByTestId('run-reopen')).toBeNull(), {
       timeout: 4000,
