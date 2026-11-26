@@ -18,7 +18,12 @@ public final class TopicSettingsModel {
     public var name: String
     public var slug: String
     public var description: String
+    /// The colour, emoji and tags (`AppearanceEditorView`), saved with the details.
+    public var appearance: AppearanceDraft
+    /// The appearance on the server, which `appearance` starts from.
+    public private(set) var savedAppearance: TopicAppearance
     public private(set) var detailErrors: [DraftField: String] = [:]
+    public private(set) var appearanceErrors: [AppearanceField: String] = [:]
     public private(set) var detailsBanner: String?
     /// Counts "Save details" taps: a repeated identical banner is announced again (`qrAnnouncesError`).
     public private(set) var detailsAttempts = 0
@@ -47,7 +52,10 @@ public final class TopicSettingsModel {
     public private(set) var unsyncedChanges = 0
 
     public let limits: Limits
+    public let appearanceLimits: AppearanceLimits
     @ObservationIgnored private let writer: any TopicWriter
+    /// nil: the screen offers no Appearance row.
+    @ObservationIgnored private let appearanceSaver: (any AppearanceSaving)?
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let deviceTimeZone: String
     @ObservationIgnored private let isKnownTimeZone: (String) -> Bool
@@ -60,7 +68,10 @@ public final class TopicSettingsModel {
         topic: Topic, writer: any TopicWriter, toasts: ToastCenter, limits: Limits = .serverDefaults,
         deviceTimeZone: String = TimeZone.current.identifier,
         isKnownTimeZone: @escaping (String) -> Bool = ScheduleDraft.isKnownTimeZone,
-        onSlugChanged: @escaping @MainActor (String) -> Void = { _ in }, onDeleted: @escaping @MainActor () -> Void = {}
+        onSlugChanged: @escaping @MainActor (String) -> Void = { _ in },
+        onDeleted: @escaping @MainActor () -> Void = {},
+        appearanceSaver: (any AppearanceSaving)? = nil, appearanceLimits: AppearanceLimits = .serverDefaults,
+        savedAppearance: TopicAppearance? = nil
     ) {
         self.topic = topic
         self.writer = writer
@@ -70,9 +81,16 @@ public final class TopicSettingsModel {
         self.isKnownTimeZone = isKnownTimeZone
         self.onSlugChanged = onSlugChanged
         self.onDeleted = onDeleted
+        self.appearanceSaver = appearanceSaver
+        self.appearanceLimits = appearanceLimits
         name = topic.name
         slug = topic.slug
         description = topic.description
+        // T2-M3 seam: `savedAppearance` goes when I3-STORE stores `Topic.appearance` (the stand-in
+        // reads `.empty`); the model then reads `topic.appearance` alone.
+        let saved = savedAppearance ?? topic.appearance
+        self.savedAppearance = saved
+        appearance = AppearanceDraft(saved)
         schedule = ScheduleDraft(schedule: topic.schedule, timezone: deviceTimeZone)
     }
 
@@ -83,7 +101,10 @@ public final class TopicSettingsModel {
     public func topicChanged(_ newer: Topic) {
         let old = topic
         topic = newer
-        if (old.name, old.slug, old.description) != (newer.name, newer.slug, newer.description) {
+        if old.appearance != newer.appearance { savedAppearance = newer.appearance }
+        if (old.name, old.slug, old.description) != (newer.name, newer.slug, newer.description)
+            || old.appearance != newer.appearance
+        {
             resetDetails()
         }
         if old.scheduleUpdatedAt != newer.scheduleUpdatedAt || old.schedule != newer.schedule {
@@ -94,54 +115,94 @@ public final class TopicSettingsModel {
     // MARK: - Details
 
     public var detailsDirty: Bool {
-        name != topic.name || slug != topic.slug || description != topic.description
+        name != topic.name || slug != topic.slug || description != topic.description || appearanceDirty
     }
 
     public func resetDetails() {
         name = topic.name
         slug = topic.slug
         description = topic.description
+        appearance = AppearanceDraft(savedAppearance)
         detailErrors = [:]
+        appearanceErrors = [:]
         detailsBanner = nil
     }
 
-    /// "Save details": validates like the form, sends only the changed fields.
+    /// "Save details": validates like the form, sends only the changed fields: the name, slug and
+    /// description, then the appearance (with the revision on screen).
     public func saveDetails() async {
         guard !isSavingDetails else { return }
         detailsAttempts += 1
         detailsBanner = nil
         let draft = TopicDraft.editing(name: name, slug: slug, description: description, questions: topic.questions)
-        let details: TopicDraft.Details
-        switch draft.validatedDetails(limits: limits) {
-        case .failure(let issues):
-            detailErrors = issues.byField
-            return
-        case .success(let valid):
-            details = valid
-            detailErrors = [:]
+        let validDetails = draft.validatedDetails(limits: limits)
+        let validAppearance = appearance.validated(limits: appearanceLimits)
+        switch validDetails {
+        case .failure(let issues): detailErrors = issues.byField
+        case .success: detailErrors = [:]
         }
-        guard let change = TopicDetailsChange(details, from: topic) else {
+        appearanceErrors = validAppearance.failureFields
+        guard case .success(let details) = validDetails, case .success(let newAppearance) = validAppearance else {
+            return
+        }
+        let change = TopicDetailsChange(details, from: topic)
+        let appearanceChange = AppearanceUpdate(newAppearance, from: savedAppearance)
+        guard change != nil || appearanceChange != nil else {
             toasts.show(Toast("Nothing to save", tone: .info))
             return
         }
         isSavingDetails = true
         defer { isSavingDetails = false }
-        let outcome = await writer.saveDetails(change, topicId: topic.id)
+        if let change {
+            let oldSlug = topic.slug
+            let outcome = await writer.saveDetails(change, topicId: topic.id)
+            guard detailsSaved(outcome) else { return }
+            // Before the appearance: the screen moves even if that half is refused.
+            if topic.slug != oldSlug { onSlugChanged(topic.slug) }
+        }
+        if let appearanceChange, let appearanceSaver {
+            let outcome = await appearanceSaver.saveAppearance(
+                appearanceChange, topicId: topic.id, baseRevision: topic.revision)
+            guard detailsSaved(outcome) else { return }
+            // What the server stores: `checkIcon`/`checkTags` produce its stored forms. (T2-M3 seam:
+            // phase 2 reads the server's `topic.appearance` instead.)
+            savedAppearance = newAppearance
+        }
+        resetDetails()
+        toasts.show(Toast("Saved"))
+    }
+
+    /// Takes the server's copy, or puts its errors on the fields; false when it wasn't saved.
+    private func detailsSaved(_ outcome: TopicWriteOutcome<Topic>) -> Bool {
         switch outcome {
         case .done(let updated):
-            let slugChanged = updated.slug != topic.slug
             topic = updated
-            resetDetails()
-            toasts.show(Toast("Saved"))
-            if slugChanged { onSlugChanged(updated.slug) }
-        case .rejected(let problem?):
+            return true
+        case .rejected(var problem?):
+            // The `appearance.*` issues go on the editor's fields; the rest map as before.
+            var rest: [FieldIssue] = []
+            for issue in problem.errors {
+                if let field = AppearanceField(serverPath: ProblemMapping.path(issue.location)) {
+                    appearanceErrors[field] = ProblemMapping.cleanMessage(issue.message)
+                } else {
+                    rest.append(issue)
+                }
+            }
+            let placedAppearance = rest.count < problem.errors.count
+            problem.errors = rest
             let mapped = TopicProblemMapping.details(problem)
             detailErrors = Dictionary(uniqueKeysWithValues: mapped.fields.map { (DraftField($0.key), $0.value) })
-            detailsBanner = mapped.banner
+            // Every issue on a field: no banner, as for the details' own fields.
+            detailsBanner = placedAppearance && rest.isEmpty ? nil : mapped.banner
         default:
             detailsBanner = outcome.message ?? "The server refused the change."
         }
+        return false
     }
+
+    // MARK: - Appearance
+
+    public var appearanceDirty: Bool { appearance != AppearanceDraft(savedAppearance) }
 
     // MARK: - Schedule
 
@@ -304,4 +365,15 @@ extension DraftField {
         case .description: self = .description
         }
     }
+}
+
+extension TopicSettingsModel: AppearanceEditingModel {
+    /// Whether the screen shows the Appearance row (it has somewhere to send it).
+    public var editsAppearance: Bool { appearanceSaver != nil }
+
+    public func setAppearanceError(_ message: String?, for field: AppearanceField) {
+        appearanceErrors[field] = message
+    }
+
+    public func setAppearanceErrors(_ errors: [AppearanceField: String]) { appearanceErrors = errors }
 }

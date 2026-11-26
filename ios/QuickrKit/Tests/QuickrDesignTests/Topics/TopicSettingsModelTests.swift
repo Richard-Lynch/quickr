@@ -3,11 +3,14 @@ import QuickrCore
 import QuickrUI
 import Testing
 
-/// A scripted `TopicWriter`: records what the screen asked for and answers as told.
+/// A scripted `TopicWriter` (and `AppearanceSaving`): records what the screen asked for and answers
+/// as told.
 @MainActor
-final class FakeTopicWriter: TopicWriter {
+final class FakeTopicWriter: TopicWriter, AppearanceSaving {
     enum Call: Equatable {
         case create(name: String, schedule: Schedule?)
+        case createWithAppearance(name: String, appearance: TopicAppearance)
+        case appearance(AppearanceUpdate, baseRevision: Int)
         case details(TopicDetailsChange)
         case schedule(Schedule?)
         case delete
@@ -58,6 +61,25 @@ final class FakeTopicWriter: TopicWriter {
     func setArchived(_ archived: Bool, topicId: UUID, baseRevision: Int) async throws {
         calls.append(.archive(archived, baseRevision: baseRevision))
         if let archiveError { throw archiveError }
+    }
+
+    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
+        -> TopicWriteOutcome<Topic>
+    {
+        calls.append(.createWithAppearance(name: creation.name, appearance: appearance))
+        return topicResult ?? .done(server)
+    }
+
+    /// Answers `appearanceResult` when set, else `topicResult`, else the server's copy one revision on.
+    var appearanceResult: TopicWriteOutcome<Topic>?
+
+    func saveAppearance(_ update: AppearanceUpdate, topicId: UUID, baseRevision: Int) async
+        -> TopicWriteOutcome<Topic>
+    {
+        calls.append(.appearance(update, baseRevision: baseRevision))
+        if let result = appearanceResult ?? topicResult { return result }
+        server.revision += 1
+        return .done(server)
     }
 }
 

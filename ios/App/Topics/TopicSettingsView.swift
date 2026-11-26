@@ -78,6 +78,7 @@ struct TopicSettingsView: View {
                     .lineLimit(2...6)
                     .accessibilityIdentifier("topicSettings.description")
             }
+            AppearanceRow(model: model, name: model.name, id: "topicSettings")
             TopicSaveButton(
                 "Save details", isSaving: model.isSavingDetails, isEnabled: model.detailsDirty,
                 id: "topicSettings.saveDetails"
