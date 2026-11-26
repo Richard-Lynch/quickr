@@ -63,7 +63,11 @@ signed in to the same server.
 The items below (M1-DEV) need T2 timers, so a level-2 server: they run on
 the **`v0.4.0`** TestFlight build after deploy order step 3, and the PWA items
 at the end of this file on the `v0.4.0` web build. Only the signing proof
-and its fallback above run on `v0.4.0-rc1`. Common setup for the alert items: Settings →
+and its fallback above run on `v0.4.0-rc1`. `v0.4.0` carries every T2
+milestone, so these items also lean on M2's Live Activity alert line and
+tile Resume, M4's entry-detail Resume and M1's F1-ALERTS (the PWA alerts);
+an item whose surface is missing from the build gets a `t2-followup` issue,
+not a tick. Common setup for the alert items: Settings →
 Notifications → QuickR has Allow Notifications, Sounds and Time Sensitive
 Notifications on, the ring/silent switch is on ring, and the phone and the
 second device both show the server time (no manual clock). An alert is a
@@ -91,9 +95,11 @@ couldn't plan is missed, not fired late (timers2.md §9.1).
       open lap is `Rest 1`, lock the phone at once and leave it. Expected: at
       30 s of `Rest 1` a Lock Screen notification `Intervals` / "Half way ·
       Rest 1" with the default sound and the system haptic; at 60 s "Done ·
-      Rest 1", same sound. The Live Activity's alert countdown line reaches
-      0:00 at the same moments (the server computes `alert_at`). Spec:
-      timers2.md §9.1, §12.5 item 1.
+      Rest 1", same sound. The Live Activity's alert countdown line (M2's
+      rendering of the server-computed `alert_at`) reaches 0:00 when "Half
+      way" fires; the notifications don't update the activity, so the line
+      is not expected to move on to "Done" by itself. Spec: timers2.md §9.1,
+      §12.5 item 1.
 - [ ] **Alert under a Focus (time-sensitive).** Build: `v0.4.0` (needs a
       level-2 server, so not rc1; revision 5). Setup: the common setup; a
       Focus (for example Do Not Disturb) that silences notifications, QuickR
@@ -122,7 +128,8 @@ couldn't plan is missed, not fired late (timers2.md §9.1).
       Rest 1" at 60 s of the old segment, because a Live Activity push runs
       no app code and the alerts are only re-planned by the app. Meanwhile
       the Live Activity is right: the lap's update push moves it to the new
-      lap (counter and segment timer) and it shows no alert countdown. Unlocking alone changes nothing. Then repeat, but
+      lap (counter and segment timer), and its alert countdown line (M2)
+      disappears because `Run` has no alerts. Unlocking alone changes nothing. Then repeat, but
       after the PWA lap unlock the phone and open QuickR before 30 s.
       Expected: the app becoming active re-plans, the stale `Rest 1` alerts
       are removed, and nothing fires during `Run 2`; the next `Rest` lap
@@ -255,10 +262,11 @@ couldn't plan is missed, not fired late (timers2.md §9.1).
       notification while the PWA is in the background (PWA alerts fire only
       while the page is open; nothing is pushed). Come back within 30 s of
       the missed instant (before about 60 s of `Rest 1`): "Half way · Rest 1"
-      shows at once on `visibilitychange`. Repeat but stay away until more
-      than 30 s after the instant: that alert is dropped, not shown late, and
-      "Done · Rest 1" at 60 s still fires if the page is open by then. Spec:
-      timers2.md §9.2 (an alert more than 30 s late is dropped).
+      shows at once on `visibilitychange`. Then, in a new run, stay away from
+      about 10 s to about 65 s of `Rest 1` (more than 30 s past "Half way"):
+      on return "Half way" is dropped, not shown late, while "Done · Rest 1",
+      under 30 s late, shows at once. Spec: timers2.md §9.2 (an alert more
+      than 30 s late is dropped).
 - [ ] **Mute toggle.** App settings → mute alerts. Expected: toast only, no tone
       or vibration.
 
