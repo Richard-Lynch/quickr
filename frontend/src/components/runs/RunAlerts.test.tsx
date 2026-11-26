@@ -15,7 +15,13 @@ import { ev, T0 } from '../../test/runs';
 import { setRegistration } from '../pwa/swRegistration';
 import { ToastProvider } from '../ui/Toast';
 import { topicVersionsOptions } from './context';
-import { RunAlerts, RunAlertsFor, resetFiredAlerts, type AlertSource } from './RunAlerts';
+import {
+  MAX_WAIT_MS,
+  RunAlerts,
+  RunAlertsFor,
+  resetFiredAlerts,
+  type AlertSource,
+} from './RunAlerts';
 import { ALERTS_MUTED_KEY, resetRunAudio, setAlertsMuted } from './useRunAudio';
 
 const S = 1000;
@@ -299,7 +305,6 @@ describe('RunAlerts', () => {
         body: 'Half way · Rest 1',
         tag: 'quickr.alert.r1.1.half',
         data: { url: '/t/intervals/record' },
-        silent: false,
       }),
     );
   });
@@ -312,15 +317,23 @@ describe('RunAlerts', () => {
     expect(showNotification).not.toHaveBeenCalled();
   });
 
-  it('a muted notification is silent', () => {
+  it('muted, shows no notification either: the toast only', () => {
     permission = 'granted';
     localStorage.setItem(ALERTS_MUTED_KEY, '1');
     mount(source([start, lap]));
     advance(30 * S);
-    expect(showNotification).toHaveBeenCalledWith(
-      'Intervals',
-      expect.objectContaining({ silent: true }),
-    );
+    expect(toastShown('Half way · Rest 1')).toBe(true);
+    expect(showNotification).not.toHaveBeenCalled();
+  });
+
+  it('follows a server offset sampled after the timeout was set', () => {
+    mount(source([start, lap]));
+    advance(5 * S);
+    // A response moves the server 40 s ahead: "Half way" is past already. Waiting out the
+    // old 25 s delay would make it 40 s late (dropped); the capped wait catches it in time.
+    localStorage.setItem(SERVER_OFFSET_KEY, String(40 * S));
+    advance(MAX_WAIT_MS);
+    expect(toastShown('Half way · Rest 1')).toBe(true);
   });
 
   it('unlocks the audio on a tap, so a later alert can sound', () => {

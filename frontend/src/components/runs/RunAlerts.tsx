@@ -78,8 +78,13 @@ export function resetFiredAlerts(): void {
 
 // ---- firing ---------------------------------------------------------------------------
 
-/** `setTimeout`'s ceiling (a longer delay fires at once). */
-const MAX_DELAY_MS = 2 ** 31 - 1;
+/**
+ * The longest wait before the schedule is recomputed. The delay is computed with the server
+ * offset of the moment; a later sample (any API response) can move the alert's device time,
+ * and nothing else re-plans then. Waking at least this often keeps such an alert well under
+ * the 30 s late drop.
+ */
+export const MAX_WAIT_MS = 10_000;
 
 function vibrate(): void {
   try {
@@ -97,7 +102,7 @@ function notificationsGranted(): boolean {
   }
 }
 
-async function notify(alert: PlannedAlert, src: AlertSource, muted: boolean): Promise<void> {
+async function notify(alert: PlannedAlert, src: AlertSource): Promise<void> {
   const reg =
     getRegistration() ??
     ('serviceWorker' in navigator
@@ -108,7 +113,6 @@ async function notify(alert: PlannedAlert, src: AlertSource, muted: boolean): Pr
     body: `${alert.label} · ${alert.segment}`,
     tag: `quickr.alert.${alert.id}`,
     data: { url: src.topic ? `/t/${src.topic.slug}/record` : '/' },
-    silent: muted,
   });
 }
 
@@ -116,12 +120,12 @@ function fire(alert: PlannedAlert, src: AlertSource, toast: (t: ToastInput) => v
   markFired(alert);
   const muted = alertsMuted();
   toast({ title: `${alert.label} · ${alert.segment}`, tone: 'info', duration: 8000 });
-  if (!muted) {
-    vibrate();
-    playAlertTone();
-  }
+  // Muted: the toast only (device checklist, "Mute toggle"); a notification would sound.
+  if (muted) return;
+  vibrate();
+  playAlertTone();
   if (notificationsGranted()) {
-    notify(alert, src, muted).catch((err: unknown) => {
+    notify(alert, src).catch((err: unknown) => {
       console.warn('[runs] alert notification failed', err);
     });
   }
@@ -152,7 +156,7 @@ export function RunAlertsFor({ sources }: { sources: readonly AlertSource[] }) {
     if (!next) return;
     const id = window.setTimeout(
       () => setTick((t) => t + 1),
-      Math.min(MAX_DELAY_MS, Math.max(0, next.at - now)),
+      Math.min(MAX_WAIT_MS, Math.max(0, next.at - now)),
     );
     return () => window.clearTimeout(id);
   }, [sources, tick, toast]);
