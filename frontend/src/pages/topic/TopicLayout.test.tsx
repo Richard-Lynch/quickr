@@ -8,7 +8,6 @@ import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
 import type { TopicDetail } from '../../client';
-import type { Appearance } from '../../lib/appearance';
 import { TopicTabs } from './TopicLayout';
 
 const base: TopicDetail = {
@@ -30,11 +29,12 @@ const base: TopicDetail = {
   due: null,
   timer: null,
   questions: [],
+  // What the server sends for a topic nobody has styled (§1.1: always normalised).
+  appearance: { color: null, icon: null, tags: [] },
 };
 
-// T2-M3 seam: `appearance` is not a `TopicDetail` key until M3-DB; these carry the §1.1 shape.
-const withAppearance = (appearance: Appearance | null): TopicDetail =>
-  ({ ...base, appearance }) as TopicDetail;
+type Appearance = TopicDetail['appearance'];
+const withAppearance = (appearance: Appearance): TopicDetail => ({ ...base, appearance });
 
 const EMOJI_TAGS: Appearance = {
   color: null,
@@ -71,12 +71,8 @@ const activeTab = () => within(tabs()).getByRole('link', { name: 'Overview' });
 const glyph = () => screen.queryByTestId('topic-glyph');
 
 describe('TopicTabs header: no appearance', () => {
-  it.each([
-    ['absent', base],
-    ['null', withAppearance(null)],
-    ['empty', withAppearance({ color: null, icon: null, tags: [] })],
-  ])('renders as on main when the appearance is %s', (_label, topic) => {
-    const { container, unmount } = renderHeader(topic);
+  it('renders as on main for the empty appearance', () => {
+    renderHeader(base);
     expect(glyph()).toBeNull();
     expect(screen.queryByRole('list', { name: 'Tags' })).toBeNull();
     expect(header().hasAttribute('style')).toBe(false);
@@ -84,11 +80,8 @@ describe('TopicTabs header: no appearance', () => {
     expect(activeTab()).toHaveClass('after:bg-accent');
     expect(activeTab()).not.toHaveClass('after:bg-topic-tint');
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(/^Running$/);
-    const html = container.innerHTML;
-    unmount();
-    // The same DOM as a topic the server sent no appearance for.
-    const { container: plain } = renderHeader(base);
-    expect(html).toBe(plain.innerHTML);
+    // The section holds exactly main's rows: the version row, then the title row.
+    expect(Array.from(header().children, (c) => c.tagName)).toEqual(['DIV', 'DIV']);
   });
 });
 
