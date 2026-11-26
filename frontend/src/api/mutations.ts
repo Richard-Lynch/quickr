@@ -15,7 +15,14 @@ import {
 import { deleteEntry } from '../client/sdk.gen';
 import type { EntryOut, EntryUpdate, TopicDetail, TopicSummary } from '../client';
 import { useToast } from '../components/ui/Toast';
+import type { Appearance } from '../lib/appearance';
 import type { ScheduleInput, ScheduleOutput } from '../lib/schedule';
+import {
+  appearanceOf,
+  appearancePatch,
+  appearanceUpdateOf,
+  type AppearanceUpdate,
+} from '../lib/topicAppearanceSeam';
 import { scheduleUndoable, UNDO_WINDOW_MS } from '../lib/undo';
 import {
   cancelOperations,
@@ -218,9 +225,19 @@ function scheduleOutputOf(s: ScheduleInput): ScheduleOutput {
   };
 }
 
+/** `base` with an appearance PATCH applied (appearance.md §1.1): omitted fields are unchanged. */
+export function applyAppearanceUpdate(base: Appearance | null, u: AppearanceUpdate): Appearance {
+  return {
+    color: u.color !== undefined ? u.color : (base?.color ?? null),
+    icon: u.icon !== undefined ? u.icon : (base?.icon ?? null),
+    tags: u.tags ?? base?.tags ?? [],
+  };
+}
+
 /**
- * Topic name/description edits show immediately. A slug change moves the cache key,
- * so it is not applied optimistically (the caller navigates to the new URL on success).
+ * Topic name/description/appearance edits show immediately (the appearance on every tile and
+ * header). A slug change moves the cache key, so it is not applied optimistically (the caller
+ * navigates to the new URL on success).
  */
 export function useUpdateTopicMeta() {
   const qc = useQueryClient();
@@ -230,9 +247,11 @@ export function useUpdateTopicMeta() {
       await cancelOperations(qc, TOPIC_OPS);
       const snap = snapshotOperations(qc, TOPIC_OPS);
       const { name, description } = vars.body;
-      patchTopics(qc, topicIs({ slug: vars.path.ref, id: vars.path.ref }), () => ({
+      const appearance = appearanceUpdateOf(vars.body);
+      patchTopics(qc, topicIs({ slug: vars.path.ref, id: vars.path.ref }), (t) => ({
         ...(name != null ? { name } : {}),
         ...(description != null ? { description } : {}),
+        ...(appearance ? appearancePatch(applyAppearanceUpdate(appearanceOf(t), appearance)) : {}),
       }));
       return { snap };
     },

@@ -2,8 +2,12 @@ import { useFormContext } from 'react-hook-form';
 
 import { slugify, type TopicDraft } from '../../lib/builder';
 import { Field, Input, Textarea } from '../ui/Field';
+import { AppearanceFields } from './AppearanceFields';
 
-/** Name / slug / description. The slug follows the name until edited. */
+/**
+ * Name / slug / description, then the appearance. The slug follows the name until edited. The
+ * form's draft must carry `appearance` (`appearanceDraftOf(null)` for a new topic).
+ */
 export function TopicMetaFields() {
   const { register, setValue, getValues, formState } = useFormContext<TopicDraft>();
   const e = formState.errors;
@@ -57,6 +61,9 @@ export function TopicMetaFields() {
           />
         )}
       </Field>
+      <div className="border-t border-line pt-4">
+        <AppearanceFields />
+      </div>
     </div>
   );
 }

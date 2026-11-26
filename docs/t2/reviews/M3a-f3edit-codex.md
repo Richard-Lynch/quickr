@@ -1,0 +1,9 @@
+**Findings**
+
+- **P1 — Optimistic updates remount the settings form before the request completes.** [SettingsPage.tsx:64](/Users/richie/code/quickr-worktrees/t2-m3a-f3edit/frontend/src/pages/topic/SettingsPage.tsx:64) keys `MetaForm` on appearance, while the mutation immediately patches the cached topic. Saving an appearance change therefore unmounts the submitting form. If the request fails, rollback remounts it again with the original values; the user’s edits and the 422 errors set by the old form are lost. The same keying issue also applies to optimistic name and description changes. Keep the form mounted through the mutation and reset it only after success.
+
+- **P2 — Tag uniqueness does not use the specified casefold predicate.** [appearance.ts:177](/Users/richie/code/quickr-worktrees/t2-m3a-f3edit/frontend/src/lib/appearance.ts:177) approximates Python `casefold()` with uppercase followed by lowercase. These differ: for example, Python treats `ı` and `i` as distinct casefolded strings, but this function folds both to `i`, rejecting a valid pair. Other Unicode cases can produce the opposite mismatch. Use a casefold implementation matching the server and cover the shared tag vectors.
+
+- **P2 — An invalid uncommitted tag does not prevent submission.** [AppearanceFields.tsx:240](/Users/richie/code/quickr-worktrees/t2-m3a-f3edit/frontend/src/components/builder/AppearanceFields.tsx:240) stores a failed tag only in component-local state. On blur, the inline error appears, but the form schema sees only the previously committed tags. Clicking Save or Create can therefore submit successfully while silently omitting the invalid text the user attempted to add. Include pending tag validity in form validation or block submission until it is resolved.
+
+The changes in `builder.ts` and `serverErrors.ts` each stay within one delimited T2-M3 block. I did not run the tests; this review was performed in a read-only environment.

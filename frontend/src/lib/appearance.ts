@@ -132,3 +132,105 @@ function firstGrapheme(s: string): string {
   for (const { segment } of graphemes.segment(s)) return segment;
   return '';
 }
+
+// T2-M3 (F3-EDIT): the PWA's icon and tag predicates (appearance.md §1.3, §2, §5) and the
+// empty appearance. appearance.test.ts runs both over `icons[]`/`tags[]` of appearance-vectors.json.
+
+/** §1.3 defaults; the forms pass the server's `GET /limits` values. */
+export const MAX_ICON_LENGTH = 16;
+export const MAX_TAGS = 10;
+export const MAX_TAG_LENGTH = 24;
+
+const VS16 = '\u{fe0f}';
+const KEYCAP = '\u{20e3}';
+const PICTOGRAPH = /^\p{Extended_Pictographic}$/u;
+const PRESENTATION = /^\p{Emoji_Presentation}$/u;
+const REGIONAL = /^\p{Regional_Indicator}$/u;
+const KEYCAP_BASE = /^[0-9#*]$/;
+
+/**
+ * One emoji, in its stored form (§2): NFC, a text-presentation pictograph gets U+FE0F, at most
+ * `maxLength` code points as stored, then exactly
+ * one grapheme cluster that starts as an emoji. The same predicate as the server's, scalar by
+ * scalar: a pictograph shown as emoji (by default or with U+FE0F), a flag, or a keycap.
+ */
+export function checkIcon(
+  value: string,
+  maxLength: number = MAX_ICON_LENGTH,
+): { ok: true; value: string } | { ok: false; message: string } {
+  let scalars = Array.from(value.normalize('NFC'));
+  if (scalars.length === 0) return { ok: false, message: 'Enter an emoji' };
+  const [s0 = '', s1] = scalars;
+  if (PICTOGRAPH.test(s0) && !PRESENTATION.test(s0) && s1 !== VS16) {
+    scalars = [s0, VS16, ...scalars.slice(1)];
+  }
+  // The limit applies to the stored form, after the U+FE0F insert (§2 step 2).
+  if (scalars.length > maxLength) return { ok: false, message: 'Enter a single emoji' };
+  const v = scalars.join('');
+  if ([...graphemes.segment(v)].length !== 1) return { ok: false, message: 'Enter a single emoji' };
+  const [c0 = '', c1 = '', c2] = scalars;
+  const emoji =
+    (PICTOGRAPH.test(c0) && (PRESENTATION.test(c0) || c1 === VS16)) ||
+    (REGIONAL.test(c0) && REGIONAL.test(c1)) ||
+    (KEYCAP_BASE.test(c0) && c1 === VS16 && c2 === KEYCAP);
+  return emoji ? { ok: true, value: v } : { ok: false, message: 'Enter an emoji, not text' };
+}
+
+/**
+ * `str.casefold()` near enough, per code point: upper- then lower-casing, then ß → ss (so ß, ẞ and
+ * SS all fold to ss, as in Python). Dotless ı is left alone: the round trip would make it i, while
+ * Python keeps ı. The `tags[]` vectors pin the cases that matter.
+ */
+function fold(s: string): string {
+  return Array.from(s, (c) => (c === '\u{131}' ? c : c.toUpperCase().toLowerCase()))
+    .join('')
+    .replace(/ß/g, 'ss');
+}
+
+// Python's `str.isspace()` (what `str.strip()` and `split()` use): Unicode White_Space plus the
+// information separators U+001C–U+001F.
+// eslint-disable-next-line no-control-regex -- U+001C–U+001F are whitespace to Python
+const SPACE_RUN = /[\p{White_Space}\u{1C}-\u{1F}]+/gu;
+// eslint-disable-next-line no-control-regex -- as above
+const EDGE_SPACE = /^[\p{White_Space}\u{1C}-\u{1F}]+|[\p{White_Space}\u{1C}-\u{1F}]+$/gu;
+const CONTROL = /\p{Cc}/u;
+
+/**
+ * Tags in their stored form (§1.3, §5): each trimmed, inner whitespace runs collapsed to one space,
+ * 1..`maxLength` code points, no control characters; at most `maxTags`; unique by casefold (a
+ * duplicate is an error, not dropped); order kept. `index` is the offending tag, or -1 for too
+ * many tags (the server's path `appearance.tags` rather than `appearance.tags.{i}`).
+ */
+export function checkTags(
+  tags: readonly string[],
+  limits: { maxTags?: number; maxLength?: number } = {},
+): { ok: true; value: string[] } | { ok: false; index: number; message: string } {
+  const maxTags = limits.maxTags ?? MAX_TAGS;
+  const maxLength = limits.maxLength ?? MAX_TAG_LENGTH;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, raw] of tags.entries()) {
+    const tag = raw.replace(EDGE_SPACE, '').replace(SPACE_RUN, ' ');
+    if (tag === '') return { ok: false, index, message: 'A tag can’t be empty' };
+    if (CONTROL.test(tag))
+      return { ok: false, index, message: 'Tags can’t hold control characters' };
+    if (Array.from(tag).length > maxLength)
+      return { ok: false, index, message: `At most ${String(maxLength)} characters` };
+    const key = fold(tag);
+    if (seen.has(key)) return { ok: false, index, message: `“${tag}” is already a tag` };
+    seen.add(key);
+    out.push(tag);
+  }
+  if (out.length > maxTags)
+    return { ok: false, index: -1, message: `At most ${String(maxTags)} tags` };
+  return { ok: true, value: out };
+}
+
+/** Blank as Python's `str.strip()` sees it (JavaScript's `trim()` also strips U+FEFF; Python doesn't). */
+export function isBlankTag(s: string): boolean {
+  return s.replace(EDGE_SPACE, '') === '';
+}
+
+export const EMPTY_APPEARANCE: Appearance = { color: null, icon: null, tags: [] };
+
+// end T2-M3
