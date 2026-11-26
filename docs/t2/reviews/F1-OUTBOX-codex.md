@@ -1,0 +1,15 @@
+- **P1 — Entry visibility and remove projections are not connected to the UI.** [useRuns.ts](/Users/richie/code/quickr-worktrees/t2-m1-outbox-fe/frontend/src/lib/runs/useRuns.ts:70) exposes `hiddenEntries`, but no consumer reads it; [localView.ts](/Users/richie/code/quickr-worktrees/t2-m1-outbox-fe/frontend/src/lib/runs/localView.ts:702) exports `projectedEntryTiming`, but only tests call it. Reopening an existing entry therefore leaves it visible alongside the run, and an offline remove leaves the displayed timing unchanged with no pending mark. Both contradict §5.3 and A14. The tests exercise helpers, but miss the entry-list integration.
+
+- **P1 — A re-stop can incorrectly remain finishing after a queued finish and reopen.** [localView.ts](/Users/richie/code/quickr-worktrees/t2-m1-outbox-fe/frontend/src/lib/runs/localView.ts:175) returns `true` immediately when the cached server run is `finishing`, before considering the queued events or whether an entry now exists. For a finishing run, queue `finish`, `reopen`, then `stop` offline: the finish creates the entry, so §4.1 requires the re-stop to close it; the local view instead shows it as finishing. Add a test covering that sequence against a cached finishing run.
+
+- **P2 — Entry existence is inferred from void finishes.** [localView.ts](/Users/richie/code/quickr-worktrees/t2-m1-outbox-fe/frontend/src/lib/runs/localView.ts:155) treats *any* finish event as proof of an entry. If a finish was void and a finishing run is reopened then discarded, the projection treats it as a revert to an existing entry instead of the A15 discard of a run with no entry. The test suite needs a void-finish history followed by reopen and discard.
+
+- **P2 — Alias starts do not hold dependent events.** [kinds.ts](/Users/richie/code/quickr-worktrees/t2-m1-outbox-fe/frontend/src/lib/outbox/kinds.ts:177) identifies aliases for target and reopen dependencies, but returns only the canonical `runId` as the start dependency. If the pending start is queued under an alias, a reopen or remove can be sent before that start, contrary to §5.5. Add an ordering test with the start under an alias.
+---
+
+## Resolution (t2-m1-outbox-fe)
+
+1. **P1 UI wiring** — justified, out of scope: F1-OUTBOX's areas are `lib/runs`, `lib/outbox/kinds.ts`, `api/runs.ts` and the fake server. The list/detail consumers are M4 F4-ENTRIES (docs/t2/M4-plan.md); tracked, with the tile `lastEntry`, in #197.
+2. **P1 re-stop after finish + reopen on a finishing run** — fixed: `stopLeavesFinishing` checks the entry first (localView.ts); test "a finishing run finished, reopened and re-stopped offline closes".
+3. **P2 void finishes** — fixed: only a server finish with `effect: applied` (or this device's own finish) counts as an entry; test "a server finish that didn't apply is no entry".
+4. **P2 start under an alias** — fixed: `waitsFor` returns every run id the item was tapped with (`run_aliases`, now set on every tap of a run with aliases); test "waits for the run's start queued under an alias of the run".

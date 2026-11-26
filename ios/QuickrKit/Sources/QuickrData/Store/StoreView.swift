@@ -243,31 +243,47 @@ public enum StoreView {
 
     /// A topic's view entries, newest `captured_at` first (then id). Includes rows flagged
     /// `failed`, failed creates among them (the UI pins those under "Not synced"); `countedOnly`
-    /// leaves failed creates out.
+    /// leaves failed creates out. The entry of a locally open or finishing run is left out (the run
+    /// represents it, timers2.md §5.3); one whose run has a queued remove shows its timing
+    /// re-projected, pending (A14). Counts (`derived`) are unchanged by either.
     public static func entries(_ db: Database, topicId: String, limit: Int? = nil, countedOnly: Bool = false) throws
         -> [ViewEntry]
     {
         guard try topicExists(db, topicId) else { return [] }
         let book = QuestionBook(db)
         let questions = { (row: Row) in try book.questions(row["topic_id"], row["version"]) }
+        let projection = try RunOverlay.entryProjection(db, topicId: topicId)
         let overlaid = try overlays(db, topicId: topicId, book: book)
             .filter { countedOnly ? $0.isCounted : $0.isVisible }
             .compactMap(\.viewEntry)
+            .compactMap(projection.apply)
+        let hidden = Array(projection.hidden)
+        let hiding = hidden.isEmpty ? "" : "AND id NOT IN (\(hidden.map { _ in "?" }.joined(separator: ",")))"
         let server = try Row.fetchAll(
             db,
             sql: """
-                SELECT * FROM entry WHERE topic_id = ? AND id NOT IN (\(entriesWithItems))
+                SELECT * FROM entry WHERE topic_id = ? AND id NOT IN (\(entriesWithItems)) \(hiding)
                 ORDER BY captured_at DESC, id DESC \(limit == nil ? "" : "LIMIT ?")
                 """,
-            arguments: StatementArguments([topicId] + (limit.map { [$0] } ?? []))
+            arguments: StatementArguments([topicId] + hidden + (limit.map { [$0] } ?? []))
         ).map { row in ViewEntry(entry: try Entry(serverRow: row, questions: questions(row)), syncState: .synced) }
+            .compactMap(projection.apply)
         let merged = (server + overlaid).sorted {
             ($0.entry.capturedAt, $0.id.wireString) > ($1.entry.capturedAt, $1.id.wireString)
         }
         return limit.map { Array(merged.prefix($0)) } ?? merged
     }
 
+    /// One view entry, the entry of a run open here included (an entry detail), with its timing
+    /// re-projected by its run's queued removes (timers2.md §5.3, A14).
     public static func entry(_ db: Database, id: String) throws -> ViewEntry? {
+        guard let viewEntry = try unprojectedEntry(db, id: id) else { return nil }
+        var projection = try RunOverlay.entryProjection(db, topicId: viewEntry.entry.topicId.wireString)
+        projection.hidden = []
+        return projection.apply(viewEntry)
+    }
+
+    private static func unprojectedEntry(_ db: Database, id: String) throws -> ViewEntry? {
         if try ServerLayer.isTombstoned(db, kind: .entry, id: id) { return nil }
         let book = QuestionBook(db)
         let server = try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).map { row in

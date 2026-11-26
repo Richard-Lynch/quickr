@@ -79,21 +79,47 @@ public struct NotificationSnapshot: Sendable, Hashable, Identifiable {
     public var id: String
     public var categoryIdentifier: String
     public var threadIdentifier: String
+    /// Delivered: when. Pending: when it fires (a run alert's from `quickr.fire_at_ms`, which an
+    /// interval trigger doesn't keep).
     public var date: Date?
     /// `userInfo.quickr`, or nil when the notification isn't quickR's.
     public var quickr: QuickrNotificationInfo?
+    // T2-M1 (timers2.md §9.1): the rest of the content, so a scheduler can compare a pending
+    // request with the one it wants.
+    public var title: String
+    public var body: String
+    public var sound: Bool
+    public var interruptionLevel: NotificationInterruptionLevel
+    // end T2-M1
 
     public init(
         id: String, categoryIdentifier: String = "", threadIdentifier: String = "", date: Date? = nil,
-        quickr: QuickrNotificationInfo? = nil
+        quickr: QuickrNotificationInfo? = nil, title: String = "", body: String = "", sound: Bool = false,
+        interruptionLevel: NotificationInterruptionLevel = .active
     ) {
         self.id = id
         self.categoryIdentifier = categoryIdentifier
         self.threadIdentifier = threadIdentifier
         self.date = date
         self.quickr = quickr
+        self.title = title
+        self.body = body
+        self.sound = sound
+        self.interruptionLevel = interruptionLevel
     }
 }
+
+// T2-M1 (timers2.md §9.1, OQ-6)
+/// `UNNotificationInterruptionLevel`, as a value type (this file doesn't touch UserNotifications).
+public enum NotificationInterruptionLevel: String, Sendable, Hashable, CaseIterable {
+    case passive
+    /// The system's default.
+    case active
+    /// Breaks through a Focus; needs the `time-sensitive` entitlement (OQ-6).
+    case timeSensitive
+    case critical
+}
+// end T2-M1
 
 /// The `quickr` object of a payload (notifications.md §2.1, §11.1). Clients ignore unknown keys.
 /// Codable with the payload's snake_case keys, so the adapter can read it from `userInfo` and
@@ -117,6 +143,17 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
     public var quickLog: QuickLogDescriptor?
     /// A tap-to-fix notification's raw text per question key, for the record screen (§7.3).
     public var prefill: [String: String]?
+    // T2-M1 (timers2.md §9.1): a run alert's (`kind: alert`).
+    /// The run, lowercase.
+    public var runId: String?
+    /// The alert's own label, for the run screen's inline line.
+    public var alertLabel: String?
+    /// When it fires, epoch milliseconds on this device's clock.
+    public var fireAtMs: Int?
+    /// The same instant on the server's clock (segment start + paused overlap + `at_ms`): it moves
+    /// only when the run or the alert does, not when the server offset is re-estimated.
+    public var serverFireAtMs: Int?
+    // end T2-M1
 
     public enum Origin: String, Codable, Sendable, Hashable {
         case remote
@@ -131,12 +168,17 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         case dueSince = "due_since"
         case quickLog = "quick_log"
         case prefill
+        case runId = "run_id"
+        case alertLabel = "alert_label"
+        case fireAtMs = "fire_at_ms"
+        case serverFireAtMs = "server_fire_at_ms"
     }
 
     public init(
         v: Int = 1, kind: String, origin: Origin = .remote, serverId: String, topicId: String? = nil,
         topicSlug: String? = nil, version: Int? = nil, dueSince: String? = nil, url: String? = nil,
-        quickLog: QuickLogDescriptor? = nil, prefill: [String: String]? = nil
+        quickLog: QuickLogDescriptor? = nil, prefill: [String: String]? = nil, runId: String? = nil,
+        alertLabel: String? = nil, fireAtMs: Int? = nil, serverFireAtMs: Int? = nil
     ) {
         self.v = v
         self.kind = kind
@@ -149,6 +191,10 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         self.url = url
         self.quickLog = quickLog
         self.prefill = prefill
+        self.runId = runId
+        self.alertLabel = alertLabel
+        self.fireAtMs = fireAtMs
+        self.serverFireAtMs = serverFireAtMs
     }
 
     public init(from decoder: any Decoder) throws {
@@ -169,6 +215,10 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
             tagged.map { QuickLogDescriptor.knownTypes.contains($0.type) } == true
             ? try container.decode(QuickLogDescriptor.self, forKey: .quickLog) : nil
         prefill = try container.decodeIfPresent([String: String].self, forKey: .prefill)
+        runId = try container.decodeIfPresent(String.self, forKey: .runId)
+        alertLabel = try container.decodeIfPresent(String.self, forKey: .alertLabel)
+        fireAtMs = try container.decodeIfPresent(Int.self, forKey: .fireAtMs)
+        serverFireAtMs = try container.decodeIfPresent(Int.self, forKey: .serverFireAtMs)
     }
 
     /// The reminder slot this notification is for; nil unless it is a `due` reminder with a
@@ -388,14 +438,21 @@ public struct LocalNotificationRequest: Sendable, Hashable, Identifiable {
     public var categoryIdentifier: String?
     public var threadIdentifier: String?
     public var quickr: QuickrNotificationInfo?
-    /// nil delivers now.
+    /// A calendar trigger at this wall-clock time (to the second); nil delivers now.
     public var fireDate: Date?
     /// Plays the default sound (a reminder's `"sound": "default"`); silent otherwise.
     public var sound: Bool
+    // T2-M1 (timers2.md §9.1)
+    /// An interval trigger firing at this instant (`max(1 s, fireAt − now)` from when it's added),
+    /// which a clock or time zone change doesn't move. Wins over `fireDate`.
+    public var fireAt: Date?
+    public var interruptionLevel: NotificationInterruptionLevel
+    // end T2-M1
 
     public init(
         id: String, title: String, body: String, categoryIdentifier: String? = nil, threadIdentifier: String? = nil,
-        quickr: QuickrNotificationInfo? = nil, fireDate: Date? = nil, sound: Bool = false
+        quickr: QuickrNotificationInfo? = nil, fireDate: Date? = nil, sound: Bool = false, fireAt: Date? = nil,
+        interruptionLevel: NotificationInterruptionLevel = .active
     ) {
         self.id = id
         self.title = title
@@ -405,6 +462,8 @@ public struct LocalNotificationRequest: Sendable, Hashable, Identifiable {
         self.quickr = quickr
         self.fireDate = fireDate
         self.sound = sound
+        self.fireAt = fireAt
+        self.interruptionLevel = interruptionLevel
     }
 }
 

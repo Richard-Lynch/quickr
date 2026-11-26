@@ -5,7 +5,8 @@ import Testing
 
 /// R13 (timers2.md §2.5, §12.3): Swift/Python parity for alert expressions. Every case in
 /// shared/fixtures/timer-expr-vectors.json (generated from backend/app/services/timer_expr.py by
-/// `make vectors`) gives the same whole ms, or the same error code at the same `pos`, here. One
+/// `make vectors`) gives the same whole ms, or the same error code at the same `pos` with the
+/// same message (the server's 422 text, `str(ExprError)`; #176), here. One
 /// test walks every case, so none can be filtered out or skipped.
 @Suite struct TimerExprVectorTests {
     struct Vectors: Decodable {
@@ -25,6 +26,7 @@ import Testing
             var ms: Int?
             var error: String?
             var pos: Int?
+            var message: String?
         }
 
         struct Case: Decodable {
@@ -44,7 +46,7 @@ import Testing
 
     @Test func casesHaveUniqueNamesAndTheSameLimits() throws {
         let vectors = try Self.load()
-        #expect(vectors.meta.generatorVersion == 1)
+        #expect(vectors.meta.generatorVersion == 2)
         #expect(vectors.cases.count >= 40)
         #expect(Set(vectors.cases.map(\.name)).count == vectors.cases.count)
         #expect(vectors.meta.maxMs == TimerExpr.maxMs)
@@ -68,9 +70,8 @@ import Testing
             do {
                 got = Vectors.Expected(ms: try TimerExpr.evaluate(c.expr, variables: c.variables))
             } catch {
-                got = Vectors.Expected(error: error.code.rawValue, pos: error.pos)
                 // The 422 message of timers2.md §1.3.
-                #expect(error.description.hasPrefix("\(error.code.rawValue) at \(error.pos): "), "\(c.name)")
+                got = Vectors.Expected(error: error.code.rawValue, pos: error.pos, message: error.description)
             }
             #expect(got == c.expected, "\(c.name): \(c.expr)")
             ran.append(c.name)

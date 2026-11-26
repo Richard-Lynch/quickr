@@ -1,0 +1,3 @@
+- **P2 — Alert validation ignores the server’s advertised expression-length limit.** [DraftAlerts.swift](/Users/richie/code/quickr-worktrees/t2-m1-builder-ios/ios/QuickrKit/Sources/QuickrCore/Builder/DraftAlerts.swift:75) calls `TimerExpr.evaluate` without passing `limits.maxExprLength`; the evaluator always uses 64. The same helper is used for both live previews and draft validation. If `/limits` advertises a lower limit, an expression longer than that limit but no longer than 64 characters appears valid and can pass the client-side review, only to be rejected by the server. The PWA passes `limits.max_expr_length` to its evaluator.
+
+I did not run the test suites; this finding is from the code review.

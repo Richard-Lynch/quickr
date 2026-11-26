@@ -294,17 +294,41 @@ version, whose key never changes.
   is every step key the topic's versions have used, with its latest label
   (`stepHistory`): a label equal, ignoring case and surrounding space, to a
   historic step's whose key isn't in `taken` takes that key back.
-- `from_timer[]`: `{timer, expected: {timed, steps}}` (`draftFromTimer`: the
-  steps a published timer opens as).
+- `from_timer[]`: `{timer, expected: {timed, steps, laps, variables}}`
+  (`draftFromTimer`: the draft a published timer opens as, every step, lap type
+  and alert locked, each variable's ms as its duration text).
 - `step_label[]`: `{name, step, label, taken, history, expected}`
   (`withStepLabel`: a locked step keeps its key, a new one re-derives it as
   `new_step` does).
-- `timer_output[]`: `{name, timed, steps, expected: {timer, issues}}`
-  (`timerFromDraft`: the `timer` a publish sends, or the issues at paths
-  relative to the steps list, with `timer` null). Keys must be unique; labels may
-  repeat, as on the server.
+- `timer_output[]`: `{name, draft: {timed, steps, laps, variables}, expected:
+  {timer, issues}}` (`timerFromDraft`: the normalised timer a publish sends,
+  with `at_ms` filled, or every issue at the draft's paths, `["steps", 0,
+  "key"]`, `["laps", 0, "key"]`, `["steps", 0, "alerts", 1, "at"]`,
+  `["variables"]`, with `timer` null). Keys of steps and lap types share one
+  namespace; labels may repeat, as on the server. The steps-only cases are the
+  v1 builder's.
 - `timer_changes[]`: `{name, base, next, expected}` (`timerChanges`: the review
-  sheet's timing lines).
+  sheet's timing lines, steps then lap types, variables and alerts). `steps
+  only: …` cases are v1 timers.
+
+Timer v2 (timers2.md §1.6, §12.1). A step draft gains `alerts`; a lap-type draft
+is `{key, label, locked, alerts}`; an alert draft is `{key, label, at, locked}`
+(`at` as typed, never trimmed); a variable draft is `{name, duration}` (the
+duration as typed, `m:ss` or `h:mm:ss`). A timer history is `{steps, laps}`,
+each `[{key, label}]` (`timerHistory`).
+
+- `new_lap_type[]`: `{label, taken, history, expected}` (`newDraftLapType`: as
+  `new_step`, with `lap` for a label with no usable characters; `taken` holds the
+  draft's other lap types' and steps' keys; it avoids every historic key of both
+  kinds, and takes back only a retired lap type's key).
+- `lap_type_label[]`: `{name, lap_type, label, taken, history, expected}`
+  (`withLapTypeLabel`).
+- `variable[]`: `{name, duration, expected: {name, variable, issues}}`: the name as
+  entered (lowercased), then `convertDraftVariable`: `{name, ms}` or the issues at
+  `["name"]` / `["duration"]`.
+- `alert_expr[]`: `{name, at, variables, expected}` (`alertPreview`: `{ms, text}`
+  with `text` = `fmtDuration(ms)`, or `{error, pos}` with the server's message as
+  the PWA shows it; only valid, first-named variables count).
 
 ## `entries-vectors.json`
 
@@ -361,12 +385,19 @@ the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
   `expected` is `check_compatibility`'s report. Python visits option sets in
   hash order, so `issues` are sorted by `(level, question_key, message)` and
   each change's `details` are sorted; compare them sorted.
-- `timers[]`: `{name, timer, expected: {errors}}`. `timer` is a version's timer
-  as a client sends it (`{steps: [{key, label}]}`; no steps is a plain
-  stopwatch). `errors` lists the sorted dotted locations, relative to the timer,
-  where `Timer` rejects it (`steps`, `steps.2.key`); `[]` means accepted. Step
-  keys follow the question key rule and are unique; labels follow the question
-  label limit and need not be unique; at most 30 steps (timers.md §2.1, §5).
+- `timers[]`: `{name, timer, expected: {errors, timer}}` (generator version 4,
+  timers2.md §1.3). `timer` is a version's timer as a client sends it: v2
+  `{steps, laps, variables}` with alerts on steps and lap types, or the v1
+  shape `{steps: [{key, label}]}` (no steps is a plain stopwatch). `errors`
+  lists the sorted dotted locations, relative to the timer, where `Timer`
+  rejects it (`steps`, `steps.2.key`, `laps.0.key`, `variables.1.ms`,
+  `laps.0.alerts.0.at`); `[]` means accepted. `expected.timer` is the
+  normalised timer the server stores when accepted (every list present, labels
+  stripped, variable names lowercase, `at_ms` evaluated, a sent `at_ms`
+  ignored), else null. Keys of steps and lap types follow the question key rule
+  and share one namespace; step labels follow the question label limit and need
+  not be unique; lap-type and alert labels are at most 64; at most 30 steps, 8
+  lap types, 16 variables and 8 alerts per step or lap type.
 - `slugs[]`: `{input, expected}`: `slugify` (`services/topics.py`), which gives
   `topic` when nothing is left.
 - `casefold[]`: `[code point, [folded code points]]` for every code point whose
@@ -618,15 +649,25 @@ against. Generator version 3.
 
 ## `live-activity-vectors.json`
 
-- `cases[]`: `{name, event, steps, run, payload, bytes}`: the exact APNs body the server sends
-  for a run whose events are folded as in `run-fold-vectors.json`
-  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `run` is that run: its `events` (in
-  `run-fold-vectors.json`'s event shape), the server's `status` when it isn't the fold's
-  (`finishing`), and its `revision`; the app builds the same content state from it for its
-  local updates. `payload.aps["content-state"]` is
-  `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
-  encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
-  `meta.apple` the documentation every `aps` key was checked against.
+- `timer_sets`: the normalised `Timer` v2 each case's run is pinned to: the run-fold vectors'
+  sets ([timers2.md](../../docs/specs/timers2.md) §3.1) with alerts and variables on top (the fold
+  ignores them; `alert_at` reads them), plus `long`, `budget` and `escapes` for the byte budget.
+- `cases[]`: `{name, event, timer, topic_name, run, payload, bytes, budget?}`: the exact APNs body
+  the server sends at `meta.timestamp` for a run whose events are folded as in
+  `run-fold-vectors.json` ([timers.md](../../docs/specs/timers.md) §10.3, §10.4; timers2.md §8).
+  `run` is that run: its `events` (in `run-fold-vectors.json`'s event shape), the server's
+  `status` when it isn't the fold's (`finishing`), and its `revision`; the app builds the same
+  content state from it, over `timer_sets[timer]` at `meta.timestamp`, for its local updates.
+  `payload.aps["content-state"]` is `RunActivityState`; a `start`'s `attributes` are
+  `RunActivityAttributes` (from `topic_name`). `bytes` is the encoded size (at most
+  `meta.max_bytes`). `meta.headers` are the request headers, and `meta.apple` the documentation
+  every `aps` key was checked against.
+- `budget` (the byte budget, timers2.md §8.2): `{limit, steps}`, the limit the body was fitted
+  to and the truncation steps that fired, in `meta.budget.steps` order (each label truncated to
+  `meta.budget.label_length` characters, then `terminal`). With the 64-character caps no M1 body
+  reaches 4 096 bytes, so the two budget cases use a lower `limit` to pin the order; the app
+  applies `steps` to the state it builds before comparing. `meta.budget.fixed_bound` is the
+  computed worst case after the terminal step.
 
 ## `entry-summary-vectors.json`
 

@@ -88,16 +88,37 @@ async def test_endpoint_matches_the_vectors(name: str, db: AsyncSession, client:
 
 
 @pytest.mark.parametrize("name", timing_stats_v3_cases())
-async def test_stored_lap_types_reach_the_stats(
-    name: str, db: AsyncSession, client: httpx.AsyncClient
-) -> None:
-    """timers2.md §7.4 through the endpoint: the stats it serves from the stored versions and
-    entries carry the vector's ``lap_types``, top level and per series point."""
-    await seed(db, CASES[name])
+async def test_lap_types_are_served(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
+    """T31 (timers2.md §7.4): every v3 case through the endpoint carries the vector's
+    ``lap_types``, top level and per series point."""
+    case = CASES[name]
+    assert case["expected"]["lap_types"]  # the case does carry lap types
+    await seed(db, case)
     body = await timing(client)
-    assert body == CASES[name]["expected"]
-    assert body["lap_types"]  # the case does carry lap types
-    assert any(p["lap_types"] for p in body["series"])
+    assert body == case["expected"]
+    assert [p["lap_types"] for p in body["series"]] == [p["lap_types"] for p in case["expected"]["series"]]
+
+
+async def test_an_untyped_topic_answers_no_lap_types(db: AsyncSession, client: httpx.AsyncClient) -> None:
+    """Untyped laps count only toward ``laps``: ``lap_types`` is empty and so is each point's."""
+    case = CASES["laps"]
+    assert all(not t or not t.get("laps") for t in case["versions"].values())
+    await seed(db, case)
+    body = await timing(client)
+    assert body["laps"]["runs_with_laps"] > 0
+    assert body["lap_types"] == []
+    assert {json.dumps(p["lap_types"]) for p in body["series"]} == {"{}"}
+
+
+async def test_lap_types_follow_the_version_filter(db: AsyncSession, client: httpx.AsyncClient) -> None:
+    """A renamed lap type keeps the latest version's label whatever the filter (§7.4)."""
+    case = CASES["lap_types_renamed_across_versions"]
+    versions = sorted(int(n) for n in case["versions"])
+    of = {i: versions[min(i, len(versions) - 1)] for i in range(len(case["entries"]))}
+    await seed(db, case, versions_of=of)
+    for number in versions:
+        indices = [i for i, v in of.items() if v == number]
+        assert await timing(client, version=number) == expected(case, indices)
 
 
 async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.AsyncClient) -> None:

@@ -123,10 +123,13 @@ enum OutboxQueue {
 
     /// K6 (timers.md §8.1): a discard of a run the server never saw (its start and every other item
     /// of it still `pending` and never attempted) drops all of them, and the discard isn't stored.
+    /// Never when the run's items hold a `reopen` (timers2.md §5.5, A8): that discard is a revert,
+    /// and dropping the queue would also drop the stop the user chose to keep and its entry.
     /// Returns whether it did.
     static func dropUnsentRun(_ db: Database, runId: String) throws -> Bool {
         let items = try OutboxStorage.items(db, entityKind: .run, entityId: runId)
         guard items.contains(where: { $0.id == runId }),
+            !items.contains(where: { (try? $0.runEventPayload())?.type == .reopen }),
             items.allSatisfy({ $0.state == .pending && $0.attempts == 0 })
         else { return false }
         for item in items { try OutboxStorage.delete(db, id: item.id) }
