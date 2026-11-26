@@ -1,0 +1,134 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "47A807E7-3F17-4128-AA56-9496E2EC8762",
+      "deviceName" : "quickR iOS-26-0 t2-m4-xxxl-413cff",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "20s",
+                  "durationInSeconds" : 20.529615998268127,
+                  "name" : "testAccessibilityXXXL()",
+                  "nodeIdentifier" : "EntriesTests/testAccessibilityXXXL()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testAccessibilityXXXL",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "29s",
+                  "durationInSeconds" : 29.81247901916504,
+                  "name" : "testEntryDetailTimingAtAccessibilityXXXL()",
+                  "nodeIdentifier" : "EntriesTests/testEntryDetailTimingAtAccessibilityXXXL()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testEntryDetailTimingAtAccessibilityXXXL",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "12s",
+                  "durationInSeconds" : 12.386915922164917,
+                  "name" : "testFilters()",
+                  "nodeIdentifier" : "EntriesTests/testFilters()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testFilters",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "21s",
+                  "durationInSeconds" : 21.132532954216003,
+                  "name" : "testRemovePauseFromEntryDetail()",
+                  "nodeIdentifier" : "EntriesTests/testRemovePauseFromEntryDetail()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testRemovePauseFromEntryDetail",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "14s",
+                  "durationInSeconds" : 14.723959922790527,
+                  "name" : "testResumeRunFromEntryDetail()",
+                  "nodeIdentifier" : "EntriesTests/testResumeRunFromEntryDetail()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testResumeRunFromEntryDetail",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "4s",
+                  "durationInSeconds" : 4.588697910308838,
+                  "name" : "testRowShowsSummaryAndTiming()",
+                  "nodeIdentifier" : "EntriesTests/testRowShowsSummaryAndTiming()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testRowShowsSummaryAndTiming",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "13s",
+                  "durationInSeconds" : 13.733366966247559,
+                  "name" : "testSwipeDeleteThenUndo()",
+                  "nodeIdentifier" : "EntriesTests/testSwipeDeleteThenUndo()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testSwipeDeleteThenUndo",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "9s",
+                  "durationInSeconds" : 9.255107045173645,
+                  "name" : "testTappingOpensEditOrFix()",
+                  "nodeIdentifier" : "EntriesTests/testTappingOpensEditOrFix()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testTappingOpensEditOrFix",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "7s",
+                  "durationInSeconds" : 7.834151029586792,
+                  "name" : "testTheEntriesTabFromHome()",
+                  "nodeIdentifier" : "EntriesTests/testTheEntriesTabFromHome()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testTheEntriesTabFromHome",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "5s",
+                  "durationInSeconds" : 5.878421902656555,
+                  "name" : "testUnsyncedEntriesPinAboveTheList()",
+                  "nodeIdentifier" : "EntriesTests/testUnsyncedEntriesPinAboveTheList()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testUnsyncedEntriesPinAboveTheList",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "EntriesTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

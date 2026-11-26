@@ -203,6 +203,7 @@ final class EntriesTests: XCTestCase {
         let removePause = find(app, "entry.timing.pause.remove.0")
         bringIntoFullView([pause, removePause], in: app)
         XCTAssertEqual(pause.label, "Paused, 20 seconds")
+        XCTAssertTrue(removePause.exists, "the pause's Remove")
         XCTAssertGreaterThanOrEqual(removePause.frame.minY, pause.frame.maxY - 1, "the pause's Remove is under it")
         // Mid-list (a Form): what's tied to the rows (EntriesAccessibility.edit, AccessibilitySupport).
         try assertAccessible(
