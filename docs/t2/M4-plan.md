@@ -89,8 +89,9 @@ sparklines), so those start at once: 14 WPs, same scope.
 - **Depends on:** nothing.
 - **Acceptance:** `listTopics` issues **one extra statement per page**, not per
   topic (statement count asserted); `last_entry` is null for a topic without
-  entries and follows a delete; `home-vectors.json` unchanged; the regenerated
-  API fixtures decode on iOS without a Swift change
+  entries and follows a delete; `home-vectors.json` gains `last_entry` per topic
+  with its cases unchanged, and the regenerated API fixtures decode on iOS with a
+  decode-only `@RequiredKey lastEntry` (amended 2026-11-26, content-display.md §2)
   (`swift test --filter FixtureCoverageTests` in `ios/QuickrKit`, count in the
   PR).
 - **Tests:** `test_api_topics.py` additions, `test_home_vectors.py` unchanged
@@ -522,6 +523,7 @@ is refused.
 | The regenerated API fixtures (`listTopics`, `getTopic*`, `listChanges.*`) reach iOS `FixtureCoverageTests`                                                           | M4-LASTENTRY's acceptance includes that suite's pass count (no Swift change expected)                                                                                                                         |
 | `StatsUITests` had no activity-strip case although content-display.md §7 lists one                                                                                   | M4-UITEST gains `testActivityStripLabels`                                                                                                                                                                     |
 | Duplicate trailing line under M4-REVIEW                                                                                                                              | Removed                                                                                                                                                                                                       |
+| 2026-11-26: `getTopicTiming` exposed no `lap_types`, which F4-STATS and I4-STATS need, and M1-MCP hadn't started | Extra WP M4-TIMING-LAPTYPES (#194), the orchestrator's fallback: the schema fields in `# T2-M4` blocks (three-block exception accepted), decode-only on iOS; M1's #196 replaces it when M1 reaches `feat/t2` |
 
 ### Device-only (the simulator cannot prove)
 
