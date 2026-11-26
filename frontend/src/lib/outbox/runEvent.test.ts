@@ -790,6 +790,14 @@ describe('reopen and remove ordering (timers2.md §5.5)', () => {
     expect(kind?.waitsFor?.(lap, [{ ...reopen, status: 'failed' }, lap])).toEqual(['r1']);
   });
 
+  it("waits for the run's start queued under an alias of the run", () => {
+    const kind = OUTBOX_KINDS[RUN_EVENT];
+    // The start went out as r1; the server merged it into r9; the remove was tapped on r9.
+    const aliasRemove = runItem('remove', { id: 'x9', run: 'r9', at: T0 + 3000, target: 'p1' });
+    aliasRemove.payload.run_aliases = ['r1'];
+    expect(kind?.waitsFor?.(aliasRemove, [start, aliasRemove])).toEqual(['r9', 'r1']);
+  });
+
   it('a failed reopen holds nothing after it', async () => {
     const { outbox, sent, queue, ids } = setup((b) =>
       b.id === 'o1' ? problem(409, 'conflict') : ok(b.id),

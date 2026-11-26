@@ -177,7 +177,8 @@ const runEvent: OutboxKind<RunEventPayload> = {
     const ids = runIds(item);
     const pendingOfRun = (i: OutboxItem): i is OutboxItem<RunEventPayload> =>
       i.id !== item.id && isRunEvent(i) && i.status === 'pending' && ids.has(lc(i.payload.run_id));
-    const deps = [runId];
+    // Its run's start, under any id the run had at the tap (a start queued under an alias).
+    const deps = [runId, ...[...ids].filter((id) => id !== lc(runId))];
     if (event.type === 'finish') {
       const stops = queue.filter((i) => pendingOfRun(i) && i.payload.event.type === 'stop');
       deps.push(...stops.map((i) => i.id));

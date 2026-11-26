@@ -147,12 +147,16 @@ const reverted = (state: RunState, events: readonly RunEvent[]) =>
  * with one left the run finishing, until a finish. Only asked of a reopened run.
  */
 function hasEntry(
+  server: RunOut | null,
   events: readonly RunEvent[],
   mine: readonly QueuedRunEvent[],
   requiresAnswers: boolean | null,
 ): boolean | null {
   if (mine.some((i) => i.payload.entry !== undefined)) return true;
-  if (events.some((e) => e.type === 'finish')) return true;
+  // A finish the server applied, or one of this device's (sent only once the run is
+  // stopped or finishing, so it makes the entry, or fails without being stored).
+  if (server?.events.some((e) => e.type === 'finish' && e.effect === 'applied')) return true;
+  if (mine.some((i) => i.payload.event.type === 'finish')) return true;
   const reopen = events.find((e) => e.type === 'reopen' && e.target != null);
   const stop = mine.find((i) => lc(i.id) === reopen?.target);
   if (stop?.payload.event.answers != null) return true;
@@ -172,11 +176,13 @@ function stopLeavesFinishing(
   requiresAnswers: boolean,
   entry: boolean,
 ): boolean {
+  // A re-stop of a run that has its entry closes it, whatever the server's status said
+  // before the reopen (timers2.md §4.1).
+  if (entry) return false;
   if (server?.status === 'finishing') return true;
   if (server?.status === 'stopped') return false;
   const stop = mine.find((i) => i.payload.event.type === 'stop' && lc(i.id) === state.terminal_id);
   if (!stop) return false;
-  if (entry) return false;
   return stop.payload.event.answers == null && requiresAnswers;
 }
 
@@ -468,7 +474,7 @@ function buildRun(
     ...mine.map((i) => lc(i.payload.run_id)),
   ]);
   aliases.delete(id);
-  const entry = reopenedWithEntry(state, events, mine, known?.requires_answers ?? null);
+  const entry = reopenedWithEntry(server, state, events, mine, known?.requires_answers ?? null);
   return {
     id,
     topic_id: topicId,
@@ -500,12 +506,13 @@ function buildRun(
  * false for a run never reopened, null when it hinges on a required question not known here.
  */
 function reopenedWithEntry(
+  server: RunOut | null,
   state: RunState,
   events: readonly RunEvent[],
   mine: readonly QueuedRunEvent[],
   requiresAnswers: boolean | null,
 ): boolean | null {
-  return reopened(state, events) && hasEntry(events, mine, requiresAnswers);
+  return reopened(state, events) && hasEntry(server, events, mine, requiresAnswers);
 }
 
 /**

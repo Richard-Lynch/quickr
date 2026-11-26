@@ -490,6 +490,38 @@ describe('reopen and remove in the local view (timers2.md §5.3)', () => {
     expect(localRuns([server], [restop], [bare])[0]?.status).toBe('finishing');
   });
 
+  it('a finishing run finished, reopened and re-stopped offline closes: the finish made the entry', () => {
+    const server = serverRun('r1', [start, next, stop], { status: 'finishing' });
+    const items = [
+      q(ev('f1', 'finish', T0 + 100 * S), {
+        requires_answers: true,
+        answers: {},
+        makes_entry: true,
+      }),
+      q(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }), { requires_answers: true }),
+      q(ev('s2', 'stop', T0 + 150 * S), { requires_answers: true }),
+    ];
+    const [run] = localRuns([server], items);
+    expect(run?.status).toBe('stopped');
+    expect(run?.has_entry).toBe(true);
+  });
+
+  it("a server finish that didn't apply is no entry: the revert of the reopen discards", () => {
+    const voidFinish = serverRun('r1', [
+      start,
+      next,
+      stop,
+      ev('f1', 'finish', T0 + 100 * S),
+      ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }),
+    ]);
+    const finish = voidFinish.events.find((e) => e.id === 'f1');
+    if (finish) finish.effect = 'void';
+    const discard = q(ev('d1', 'discard', T0 + 130 * S), { requires_answers: true });
+    expect(localRuns([voidFinish], [discard])[0]?.status).toBe('discarded');
+    if (finish) finish.effect = 'applied';
+    expect(localRuns([voidFinish], [discard])[0]?.status).toBe('stopped');
+  });
+
   describe('a revert (a discard after a reopen)', () => {
     it('of a run with its entry: stopped as before, the entry restored', () => {
       const server = serverRun('r1', [
