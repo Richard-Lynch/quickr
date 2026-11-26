@@ -14,7 +14,7 @@ import { T0, ev, runItem, serverRun } from '../test/runs';
 import { connectOutboxEffects } from './outboxEffects';
 import {
   cachedServerRuns,
-  clearRunTombstones,
+  clearRunMarkers,
   mergeListed,
   runsQueryKey,
   upsertServerRun,
@@ -189,6 +189,11 @@ describe('run.event effects', () => {
 });
 
 describe('a start acked by verify (§8.1)', () => {
+  // The test above closed R1: its marker would bury this start's ack (timers2.md §5.2).
+  beforeEach(() => {
+    clearRunMarkers();
+  });
+
   it('pulls the runs: the run is the server’s, started elsewhere', async () => {
     const R1 = '00000000-0000-4000-8000-000000000001';
     const T1 = '00000000-0000-4000-8000-0000000000aa';
@@ -228,7 +233,7 @@ describe('mergeListed', () => {
 
   // Earlier tests closed runs of these ids.
   beforeEach(() => {
-    clearRunTombstones();
+    clearRunMarkers();
   });
 
   it("keeps a cached copy that is newer than the list's", () => {
@@ -238,7 +243,7 @@ describe('mergeListed', () => {
 
   it('keeps a run put in the cache after the fetch began, and drops others the list lacks', () => {
     const qc = new QueryClient();
-    upsertServerRun(qc, r1, 1000);
+    upsertServerRun(qc, r1, { now: 1000 });
     expect(mergeListed(cachedServerRuns(qc), [], 900)).toEqual([r1]);
     expect(mergeListed(cachedServerRuns(qc), [], 1001)).toEqual([]);
   });

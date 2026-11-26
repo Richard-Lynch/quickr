@@ -14,7 +14,7 @@ import { API_PREFIX } from '../../api/constants';
 import type { EntryCreate, RunEventIn, RunEventResult, RunOut } from '../../client/types.gen';
 import { recordAcked } from '../runs/acked';
 import { parseInstant } from '../runs/instant';
-import type { TimerStep } from '../runs/types';
+import type { LapType, TimerStep, TimingWire } from '../runs/types';
 import { classifyStatus, errorMessageFor } from './classify';
 import type { OutboxError, OutboxItem, OutboxKind } from './types';
 
@@ -92,6 +92,12 @@ export interface RunEventPayload {
   steps: TimerStep[] | null;
   requires_answers: boolean | null;
   /**
+   * The version's lap types as the device knew them, so the local view labels laps
+   * ("Run 1, Rest 1", timers2.md §3.2). Absent or null when not known: laps then show
+   * untyped ("Lap n") until the server answers.
+   */
+  laps?: LapType[] | null;
+  /**
    * The tap makes the run's entry: a stop that won't leave the run finishing, or a finish
    * of a finishing run. Its entry is projected optimistically until the server answers.
    */
@@ -99,10 +105,17 @@ export interface RunEventPayload {
   /** Body for `POST /runs/{run_id}/events` minus `id`: the item id *is* the event id. */
   event: Omit<RunEventIn, 'id'>;
   /**
-   * A finish: the other run ids that routed to its run in the local view at the tap (its
-   * aliases), so it also waits for a stop queued under one of them ({@link waitsFor}).
+   * The other run ids that routed to its run in the local view at the tap (its aliases),
+   * so a finish also waits for a stop, and any tap for a reopen, queued under one of them
+   * ({@link waitsFor}).
    */
   run_aliases?: string[];
+  /**
+   * A reopen or remove enqueued from an entry while no run row was local (timers2.md
+   * §5.3): the entry's timing and revision at the tap, which the local view projects from
+   * ("Resuming…" for a reopen; the re-projected entry for a remove) until the ack.
+   */
+  entry?: { timing: TimingWire; revision: number };
   /**
    * The server a reminder's Start came from (`X-QuickR-Expect-Server-Id`, as for
    * `entry.create`): another server refuses it with 409 `server_mismatch`.
@@ -133,6 +146,10 @@ const runEvent: OutboxKind<RunEventPayload> = {
    * included, so it doesn't reach the server before them (a failed stop doesn't hold it:
    * the finish goes, and fails on `run_open`).
    *
+   * timers2.md §5.5: a reopen or remove also waits for the pending item whose id is its
+   * `target`, and any event of the run enqueued after a pending reopen waits for that
+   * reopen (A7). Failed items hold none of them.
+   *
    * A start waits for the pending stops and discards of the topic's other runs enqueued
    * before it (§8.1): the local view has that run closed, but the server, still having it
    * open, would merge the new run into it. A failed one doesn't hold it: the start goes,
@@ -157,16 +174,28 @@ const runEvent: OutboxKind<RunEventPayload> = {
       );
       return closes.map((i) => i.id);
     }
-    if (event.type !== 'finish') return [runId];
-    const ids = new Set([runId, ...(item.payload.run_aliases ?? [])].map((id) => id.toLowerCase()));
-    const stops = queue.filter(
-      (i) =>
-        isRunEvent(i) &&
-        ids.has(i.payload.run_id.toLowerCase()) &&
-        i.payload.event.type === 'stop' &&
-        i.status === 'pending',
+    const ids = runIds(item);
+    const pendingOfRun = (i: OutboxItem): i is OutboxItem<RunEventPayload> =>
+      i.id !== item.id && isRunEvent(i) && i.status === 'pending' && ids.has(lc(i.payload.run_id));
+    const deps = [runId];
+    if (event.type === 'finish') {
+      const stops = queue.filter((i) => pendingOfRun(i) && i.payload.event.type === 'stop');
+      deps.push(...stops.map((i) => i.id));
+    }
+    // timers2.md §5.5: a reopen or remove waits for the queued item it names (its stop, or
+    // the pause or lap it removes), while pending; a failed one holds nothing (no_target).
+    if ((event.type === 'reopen' || event.type === 'remove') && event.target != null) {
+      const target = lc(event.target);
+      const named = queue.find((i) => lc(i.id) === target && pendingOfRun(i));
+      if (named) deps.push(named.id);
+    }
+    // A7: anything enqueued after a pending reopen of the run waits for it, so a lap can't
+    // reach a run still stopped on the server (and come back after_stop).
+    const reopens = queue.filter(
+      (i) => pendingOfRun(i) && i.payload.event.type === 'reopen' && enqueuedBefore(i, item),
     );
-    return [runId, ...stops.map((i) => i.id)];
+    for (const r of reopens) if (!deps.includes(r.id)) deps.push(r.id);
+    return deps;
   },
   /** A run's events can't be sent without its start (§8.1): they go when it is discarded. */
   discardedWith(item) {
@@ -244,12 +273,15 @@ const runEvent: OutboxKind<RunEventPayload> = {
   },
   /**
    * K6 (§8.1): a discard of a run the server never saw (its start and every event still
-   * pending and never attempted) drops all of them, and the discard isn't stored.
+   * pending and never attempted) drops all of them, and the discard isn't stored. Not when
+   * the run's queued items hold a reopen (A8, timers2.md §5.5): that discard is a revert,
+   * and dropping the queue would drop the stop the user chose to keep and its entry.
    */
   coalesce(item, queue) {
     if (item.payload.event.type !== 'discard') return undefined;
     const runId = item.payload.run_id;
     const ofRun = queue.filter((i) => isRunEvent(i) && i.payload.run_id === runId);
+    if (ofRun.some((i) => isRunEvent(i) && i.payload.event.type === 'reopen')) return undefined;
     const unsent = ofRun.every((i) => i.status === 'pending' && i.attempts === 0);
     if (!unsent || !ofRun.some((i) => i.id === runId)) return undefined;
     return { drop: ofRun.map((i) => i.id), store: false };
@@ -326,6 +358,13 @@ function knownStart(item: OutboxItem<RunEventPayload>, run: RunOut): RunEventRes
     run: alias ? { ...run, aliases: [...run.aliases, runId] } : run,
     entry: null,
   };
+}
+
+const lc = (id: string) => id.toLowerCase();
+
+/** The run ids an item routes to: its own and the aliases it was tapped with. */
+function runIds(item: OutboxItem<RunEventPayload>): Set<string> {
+  return new Set([item.payload.run_id, ...(item.payload.run_aliases ?? [])].map(lc));
 }
 
 /** Whether `a` was enqueued before `b`, as the outbox orders them (`created_at`, the `at`, the id). */
