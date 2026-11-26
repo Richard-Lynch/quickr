@@ -25,7 +25,10 @@ import Synchronization
 ///   (client-versions.md §4.5). Without it, or the controls' level switches, the fake server sends
 ///   no level headers and refuses nothing;
 /// - `-QuickrServerOutdated`: the fake server refuses this build from the start (a fresh install's
-///   first connect, client-versions.md §4.1).
+///   first connect, client-versions.md §4.1);
+/// - `-QuickrHoldLaterFeed`: the first feed request (the launch's connect) is answered, every
+///   later one is held for the rest of the launch, so the launch's next pull is still in flight
+///   whenever a test taps (#239).
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
@@ -64,6 +67,7 @@ enum UITestLaunch {
         if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
         if ProcessInfo.processInfo.arguments.contains("-QuickrServerBehind") { server.levels = .behind }
         if ProcessInfo.processInfo.arguments.contains("-QuickrServerOutdated") { server.levels = .outdated }
+        if ProcessInfo.processInfo.arguments.contains("-QuickrHoldLaterFeed") { server.holdLaterFeed() }
         return environment
     }
 
@@ -145,6 +149,8 @@ final class FakeServerState: Sendable {
         var levels: FakeServerLevels?
         var rejectNext = false
         var holdFeed = false
+        /// `holdLaterFeed()`: `holdFeed` turns on once the next feed request has been answered.
+        var holdAfterNextFeed = false
         var requests = 0
         /// "METHOD /path" of each request, in order.
         var sent: [String] = []
@@ -198,6 +204,18 @@ final class FakeServerState: Sendable {
         state.withLock { state in
             defer { state.rejectNext = false }
             return state.rejectNext
+        }
+    }
+
+    /// Answers the next feed request, then holds every later one (`holdFeed`).
+    func holdLaterFeed() { state.withLock { $0.holdAfterNextFeed = true } }
+
+    /// A feed request is answered: `holdLaterFeed()` starts holding the ones after it.
+    fileprivate func feedAnswered() {
+        state.withLock { state in
+            guard state.holdAfterNextFeed else { return }
+            state.holdAfterNextFeed = false
+            state.holdFeed = true
         }
     }
 
@@ -571,6 +589,7 @@ private struct FakeServerTransport: Transport {
         }
         if request.method == .get, path == "/api/v1/changes" {
             try await state.waitIfFeedHeld()
+            defer { state.feedAnswered() }
             let after =
                 URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "after" }?.value.flatMap(Int.init) ?? 0

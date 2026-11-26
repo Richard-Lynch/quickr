@@ -542,6 +542,41 @@ private let otherServerURL = URL(string: "https://other.example")!
         await session.shutdown()
     }
 
+    /// #239: home's tiles can show once a first bind has published the store (the registry's
+    /// change, mid-connect) while the connect's own forced rebind is still to come. A Start tapped
+    /// while that rebind is held mid-swap is enqueued at once, on the store both binds share, and
+    /// goes out once the new scheduler is bound: never dropped by the swap.
+    @Test func aStartDuringTheLaunchRebindIsKept() async throws {
+        let w = try World()
+        defer { w.env.cleanup() }
+        let session = try w.session()
+        await session.start(serverURL: SyncEnv.baseURL)
+        let store = try #require(session.store)
+        let gate = Gate()
+        defer { gate.releaseAll() }
+        session.beforeBindForTesting = { await gate.arrive() }
+        let rebind = Task { await session.connect(baseURL: SyncEnv.baseURL) }  // forced: a new scheduler
+        try await within("the rebind holds its bind") { await gate.arrival() }
+
+        let actions = RunActions(writer: { RunActions.Writer(session: session) })
+        let topic = TopicRef(id: UUID(), slug: "morning", name: "Morning")
+        let started = try #require(await actions.start(topic: topic, version: 1), "the tap was dropped")
+        #expect(started.started)
+        #expect(actions.lastFailure == nil)
+        #expect(try await store.outbox.item(id: started.runId) != nil, "queued at once, in the bound store")
+
+        gate.open()
+        _ = try await within("the rebind finished") { await rebind.value }
+        session.beforeBindForTesting = nil
+        #expect(session.store?.url == store.url, "the same store, bound again")
+        try await eventually("the start is sent") {
+            w.env.transport.requests.contains {
+                $0.method == .post && $0.url.path == "/api/v1/runs/\(started.runId)/events"
+            }
+        }
+        await session.shutdown()
+    }
+
     @Test func aShutDownSessionIsFreed() async throws {
         let w = try World()
         defer { w.env.cleanup() }
