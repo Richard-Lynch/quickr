@@ -45,6 +45,16 @@ type MetaOutput = z.output<MetaSchema>;
 
 const META_FIELDS = new Set(['name', 'slug', 'description']);
 
+/** Whether two copies of a topic agree on everything the details form edits. */
+function sameDetails(a: TopicDetail, b: TopicDetail): boolean {
+  return (
+    a.name === b.name &&
+    a.slug === b.slug &&
+    a.description === b.description &&
+    JSON.stringify(appearanceOf(a)) === JSON.stringify(appearanceOf(b))
+  );
+}
+
 function metaValuesOf(t: TopicDetail): MetaValues {
   return {
     name: t.name,
@@ -104,13 +114,25 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
   const e = form.formState.errors;
   const { isDirty, isSubmitting } = form.formState;
   useEffect(() => onDirty(isDirty), [isDirty, onDirty]);
-  // The topic the form's values came from: a save diffs against it and sends its revision, so a
-  // change made elsewhere meanwhile is refused (409) rather than overwritten. The form isn't keyed
-  // by the topic's values (the optimistic patch would remount it mid-save and a failure would lose
-  // the edits and the 422's field errors); a clean form takes a newer topic instead.
+  // `base` is the topic a save diffs against and whose revision it sends. Any newer topic whose
+  // details (name, slug, description, appearance) are the ones the form started from becomes the
+  // base, keeping unsaved edits: that is a save of another part of this topic (schedule, archive)
+  // or a change elsewhere to other fields, and must not make the next details save a conflict. A
+  // newer topic with different details only becomes the base while the form is clean (it then
+  // shows them); a dirty form keeps its base, so the save gets 409 instead of overwriting a
+  // concurrent change. `shown` is what the form was last reset to. The form isn't keyed by the
+  // topic's values: the optimistic patch would remount it mid-save, and a failure would lose the
+  // edits and the 422's field errors.
   const [base, setBase] = useState(topic);
-  if (topic !== base && !isDirty && !isSubmitting) setBase(topic);
-  useEffect(() => form.reset(metaValuesOf(base)), [base, form]);
+  const [shown, setShown] = useState(topic);
+  if (topic !== base && !isSubmitting) {
+    if (sameDetails(topic, base)) setBase(topic);
+    else if (!isDirty) {
+      setBase(topic);
+      setShown(topic);
+    }
+  }
+  useEffect(() => form.reset(metaValuesOf(shown)), [shown, form]);
 
   const onSubmit = form.handleSubmit(async (v) => {
     setBanner(null);
@@ -133,6 +155,7 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
       });
       toast({ title: 'Saved' });
       setBase(updated);
+      setShown(updated);
       onDirty(false);
       allowNavigation();
       if (updated.slug !== from.slug)

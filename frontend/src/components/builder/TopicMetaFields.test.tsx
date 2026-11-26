@@ -4,7 +4,7 @@
  * (only the changed fields, with `expected_revision`; server 422 paths on the right field).
  */
 import { zodResolver } from '@hookform/resolvers/zod';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useEffect, useState } from 'react';
@@ -13,6 +13,7 @@ import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TopicDetail } from '../../client';
+import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
 import { client } from '../../client/client.gen';
 import { checkIcon, type Appearance } from '../../lib/appearance';
 import {
@@ -378,5 +379,152 @@ describe('SettingsPage appearance PATCH', () => {
     expect(emojiInput()).toHaveAttribute('aria-invalid', 'true');
     // Both landed on fields, so no banner repeats them.
     expect(screen.queryByText(/Some fields need attention/)).toBeNull();
+  });
+});
+
+describe('SettingsPage saves on one topic', () => {
+  /**
+   * A server with the topic's revision: every PATCH bumps it, and a details PATCH whose
+   * `expected_revision` isn't current gets 409 `stale_revision`. `external` changes the topic as
+   * another device would.
+   */
+  function fakeServer() {
+    let current: TopicDetail = { ...topic };
+    const details: Record<string, unknown>[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: Request) => {
+        const text = await input.text();
+        const body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+        if (input.method === 'GET' && new URL(input.url).pathname === '/api/v1/topics/gym')
+          return json(200, current);
+        if (input.method !== 'PATCH')
+          return json(404, { code: 'not_found', detail: 'not found', errors: [] });
+        if ('schedule' in body) {
+          const sch = body.schedule as { times: string[]; timezone: string };
+          current = {
+            ...current,
+            revision: current.revision + 1,
+            schedule: {
+              kind: 'daily',
+              times: sch.times,
+              days: [1, 2, 3, 4, 5, 6, 7],
+              timezone: sch.timezone,
+              notify: true,
+            },
+            schedule_updated_at: '2026-11-26T08:00:00Z',
+            due: { is_due: false, due_since: null, next_due_at: null, last_entry_at: null },
+          };
+          return json(200, current);
+        }
+        details.push(body);
+        if (body.expected_revision !== current.revision)
+          return json(409, { code: 'stale_revision', detail: 'Changed elsewhere', errors: [] });
+        const a = (body.appearance ?? {}) as Partial<Appearance>;
+        current = {
+          ...current,
+          revision: current.revision + 1,
+          appearance: { ...current.appearance, ...a },
+        };
+        return json(200, current);
+      }),
+    );
+    const external = (patch: Partial<TopicDetail>) => {
+      current = { ...current, ...patch, revision: current.revision + 1 };
+    };
+    return { details, external };
+  }
+
+  /** The topic comes from the query cache, as in TopicLayout, so this page's own saves reach it. */
+  function Layout() {
+    const q = useQuery({
+      ...getTopicOptions({ path: { ref: 'gym' } }),
+      initialData: topic,
+      staleTime: Infinity,
+    });
+    return <Outlet context={{ topic: q.data }} />;
+  }
+
+  function renderSettings() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/t/:ref',
+          element: <Layout />,
+          children: [{ path: 'settings', element: <SettingsPage /> }],
+        },
+      ],
+      { initialEntries: ['/t/gym/settings'] },
+    );
+    render(
+      <QueryClientProvider client={qc}>
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    return { user: userEvent.setup(), qc };
+  }
+
+  async function saveSchedule(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('radio', { name: 'Daily' }));
+    await user.click(screen.getByRole('button', { name: 'Save schedule' }));
+    expect(await screen.findByText('Schedule saved')).toBeInTheDocument();
+  }
+
+  beforeEach(() => {
+    client.setConfig({ baseUrl: 'http://quickr.test' });
+  });
+
+  afterEach(() => {
+    client.setConfig({ baseUrl: '' });
+    vi.unstubAllGlobals();
+  });
+
+  it('saves the details after a schedule save without a conflict, keeping the unsaved edit', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    await saveSchedule(user);
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 8 }]);
+    expect(screen.queryByText('Changed elsewhere')).toBeNull();
+  });
+
+  it('saves the details after a schedule save made before the edit, too', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await saveSchedule(user);
+    await user.click(screen.getByRole('radio', { name: 'Blue' }));
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 8 }]);
+  });
+
+  it('refuses a details save over a concurrent change to the details from elsewhere', async () => {
+    const server = fakeServer();
+    const { user, qc } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    // Another device renames the topic; a refetch brings it in while the form is dirty.
+    server.external({ name: 'Lifting' });
+    await act(() => qc.refetchQueries());
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
+  });
+
+  it('rebases over a change from elsewhere that leaves the details alone', async () => {
+    const server = fakeServer();
+    const { user, qc } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ status: 'archived', archived_at: '2026-11-26T08:00:00Z' });
+    await act(() => qc.refetchQueries());
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 8 }]);
   });
 });
