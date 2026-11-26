@@ -240,12 +240,13 @@ _sim_resources_ok() {
 
 # Settings ▸ General ▸ AutoFill & Passwords ▸ AutoFill Passwords and Passkeys, off, on a booted
 # test simulator (it persists in the device). The app labels the service-token fields for Password
-# AutoFill (DEVICE-DAY §6), so with it on iOS offers "Save Password?" after a UI test types a
-# token, seconds later and over whatever the test taps next (#60, #89). Off, iOS never offers:
-# the app is unchanged, and the device check covers AutoFill itself.
+# AutoFill (DEVICE-DAY §6), so with it on iOS offers "Save Password?" seconds after a UI test types
+# a token, over whatever the test taps next (#60, #89). Off, iOS never offers. The app is
+# unchanged; AutoFill itself is a device check. test.sh runs it for UI plans and sim-clone.sh for
+# the worktree's clone (a test device), never sim_boot: sim-run.sh, shots and demos on another
+# simulator keep the user's setting.
 sim_autofill_off() {
-  xcrun simctl spawn "$1" defaults write com.apple.WebUI AutoFillPasswords -bool NO >/dev/null 2>&1 \
-    || warn "could not turn Password AutoFill off on $1: iOS may offer to save typed tokens over UI tests"
+  xcrun simctl spawn "$1" defaults write com.apple.WebUI AutoFillPasswords -bool NO >/dev/null 2>&1
 }
 
 sim_boot() {
@@ -295,7 +296,6 @@ sim_boot() {
       fi
       exec 8>&-
       (( trapped )) && _sim_untrap_ticket
-      sim_autofill_off "$udid"
       return 0
     fi
     if [[ "${IOS_SIM_WAIT:-0}" != 1 ]]; then

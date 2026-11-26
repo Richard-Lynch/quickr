@@ -4,9 +4,9 @@ import XCTest
 /// in-memory Keychain, and a fake quickR server at https://quickr.test).
 ///
 /// The token fields are labelled for Password AutoFill, so iOS would offer "Save Password?" over
-/// the screen seconds after a token is typed. The scripts' simulators have AutoFill off
-/// (common.sh `sim_autofill_off`, run by every boot), so it never shows here; on a simulator that
-/// didn't boot through them, turn it off in Settings first.
+/// the screen seconds after a token is typed. test.sh (UI plans) and sim-clone.sh turn AutoFill off
+/// on the simulator (common.sh `sim_autofill_off`), so it never shows here; on another simulator,
+/// turn it off in Settings first.
 final class SettingsUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
