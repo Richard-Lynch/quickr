@@ -1,0 +1,5 @@
+- **Medium — Colourless themed subtrees still inherit an ancestor’s topic colour.** [appearance.ts:108](/Users/richie/code/quickr-worktrees/t2-m3a-tokens/frontend/src/lib/appearance.ts:108) returns `{}` for a colourless appearance. Applied to a subtree inside a coloured topic subtree, that leaves the inherited `--topic-*` properties in effect, so its topic utilities use the ancestor’s colour rather than the default accent. The original finding covered this case as well as the glyph; consumers need a way to reset all three properties at a colourless subtree boundary.
+
+The `TopicGlyph` fix itself is correct: its initial circle sets all three accent variables locally, overriding inherited topic variables. The regression test checks the relevant inline values, though it does not verify computed colours.
+
+**Verdict:** The glyph issue is fixed, but the broader default-theme guarantee remains incomplete for nested subtrees. No builds or tests were run, as requested.

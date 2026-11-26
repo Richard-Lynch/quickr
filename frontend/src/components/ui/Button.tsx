@@ -5,10 +5,11 @@ import { cn } from './cn';
 import { Spinner } from './Spinner';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'quiet-danger';
-export type ButtonSize = 'sm' | 'md' | 'lg';
+/** `hero` (72 px) is the run panel's primary (active-surfaces.md §6.1, §8.1). */
+export type ButtonSize = 'sm' | 'md' | 'lg' | 'hero';
 
 const base =
-  'inline-flex select-none items-center justify-center gap-2 whitespace-nowrap rounded-full font-semibold transition-[background-color,color,box-shadow,transform] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50';
+  'inline-flex select-none items-center justify-center gap-2 rounded-full font-semibold transition-[background-color,color,box-shadow,transform] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50';
 
 const variants: Record<ButtonVariant, string> = {
   primary:
@@ -20,9 +21,11 @@ const variants: Record<ButtonVariant, string> = {
 };
 
 const sizes: Record<ButtonSize, string> = {
-  sm: 'h-9 px-3.5 text-sm',
-  md: 'h-11 px-5 text-[0.95rem]',
-  lg: 'h-14 px-7 text-base',
+  sm: 'h-9 whitespace-nowrap px-3.5 text-sm',
+  md: 'h-11 whitespace-nowrap px-5 text-[0.95rem]',
+  lg: 'h-14 whitespace-nowrap px-7 text-base',
+  // Grows with a two-line label ("Next: {long step}") rather than overflowing (§2.3).
+  hero: 'min-h-[4.5rem] px-8 py-3 text-center text-xl leading-tight [&>svg]:size-7',
 };
 
 export function buttonClass(

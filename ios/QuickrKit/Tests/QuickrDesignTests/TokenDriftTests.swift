@@ -35,8 +35,9 @@ import Testing
         return out
     }
 
-    /// The any-appearance and dark hex values of one colour set.
-    static func colorSet(_ name: String) throws -> (String, String) {
+    /// The any-appearance and dark hex values of one colour set (`TopicThemeTests` reads
+    /// `TopicColors.xcassets` with it).
+    static func colorSet(_ name: String, in catalog: URL = catalog) throws -> (String, String) {
         struct ColorSet: Decodable {
             struct Entry: Decodable {
                 struct Appearance: Decodable { let value: String }

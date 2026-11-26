@@ -464,16 +464,16 @@ by `RunActivityDisplayTests` over the new vector cases `update_tiktok_lap`,
 [   Lap → Rest   ] [ Pause ] [ Stop ]
 ```
 
-iOS truncates a Lock Screen Live Activity taller than 160 pt (ActivityKit:
-"The system may truncate a Live Activity if its height exceeds 160 points").
-So the layout is two text rows and one button row:
+iOS truncates a Lock Screen Live Activity taller than 160 pt (ActivityKit: "The
+system may truncate a Live Activity if its height exceeds 160 points"). So the
+layout is two text rows and one button row:
 
 - Row 1: the topic name, with "2 of 5", "L4" or "2 of 5 | L4" trailing.
 - Row 2: the segment timer (largeTitle), then the headline, then a trailing
-  stack with the total and, below it, the alert countdown (hidden when nil).
-  The headline truncates first.
-- The button row: the primary at ½ the width (≥ 56 pt tall), then
-  Pause/Resume and Stop at ¼ each (≥ 44 pt).
+  stack with the total and, below it, the alert countdown (hidden when nil). The
+  headline truncates first.
+- The button row: the primary at ½ the width (≥ 56 pt tall), then Pause/Resume
+  and Stop at ¼ each (≥ 44 pt).
 - Dynamic Type is capped at the widgets' xxLarge (§7), so the button row stays
   above the 160 pt cut.
 

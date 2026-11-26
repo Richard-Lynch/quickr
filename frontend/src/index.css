@@ -2,6 +2,7 @@
 @import '@fontsource-variable/bricolage-grotesque/wght.css';
 @import '@fontsource-variable/instrument-sans/wght.css';
 @import '@fontsource-variable/jetbrains-mono/wght.css';
+@import './topicColors.css';
 
 /*
  * "Field notebook" palette: warm paper, deep ink, one signal-orange accent.
@@ -78,6 +79,18 @@
       transform: none;
     }
   }
+}
+
+/*
+ * Topic theme (docs/specs/appearance.md §4.2): bg-topic-tint, bg-topic-tint-soft, text-topic-tint,
+ * text-topic-on-tint and border-topic-tint. `inline` so each utility reads the element's own
+ * `--topic-*` variable (set by `topicStyle()` or `data-topic-color`, see topicColors.css) rather
+ * than a value resolved once on :root; without one it is the brand accent, pixel for pixel.
+ */
+@theme inline {
+  --color-topic-tint: var(--topic-tint, var(--color-accent));
+  --color-topic-tint-soft: var(--topic-tint-soft, var(--color-accent-soft));
+  --color-topic-on-tint: var(--topic-on-tint, var(--color-on-accent));
 }
 
 @media (prefers-color-scheme: dark) {
