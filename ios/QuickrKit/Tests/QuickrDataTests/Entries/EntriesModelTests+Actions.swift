@@ -202,6 +202,9 @@ extension EntriesModelTests {
         let local = try await store.runs.localRun(id: Self.entryId(31))
         let run = try #require(local)
         #expect(run.resuming, "\"Resuming…\" until the ack")
+        // The detail route still finds the entry (so it can redirect to the run).
+        let detail = try await store.entries.entry(id: Self.entryId(31))
+        #expect(detail?.entry.id == Self.entryId(31))
 
         // Revert (the resuming run's discard): the entry is shown again.
         _ = try await RunWrites(store: store, origin: .app).discard(runId: run.id)

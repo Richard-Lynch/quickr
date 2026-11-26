@@ -102,7 +102,14 @@ struct EditScreen: View {
             }
             guard let viewEntry = try await store.entries.entry(id: entryId), viewEntry.entry.topicId == topic.id
             else {
-                load = .gone
+                // OQ-14: a run open or finishing here with no entry to show yet is the run's.
+                if let run = try await store.runs.localRun(id: entryId), run.topicId == topic.topic.id,
+                    run.isOpen || run.status == .finishing
+                {
+                    environment.router.replaceTop(with: .run(ref))
+                } else {
+                    load = .gone
+                }
                 return
             }
             if viewEntry.isLocalOnly, case .failed = viewEntry.syncState {
