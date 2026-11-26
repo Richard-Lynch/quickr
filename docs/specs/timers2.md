@@ -993,8 +993,10 @@ server answers `no_target`). **And an event enqueued after a pending `reopen` of
 the same run waits for that reopen** (the precedent is a finish waiting for the
 run's stops, `kinds.ts:160-169`): otherwise a retrying reopen would let a later
 lap reach a still-stopped server run and come back `after_stop` with a notice,
-only to flip to applied when the reopen lands. Both outboxes implement both
-rules: the PWA in `kinds.ts` `waitsFor` (`kinds.ts:142-170`), iOS as two more
+only to flip to applied when the reopen lands. **A reopen also waits for its
+run's pending `finish` enqueued before it**, so a retrying finish is not
+overtaken and refused with 409 `run_open` (milestone review P2-1). Both outboxes
+implement these rules: the PWA in `kinds.ts` `waitsFor` (`kinds.ts:142-170`), iOS as two more
 cases of the outbox.md §7.1 extension in v1 §8.1. Cases
 `lap-waits-for-pending-reopen` on both (R16, §12.4). No new coalescing. A
 `target` is the id of an event in the local view (queued or acked) or in the
@@ -1340,7 +1342,9 @@ originating device with `live_activity: true`). `register`
   `quickr.alert.{run_id}.*` on stop, discard, and when the run leaves the local
   view. Requests whose instant is already past are not scheduled (an alert
   missed while the app was dead is missed; the Live Activity countdown covered
-  it).
+  it). An alert whose `at_ms` is 0 (its instant is the segment start) is never
+  fired, on either client. Taps on the Live Activity and through intents
+  re-plan alerts like in-app taps (the scheduler runs from those handlers too).
 - `LocalNotificationRequest` gains `interruptionLevel` (default `.active`) and
   `fireAt: Date?`; `SystemNotificationCenter.add` uses
   `UNTimeIntervalNotificationTrigger(timeInterval: max(1, fireAt − now))` for
@@ -1348,7 +1352,9 @@ originating device with `live_activity: true`). `register`
   unchanged). `FakeNotificationCenter` records both.
 - **Foreground**: `NotificationResponder.willPresent` presents alerts with
   `.banner, .sound`; the app plays `QuickrHaptic.alert` (new case) and the run
-  screen shows the alert label inline for 10 s (`RunPresentation.alertLine`).
+  screen shows the alert label inline for 10 s. That label is run-screen state
+  (`AppEnvironment.runAlerts.label(runId:)`), not `RunPresentation.alertLine`,
+  which stays the persistent next-alert line and is nil when none remain.
 - **Accepted limitation (OQ-11)**: when another device taps Lap while this phone
   is locked, this phone's pending alerts are stale until it wakes (a Live
   Activity push runs no app code). The Live Activity countdown is correct
@@ -1369,7 +1375,10 @@ same maths as §9.1) and `src/components/runs/RunAlerts.tsx` mounted in
   `AudioContext` created and resumed on the Start/Lap tap (`useRunActions`
   `guarded`), and `registration.showNotification` when permission is `granted`;
 - only while the page is open (requirement); a global **mute** toggle in App
-  settings (`localStorage`, default on).
+  settings (`localStorage`). Alerts are **not muted by default**: the tone
+  sounds until the user mutes it (the user asked for a reminder beep). Muted
+  alerts show the toast only. One tab fires each alert (the fired record is
+  shared across tabs).
 
 ### 9.3 Notices (v1 §11.4 additions)
 
@@ -1382,6 +1391,13 @@ same maths as §9.1) and `src/components/runs/RunAlerts.tsx` mounted in
 
 `reverted` is shown only when the reverted reopen was this device's and the
 discard another's; `stale` stays silent.
+
+**Known gap (#228, deferred to a `t2-followup`):** notices come from acks, so
+`reverted` reaches the reopening device only when the other device's discard
+lands before this device's reopen is acked. When the reopen was acked first,
+the feed later sends only a run deletion and no notice is shown. Mitigation in
+T2: the tile returns to "Saved" with the entry visible, and later taps on the
+run get the `after_stop` notice.
 
 ## 10. Client ports checklist
 
