@@ -75,3 +75,23 @@ passed), shut down after the run.
 Live Activity states are not here: the Lock Screen and island views need an `ActivityViewContext`
 and live only in the widget extension, so the app's gallery cannot render them (issue #202). They
 stay on `docs/t2/device-checklist.md`.
+
+## M2-RESUME: Resume on the toast, the idle tile and the run screen; "Resuming…"
+
+Against the UI-test fake server's TikTok (`-QuickrSeedTikTok`: no steps, lap types Run and Rest,
+no questions, so Stop saves at once), on the clone `FB902170-F048-4853-9805-4E53B478435E`,
+status bar 9:41, downscaled to 600 px. The debug overlays of the UI-test launch show: the run
+controls at the top (`-QuickrRunControls`), the sync controls and the clock/pull controls at the
+bottom. Shots from a throwaway XCUITest (`ResumeShotsUITests`, **not committed**), light from
+session 2 (`xcresults/M2-RESUME-s2-shots-light.*`), dark and AccessibilityXXXL from session 3
+(`xcresults/M2-RESUME-s3-shots-dark.*`).
+
+| File                                        | What it shows                                                                                                                                            |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ios-resume-stop-toast-<mode>.png`          | Stop on the card saved the run: "Saved TikTok: 0:09" with **Resume**; the idle tile already offers "Resume · 0:09" under its meta line (§3.2, §3.3).       |
+| `ios-resume-idle-tile-<mode>.png`           | The toast gone: the idle tile with Start and "Resume · 0:09" (`tile.tiktok.reopen`) for 15 minutes on the run clock.                                     |
+| `ios-resume-resuming-card-<mode>.png`       | Offline, the stop acked, Resume tapped: the card in "Active now" says **Resuming…** and has no controls row until the ack (§1.2 row 11, timers2.md §5.3). |
+| `ios-resume-resuming-run-<mode>.png`        | Its run screen: the `run.state` badge **Resuming…**, the clock running from the entry's timing, no controls; the lap row's type badge ("Run").           |
+| `ios-resume-flow.gif`, `ios-resume-flow.mp4` | `RunUITests.testStopToastOffersResume`, recorded with `simctl io recordVideo` (session 1, `xcresults/M2-RESUME-s1-gif.*`): start, the run screen ("Lap → Rest", typed lap badges), Lap, Stop, the toast's Resume, the card back as "Running · Rest 1 · lap 2", the run screen, Stop again, the entry with its gap pause ("Paused 0:01"). |
+
+`<mode>`: `light`, `dark`, `xxxl` (AccessibilityXXXL, dark).

@@ -96,6 +96,8 @@ extension TileUITests {
         XCTAssertTrue(resumeWait(find("debug.pulled"), prefix: "pulled 1", timeout: 15))
         let reopen = find("tile.tiktok.reopen")
         XCTAssertTrue(reopen.waitForExistence(timeout: 10))
+        // The saved toast covers the bottom debug controls until it goes.
+        XCTAssertTrue(find("toast.text").waitForNonExistence(timeout: 10), "the toast went")
 
         find("debug.offline").tap()
         XCTAssertTrue(resumeWait(app.buttons["sync.pill"], prefix: "Offline", timeout: 10), "offline first")
