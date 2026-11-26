@@ -94,4 +94,9 @@ session 2 (`xcresults/M2-RESUME-s2-shots-light.*`), dark and AccessibilityXXXL f
 | `ios-resume-resuming-run-<mode>.png`        | Its run screen: the `run.state` badge **Resuming…**, the clock running from the entry's timing, no controls; the lap row's type badge ("Run").           |
 | `ios-resume-flow.gif`, `ios-resume-flow.mp4` | `RunUITests.testStopToastOffersResume`, recorded with `simctl io recordVideo` (session 1, `xcresults/M2-RESUME-s1-gif.*`): start, the run screen ("Lap → Rest", typed lap badges), Lap, Stop, the toast's Resume, the card back as "Running · Rest 1 · lap 2", the run screen, Stop again, the entry with its gap pause ("Paused 0:01"). |
 
-`<mode>`: `light`, `dark`, `xxxl` (AccessibilityXXXL, dark).
+`<mode>`: `light` (session 2), `dark` (session 6, `xcresults/M2-RESUME-s6-shots-dark.*`), `xxxl`
+(AccessibilityXXXL, dark, session 6) for the stop toast and the idle tile. Not captured at XXXL:
+the Resuming card (the shot test's scroll left the card above the frame) and its run screen; their
+layout is the open card's and run screen's at XXXL (I2-UITEST's `ios-home-xxxl.png`,
+`ios-run-xxxl.png`) with the controls row hidden. The XXXL toast shows the action breaking
+mid-word ("Resu/me"): a shared `ToastView` layout issue, filed as #259.
