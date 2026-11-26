@@ -21,3 +21,12 @@ The observation fix keys the task on both session binding and topic reference an
 
 I did not run tests or verify the iOS layout and accessibility tree on a simulator.
 **Resolution:** finding 2 is confirmed fixed and the finding 3 justification is accepted. Finding 1 is a real conflict between §4.3 and §5/§6.3. It goes to the lead as a spec clarification; the code keeps the reading above until the lead rules.
+
+## Round 3 (Codex, phase 2: on I3-STORE, diff origin/t2/m3a-i3store...HEAD)
+
+**Findings: none.**
+
+The header reads the stored `Topic.appearance`, and the amended §4.3 supports the icon-only and tags-only behavior. The observation is keyed by both the session binding and topic reference. I found no definite defect in `FlowRow` or the accessibility identifiers.
+
+The host tests cover the header content model; they do not verify the iOS layout, VoiceOver tree, or live observation. I did not run tests. The deferred Live Activity patch was outside this review.
+**Resolution:** no findings. The round 1/2 finding 1 is closed by the lead amending §4.3 (028d1546).
