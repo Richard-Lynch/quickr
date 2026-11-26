@@ -15,6 +15,9 @@ struct RunControls: View {
     /// The topic's name, for the spoken labels ("Stop Morning").
     let topic: String
     let busy: Bool
+    /// The stopped run's total: an idle screen's `reopen` reads "Resume · 1:44" (§2.4), not the
+    /// generic "Resume run".
+    var reopenTotalMs: Int?
     let perform: (RunAction) -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title2) private var primaryIcon: CGFloat = 28
@@ -46,7 +49,7 @@ struct RunControls: View {
                         Button {
                             perform(action)
                         } label: {
-                            Label(action.title, systemImage: action.systemImage)
+                            Label(title(action), systemImage: action.systemImage)
                                 .foregroundStyle(action.kind == .stop ? Color.qr.danger : .qr.ink)
                                 .frame(maxWidth: .infinity)
                         }
@@ -58,6 +61,13 @@ struct RunControls: View {
                 }
             }
         }
+    }
+}
+
+extension RunControls {
+    private func title(_ action: RunAction) -> String {
+        if case .reopen = action.kind, let reopenTotalMs { return RunHeaderText.reopenTitle(totalMs: reopenTotalMs) }
+        return action.title
     }
 }
 

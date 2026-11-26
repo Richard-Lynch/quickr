@@ -104,39 +104,44 @@ enum RunHeadline {
     }
 }
 
-extension LocalRun {
-    /// The pinned version's timer, for M1's presentation model; nil when its steps aren't known
-    /// here (the v1 fallback: a plain Next, no Skip).
-    var timer: TopicTimer? { steps.map { TopicTimer(steps: $0) } }
-}
-
-/// The next alert and its countdown ("Half way · in 0:12"), under the headline; nothing when
-/// there is none.
-///
-/// The text is M1's `RunPresentation.alertLine`, which also keeps a fired alert's label for 10 s
-/// (timers2.md §9) and is nil while paused.
+/// The run screen's alert line (active-surfaces.md §2.1, `RunHeaderText.alert`): for 10 s after an
+/// alert fires in the foreground, its label with a bell (`fired`, I1-ALERTS'
+/// `runAlerts.label(runId:)`); otherwise the next alert and its countdown ("Half way · in 0:12",
+/// M1's `RunPresentation.alertLine`, nil while paused). Nothing when there is neither.
 struct RunAlertLine: View {
-    let text: String?
+    let fired: String?
+    let next: String?
 
     var body: some View {
-        if let text {
-            Label(text, systemImage: "bell")
-                .font(.qr(.subheadline))
-                .foregroundStyle(.qr.inkSoft)
+        if let line = RunHeaderText.alert(fired: fired, next: next) {
+            Label(line.text, systemImage: line.fired ? "bell.fill" : "bell")
+                .font(.qr(line.fired ? .callout : .subheadline))
+                .fontWeight(line.fired ? .semibold : nil)
+                .foregroundStyle(line.fired ? Color.qr.ink : .qr.inkSoft)
                 .monospacedDigit()
+                .accessibilityLabel(line.fired ? "Alert: \(line.text)" : line.text)
                 .accessibilityIdentifier("run.alert")
         }
     }
 }
 
-/// What Stop leads to, on any surface: the answers form, or "Saved X: 7:42".
+/// What Stop leads to, on any surface: the answers form, or "Saved X: 7:42" with **Resume**
+/// (active-surfaces.md §3.2, OQ-1): a reopen of `run`, the one just stopped, whose terminal is the
+/// stop this tap made. The toast's 6 s are well inside the 15-minute window, and nothing can edit
+/// the entry or stop a later run in that time.
 @MainActor
-func showStopOutcome(_ outcome: RunActions.StopOutcome, ref: TopicLinkRef, in environment: AppEnvironment) {
+func showStopOutcome(
+    _ outcome: RunActions.StopOutcome, run: LocalRun, ref: TopicLinkRef, in environment: AppEnvironment
+) {
     switch outcome {
     case .details(let runId):
         guard let id = UUID(uuidString: runId) else { return }
         environment.router.open(.runDetails(ref, runId: id))
     case .saved(let name, let total):
-        environment.toasts.show(Toast("Saved \(name): \(DurationFormat.format(total))"))
+        let (runId, topicId, actions) = (run.id, run.topicId, environment.runActions)
+        let resume = Toast.Action("Resume") {
+            Task { await actions.reopen(runId: runId, topicId: topicId) }
+        }
+        environment.toasts.show(Toast("Saved \(name): \(DurationFormat.format(total))", action: resume))
     }
 }

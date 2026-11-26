@@ -46,7 +46,7 @@ extension RunUITests {
         XCTAssertTrue(waitFor(segment, label: "Rest 1"), segment.label)
 
         // Stop: no questions, so it saves and the screen closes.
-        find(app, "run.primary").tap()
+        find(app, "run.stop").tap()
         let tileButton = find(app, "tile.tiktok.run")
         XCTAssertTrue(waitFor(tileButton, label: "Start", timeout: 15), tileButton.label)
 
@@ -137,12 +137,12 @@ extension RunUITests {
         XCTAssertFalse(waitFor(tileButton, label: "Start", timeout: 2), "started: \(tileButton.label)")
         afterCooldown()
         tile.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
-        XCTAssertTrue(find(app, "run.lap").waitForExistence(timeout: 10))
+        XCTAssertTrue(find(app, "run.primary").waitForExistence(timeout: 10))
     }
 
     /// One Lap tap, then past the controls' tap cooldown.
     private func lapOnce(_ app: XCUIApplication) {
-        let lap = find(app, "run.lap")
+        let lap = find(app, "run.primary")
         XCTAssertTrue(lap.waitForExistence(timeout: 5))
         lap.tap()
         afterCooldown()
@@ -162,7 +162,7 @@ extension RunUITests {
 
     /// Stop (it saves: TikTok has no questions), then the run's entry from the topic's Entries tab.
     private func stopAndOpenEntry(_ app: XCUIApplication) {
-        find(app, "run.primary").tap()
+        find(app, "run.stop").tap()
         let tileButton = find(app, "tile.tiktok.run")
         XCTAssertTrue(waitFor(tileButton, label: "Start", timeout: 15), tileButton.label)
         find(app, "tile.tiktok").coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()

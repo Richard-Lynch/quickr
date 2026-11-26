@@ -119,11 +119,11 @@ extension WidgetTopic {
     /// The shown run's label, timers and buttons, as its Live Activity has them.
     public var runDisplay: RunActivityDisplay? { run.map { RunActivityDisplay(state: $0, topicName: topic.name) } }
 
-    /// The topic's timer declares lap types (active-surfaces.md §5.3): its one-button Auto is
-    /// the on-screen primary, never Stop.
-    // T2-M1: TopicTimer.laps — becomes `!(topic.timer?.laps.isEmpty ?? true)` when M1 lands it;
-    // false until then, so every timer takes v1's Auto.
-    public var isLapTyped: Bool { false }
+    /// The topic's timer declares lap types (active-surfaces.md §5.3, #222): its one-button Auto
+    /// is the on-screen primary, never Stop, as M1's `RunWrites.auto` presses it. Read from the
+    /// topic's current timer; `RunWrites.auto` reads the run's pinned one, which differs only for
+    /// a run started before an edit that added or removed every lap type.
+    public var isLapTyped: Bool { !(topic.timer?.laps.isEmpty ?? true) }
 
     /// The buttons (timers.md §11.3, active-surfaces.md §5.1): idle, Start (none for an archived
     /// topic); open, the primary (Lap whenever a lap or the last step is open, else Next: §4.1,

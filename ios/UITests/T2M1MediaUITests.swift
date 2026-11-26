@@ -56,7 +56,7 @@ final class T2M1MediaUITests: XCTestCase {
         tileButton.tap()
         Thread.sleep(forTimeInterval: 0.6)
         find("tile.tiktok", in: app).coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
-        XCTAssertTrue(find("run.lap", in: app).waitForExistence(timeout: 10))
+        XCTAssertTrue(find("run.primary", in: app).waitForExistence(timeout: 10))
         snap(app, "i1-alert-run")
 
         let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]

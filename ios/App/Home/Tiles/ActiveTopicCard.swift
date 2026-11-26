@@ -209,7 +209,7 @@ struct ActiveTopicCard: View {
             let (name, link) = (topic.topic.name, TopicLinkRef(id: topic.topic.id))
             Task {
                 if let outcome = await environment.runActions.stop(run: run, topicName: name, expect: expect) {
-                    showStopOutcome(outcome, ref: link, in: environment)
+                    showStopOutcome(outcome, run: run, ref: link, in: environment)
                 }
             }
             return
@@ -224,13 +224,12 @@ struct ActiveTopicCard: View {
     /// "Running · Rest 2 · lap 4" / "Paused · Shower" (`RunHeadline`); "Running" alone
     /// when nothing is open; "Resuming…" while a reopen is queued.
     static func headline(_ run: LocalRun, resuming: Bool) -> String {
-        if resuming { return "Resuming…" }
-        let status = run.status == .paused ? "Paused" : "Running"
+        let status = RunHeaderText.state(resuming: resuming, paused: run.status == .paused)
+        if resuming { return status }
         return RunHeadline.text(run).map { "\(status) · \($0)" } ?? status
     }
 
-    /// Seam, pending M1: the queued, unacked `reopen` of timers2.md §5.3 ("Resuming…", no
-    /// controls until the ack, §3.3). M1 has no such projection on `LocalRun` yet, so a reopened
-    /// run shows as plain "Running" (§8.2).
-    static func isResuming(_ run: LocalRun) -> Bool { false }
+    /// A reopen queued from the run's entry and not yet acked (timers2.md §5.3, M1's "resuming"
+    /// projection): "Resuming…", no controls until the ack (§1.2 row 11, §3.3).
+    static func isResuming(_ run: LocalRun) -> Bool { run.resuming }
 }

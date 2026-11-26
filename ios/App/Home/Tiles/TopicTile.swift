@@ -27,6 +27,8 @@ struct TopicTile: View {
     @Environment(AppEnvironment.self) private var environment
     /// Counts the Starts this tile made, for the haptic.
     @State private var starts = 0
+    /// A timed topic's latest stop, while the store offers it "Resume" (`observeResumable`).
+    @State private var resumable: ResumableRun?
 
     private let text = TopicText()
 
@@ -46,6 +48,9 @@ struct TopicTile: View {
         }
         // Here, not on the idle tile: by the time a Start returns, the tile may be the card.
         .qrHaptic(.logged, trigger: starts)
+        .task(id: ResumableKey(binding: environment.session?.binding, topicId: topic.topic.id, timed: state.isTimed)) {
+            await followResumable(timed: state.isTimed)
+        }
     }
 
     /// A timed topic without an open run (timers.md §11.1, §11.2): never a one-tap log or quick
@@ -70,36 +75,52 @@ struct TopicTile: View {
             }
         } quick: {
             // Interactive, so under the meta line in the quick slot (the meta passes taps through).
-            if state == .idle, let reopen = Self.reopen(topic, now: serverNow) {
-                reopenButton(reopen, slug: topic.slug)
+            if state == .idle, topic.status != .archived, let resumable,
+                resumable.isOffered(at: RunInstant.milliseconds(now) + environment.runTicker.offsetMs)
+            {
+                reopenButton(resumable, slug: topic.slug)
             }
         }
         .accessibilityIdentifier("tile.\(topic.slug)")
     }
 
-    /// An idle timed tile's "Resume · 1:44" (active-surfaces.md §3.3, §1.2 row 2): the latest
-    /// entry's run reopened, for OQ-1's 15 minutes after its stop.
-    struct Reopen {
-        /// `reopen(target:)`, the target being the latest local entry's `timing.terminalId`.
-        var action: RunAction
-        /// The stopped run's total, for the title.
-        var totalMs: Int
-        var perform: () -> Void
-    }
-
-    /// Seam, pending M1: needs the latest local entry's `timing.terminalId` (timers2.md §3.3; not
-    /// in `Timing` yet), `RunPresentation.resumable(entry, now:)` over it, and the reopen write
-    /// (I1-WRITES). Until then nothing is resumable and the tile shows no Resume (§8.2).
-    static func reopen(_ topic: Topic, now: Date) -> Reopen? { nil }
-
-    private func reopenButton(_ reopen: Reopen, slug: String) -> some View {
-        Button(action: reopen.perform) {
-            Label("Resume · \(DurationFormat.format(reopen.totalMs))", systemImage: reopen.action.systemImage)
+    /// An idle timed tile's "Resume · 1:44" (active-surfaces.md §3.3, §1.2 rows 2 and 13): the
+    /// latest local entry's run reopened (its `timing.terminalId` names the stop), for OQ-1's 15
+    /// minutes after the stop, on the run clock (the clock the stop was stamped on). The window
+    /// is read at home's 30 s tick and whenever the store's server offset moves.
+    private func reopenButton(_ resumable: ResumableRun, slug: String) -> some View {
+        let action = resumable.action
+        let actions = environment.runActions
+        return Button {
+            Task { await actions.reopen(runId: resumable.runId, topicId: resumable.topicId) }
+        } label: {
+            Label(RunHeaderText.reopenTitle(totalMs: resumable.totalMs), systemImage: action.systemImage)
         }
         .buttonStyle(.qr(.ghost, size: .small))
-        .disabled(!reopen.action.enabled)
-        .accessibilityLabel(reopen.action.spokenTitle(topic: topic.topic.name))
+        .disabled(!action.enabled || actions.isBusy(topic.topic.id))
+        .accessibilityLabel(action.spokenTitle(topic: topic.topic.name))
         .accessibilityIdentifier("tile.\(slug).reopen")
+    }
+
+    /// The topic's latest stop while the store offers it "Resume"; nothing for an untimed topic.
+    private func followResumable(timed: Bool) async {
+        guard timed, let session = environment.session, let store = session.store else {
+            resumable = nil
+            return
+        }
+        do {
+            for try await latest in store.observeResumable(topicId: topic.topic.id, refresh: session.refresh.stream()) {
+                resumable = latest
+            }
+        } catch {
+            // The observation ends with its store (a reset or a switch); the next binding restarts it.
+        }
+    }
+
+    private struct ResumableKey: Hashable {
+        var binding: AppSession.Binding?
+        var topicId: UUID
+        var timed: Bool
     }
 
     /// The block: Start, or Add details. None for an archived topic with no run (a start would be

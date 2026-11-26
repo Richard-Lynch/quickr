@@ -74,7 +74,7 @@ import Testing
         #expect(topic.runButtons(compact: false) == [.lap, .stop])
         #expect(topic.runButtonTitle(.lap) == "Lap")
         #expect(topic.runButtonLabel(.lap) == "Lap")
-        #expect(!topic.isLapTyped, "T2-M1: TopicTimer.laps; every timer takes v1's Auto until then")
+        #expect(!topic.isLapTyped, "no lap types: v1's Auto")
         #expect(topic.runButtons(compact: true) == [.stop])
     }
 
@@ -94,6 +94,30 @@ import Testing
         #expect(topic.runButtons(compact: true) == [.stop])
         #expect(topic.runButtonTitle(.lap) == "Lap")
         #expect(topic.runButtonLabel(.lap) == "Lap")
+    }
+
+    /// #222 from the store: a timer with lap types (Run, Rest) is lap-typed, so the small size's
+    /// one Auto button is Lap, named for the lap it opens ("Lap → Rest", then "Lap → Run"), and
+    /// pressing it laps (M1's `RunWrites.auto`, §5.3): Stop is never Auto.
+    @Test func aLapTypedTimerLapsFromTheSmallSize() async throws {
+        let h = try OutboxHarness()
+        let laps = [TopicTimer.LapType(key: "run", label: "Run"), TopicTimer.LapType(key: "rest", label: "Rest")]
+        try h.timed(steps: [], laps: laps)
+        try await Self.tap(h)
+        var topic = try await Self.shown(h)
+        #expect(topic.isLapTyped)
+        #expect(topic.runDisplay?.label == "Run 1")
+        #expect(topic.runButtons(compact: true) == [.lap])
+        #expect(topic.runButtons(compact: false) == [.lap, .stop])
+        #expect(topic.runButtonTitle(.lap) == "Lap → Rest")
+        #expect(topic.runButtonLabel(.lap) == "Lap, then Rest")
+
+        try await Self.tap(h)
+        topic = try await Self.shown(h)
+        #expect(topic.runTile == .open(paused: false), "Auto lapped; it didn't stop")
+        #expect(topic.runDisplay?.label == "Rest 1")
+        #expect(topic.runButtons(compact: true) == [.lap])
+        #expect(topic.runButtonTitle(.lap) == "Lap → Run")
     }
 
     /// A typed lap names the lap it opens (§1.3): the display's `nextLabel` during a lap, as
