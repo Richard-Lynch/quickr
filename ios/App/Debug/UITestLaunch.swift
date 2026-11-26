@@ -99,9 +99,10 @@ enum UITestLaunch {
                 serverId: secondServerId, baseURL: "https://other.example", displayName: "Other", now: Date())
         }
         guard arguments.contains("-QuickrSeedRejectedEntry") else { return }
-        // After the launch's connect has bound for good: it binds twice (the registry's signal, then
-        // its own forced rebind), and the second swap cancels the first outbox's flush, which leaves
-        // the entry maybe delivered (outbox.md S3), so never fixable (§11).
+        // After the launch's connect has finished binding: it binds twice (the registry's signal,
+        // then its own forced rebind, both inside it), and the second swap cancels the first
+        // outbox's flush, which leaves the entry maybe delivered (outbox.md S3), so never fixable
+        // (§11). A later rebind of the same binding isn't forced and keeps the outbox.
         guard await waitFor({ environment.session?.outbox != nil && environment.session?.isBinding == false }),
             let session = environment.session, let outbox = session.outbox, let store = session.store
         else { fatalError("-QuickrSeedRejectedEntry: the session didn't bind within 20 s") }
