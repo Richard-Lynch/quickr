@@ -90,6 +90,17 @@ import Testing
         #expect(added.last?.id == Self.half)
     }
 
+    @Test("a sub-second correction of an alert time is replaced too (the server-clock instant is exact)")
+    func subSecondCorrectionIsReplaced() async throws {
+        let scheduler = scheduler
+        await scheduler.reconcile(input([try K.resting()]))
+        var corrected = K.timer
+        corrected.laps[1].alerts[0].atMs = 30_500
+        await scheduler.reconcile(input([try K.resting()], timer: corrected))
+        #expect(pendingMs()[Self.half] == K.at(40.5))
+        #expect(added.count == 3)
+    }
+
     @Test("changed content (a renamed alert or topic) is replaced; the same request is not")
     func contentChangeIsReplaced() async throws {
         let scheduler = scheduler
@@ -227,18 +238,28 @@ import Testing
         #expect(pending.isEmpty)
     }
 
-    @Test("overlapping calls are serialised and end on the latest input")
+    @Test("overlapping calls are serialised: callers during a pass coalesce into one more pass, from the latest input")
     func coalesces() async throws {
-        let scheduler = scheduler
+        let gated = HeldPendingCenter(center)
+        let scheduler = RunAlertScheduler(center: gated, now: { [clock] in clock.now() })
         let resting = input([try K.resting()])
+        let lapped = input([try K.resting([K.lap("l2", 20, seg: 1), K.lap("l3", 30, seg: 2)])])
         let stopped = input([try K.resting([K.stop(15)])])
-        await withTaskGroup(of: Void.self) { group in
-            for index in 0..<20 {
-                group.addTask { await scheduler.reconcile(index.isMultiple(of: 2) ? resting : stopped) }
-            }
-        }
-        await scheduler.reconcile(resting)
-        #expect(pendingMs() == [Self.half: K.at(40), Self.go: K.at(70)])
+        now(31)
+        let first = Task { await scheduler.reconcile(resting) }
+        await gated.waitForQuery(1)
+        // While the first pass is held in its pending query, two more arrive: only the latest counts.
+        let second = Task { await scheduler.reconcile(stopped) }
+        let third = Task { await scheduler.reconcile(lapped) }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(await gated.queries == 1, "no second pass while the first runs")
+        await gated.open()
+        _ = await (first.value, second.value, third.value)
+        #expect(await gated.queries == 2, "the two callers shared one more pass")
+        #expect(
+            pendingMs() == [
+                "quickr.alert.\(K.runId).3.half": K.at(60), "quickr.alert.\(K.runId).3.go": K.at(90),
+            ])
     }
 
     // MARK: - The store's input
@@ -288,4 +309,50 @@ import Testing
         await scheduler.reconcile(latest)
         #expect(center.withState { $0.pending }.isEmpty)
     }
+}
+
+/// The fake centre, holding `pendingNotificationRequests` until `open()`: a pass in flight.
+private actor HeldPendingCenter: NotificationCenterProtocol {
+    let inner: FakeNotificationCenter
+    private(set) var queries = 0
+    private var isOpen = false
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var watchers: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    init(_ inner: FakeNotificationCenter) { self.inner = inner }
+
+    func open() {
+        isOpen = true
+        for waiter in held { waiter.resume() }
+        held = []
+    }
+
+    func waitForQuery(_ count: Int) async {
+        if queries >= count { return }
+        await withCheckedContinuation { watchers.append((count, $0)) }
+    }
+
+    func pendingNotificationRequests() async -> [NotificationSnapshot] {
+        queries += 1
+        for (count, watcher) in watchers where queries >= count { watcher.resume() }
+        watchers.removeAll { queries >= $0.0 }
+        if !isOpen { await withCheckedContinuation { held.append($0) } }
+        return await inner.pendingNotificationRequests()
+    }
+
+    nonisolated func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        inner.setNotificationCategories(categories)
+    }
+    func notificationCategories() async -> [NotificationCategorySpec] { await inner.notificationCategories() }
+    func deliveredNotifications() async -> [NotificationSnapshot] { await inner.deliveredNotifications() }
+    nonisolated func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+        inner.removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+    nonisolated func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        inner.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
+    func add(_ request: LocalNotificationRequest) async throws { try await inner.add(request) }
+    func setBadgeCount(_ count: Int) async throws { try await inner.setBadgeCount(count) }
+    func authorizationStatus() async -> NotificationAuthorization { await inner.authorizationStatus() }
+    func requestAuthorization() async throws -> Bool { try await inner.requestAuthorization() }
 }

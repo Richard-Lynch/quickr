@@ -62,8 +62,10 @@ public actor RunAlertScheduler {
         }
     }
 
-    /// `fireAt`s this close are the same request: the server offset is re-estimated on every
-    /// response (`StoreServerOffset`), and an interval trigger is whole seconds anyway.
+    /// Device-clock `fireAt`s this close are the same request when the server-clock instant
+    /// (`server_fire_at_ms`, compared exactly with the rest of the content) is unchanged: the
+    /// server offset is re-estimated on every response (`StoreServerOffset`) by a few ms. Any
+    /// change to the run or the alert time moves the server instant and replaces the request.
     public static let fireAtTolerance: TimeInterval = 1
 
     private let center: any NotificationCenterProtocol
@@ -126,7 +128,8 @@ public actor RunAlertScheduler {
         }
     }
 
-    /// Whether the pending `snapshot` is `request`: same content, and `fireAt` within the tolerance.
+    /// Whether the pending `snapshot` is `request`: the same content (the server-clock instant
+    /// included), and the device-clock `fireAt` within the tolerance.
     static func matches(_ snapshot: NotificationSnapshot, _ request: LocalNotificationRequest) -> Bool {
         guard let fireAt = request.fireAt, let date = snapshot.date,
             abs(date.timeIntervalSince(fireAt)) < fireAtTolerance

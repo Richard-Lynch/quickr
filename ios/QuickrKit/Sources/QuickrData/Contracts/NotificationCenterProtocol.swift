@@ -150,6 +150,9 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
     public var alertLabel: String?
     /// When it fires, epoch milliseconds on this device's clock.
     public var fireAtMs: Int?
+    /// The same instant on the server's clock (segment start + paused overlap + `at_ms`): it moves
+    /// only when the run or the alert does, not when the server offset is re-estimated.
+    public var serverFireAtMs: Int?
     // end T2-M1
 
     public enum Origin: String, Codable, Sendable, Hashable {
@@ -168,13 +171,14 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         case runId = "run_id"
         case alertLabel = "alert_label"
         case fireAtMs = "fire_at_ms"
+        case serverFireAtMs = "server_fire_at_ms"
     }
 
     public init(
         v: Int = 1, kind: String, origin: Origin = .remote, serverId: String, topicId: String? = nil,
         topicSlug: String? = nil, version: Int? = nil, dueSince: String? = nil, url: String? = nil,
         quickLog: QuickLogDescriptor? = nil, prefill: [String: String]? = nil, runId: String? = nil,
-        alertLabel: String? = nil, fireAtMs: Int? = nil
+        alertLabel: String? = nil, fireAtMs: Int? = nil, serverFireAtMs: Int? = nil
     ) {
         self.v = v
         self.kind = kind
@@ -190,6 +194,7 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         self.runId = runId
         self.alertLabel = alertLabel
         self.fireAtMs = fireAtMs
+        self.serverFireAtMs = serverFireAtMs
     }
 
     public init(from decoder: any Decoder) throws {
@@ -213,6 +218,7 @@ public struct QuickrNotificationInfo: Codable, Sendable, Hashable {
         runId = try container.decodeIfPresent(String.self, forKey: .runId)
         alertLabel = try container.decodeIfPresent(String.self, forKey: .alertLabel)
         fireAtMs = try container.decodeIfPresent(Int.self, forKey: .fireAtMs)
+        serverFireAtMs = try container.decodeIfPresent(Int.self, forKey: .serverFireAtMs)
     }
 
     /// The reminder slot this notification is for; nil unless it is a `due` reminder with a

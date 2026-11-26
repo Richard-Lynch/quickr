@@ -62,7 +62,7 @@ public enum RunAlertPlan {
                     title: topicName, body: "\(alert.label) · \(open.label)", threadIdentifier: "topic-\(topicId)",
                     quickr: QuickrNotificationInfo(
                         kind: RunAlerts.kind, origin: .local, serverId: serverId.lowercased(), topicId: topicId,
-                        runId: runId, alertLabel: alert.label, fireAtMs: fireAtMs),
+                        runId: runId, alertLabel: alert.label, fireAtMs: fireAtMs, serverFireAtMs: at),
                     sound: true, fireAt: Date(timeIntervalSince1970: TimeInterval(fireAtMs) / 1000),
                     interruptionLevel: RunAlerts.interruptionLevel)
             }

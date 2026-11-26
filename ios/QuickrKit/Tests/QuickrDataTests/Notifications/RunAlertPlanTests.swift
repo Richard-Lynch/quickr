@@ -33,6 +33,7 @@ import Testing
         #expect(info.runId == K.runId)
         #expect(info.alertLabel == "Half way")
         #expect(info.fireAtMs == K.at(40))
+        #expect(info.serverFireAtMs == K.at(40))
     }
 
     @Test("the interruption level is the one constant RunAlerts holds (OQ-6: time-sensitive)")
@@ -139,6 +140,7 @@ import Testing
         let plan = K.plan(run, now: 12, offsetMs: 5_000)
         #expect(fireMs(plan) == [K.at(40) - 5_000, K.at(70) - 5_000])
         #expect(plan.first?.quickr?.fireAtMs == K.at(40) - 5_000)
+        #expect(plan.first?.quickr?.serverFireAtMs == K.at(40))
         // An alert past on the server clock is past here too.
         #expect(fireMs(K.plan(run, now: 45, offsetMs: 5_000)) == [K.at(70) - 5_000])
     }
