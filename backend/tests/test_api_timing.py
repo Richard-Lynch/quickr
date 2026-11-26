@@ -17,9 +17,9 @@ from sqlalchemy import func, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Channel, Entry, Topic, TopicVersion
-from app.services import run_fold
-from app.services.timing_stats import timing_stats
+from app.services import run_fold, timing_stats
 from tests.helpers import make_topic, record
+from tests.spec_cases import timing_stats_v3_cases
 from tests.test_timing_stats_vectors import stats_json, to_entry, to_timer
 from tests.vectors import FIXTURES_DIR
 
@@ -53,7 +53,7 @@ async def seed(
             topic=topic,
             version=int(number),
             questions=[],
-            timer=None if timer is None else {"steps": timer["steps"]},
+            timer=timer,  # the normalised Timer v2, lap types included
         )
         db.add(rows[int(number)])
     await db.flush()
@@ -86,13 +86,34 @@ def expected(case: dict[str, Any], indices: list[int]) -> dict[str, Any]:
     """The reference stats over a subset of the case's entries, with every version."""
     versions = {int(n): to_timer(t) for n, t in case["versions"].items()}
     entries = [to_entry(case["entries"][i]) for i in indices]
-    return served(stats_json(timing_stats(entries, versions, case["current_version"])))
+    return served(stats_json(timing_stats.timing_stats(entries, versions, case["current_version"])))
 
 
 @pytest.mark.parametrize("name", list(CASES))
 async def test_endpoint_matches_the_vectors(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
     await seed(db, CASES[name])
     assert await timing(client) == served(CASES[name]["expected"])
+
+
+@pytest.mark.parametrize("name", timing_stats_v3_cases())
+async def test_stored_lap_types_reach_the_stats(
+    name: str, db: AsyncSession, client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """timers2.md §7.4 through the endpoint: the stats it computes from the stored versions and
+    entries carry the vector's ``lap_types``, top level and per series point. (The
+    ``TopicTiming`` schema serves them from M1-MCP; until then the computed stats are read here.)"""
+    computed: list[timing_stats.TopicTiming] = []
+    real = timing_stats.timing_stats
+
+    def spy(*args: Any) -> timing_stats.TopicTiming:
+        computed.append(real(*args))
+        return computed[-1]
+
+    monkeypatch.setattr(timing_stats, "timing_stats", spy)
+    await seed(db, CASES[name])
+    assert await timing(client) == served(CASES[name]["expected"])
+    assert [stats_json(t) for t in computed] == [CASES[name]["expected"]]
+    assert CASES[name]["expected"]["lap_types"]  # the case does carry lap types
 
 
 async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.AsyncClient) -> None:
