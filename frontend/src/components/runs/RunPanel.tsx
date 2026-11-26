@@ -38,6 +38,7 @@ import type { RunActions } from './useRunActions';
 export function RunPanel({
   run,
   ctx,
+  timer: pinned,
   topic,
   actions,
   onStopped,
@@ -46,6 +47,11 @@ export function RunPanel({
   run: LocalRun;
   /** The run's own version's context; null while it isn't known (controls wait). */
   ctx: RunContext | null;
+  /**
+   * The run's pinned version's timer, when its versions are known (lap types and alerts read
+   * it); otherwise one is made from the steps the run knows, or none when those are unknown.
+   */
+  timer?: Timer | null | undefined;
   /** The topic's name, for the controls' accessible names. */
   topic: string;
   actions: RunActions;
@@ -57,7 +63,7 @@ export function RunPanel({
   const now = useServerNow(!paused);
   // Null: the steps aren't known here yet (no step list, no Skip; the clock still runs).
   const steps: readonly TimerStep[] | null = ctx ? ctx.steps : run.steps;
-  const timer: Timer | null = steps === null ? null : { steps: [...steps] };
+  const timer: Timer | null = pinned ?? (steps === null ? null : { steps: [...steps] });
   const total = activeMs(run.state, now);
   const segment = segmentMs(run.state, now);
   const open = run.state.open;

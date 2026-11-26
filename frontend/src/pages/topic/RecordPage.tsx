@@ -301,6 +301,7 @@ function TimedRecord({
       <RunPanel
         run={open}
         ctx={runCtx}
+        timer={timerOf(versions, open.version)}
         topic={topic.name}
         actions={actions}
         onStopped={(run, _item, totalMs) => {

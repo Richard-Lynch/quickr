@@ -171,21 +171,28 @@ export function RunControls({
         <ul className="flex flex-col gap-2 pb-2" aria-label="More run actions">
           {overflow.map((a) => (
             <li key={a.id}>
-              <Button
-                size="lg"
-                variant={a.role === 'destructive' ? 'quiet-danger' : 'secondary'}
-                className="w-full min-w-0 justify-start"
+              {/* A plain button, not `Button size="lg"`: that fixes one line (`h-14
+                  whitespace-nowrap`), and "Skip {step}" names a step the headline may not
+                  (after a lap, the next one), so the item wraps and grows instead. */}
+              <button
+                type="button"
+                className={cn(
+                  'flex min-h-14 w-full items-center gap-2 rounded-[1.75rem] px-5 py-3 text-left text-base font-semibold transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50',
+                  a.role === 'destructive'
+                    ? 'text-danger hover:bg-danger-soft'
+                    : 'border border-line-strong bg-surface text-ink hover:bg-sunken',
+                )}
                 data-testid={`run-${a.id}`}
                 aria-label={actionLabel(a.kind, topic)}
                 disabled={off(a)}
-                icon={<Icon name={ICON[a.kind.type]} className="size-4.5" />}
                 onClick={() => {
                   setMore(false);
                   onAction(a);
                 }}
               >
-                <span className="truncate">{actionTitle(a.kind)}</span>
-              </Button>
+                <Icon name={ICON[a.kind.type]} className="size-4.5 shrink-0" />
+                <span className="min-w-0 break-words">{actionTitle(a.kind)}</span>
+              </button>
             </li>
           ))}
         </ul>

@@ -27,3 +27,34 @@ I found no duplicated active-run controls in the changed panel. This was a stati
    case (RunPanel) are those named seams; each doc comment says exactly what M1 must provide
    and what the body becomes. `revert` is unreachable today (`actions` never returns it). The
    PR lists the integration as follow-up work for the M1 merge, with end-to-end tests then.
+
+---
+
+## Round 2 (re-run after the round 1 fixes; output verbatim)
+
+1. **[P2] Controls appear enabled during the cooldown** — [RunPanel.tsx:151](/Users/richie/code/quickr-worktrees/t2-m2-fcontrols/frontend/src/components/runs/RunPanel.tsx:151). `busy` covers an enqueue in progress, but the 450 ms cooldown in `useRunActions` continues after that finishes. During that interval the buttons can appear enabled while taps are silently ignored. The spec requires them to be disabled during cooldown, and the changed flow test explicitly expects the primary to be enabled during it. Expose the cooldown as reactive state and test the disabled interval.
+
+2. **[P2] The overflow can hide the identity of the step being skipped** — [RunControls.tsx:187](/Users/richie/code/quickr-worktrees/t2-m2-fcontrols/frontend/src/components/runs/RunControls.tsx:187). The prior review’s justification for truncation says the skipped step is also the headline, but that is not always true: when a lap is open, Skip targets the *next* step while the headline names the lap. A sighted user with enlarged text or a long step name can therefore see an ambiguous truncated action without another way to identify its target. Allow the sheet item to wrap and grow; add coverage for a lap with a long pending-step label.
+
+3. **[P2] The panel discards the pinned timer’s configuration** — [RunPanel.tsx:60](/Users/richie/code/quickr-worktrees/t2-m2-fcontrols/frontend/src/components/runs/RunPanel.tsx:60). The timer passed to `actions`, `headline`, and `alertLine` is reconstructed with only `steps`, even when the pinned version is available. The current M1 stubs mask this, but the specified implementations need the actual timer to render typed-lap labels and alerts. Pass the pinned version’s timer through the context, retaining the existing unknown-timer fallback when it is unavailable.
+
+The prior review’s pending Resume and Undo resume integration seams are justified by the stated M1 dependency. I found no duplicated active-run controls. This was a static review; I did not run the tests.
+## Resolutions (f2-controls, round 2)
+
+1. **Stands (spec and pre-existing behaviour; pending M1 for row 14).** §6.1 defines
+   `disabled = busy || !action.enabled`, with `busy` the panel's `RunActions.busy` (an enqueue
+   in progress), exactly what the v1 panel did. The 450 ms cooldown is deliberately invisible:
+   timers.md §11.1 and the iOS text ("the layout never changes under the finger; the cooldown
+   exists for that") want the second tap of a double tap to land on an unchanged, live-looking
+   button and be ignored, which `RunFlow.test.tsx` "(cooldown on) a Lap that replaced Next under
+   the finger is ignored, then accepted" proves. Greying every button for 450 ms after each tap
+   would flash the whole control set on every lap. A visible cooldown is §1.2 row 14 (every
+   `enabled === false`), which `model.ts` documents as waiting for "a cooldown notion in
+   `RunStatus` (F1-OUTBOX)"; `RunControls` already honours `enabled` (tested), so it lands with
+   no edit here.
+2. **Fixed.** The "More" items are plain buttons (`min-h-14`, wrapping label), not
+   `Button size="lg"` (fixed `h-14 whitespace-nowrap`). New test: "a More item shows its whole
+   title: a long skip after a lap wraps, it is not cut".
+3. **Fixed.** `RunPanel` takes the pinned version's `timer` (RecordPage passes
+   `timerOf(versions, open.version)`); the steps-only timer and the `null` (steps unknown)
+   fallback remain for when the versions aren't known.

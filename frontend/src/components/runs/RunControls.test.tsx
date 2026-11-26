@@ -134,6 +134,17 @@ describe('RunControls', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('a More item shows its whole title: a long skip after a lap wraps, it is not cut', async () => {
+    const user = userEvent.setup();
+    const label = 'Stretch the calves and the hamstrings slowly';
+    setup([...LAP_ROW.slice(0, 3), a({ type: 'skip', label }, 'overflow'), ...LAP_ROW.slice(3)]);
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    const item = await screen.findByTestId('run-skip');
+    const text = within(item).getByText(`Skip ${label}`);
+    expect(text).not.toHaveClass('truncate');
+    expect(item.className).not.toContain('whitespace-nowrap');
+  });
+
   it('no overflow: no More button', () => {
     setup([a({ type: 'lap', nextTypeLabel: null }, 'primary'), a({ type: 'stop' }, 'secondary')]);
     expect(screen.queryByRole('button', { name: 'More' })).toBeNull();
