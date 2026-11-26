@@ -20,7 +20,9 @@ extension BuilderUITests {
         // The switch itself, at the row's trailing edge.
         timed.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
         XCTAssertEqual(timed.value as? String, "1")
-        XCTAssertTrue(find("editQuestions.noLapTypes", in: app).exists, "no lap types yet")
+        let none = find("editQuestions.noLapTypes", in: app)
+        reveal(none, in: app)
+        XCTAssertTrue(none.exists, "no lap types yet")
 
         // Two lap types.
         press("editQuestions.addLapType", in: app)

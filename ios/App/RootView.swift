@@ -149,9 +149,9 @@ struct RootView: View {
                 UITestSyncControls().padding(.bottom, 24)
             }
         }
-        // T2-M1: above the run screen's bar.
-        .overlay(alignment: .bottomLeading) {
-            if UITestRunControls.isShown { UITestRunControls().padding(.leading, 12).padding(.bottom, 96) }
+        // T2-M1: over the navigation bar's title, clear of its buttons, the tiles and the run bar.
+        .overlay(alignment: .top) {
+            if UITestRunControls.isShown { UITestRunControls() }
         }
         // end T2-M1
         #endif
