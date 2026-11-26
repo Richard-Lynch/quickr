@@ -3,106 +3,56 @@ import QuickrUI
 import SwiftUI
 
 // The run screen's controls (active-surfaces.md §2.2, §2.3): one big primary, a row of
-// secondaries, and the rest in the toolbar's overflow menu. Every control renders in exactly one
-// of those places, decided by its role, never by what it does.
+// secondaries, and the rest in the toolbar's overflow menu. `RunControlsLayout` places every
+// action once, by role; the only per-kind code here is the title and icon table (§1.3).
 
-/// One run control, placed by `role`.
-///
-/// Phase-1 seam (I2-CONTROLS): `RunPanel.controls` builds these from today's taps. Phase 2 swaps
-/// this for M1's `RunAction` (`RunPresentation.actions`), placed by M2-MODEL-ADOPT's
-/// `RunControlsLayout`, with the titles and icons of active-surfaces.md §1.3.
-struct RunControlItem: Identifiable {
-    enum Role { case primary, secondary, destructive, overflow }
-
-    /// The accessibility id: "run.primary", "run.stop", "run.skip", ….
-    var id: String
-    var title: String
-    /// An SF Symbol.
-    var icon: String
-    /// What VoiceOver reads, when it isn't the title ("Stop Morning").
-    var label: String?
-    var role: Role
-    var enabled = true
-    /// Stop: danger text on the secondary capsule.
-    var danger = false
-    var perform: () -> Void
-
-    /// The controls by place, each exactly once, in the given order: the first primary, the
-    /// secondaries, then the menu (overflow, destructive last).
-    struct Slots {
-        var primary: RunControlItem?
-        var secondaries: [RunControlItem]
-        var menu: [RunControlItem]
-    }
-
-    static func slots(_ items: [RunControlItem]) -> Slots {
-        let primary = items.first { $0.role == .primary }
-        return Slots(
-            primary: primary,
-            secondaries: items.filter { $0.role == .secondary },
-            menu: items.filter { $0.role == .overflow || ($0.role == .primary && $0.id != primary?.id) }
-                + items.filter { $0.role == .destructive }
-        )
-    }
-}
-
-/// The primary (full width, ≥ 72 pt) and the secondaries (56 pt, equal widths; stacked at
+/// The primary (`hero`, full width, ≥ 72 pt) and the secondaries (56 pt, equal widths; stacked at
 /// accessibility text sizes). Disabled while `busy` (the tap cooldown), so the layout never
 /// changes under the finger.
 struct RunControls: View {
-    let primary: RunControlItem?
-    let secondaries: [RunControlItem]
+    let layout: RunControlsLayout
+    /// The topic's name, for the spoken labels ("Stop Morning").
+    let topic: String
     let busy: Bool
+    let perform: (RunAction) -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title2) private var primaryIcon: CGFloat = 28
 
-    /// The primary's size. Phase 2: M2-MODEL-ADOPT's `QuickrButtonSize.hero` (72 pt), and
-    /// `primaryMinHeight` goes.
-    static let primarySize: QuickrButtonSize = .large
-    /// Holds the primary at 72 pt until `.hero` lands; it still grows with a two-line label.
-    static let primaryMinHeight: CGFloat = 72
-
-    init(_ slots: RunControlItem.Slots, busy: Bool) {
-        primary = slots.primary
-        secondaries = slots.secondaries
-        self.busy = busy
-    }
-
     var body: some View {
         VStack(spacing: 10) {
-            if let primary {
-                Button(action: primary.perform) {
+            if let primary = layout.primary {
+                Button {
+                    perform(primary)
+                } label: {
                     Label {
                         Text(primary.title)
                     } icon: {
                         Image(systemName: primary.icon).font(.system(size: primaryIcon, weight: .semibold))
                     }
-                    .font(.qr(.sansSemiBold, size: 22, relativeTo: .title2))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity, minHeight: Self.primaryMinHeight)
+                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.qr(.primary, size: Self.primarySize))
+                .buttonStyle(.qr(.primary, size: .hero))
                 .disabled(busy || !primary.enabled)
-                .accessibilityLabel(primary.label ?? primary.title)
-                .accessibilityIdentifier(primary.id)
+                .accessibilityLabel(primary.spoken(topic: topic))
+                .accessibilityIdentifier(primary.primaryIdentifier)
             }
-            if !secondaries.isEmpty {
-                let layout =
+            if !layout.secondaries.isEmpty {
+                let stack =
                     typeSize.isAccessibilitySize
                     ? AnyLayout(VStackLayout(spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))
-                layout {
-                    ForEach(secondaries) { item in
-                        Button(action: item.perform) {
-                            Label(item.title, systemImage: item.icon)
-                                .foregroundStyle(item.danger ? Color.qr.danger : .qr.ink)
+                stack {
+                    ForEach(layout.secondaries) { action in
+                        Button {
+                            perform(action)
+                        } label: {
+                            Label(action.title, systemImage: action.icon)
+                                .foregroundStyle(action.kind == .stop ? Color.qr.danger : .qr.ink)
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.qr(.secondary, size: .large))
-                        .disabled(busy || !item.enabled)
-                        .accessibilityLabel(item.label ?? item.title)
-                        .accessibilityIdentifier(item.id)
+                        .disabled(busy || !action.enabled)
+                        .accessibilityLabel(action.spoken(topic: topic))
+                        .accessibilityIdentifier("run.\(action.id)")
                     }
                 }
             }
@@ -110,27 +60,92 @@ struct RunControls: View {
     }
 }
 
-/// The toolbar's "More" menu (`run.menu`): the overflow controls, then the destructive ones.
-/// Nothing when there are none.
+/// The toolbar's "More" menu (`run.menu`): the layout's overflow, destructive last. Nothing when
+/// it is empty.
 struct RunOverflowMenu: View {
-    let items: [RunControlItem]
+    let actions: [RunAction]
+    let topic: String
     let busy: Bool
+    let perform: (RunAction) -> Void
 
     var body: some View {
-        if !items.isEmpty {
+        if !actions.isEmpty {
             Menu {
-                ForEach(items) { item in
-                    Button(role: item.role == .destructive ? .destructive : nil, action: item.perform) {
-                        Label(item.title, systemImage: item.icon)
+                ForEach(actions) { action in
+                    Button(role: action.role == .destructive ? .destructive : nil) {
+                        perform(action)
+                    } label: {
+                        Label(action.title, systemImage: action.icon)
                     }
-                    .disabled(busy || !item.enabled)
-                    .accessibilityLabel(item.label ?? item.title)
-                    .accessibilityIdentifier(item.id)
+                    .disabled(busy || !action.enabled)
+                    .accessibilityLabel(action.spoken(topic: topic))
+                    .accessibilityIdentifier("run.\(action.id)")
                 }
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
             }
             .accessibilityIdentifier("run.menu")
+        }
+    }
+}
+
+// MARK: - Titles and icons (active-surfaces.md §1.3)
+
+extension RunAction {
+    /// The button's title. `…` marks a confirmation.
+    var title: String {
+        switch kind {
+        case .start: "Start"
+        // `next("Next")` is the steps-unknown fallback (timers2.md §10): a plain "Next".
+        case .next(let label): label == "Next" ? label : "Next: \(label)"
+        case .lap(let next): next.map { "Lap → \($0)" } ?? "Lap"
+        case .skip(let label): "Skip \(label)"
+        case .pause: "Pause"
+        case .resume: "Resume"
+        case .stop: "Stop"
+        case .addDetails: "Add details"
+        case .reopen: "Resume run"
+        case .revert: "Undo resume…"
+        case .discard: "Discard run…"
+        }
+    }
+
+    /// An SF Symbol.
+    var icon: String {
+        switch kind {
+        case .start, .resume: "play"
+        case .next: "chevron.right"
+        case .lap: "flag"
+        case .skip: "forward.end"
+        case .pause: "pause"
+        case .stop: "stop"
+        case .addDetails: "pencil"
+        case .reopen: "arrow.uturn.backward"
+        case .revert: "arrow.uturn.forward"
+        case .discard: "trash"
+        }
+    }
+
+    /// What VoiceOver reads.
+    func spoken(topic: String) -> String {
+        switch kind {
+        case .start: "Start \(topic)"
+        case .lap(let next?): "Lap, then \(next)"
+        case .stop: "Stop \(topic)"
+        case .addDetails: "Add details to \(topic)"
+        case .reopen: "Resume the last run of \(topic)"
+        case .revert: "Undo the resume and keep the stop"
+        case .discard: "Discard run"
+        case .next, .lap, .skip, .pause, .resume: title
+        }
+    }
+
+    /// The primary's accessibility id: `run.start` idle, `run.addDetails` finishing, else
+    /// `run.primary` (Next or Lap, whichever the rule picks).
+    var primaryIdentifier: String {
+        switch kind {
+        case .start, .addDetails: "run.\(id)"
+        default: "run.primary"
         }
     }
 }

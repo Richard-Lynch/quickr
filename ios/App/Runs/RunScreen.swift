@@ -87,16 +87,17 @@ struct RunPanel: View {
     private var link: TopicLinkRef { TopicLinkRef(id: topic.id) }
 
     var body: some View {
-        let slots = RunControlItem.slots(controls)
+        let layout = RunControlsLayout(actions: actions)
         let busy = environment.runActions.isBusy(topic.id)
+        let controls = RunControls(layout: layout, topic: topic.name, busy: busy, perform: perform)
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let run, run.isOpen {
-                    OpenRunView(run: run) { RunControls(slots, busy: busy) }
+                    OpenRunView(run: run) { controls }
                 } else if let run, run.status == .finishing {
-                    finishing(run, controls: RunControls(slots, busy: busy))
+                    finishing(run, controls: controls)
                 } else {
-                    idle(controls: RunControls(slots, busy: busy))
+                    idle(controls: controls)
                 }
             }
             .padding(16)
@@ -105,8 +106,10 @@ struct RunPanel: View {
         .navigationTitle(topic.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if !slots.menu.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) { RunOverflowMenu(items: slots.menu, busy: busy) }
+            if !layout.overflow.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    RunOverflowMenu(actions: layout.overflow, topic: topic.name, busy: busy, perform: perform)
+                }
             }
         }
         .alert("Discard this run?", isPresented: $confirmingDiscard) {
@@ -169,68 +172,37 @@ struct RunPanel: View {
 
     // MARK: - Controls
 
-    /// The screen's controls in display order, each with its place (§2.2).
-    ///
-    /// Phase-1 seam (I2-CONTROLS): today's taps, given the roles of active-surfaces.md §1.2
-    /// (Lap is the primary on a lap or once no named step remains; Stop and Pause/Resume are the
-    /// secondaries; Skip and Discard sit in the menu). Phase 2 replaces this with M1's
-    /// `RunPresentation.actions(_:status:timer:now:)` placed by `RunControlsLayout`.
-    private var controls: [RunControlItem] {
-        if let run, run.isOpen {
-            let paused = run.status == .paused
-            let primary = RunPresentation.primary(run.state, steps: run.steps)
-            let lap = run.steps != nil && (run.state.open?.kind == .lap || !primary.isNext)
-            var items = [
-                lap
-                    ? RunControlItem(
-                        id: "run.primary", title: "Lap", icon: "flag", role: .primary,
-                        enabled: run.state.open != nil, perform: { advance(.lap, run) })
-                    : RunControlItem(
-                        id: "run.primary", title: primary.title, icon: "chevron.right", role: .primary,
-                        perform: { advance(.next, run) }),
-                RunControlItem(
-                    id: "run.stop", title: "Stop", icon: "stop", label: "Stop \(topic.name)", role: .secondary,
-                    danger: true, perform: { stop(run) }),
-                paused
-                    ? RunControlItem(
-                        id: "run.resume", title: "Resume", icon: "play", role: .secondary,
-                        perform: { tap(.resume, run) })
-                    : RunControlItem(
-                        id: "run.pause", title: "Pause", icon: "pause", role: .secondary,
-                        perform: { tap(.pause, run) }),
-            ]
-            if let skip = RunPresentation.skipTarget(run.state, steps: run.steps) {
-                items.append(
-                    RunControlItem(
-                        id: "run.skip", title: "Skip \(skip.label)", icon: "forward.end", role: .overflow,
-                        perform: { tap(.skip, run) }))
-            }
-            items.append(discardItem)
-            return items
+    /// The screen's actions in display order (§2.2): M1's `RunPresentation.actions` for an open or
+    /// finishing run; idle, Start (the screen decides it: `actions` is `[]` for a closed run), none
+    /// for an archived topic, whose start the server would refuse.
+    private var actions: [RunAction] {
+        if let run, run.isOpen || run.status == .finishing {
+            // `now` only bounds the reopen window: the wall clock, so the panel doesn't follow the
+            // ticker (OpenRunView does).
+            return RunPresentation.actions(run.state, status: run.status, timer: run.timer, now: .now)
         }
-        if let run, run.status == .finishing {
-            guard let runId = UUID(uuidString: run.id) else { return [discardItem] }
-            return [
-                RunControlItem(
-                    id: "run.addDetails", title: "Add details", icon: "pencil",
-                    label: "Add details to \(topic.name)", role: .primary,
-                    perform: { environment.router.open(.runDetails(link, runId: runId)) }),
-                discardItem,
-            ]
-        }
-        // An archived topic can't start a run (the server would refuse it).
         guard topic.status != .archived else { return [] }
-        return [
-            RunControlItem(
-                id: "run.start", title: "Start", icon: "play", label: "Start \(topic.name)", role: .primary,
-                perform: start)
-        ]
+        return [RunAction(kind: .start, role: .primary, enabled: true)]
     }
 
-    private var discardItem: RunControlItem {
-        RunControlItem(
-            id: "run.discard", title: "Discard run…", icon: "trash", label: "Discard run", role: .destructive,
-            perform: { confirmingDiscard = true })
+    private func perform(_ action: RunAction) {
+        switch action.kind {
+        case .start: start()
+        case .addDetails:
+            guard let run, let runId = UUID(uuidString: run.id) else { return }
+            environment.router.open(.runDetails(link, runId: runId))
+        case .discard: confirmingDiscard = true
+        case .reopen, .revert:
+            // M1 returns neither until its reopen event and write land (I1-WRITES); there is no
+            // write to send yet.
+            break
+        case .next: advance(.next)
+        case .lap: advance(.lap)
+        case .skip: tap(.skip)
+        case .pause: tap(.pause)
+        case .resume: tap(.resume)
+        case .stop: stop()
+        }
     }
 
     // MARK: - Taps
@@ -244,20 +216,23 @@ struct RunPanel: View {
     }
 
     /// Lap or Next: a tap with the selection haptic (§2.5).
-    private func advance(_ type: RunTapType, _ run: LocalRun) {
+    private func advance(_ type: RunTapType) {
+        guard let run, run.isOpen else { return }
         let expect = RunTapExpect(run)
         Task {
             if await environment.runActions.tap(type, run: run, expect: expect) != nil { advances += 1 }
         }
     }
 
-    private func tap(_ type: RunTapType, _ run: LocalRun) {
+    private func tap(_ type: RunTapType) {
+        guard let run, run.isOpen else { return }
         // Captured now: a second tap before the screen catches up targets what it showed.
         let expect = RunTapExpect(run)
         Task { await environment.runActions.tap(type, run: run, expect: expect) }
     }
 
-    private func stop(_ run: LocalRun) {
+    private func stop() {
+        guard let run, run.isOpen else { return }
         let expect = RunTapExpect(run)
         let (name, link, environment) = (topic.name, link, environment)
         Task {
@@ -312,7 +287,7 @@ private struct OpenRunView<Controls: View>: View {
                     .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
                     .accessibilityLabel("Total \(RunPresentation.spoken(total))")
                     .accessibilityIdentifier("run.total")
-                if let headline = RunHeadline.text(run.state) {
+                if let headline = RunHeadline.text(run) {
                     HStack(spacing: 8) {
                         Text(headline).font(.qr(.callout)).foregroundStyle(.qr.ink)
                         RunDuration(ms: segment, font: .qr(.callout), ticking: !paused).foregroundStyle(.qr.muted)
@@ -320,8 +295,9 @@ private struct OpenRunView<Controls: View>: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("run.segment")
                 }
-                // Phase 2: M1's `RunPresentation.alertLine` (nil while paused).
-                RunAlertLine(text: nil)
+                RunAlertLine(
+                    text: RunPresentation.alertLine(
+                        run.state, timer: run.timer, now: Date(timeIntervalSince1970: Double(now) / 1000)))
             }
             .frame(maxWidth: .infinity)
             controls

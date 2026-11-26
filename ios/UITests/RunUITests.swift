@@ -2,8 +2,8 @@ import XCTest
 
 /// R9 (timers.md §13.3): a timed topic's run, against the UI-test fake server's "Morning"
 /// (steps Shower, Dress, Breakfast, Teeth; a required Mood question). Start on the tile, then on
-/// the run screen Next ×2, Skip, Pause, Resume, Stop; the answers form; Save. The entry shows the
-/// segments the fold makes of that history.
+/// the run screen Next ×2, Skip (from the More menu), Pause, Resume, Stop; the answers form; Save.
+/// The entry shows the segments the fold makes of that history.
 @MainActor
 final class RunUITests: XCTestCase {
     override nonisolated func setUp() {
@@ -66,13 +66,16 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(waitForValue(element(app, "run.step.breakfast"), "current"))
         pastCooldown()
 
+        // Skip sits in the More menu (active-surfaces.md §2.2).
+        element(app, "run.menu").tap()
         let skip = element(app, "run.skip")
-        XCTAssertTrue(waitForLabel(skip, containing: "Skip Breakfast (step 3)"), skip.label)
+        XCTAssertTrue(skip.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForLabel(skip, containing: "Skip Breakfast"), skip.label)
         skip.tap()
         XCTAssertTrue(waitForValue(element(app, "run.step.breakfast"), "skipped"))
         XCTAssertTrue(waitForValue(element(app, "run.step.teeth"), "current"))
-        // The last step: the primary button is Stop.
-        XCTAssertTrue(waitForLabel(primary, containing: "Stop"), primary.label)
+        // The last step: the primary button is Lap; Stop is never primary (§1.2).
+        XCTAssertTrue(waitForLabel(primary, containing: "Lap"), primary.label)
         pastCooldown()
 
         element(app, "run.pause").tap()
@@ -83,7 +86,7 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(element(app, "run.pause").waitForExistence(timeout: 10))
         pastCooldown()
 
-        primary.tap()  // Stop
+        element(app, "run.stop").tap()
         // The version has a required question: the answers form opens; the run is finishing.
         let save = element(app, "runDetails.save")
         XCTAssertTrue(save.waitForExistence(timeout: 10))
