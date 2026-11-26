@@ -4,7 +4,8 @@
  * (`components/runs/RunNotices.tsx`), otherwise kept for the sync sheet.
  *
  * `stale`, `merged`, `already_paused` and `not_paused` are silent: they are double taps
- * that did what the user wanted.
+ * that did what the user wanted. So is `deleted` (the removed tap was removed on purpose,
+ * timers2.md §9.3).
  */
 import { createStore, del, entries, set, type UseStore } from 'idb-keyval';
 
@@ -36,14 +37,32 @@ function clockTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-/** The notice for a run event's answer, or null when there is nothing to say. */
+const OPEN: ReadonlySet<string> = new Set(['running', 'paused']);
+
+export interface NoticeOptions {
+  /** Whether an event id is this device's own (queued or acked here). None by default. */
+  mine?: (eventId: string) => boolean;
+}
+
+/**
+ * The notice for a run event's answer, or null when there is nothing to say. `mine` tells
+ * this device's events from others' in `result.run.events` (timers2.md §9.3): `reverted`
+ * is said only when the discard that undid this device's resume was another's, and
+ * `not_stopped` is silent when this device had reopened the run already (a double tap).
+ */
 export function noticeFor(
   item: OutboxItem<RunEventPayload>,
   result: Pick<RunEventResult, 'event' | 'run'>,
+  opts: NoticeOptions = {},
 ): RunNotice | null {
   if (result.event.effect !== 'void') return null;
+  const mine = opts.mine ?? (() => false);
   const topic = item.payload.topic.name;
   const tap = TAP_NAMES[item.payload.event.type];
+  const own = (type: string) =>
+    result.run.events.some(
+      (e) => e.type === type && e.effect === 'applied' && e.id !== item.id && mine(e.id),
+    );
   const text = (() => {
     switch (result.event.reason) {
       case 'after_stop':
@@ -56,6 +75,16 @@ export function noticeFor(
         return `${topic}’s run was deleted.`;
       case 'already_closed':
         return `${topic} was already stopped.`;
+      case 'reverted':
+        return own('discard') ? null : `${topic}’s resume was undone by a discard elsewhere.`;
+      case 'not_stopped':
+        return OPEN.has(result.run.status) && own('reopen')
+          ? null
+          : `${topic} isn’t stopped, so there was nothing to resume.`;
+      case 'no_target':
+        return item.payload.event.type === 'remove'
+          ? `Couldn’t remove that: ${topic}’s run changed.`
+          : `Couldn’t resume: ${topic}’s run changed.`;
       default:
         return null;
     }

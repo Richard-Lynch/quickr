@@ -17,10 +17,11 @@ import type { Outbox } from '../outbox/outbox';
 import type { OutboxItem } from '../outbox/types';
 import { uuid } from '../uuid';
 import { clampToRun, latestAt, serverNow } from './clock';
+import { timingToWire } from './fold';
 import { formatInstant, parseInstant } from './instant';
 import { isOpen, localRuns, openPauseId, openRunOf, runById, type LocalRun } from './localView';
 import { serverOffset } from './serverClock';
-import type { RunEventType, TimerStep } from './types';
+import type { LapType, RunEventType, TimerStep, Timing } from './types';
 
 /** Web Lock name for run taps; the service worker's Start action takes it too. */
 export const RUN_TAP_LOCK = 'quickr-run-tap';
@@ -35,6 +36,11 @@ export interface RunContext {
   version: number;
   /** That version's steps; null when this device doesn't know them yet (no step list). */
   steps: TimerStep[] | null;
+  /**
+   * That version's lap types (timers2.md §3.2), so laps tapped here are labelled at once;
+   * absent or null when not known (they show "Lap n" until the server answers).
+   */
+  laps?: LapType[] | null;
   /**
    * The version has a required question: a stop without answers leaves it finishing. Null
    * when not known: a stop then projects no entry (the server decides, §3.5).
@@ -70,11 +76,29 @@ export interface RunTapDeps {
   offset?: () => number;
 }
 
+/** A tap after the start, `reopen` and `remove` included (timers2.md §3.4). */
+export type TapType = Exclude<RunEventType, 'start'>;
+
 /**
- * A tap after the start. `reopen` and `remove` fold (fold v4) but aren't taps yet: the API
- * takes them from M1-RUNS and F1-OUTBOX adds them here.
+ * The entry a reopen or remove is tapped from (timers2.md §5.3): its id (the run's), its
+ * timing (`timingFromWire` of the served one) and revision. Used when no run row is local
+ * (after a relaunch, on another device, past the acked window): the targets come from the
+ * timing's ids, and the local view projects from it.
  */
-export type TapType = Exclude<RunEventType, 'start' | 'reopen' | 'remove'>;
+export interface EntryRef {
+  id: string;
+  timing: Timing;
+  revision: number;
+}
+
+/** What a reopen or remove is aimed at: the chosen event id, and the entry tapped from. */
+export interface TapOptions {
+  expect?: TapExpect;
+  /** A remove's target: the id of the pause, lap or reopened stop to remove. */
+  target?: string;
+  /** The entry the tap is made from, for a run not in the local view. */
+  entry?: EntryRef;
+}
 
 /** `tapRun` was given the context of another version than the run's own. */
 export class RunVersionMismatch extends Error {
@@ -93,8 +117,9 @@ export class RunVersionMismatch extends Error {
  * What the user saw when they tapped: the open segment, the step a Skip named, and whether
  * the run was paused (and by which pause). A tap whose target has moved since (a double
  * tap, read after the first was queued) is dropped here, as the fold would void it
- * (`stale`, `already_paused`, `not_paused`, §4.2). Stop, discard and finish don't use it:
- * their repeats are void (`already_closed`) or idempotent.
+ * (`stale`, `already_paused`, `not_paused`, §4.2). Stop, discard, finish, reopen and
+ * remove don't use it: their repeats are void (`already_closed`, `not_stopped`,
+ * `no_target`) or idempotent.
  */
 export interface TapExpect {
   seg: number | null;
@@ -165,7 +190,7 @@ function stamp(tapAt: number, run: LocalRun | null, items: readonly OutboxItem[]
 }
 
 function payloadOf(
-  ctx: StartContext,
+  ctx: StartContext & Pick<RunContext, 'laps'>,
   runId: string,
   makesEntry: boolean,
   event: RunEventPayload['event'],
@@ -175,6 +200,7 @@ function payloadOf(
     run_id: runId.toLowerCase(),
     version: ctx.version,
     steps: ctx.steps,
+    ...(ctx.laps !== undefined ? { laps: ctx.laps } : {}),
     requires_answers: ctx.requires_answers,
     makes_entry: makesEntry,
     event,
@@ -273,10 +299,14 @@ export function startRun(
 /**
  * The fields a tap of `type` needs from the run's current state (§3.2), or null when the
  * run's state has no target for it: no open segment for next, lap, skip or pause; no
- * step left to skip; no pause to resume; a finish of a run that isn't stopped.
+ * step left to skip; no pause to resume; a finish of a run that isn't stopped; a reopen of
+ * a run that isn't stopped or finishing; a remove whose `target` isn't a pause, lap or
+ * reopened stop of the run. A run "resuming" from its entry (timers2.md §5.3) takes only a
+ * discard (its revert) until the ack.
  */
-function targetOf(run: LocalRun, type: TapType): Partial<RunEventIn> | null {
+function targetOf(run: LocalRun, type: TapType, opts: TapOptions): Partial<RunEventIn> | null {
   const open = run.state.open;
+  if (run.resuming && type !== 'discard') return null;
   switch (type) {
     case 'next':
     case 'lap':
@@ -298,14 +328,77 @@ function targetOf(run: LocalRun, type: TapType): Partial<RunEventIn> | null {
       return isOpen(run) || run.status === 'finishing' ? {} : null;
     case 'finish':
       return run.status === 'finishing' || run.status === 'stopped' ? {} : null;
+    case 'reopen':
+      // The stop that closed it (§4.2: the ordering rule keys on it); null when not known.
+      if (run.status !== 'stopped' && run.status !== 'finishing') return null;
+      return { target: run.state.terminal_id ?? opts.entry?.timing.terminal_id ?? null };
+    case 'remove': {
+      const target = opts.target?.toLowerCase();
+      if (target === undefined) return null;
+      const named = run.events.some(
+        (e) => e.id === target && (e.type === 'pause' || e.type === 'lap'),
+      );
+      const gap = run.state.pauses.some((p) => p.id === target);
+      return named || gap || entryIds(opts.entry).has(target) ? { target } : null;
+    }
   }
 }
 
-/** Whether the tap makes the run's entry (`RunEventPayload.makes_entry`). */
+/** The ids a remove can name in an entry's timing (§3.3): laps' event ids and pause ids. */
+function entryIds(entry: EntryRef | undefined): Set<string> {
+  if (!entry) return new Set();
+  const laps = entry.timing.segments
+    .filter((x) => x.opened_by === 'lap' && x.event_id !== null)
+    .map((x) => x.event_id ?? '');
+  const pauses = entry.timing.pauses.map((p) => p.id ?? '').filter((id) => id !== '');
+  return new Set([...laps, ...pauses].map((id) => id.toLowerCase()));
+}
+
+/**
+ * Whether the tap makes the run's entry (`RunEventPayload.makes_entry`). A re-stop of a
+ * run that has its entry updates that entry (timers2.md §4.1): it makes none.
+ */
 function makesEntry(run: LocalRun, ctx: RunContext, type: TapType, body: TapBody): boolean {
   if (type === 'finish') return run.status === 'finishing';
-  if (type === 'stop') return body.answers != null || ctx.requires_answers === false;
+  if (type === 'stop') {
+    // Not known from the items: the reopened stop left the run finishing (no entry) only
+    // if the version has a required question.
+    const required = ctx.requires_answers;
+    const entry = run.has_entry ?? required !== true;
+    return !entry && (body.answers != null || required === false);
+  }
   return false;
+}
+
+/**
+ * A reopen or remove of a run that isn't in the local view, from its entry (timers2.md
+ * §5.3): the targets are the timing's ids (a reopen's `terminal_id`, null on a pre-v2
+ * timing, which the server resolves, A12); the entry rides along for the projection. Its
+ * `at` is clamped after the entry's end.
+ */
+function fromEntry(
+  tapAt: number,
+  runId: string,
+  ctx: RunContext,
+  type: 'reopen' | 'remove',
+  entry: EntryRef,
+  target: string | undefined,
+): RunEventPayload | null {
+  let named: string | null;
+  if (type === 'reopen') named = entry.timing.terminal_id?.toLowerCase() ?? null;
+  else {
+    named = target?.toLowerCase() ?? null;
+    if (named === null || !entryIds(entry).has(named)) return null;
+  }
+  const event: RunEventPayload['event'] = {
+    type,
+    at: formatInstant(clampToRun(tapAt, entry.timing.ended_at)),
+    target: named,
+  };
+  return {
+    ...payloadOf(ctx, runId, false, event),
+    entry: { timing: timingToWire(entry.timing), revision: entry.revision },
+  };
 }
 
 /**
@@ -323,7 +416,7 @@ export function tapRun(
   ctx: RunContext,
   type: TapType,
   body: TapBody = {},
-  opts: { expect?: TapExpect } = {},
+  opts: TapOptions = {},
 ): Promise<OutboxItem<RunEventPayload> | null> {
   const tapAt = tapTime(deps);
   return serialised(async () => {
@@ -335,9 +428,17 @@ export function tapRun(
       ({ runs, items } = await view(deps));
       run = runById(runs, runId);
     }
+    // A reopen while the topic has another open run is refused by the server (409
+    // `conflict`, A15): the intent would be lost, so it isn't queued.
+    const other = openRunOf(runs, ctx.topic.id);
+    if (type === 'reopen' && other && other.id !== run?.id) return null;
     if (!run) {
       // A stopped run leaves the view once `listRuns` no longer lists it, but its answers
       // can still come (§3.6): the server decides a finish, so send it to the run id.
+      if ((type === 'reopen' || type === 'remove') && opts.entry) {
+        const payload = fromEntry(tapAt, runId, ctx, type, opts.entry, opts.target);
+        return payload ? deps.outbox.enqueue(RUN_EVENT, payload) : null;
+      }
       if (type !== 'finish') return null;
       const event: RunEventPayload['event'] = {
         type,
@@ -350,7 +451,7 @@ export function tapRun(
       return deps.outbox.enqueue(RUN_EVENT, payloadOf(ctx, runId, false, event));
     }
     if (run.version !== ctx.version) throw new RunVersionMismatch(run.id, run.version, ctx.version);
-    const target = targetOf(run, type);
+    const target = targetOf(run, type, opts);
     if (target === null) return null;
     if (opts.expect && moved(run, type, target, opts.expect)) return null;
     const carries = type === 'stop' || type === 'finish';
@@ -363,8 +464,9 @@ export function tapRun(
       ...(body.meta != null ? { meta: body.meta } : {}),
     };
     const payload = payloadOf(ctx, run.id, makesEntry(run, ctx, type, body), event);
-    // A finish waits for a stop queued under any id of its run (`waitsFor`).
-    if (type === 'finish' && run.aliases.length > 0) payload.run_aliases = [...run.aliases];
+    // A finish waits for a stop, and any tap for a reopen, queued under any id of its run
+    // (`waitsFor`).
+    if (run.aliases.length > 0) payload.run_aliases = [...run.aliases];
     return deps.outbox.enqueue(RUN_EVENT, payload);
   });
 }
