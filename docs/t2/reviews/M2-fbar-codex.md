@@ -50,3 +50,26 @@ The round-one registry integration finding remains conditional on PR #165: the c
    `RunState.next_lap_type` exists (T2-M1 F1-CORE), so no typed-lap state can be built yet. The
    comparison test reads both surfaces from the model, so it covers the label as soon as M1
    supplies it; adding the row is #173.
+
+---
+
+## Round 3 (Codex, after merging #165)
+
+1. **P2 — Typed Lap buttons do not include their visible label in their accessible name.** [RunningBar.tsx:102](/Users/richie/code/quickr-worktrees/t2-m2-fbar/frontend/src/components/runs/RunningBar.tsx:102) uses `actionLabel`, which names a typed button “Lap, then Rest · Morning” while its visible text is “Lap → Rest”. The same mismatch exists on the active card through the shared helper. This can prevent speech-control users from activating the control by saying its visible label. The round-two resolution correctly identifies the current §1.3 wording, but consistency with that wording does not resolve the accessibility issue; the spec and shared label should be reconciled.
+
+2. **P2 — F2-BAR’s typed-Lap acceptance remains untested.** [RunTile.test.tsx:270](/Users/richie/code/quickr-worktrees/t2-m2-fbar/frontend/src/components/runs/RunTile.test.tsx:270) compares the panel and bar across several states, but every Lap fixture expects an untyped “Lap”. The test will not automatically cover the next-type label when the model gains it: it needs a typed fixture and assertions for the title, accessible name, icon and dispatch. The recorded dependency on M1 and issue #173 explain the deferral, but the work package’s acceptance is not yet proven for that state.
+
+The merge preserves Stop coverage: the active-card tests exercise both navigation to the answers form and the saved toast. I found no new duplicate-control issue in the card/bar integration. I did not run the tests in this read-only review.
+## Resolution (f2-bar, round 3)
+
+Round 1 finding 3 is now **fixed**: `ActiveTopicCard` registers its run's topic
+(`useRunControlsOnScreen`), the tile's open-run branch is gone, and the topics-page tests run
+against the real card. Mutation check: removing the card's registration fails both
+topics-page bar tests. Codex confirms the Stop coverage survived the merge and finds no
+duplicated control.
+
+1. **Stands for this WP; spec question filed as #175.** It repeats round 2's first finding.
+   Every surface reads §1.3's name through the one `actionLabel`, iOS included, so changing it
+   is a spec decision for the lead. It's moot until typed laps exist.
+2. **Deferred to M1, #173.** This repeats round 2's third finding. #173 already asks for a
+   typed fixture with title, accessible name, icon and dispatch assertions.
