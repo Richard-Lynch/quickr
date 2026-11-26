@@ -6150,6 +6150,18 @@
             "type": "string",
             "format": "date-time",
             "title": "Deleted At"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision",
+            "description": "A run deletion: the run's revision in the page's snapshot, which bounds every earlier state of the run. Null for a run that went with its topic and for other kinds (timers2.md \u00a75.2)."
           }
         },
         "additionalProperties": false,
@@ -6159,10 +6171,11 @@
           "seq",
           "id",
           "topic_id",
-          "deleted_at"
+          "deleted_at",
+          "revision"
         ],
         "title": "FeedDeletion",
-        "description": "A permanently deleted id. A topic deletion also deletes all of its versions, entries and\nruns. A ``run`` deletion means the run is no longer open or finishing: it stopped, was\ndiscarded, or went with its topic."
+        "description": "A permanently deleted id. A topic deletion also deletes all of its versions, entries and\nruns. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,\nwas discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item\nwith a higher ``revision`` can follow its deletion (timers2.md \u00a75.1, \u00a75.2)."
       },
       "FeedEntry": {
         "properties": {

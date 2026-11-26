@@ -1334,14 +1334,20 @@ DeletionKind = Literal["entry", "topic", "version", "run"]
 
 class FeedDeletion(StrictModel):
     """A permanently deleted id. A topic deletion also deletes all of its versions, entries and
-    runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
-    discarded, or went with its topic."""
+    runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+    was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+    with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2)."""
 
     kind: DeletionKind
     seq: int
     id: UUID
     topic_id: UUID
     deleted_at: datetime
+    revision: int | None = Field(
+        description="A run deletion: the run's revision in the page's snapshot, which bounds every "
+        "earlier state of the run. Null for a run that went with its topic and for other kinds "
+        "(timers2.md §5.2)."
+    )  # T2-M1
 
 
 class ChangesPage(StrictModel):
