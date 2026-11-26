@@ -252,8 +252,8 @@ describe('EntryEditPage timing rows', () => {
         ...steppedTiming,
         paused_ms: 40_000,
         pauses: [
-          { start: '2026-10-23T08:03:10Z', end: '2026-10-23T08:03:30Z' },
-          { start: '2026-10-23T08:00:30Z', end: '2026-10-23T08:00:50Z' },
+          { start: '2026-10-23T08:03:10Z', end: '2026-10-23T08:03:30Z', id: null },
+          { start: '2026-10-23T08:00:30Z', end: '2026-10-23T08:00:50Z', id: null },
         ],
       }),
       undefined,

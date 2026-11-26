@@ -15,6 +15,7 @@ import type { OutboxItem } from '../../lib/outbox/types';
 import type { UseOutbox } from '../../lib/outbox/useOutbox';
 import type { Question } from '../../lib/questions';
 import { T0, runItem } from '../../test/runs';
+import { normalTimer } from '../../test/timer';
 import { EntriesPage } from './EntriesPage';
 
 /** What the outbox holds: the queued run events behind a pending timed entry. */
@@ -66,7 +67,7 @@ const topic: TopicDetail = {
   schedule: null,
   schedule_updated_at: null,
   due: null,
-  timer: { steps: [] },
+  timer: normalTimer({ steps: [] }),
   last_entry: null,
   questions: [reps],
 };
@@ -79,7 +80,7 @@ const versions: TopicVersionOut[] = [
   {
     version: 2,
     questions: [reps],
-    timer: { steps: [] },
+    timer: normalTimer({ steps: [] }),
     change_note: '',
     created_at: '2026-10-02T00:00:00Z',
     entry_count: 2,
@@ -99,7 +100,7 @@ const versions: TopicVersionOut[] = [
         multiline: false,
       },
     ],
-    timer: { steps: [] },
+    timer: normalTimer({ steps: [] }),
     change_note: '',
     created_at: '2026-10-01T00:00:00Z',
     entry_count: 1,
@@ -114,6 +115,9 @@ const lap = (n: number, from: string, to: string, ms: number) => ({
   ended_at: to,
   active_ms: ms,
   paused_ms: 0,
+  lap_type: null,
+  event_id: null,
+  opened_by: null,
 });
 
 function entry(id: string, over: Partial<EntryOut>): EntryOut {
@@ -144,6 +148,7 @@ const timed = entry(TIMED, {
     paused_ms: 0,
     complete: true,
     edited: false,
+    terminal_id: null,
     segments: [
       lap(1, '2026-10-23T08:00:00Z', '2026-10-23T08:04:00Z', 240_000),
       lap(2, '2026-10-23T08:04:00Z', '2026-10-23T08:08:00Z', 240_000),

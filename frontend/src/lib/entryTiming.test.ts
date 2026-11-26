@@ -15,6 +15,9 @@ function segment(kind: TimingSegment['kind'], start: number, end: number): Timin
     ended_at: at(end),
     active_ms: (end - start) * 1000,
     paused_ms: 0,
+    lap_type: null,
+    event_id: null,
+    opened_by: null,
   };
 }
 
@@ -26,9 +29,10 @@ function timing(segments: TimingSegment[], pauses: [number, number][] = []): Tim
     paused_ms: 0,
     complete: true,
     edited: false,
+    terminal_id: null,
     segments,
     skipped: [],
-    pauses: pauses.map(([start, end]) => ({ start: at(start), end: at(end) })),
+    pauses: pauses.map(([start, end]) => ({ start: at(start), end: at(end), id: null })),
   };
 }
 

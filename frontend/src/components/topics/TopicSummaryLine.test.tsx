@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { EntryOut, Timing } from '../../client';
 import type { Question } from '../../lib/questions';
+import { normalTimer } from '../../test/timer';
 import { TopicSummaryLine } from './TopicSummaryLine';
 
 const WEIGHT: Question = {
@@ -35,6 +36,9 @@ const lap = (i: number) => ({
   ended_at: '2026-10-23T08:01:00Z',
   active_ms: 60_000,
   paused_ms: 0,
+  lap_type: null,
+  event_id: null,
+  opened_by: null,
 });
 
 const TIMING: Timing = {
@@ -44,6 +48,7 @@ const TIMING: Timing = {
   paused_ms: 0,
   complete: true,
   edited: false,
+  terminal_id: null,
   segments: [lap(1), lap(2), lap(3)],
   pauses: [],
   skipped: [],
@@ -76,7 +81,7 @@ describe('TopicSummaryLine', () => {
       <TopicSummaryLine
         entry={entry({ timing: TIMING })}
         questions={[WEIGHT]}
-        timer={{ steps: [] }}
+        timer={normalTimer({ steps: [] })}
         fallback={FALLBACK}
       />,
     );
@@ -110,7 +115,7 @@ describe('TopicSummaryLine', () => {
       <TopicSummaryLine
         entry={entry({ timing: TIMING })}
         questions={null}
-        timer={{ steps: [] }}
+        timer={normalTimer({ steps: [] })}
         fallback={FALLBACK}
       />,
     );
