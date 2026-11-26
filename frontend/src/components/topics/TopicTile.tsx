@@ -20,6 +20,8 @@ import { RunStatus, RunTileAction } from '../runs/RunTile';
 import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
+import { ActiveTopicCard, isResuming } from './ActiveTopicCard';
+import { useActiveCardControls } from './useActiveCardControls';
 
 /** Topic details are prefetched per tile: they power quick-log and an instant record screen. */
 const DETAIL_STALE_MS = 5 * 60_000;
@@ -62,7 +64,7 @@ export function TopicTile({
 }: {
   topic: TopicSummary;
   now: Date;
-  /** The topic's open or finishing run in the local view, if any. */
+  /** The topic's open or finishing run in the local view, if any. Open: the active card. */
   run?: LocalRun | undefined;
 }) {
   const archived = t.status === 'archived';
@@ -98,9 +100,10 @@ export function TopicTile({
     : undefined;
   const lastText = quick && lastAnswer ? formatAnswer(quick.question, lastAnswer) : null;
   const due = dueView(t.due, now);
-  // An open run stands in for the due state; a finishing one doesn't (timers.md §11.1).
-  const running = run !== undefined && isOpen(run);
-  const isDue = !running && (due.tone === 'due' || due.tone === 'overdue');
+  // An open run makes the tile the active card (active-surfaces.md §6.2), which stands in
+  // for the due state; a finishing one doesn't (timers.md §11.1).
+  if (run !== undefined && isOpen(run)) return <ActiveTile topic={t} run={run} />;
+  const isDue = due.tone === 'due' || due.tone === 'overdue';
   const base = `/t/${t.slug}`;
 
   return (
@@ -141,13 +144,13 @@ export function TopicTile({
           </h2>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-muted">
             {run ? <RunStatus run={run} /> : null}
-            {running ? null : <DueBadge view={due} />}
+            <DueBadge view={due} />
             {archived ? (
               <Badge tone="warn">
                 <Icon name="archive" className="size-3.5" /> Archived
               </Badge>
             ) : null}
-            <span className={running ? 'hidden' : undefined}>
+            <span>
               {t.entry_count === 0 ? (
                 'No entries yet'
               ) : lastText ? (
@@ -212,6 +215,20 @@ export function TopicTile({
         </Link>
       ) : null}
     </article>
+  );
+}
+
+/** A tile whose topic has an open run: the active card, with the run's controls. */
+function ActiveTile({ topic: t, run }: { topic: TopicSummary; run: LocalRun }) {
+  const { controls, timer } = useActiveCardControls({ id: t.id, slug: t.slug, name: t.name }, run);
+  return (
+    <ActiveTopicCard
+      topic={t}
+      run={run}
+      timer={timer}
+      controls={controls}
+      resuming={isResuming(run)}
+    />
   );
 }
 

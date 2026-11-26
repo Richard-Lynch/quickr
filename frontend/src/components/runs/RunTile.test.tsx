@@ -24,6 +24,8 @@ afterEach(async () => {
 });
 
 const tile = async () => screen.findByRole('article', { name: 'Morning' });
+/** An open run's tile is the active card, in "Active now": a new element, found afresh. */
+const card = async () => screen.findByTestId('active-card');
 const sent = async (hh: Harness, n: number) => {
   await waitFor(() => expect(hh.server.events()).toHaveLength(n), { timeout: 4000 });
 };
@@ -38,16 +40,16 @@ describe('the home tile of a timed topic', () => {
     await userEvent.click(start);
     await sent(h, 1);
     expect(h.server.events()[0]).toMatchObject({ type: 'start', topic_id: TOPIC_ID, version: 1 });
-    // The tile is running at once.
-    expect(await within(t).findByText(/^Running/)).toBeInTheDocument();
+    // The tile is running at once: the active card.
+    expect(within(await card()).getByTestId('card-status')).toHaveTextContent(/^Running/);
   });
 
-  it('running: "Running · m:ss", the segment, and Next', async () => {
+  it('running: the active card with the segment, the total, and Next', async () => {
     h = renderRunApp('/', timedTopic(), (s) => seedRun(s));
-    const t = await tile();
-    expect(await within(t).findByText(/^Running/)).toHaveTextContent(/Running · 1:0\d/);
-    expect(within(t).getByText('Shower')).toBeInTheDocument();
-    const next = within(t).getByRole('button', { name: 'Next: Breakfast · Morning' });
+    const t = await card();
+    expect(await within(t).findByTestId('card-status')).toHaveTextContent('Running · Shower');
+    expect(within(t).getByTestId('card-total')).toHaveTextContent(/1:0\d/);
+    const next = within(t).getByRole('button', { name: 'Next: Breakfast' });
     await waitFor(() => expect(next).toBeEnabled());
     await userEvent.click(next);
     await sent(h, 1);
@@ -61,8 +63,8 @@ describe('the home tile of a timed topic', () => {
         { type: 'next', s: 20, seg: 1 },
       ]),
     );
-    const t = await tile();
-    const stop = await within(t).findByRole('button', { name: 'Stop · Morning' });
+    const t = await card();
+    const stop = await within(t).findByRole('button', { name: 'Stop Morning' });
     await waitFor(() => expect(stop).toBeEnabled());
     await userEvent.click(stop);
     await sent(h, 1);
@@ -77,18 +79,19 @@ describe('the home tile of a timed topic', () => {
 
   it('a version without questions saves at Stop, with its time', async () => {
     h = renderRunApp('/', timedTopic({ steps: [], questions: [] }), (s) => seedRun(s));
-    const t = await tile();
-    const stop = await within(t).findByRole('button', { name: 'Stop · Morning' });
+    const t = await card();
+    const stop = await within(t).findByRole('button', { name: 'Stop Morning' });
     await waitFor(() => expect(stop).toBeEnabled());
     await userEvent.click(stop);
     expect(await screen.findByText(/^Saved Morning: 1:0\d$/)).toBeInTheDocument();
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/);
   });
 
-  it('paused: "Paused"', async () => {
+  it('paused: "Paused", the clocks stopped', async () => {
     h = renderRunApp('/', timedTopic(), (s) => seedRun(s, [{ type: 'pause', s: 30 }]));
-    const t = await tile();
-    expect(await within(t).findByText(/^Paused/)).toHaveTextContent('Paused · 0:30');
+    const t = await card();
+    expect(await within(t).findByTestId('card-status')).toHaveTextContent('Paused · Shower');
+    expect(within(t).getByTestId('card-total')).toHaveTextContent('0:30');
   });
 
   it('finishing: "Add details", linking to the answers form', async () => {
@@ -116,9 +119,9 @@ describe('a topic with a finishing run and a newer open one (L3)', () => {
       });
       seedRun(s, [{ type: 'stop', s: 40 }]);
     });
-    const t = await tile();
-    expect(await within(t).findByText(/^Running/)).toBeInTheDocument();
-    expect(within(t).queryByRole('link', { name: 'Add details to Morning' })).toBeNull();
+    const t = await card();
+    expect(within(t).getByTestId('card-status')).toHaveTextContent(/^Running/);
+    expect(screen.queryByRole('link', { name: 'Add details to Morning' })).toBeNull();
   });
 });
 
@@ -156,8 +159,8 @@ describe('a run whose steps aren’t known here (T-PUSH: a reminder’s Start, n
 
   it('the tile offers Next', async () => {
     h = renderRunApp('/', timedTopic(), unknownSteps);
-    const t = await tile();
-    const next = await within(t).findByRole('button', { name: 'Next · Morning' });
+    const t = await card();
+    const next = await within(t).findByRole('button', { name: 'Next' });
     await waitFor(() => expect(next).toBeEnabled());
   });
 });
@@ -179,10 +182,10 @@ describe('a due timed topic', () => {
     expect(within(current()).getByText(/^(Due|Overdue)/)).toBeInTheDocument();
   });
 
-  it('is neither loud nor due with an open run, and not counted', async () => {
+  it('is not due with an open run, and not counted: it is in "Active now"', async () => {
     h = renderRunApp('/', due(), (s) => seedRun(s));
     await waitFor(() => expect(within(current()).getByText(/^Running/)).toBeInTheDocument());
-    expect(current().className).not.toContain('border-accent/45');
+    expect(current().closest('section')).toHaveAttribute('aria-labelledby', 'section-active-now');
     expect(within(current()).queryByText(/^(Due|Overdue)/)).toBeNull();
     expect(screen.getByRole('heading', { name: /Due now/ })).toHaveTextContent('0');
   });

@@ -102,12 +102,14 @@ export interface Harness {
 
 /**
  * Render the app at `path` against a fresh fake server for `topic`. The page's outbox
- * (IndexedDB, fake) flushes on its own, as in the app.
+ * (IndexedDB, fake) flushes on its own, as in the app. `others` are listed after the
+ * topic on the topics page (untimed: the fake server knows nothing else of them).
  */
 export function renderRunApp(
   path: string,
   fixture: { topic: TopicDetail; versions: TopicVersionOut[] },
   seed?: (server: FakeRunServer) => void,
+  others: readonly TopicSummary[] = [],
 ): Harness {
   const server = fakeRunServer(fixture.topic, fixture.versions);
   seed?.(server);
@@ -120,10 +122,18 @@ export function renderRunApp(
     );
     if (url.pathname === '/api/v1/topics') {
       return Promise.resolve(
-        new Response(JSON.stringify({ items: [summary], total: 1, limit: 50, offset: 0 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({
+            items: [summary, ...others],
+            total: 1 + others.length,
+            limit: 50,
+            offset: 0,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
       );
     }
     return base(input, init);
