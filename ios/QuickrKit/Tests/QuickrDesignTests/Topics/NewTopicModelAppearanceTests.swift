@@ -6,10 +6,6 @@ import Testing
 /// The Appearance row of a new topic (appearance.md §7): tags refused as the server would, and the
 /// appearance sent with the create.
 extension NewTopicModelTests {
-    func themed() -> NewTopicModel {
-        NewTopicModel(writer: writer, toasts: toasts, deviceTimeZone: "Europe/London", appearanceSaver: writer)
-    }
-
     func add(_ tag: String, to model: NewTopicModel) {
         model.appearance.newTag = tag
         model.addTag()
@@ -19,13 +15,7 @@ extension NewTopicModelTests {
         [.key("body"), .key("appearance")] + rest
     }
 
-    @Test func noSaverNoAppearanceRow() {
-        #expect(!model.editsAppearance)
-        #expect(themed().editsAppearance)
-    }
-
     @Test func aTagIsAddedInItsStoredForm() {
-        let model = themed()
         add("  morning   run ", to: model)
         #expect(model.appearance.tags == ["morning run"])
         #expect(model.appearance.newTag.isEmpty)
@@ -34,7 +24,6 @@ extension NewTopicModelTests {
     }
 
     @Test func aDuplicateTagIsRefusedCasefolded() {
-        let model = themed()
         add("Gym", to: model)
         add(" GYM ", to: model)
         #expect(model.appearance.tags == ["Gym"])
@@ -47,7 +36,6 @@ extension NewTopicModelTests {
     }
 
     @Test func anEleventhTagIsRefused() {
-        let model = themed()
         for i in 1...10 { add("t\(i)", to: model) }
         #expect(model.appearance.tags.count == 10)
         add("t11", to: model)
@@ -59,7 +47,6 @@ extension NewTopicModelTests {
     }
 
     @Test func createSendsTheAppearanceInItsStoredForm() async {
-        let model = themed()
         model.draft.setName("Water")
         model.appearance.color = .teal
         model.appearance.icon = "☺"
@@ -67,21 +54,20 @@ extension NewTopicModelTests {
         await model.create()
         #expect(
             writer.calls == [
-                .createWithAppearance(
-                    name: "Water", appearance: TopicAppearance(color: .teal, icon: .emoji("☺\u{FE0F}"), tags: ["Gym"]))
+                .create(
+                    name: "Water", schedule: nil,
+                    appearance: TopicAppearance(color: .teal, icon: .emoji("☺\u{FE0F}"), tags: ["Gym"]))
             ])
         #expect(toasts.items.map(\.toast.title) == ["Topic created"])
     }
 
     @Test func noAppearanceIsSentAsTheDefaults() async {
-        let model = themed()
         model.draft.setName("Water")
         await model.create()
-        #expect(writer.calls == [.createWithAppearance(name: "Water", appearance: .empty)])
+        #expect(writer.calls == [.create(name: "Water", schedule: nil, appearance: .empty)])
     }
 
     @Test func anInvalidEmojiIsNotSentAndRevalidatesAsItIsFixed() async {
-        let model = themed()
         model.draft.setName("Water")
         model.appearance.icon = "ab"
         #expect(model.appearance.iconError() == AppearanceMessage.iconNotOne, "shown as it is typed")
@@ -95,7 +81,6 @@ extension NewTopicModelTests {
     }
 
     @Test func serverAppearanceErrorsLandOnTheirFields() async {
-        let model = themed()
         model.draft.setName("Water")
         add("Gym", to: model)
         add("run", to: model)
@@ -117,19 +102,17 @@ extension NewTopicModelTests {
 
     /// Codex I3-EDIT #1: a tag typed but not added is sent, never dropped.
     @Test func aTagTypedButNotAddedIsSent() async {
-        let model = themed()
         model.draft.setName("Water")
         add("Gym", to: model)
         model.appearance.newTag = " run "
         await model.create()
         #expect(
             writer.calls == [
-                .createWithAppearance(name: "Water", appearance: TopicAppearance(tags: ["Gym", "run"]))
+                .create(name: "Water", schedule: nil, appearance: TopicAppearance(tags: ["Gym", "run"]))
             ])
     }
 
     @Test func aTagTypedButInvalidBlocksTheCreateOnTheAddField() async {
-        let model = themed()
         model.draft.setName("Water")
         add("Gym", to: model)
         model.appearance.newTag = "gym"
@@ -141,7 +124,6 @@ extension NewTopicModelTests {
     }
 
     @Test func anEleventhTagTypedButNotAddedIsTheAddFieldsError() async {
-        let model = themed()
         model.draft.setName("Water")
         for i in 1...10 { add("t\(i)", to: model) }
         model.appearance.newTag = "t11"
@@ -151,7 +133,6 @@ extension NewTopicModelTests {
 
     /// Codex I3-EDIT #4: a server error on a tag the draft doesn't have shows on the tag list.
     @Test func aServerErrorOnAMissingTagLandsOnTheList() async {
-        let model = themed()
         model.draft.setName("Water")
         writer.topicResult = .rejected(
             Problem(

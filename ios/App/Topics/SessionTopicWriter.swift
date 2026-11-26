@@ -19,12 +19,23 @@ final class SessionTopicWriter: TopicWriter, VersionWriter, EntryTimingWriting {
         self.binding = binding
     }
 
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?) async -> TopicWriteOutcome<Topic> {
-        await perform { await $0.create(TopicRequests.create(creation, schedule: schedule)) }
+    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
+        -> TopicWriteOutcome<Topic>
+    {
+        await perform { await $0.create(TopicRequests.create(creation, schedule: schedule, appearance: appearance)) }
     }
 
-    func saveDetails(_ change: TopicDetailsChange, topicId: UUID) async -> TopicWriteOutcome<Topic> {
-        await perform { await $0.update(topicId: topicId, TopicRequests.details(change)) }
+    /// An appearance change carries `expected_revision` (`TopicWrites.updateAppearance`); the
+    /// name, slug and description alone don't, as on the PWA.
+    func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
+        -> TopicWriteOutcome<Topic>
+    {
+        if change.appearance != nil {
+            return await perform {
+                await $0.updateAppearance(topicId: topicId, change, expectedRevision: expectedRevision)
+            }
+        }
+        return await perform { await $0.update(topicId: topicId, TopicRequests.details(change)) }
     }
 
     func saveSchedule(_ schedule: Schedule?, topicId: UUID) async -> TopicWriteOutcome<Topic> {
@@ -115,24 +126,3 @@ final class SessionTopicWriter: TopicWriter, VersionWriter, EntryTimingWriting {
         }
     }
 }
-
-// T2-M3 seam: replaced by `TopicWrites` create/`updateAppearance` with the generated appearance DTOs
-// (I3-STORE) when M3-DB lands. Until then a topic is created without its appearance only when it
-// has none, and an appearance save says the server can't take it yet.
-extension SessionTopicWriter: AppearanceSaving {
-    static let appearanceUnavailable = "This server can’t save a colour, emoji or tags yet."
-
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
-        -> TopicWriteOutcome<Topic>
-    {
-        guard appearance == .empty else { return .failed(Self.appearanceUnavailable) }
-        return await create(creation, schedule: schedule)
-    }
-
-    func saveAppearance(_ update: AppearanceUpdate, topicId: UUID, baseRevision: Int) async
-        -> TopicWriteOutcome<Topic>
-    {
-        .failed(Self.appearanceUnavailable)
-    }
-}
-// end T2-M3

@@ -24,9 +24,8 @@ struct NewTopicScreen: View {
         .task(id: environment.session?.binding) {
             guard model == nil, let session = environment.session, let binding = session.binding else { return }
             let router = environment.router
-            let writer = SessionTopicWriter(session: session, binding: binding)
             model = NewTopicModel(
-                writer: writer, toasts: environment.toasts,
+                writer: SessionTopicWriter(session: session, binding: binding), toasts: environment.toasts,
                 onCreated: { topic in
                     // A single topic (no questions) has no form: back to the list, where its tile's
                     // Log logs it in one tap.
@@ -35,7 +34,7 @@ struct NewTopicScreen: View {
                     } else {
                         router.replaceTop(with: .record(TopicLinkRef(topic: topic)))
                     }
-                }, appearanceSaver: writer)
+                })
         }
     }
 }

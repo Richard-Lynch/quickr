@@ -8,10 +8,12 @@ import Testing
 extension TopicSettingsModelTests {
     static let saved = TopicAppearance(color: .teal, icon: .emoji("🚬"), tags: ["Gym", "run"])
 
+    /// A model over a topic (and a server copy) with `saved` as its appearance.
     func themed(saved: TopicAppearance = Self.saved) -> TopicSettingsModel {
-        TopicSettingsModel(
-            topic: Self.topic, writer: writer, toasts: toasts, deviceTimeZone: "Europe/London",
-            appearanceSaver: writer, savedAppearance: saved)
+        var topic = Self.topic
+        topic.appearance = saved
+        writer.server = topic
+        return TopicSettingsModel(topic: topic, writer: writer, toasts: toasts, deviceTimeZone: "Europe/London")
     }
 
     func add(_ tag: String, to model: TopicSettingsModel) {
@@ -21,7 +23,6 @@ extension TopicSettingsModelTests {
 
     @Test func theEditorStartsFromTheSavedAppearance() {
         let model = themed()
-        #expect(model.editsAppearance)
         #expect(model.appearance == AppearanceDraft(Self.saved))
         #expect(model.appearance.icon == "🚬")
         #expect(!model.detailsDirty)
@@ -33,9 +34,12 @@ extension TopicSettingsModelTests {
         let model = themed()
         model.appearance.icon = ""
         await model.saveDetails()
-        #expect(writer.calls == [.appearance(AppearanceUpdate(icon: .some(nil)), baseRevision: 3)])
+        #expect(
+            writer.calls == [
+                .details(TopicDetailsChange(appearance: AppearanceUpdate(icon: .some(nil))), expectedRevision: 3)
+            ])
         #expect(titles == ["Saved"])
-        #expect(model.savedAppearance == TopicAppearance(color: .teal, icon: nil, tags: ["Gym", "run"]))
+        #expect(model.topic.appearance == TopicAppearance(color: .teal, icon: nil, tags: ["Gym", "run"]))
         #expect(!model.detailsDirty)
     }
 
@@ -44,7 +48,12 @@ extension TopicSettingsModelTests {
         model.appearance.color = nil
         model.removeTag(at: 1)
         await model.saveDetails()
-        #expect(writer.calls == [.appearance(AppearanceUpdate(color: .some(nil), tags: ["Gym"]), baseRevision: 3)])
+        #expect(
+            writer.calls == [
+                .details(
+                    TopicDetailsChange(appearance: AppearanceUpdate(color: .some(nil), tags: ["Gym"])),
+                    expectedRevision: 3)
+            ])
     }
 
     @Test func clearingEveryTagSendsAnEmptyList() async {
@@ -52,22 +61,23 @@ extension TopicSettingsModelTests {
         model.removeTag(at: 0)
         model.removeTag(at: 0)
         await model.saveDetails()
-        #expect(writer.calls == [.appearance(AppearanceUpdate(tags: []), baseRevision: 3)])
+        #expect(
+            writer.calls == [.details(TopicDetailsChange(appearance: AppearanceUpdate(tags: [])), expectedRevision: 3)])
     }
 
-    @Test func detailsThenAppearanceEachWithTheLatestRevision() async {
+    /// One PATCH carries the details and the appearance, with the revision on screen.
+    @Test func detailsAndAppearanceGoInOnePatch() async {
         let model = themed()
         model.name = "Feelings"
         model.appearance.icon = "☺"
         await model.saveDetails()
-        #expect(
-            writer.calls == [
-                .details(TopicDetailsChange(name: "Feelings")),
-                // The details save moved the topic to revision 4.
-                .appearance(AppearanceUpdate(icon: .some(.emoji("☺\u{FE0F}"))), baseRevision: 4),
-            ])
-        #expect(model.topic.revision == 5)
+        let change = TopicDetailsChange(
+            name: "Feelings", appearance: AppearanceUpdate(icon: .some(.emoji("☺\u{FE0F}"))))
+        #expect(writer.calls == [.details(change, expectedRevision: 3)])
+        #expect(model.topic.revision == 4)
+        #expect(model.topic.appearance.icon == .emoji("☺\u{FE0F}"))
         #expect(model.appearance.icon == "☺\u{FE0F}", "reopens from the stored form")
+        #expect(!model.detailsDirty)
         #expect(titles == ["Saved"])
     }
 
@@ -107,17 +117,17 @@ extension TopicSettingsModelTests {
 
     @Test func aStaleRevisionSaysSoAndKeepsTheEdit() async {
         let model = themed()
-        writer.appearanceResult = .staleRevision
+        writer.topicResult = .staleRevision
         model.appearance.color = .pink
         await model.saveDetails()
         #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
         #expect(model.appearance.color == .pink)
-        #expect(model.savedAppearance == Self.saved)
+        #expect(model.topic.appearance == Self.saved)
     }
 
     @Test func serverAppearanceErrorsLandOnTheirFields() async {
         let model = themed()
-        writer.appearanceResult = .rejected(
+        writer.topicResult = .rejected(
             Problem(
                 code: .invalidRequest, detail: "Request validation failed",
                 errors: [FieldIssue(location: NewTopicModelTests.appearancePath(.key("tags"), .index(0)), message: "x")]
@@ -128,18 +138,43 @@ extension TopicSettingsModelTests {
         #expect(model.detailsBanner == nil, "every issue is on a field")
     }
 
-    @Test func aNewSlugMovesTheScreenEvenWhenTheAppearanceIsRefused() async {
+    @Test func aRefusedSaveKeepsBothHalvesAndTheSlug() async {
+        let slugs = Log()
+        var topic = Self.topic
+        topic.appearance = Self.saved
+        let model = TopicSettingsModel(
+            topic: topic, writer: writer, toasts: toasts, deviceTimeZone: "Europe/London",
+            onSlugChanged: { slugs.values.append($0) })
+        writer.topicResult = .offline
+        model.slug = "feelings"
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(slugs.values.isEmpty)
+        #expect(model.detailsBanner == TopicWriteMessage.offline)
+        #expect(model.slug == "feelings" && model.appearance.color == .pink)
+    }
+
+    @Test func aNewSlugWithTheAppearanceMovesTheScreen() async {
         let slugs = Log()
         let model = TopicSettingsModel(
             topic: Self.topic, writer: writer, toasts: toasts, deviceTimeZone: "Europe/London",
-            onSlugChanged: { slugs.values.append($0) }, appearanceSaver: writer, savedAppearance: Self.saved)
-        writer.appearanceResult = .offline
+            onSlugChanged: { slugs.values.append($0) })
         model.slug = "feelings"
         model.appearance.color = .pink
         await model.saveDetails()
         #expect(slugs.values == ["feelings"])
-        #expect(model.detailsBanner == TopicWriteMessage.offline)
-        #expect(model.appearance.color == .pink)
+        #expect(model.topic.appearance.color == .pink)
+    }
+
+    /// A sync that changes the appearance elsewhere reopens the editor from it.
+    @Test func aNewerAppearanceResetsTheEditor() {
+        let model = themed()
+        var newer = model.topic
+        newer.appearance.tags = ["Swim"]
+        newer.revision += 1
+        model.topicChanged(newer)
+        #expect(model.appearance.tags == ["Swim"])
+        #expect(!model.detailsDirty)
     }
 
     /// Codex I3-EDIT #2: the stored spelling is what the filter matches, so a canonically equal
@@ -149,7 +184,10 @@ extension TopicSettingsModelTests {
         model.appearance.tags = ["cafe\u{301}"]
         #expect(model.detailsDirty, "Save enables and leaving asks (Codex round 2)")
         await model.saveDetails()
-        #expect(writer.calls == [.appearance(AppearanceUpdate(tags: ["cafe\u{301}"]), baseRevision: 3)])
+        #expect(
+            writer.calls == [
+                .details(TopicDetailsChange(appearance: AppearanceUpdate(tags: ["cafe\u{301}"])), expectedRevision: 3)
+            ])
     }
 
     @Test func aTagTypedButNotAddedIsSaved() async {
@@ -157,7 +195,11 @@ extension TopicSettingsModelTests {
         model.appearance.newTag = "swim"
         #expect(model.detailsDirty)
         await model.saveDetails()
-        #expect(writer.calls == [.appearance(AppearanceUpdate(tags: ["Gym", "run", "swim"]), baseRevision: 3)])
+        #expect(
+            writer.calls == [
+                .details(
+                    TopicDetailsChange(appearance: AppearanceUpdate(tags: ["Gym", "run", "swim"])), expectedRevision: 3)
+            ])
         #expect(model.appearance.newTag.isEmpty)
         #expect(model.appearance.tags == ["Gym", "run", "swim"])
     }

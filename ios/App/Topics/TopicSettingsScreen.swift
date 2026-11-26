@@ -69,9 +69,8 @@ struct TopicSettingsScreen: View {
                 return
             }
             let holder = Holder()
-            let writer = SessionTopicWriter(session: session, binding: binding)
             let model = TopicSettingsModel(
-                topic: topic, writer: writer,
+                topic: topic, writer: SessionTopicWriter(session: session, binding: binding),
                 toasts: environment.toasts,
                 onSlugChanged: { slug in
                     guard let ref = TopicLinkRef(slug) else { return }
@@ -80,7 +79,7 @@ struct TopicSettingsScreen: View {
                         with: .topicSettings(ref),
                         carrying: CarriedTopicSettings(model, id: model.topic.id, scope: binding))
                 },
-                onDeleted: { router.path = [] }, appearanceSaver: writer)
+                onDeleted: { router.path = [] })
             holder.model = model
             load = .ready(model, binding)
         } catch {

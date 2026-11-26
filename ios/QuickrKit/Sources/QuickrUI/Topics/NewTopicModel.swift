@@ -39,14 +39,11 @@ public final class NewTopicModel: BuilderEditing {
     private var submitted = false
 
     public let limits: Limits
-    public let appearanceLimits: AppearanceLimits
     /// A new topic has no versions, so no step key is taken yet.
     public var stepHistory: [HistoricStep] { [] }
     @ObservationIgnored private let initialDraft: TopicDraft
     @ObservationIgnored private let initialSchedule: ScheduleDraft
     @ObservationIgnored private let writer: any TopicWriter
-    /// nil: the screen offers no Appearance row and the topic is created without one.
-    @ObservationIgnored private let appearanceSaver: (any AppearanceSaving)?
     @ObservationIgnored private let toasts: ToastCenter
     @ObservationIgnored private let isKnownTimeZone: (String) -> Bool
     @ObservationIgnored private let onCreated: @MainActor (Topic) -> Void
@@ -55,8 +52,7 @@ public final class NewTopicModel: BuilderEditing {
         writer: any TopicWriter, toasts: ToastCenter, limits: Limits = .serverDefaults,
         deviceTimeZone: String = TimeZone.current.identifier,
         isKnownTimeZone: @escaping (String) -> Bool = ScheduleDraft.isKnownTimeZone,
-        onCreated: @escaping @MainActor (Topic) -> Void = { _ in },
-        appearanceSaver: (any AppearanceSaving)? = nil, appearanceLimits: AppearanceLimits = .serverDefaults
+        onCreated: @escaping @MainActor (Topic) -> Void = { _ in }
     ) {
         let draft = TopicDraft.empty()
         let schedule = ScheduleDraft.empty(timezone: deviceTimeZone)
@@ -70,8 +66,6 @@ public final class NewTopicModel: BuilderEditing {
         self.limits = limits
         self.isKnownTimeZone = isKnownTimeZone
         self.onCreated = onCreated
-        self.appearanceSaver = appearanceSaver
-        self.appearanceLimits = appearanceLimits
     }
 
     /// Leaving asks first once anything was edited.
@@ -108,7 +102,7 @@ public final class NewTopicModel: BuilderEditing {
         case .failure(let issues): draftErrors = issues.byField
         }
         scheduleErrors = schedule.failureIssues
-        let appearance = appearance.validated(limits: appearanceLimits)
+        let appearance = appearance.validated(limits: limits)
         appearanceErrors = appearance.failureFields
         guard case .success(let valid) = creation, case .success(let value) = schedule,
             case .success(let appearance) = appearance
@@ -129,12 +123,7 @@ public final class NewTopicModel: BuilderEditing {
         }
         isCreating = true
         defer { isCreating = false }
-        let outcome =
-            if let appearanceSaver {
-                await appearanceSaver.create(valid.creation, schedule: valid.schedule, appearance: valid.appearance)
-            } else {
-                await writer.create(valid.creation, schedule: valid.schedule)
-            }
+        let outcome = await writer.create(valid.creation, schedule: valid.schedule, appearance: valid.appearance)
         switch outcome {
         case .done(let topic):
             toasts.show(Toast("Topic created", message: "Log your first entry."))
@@ -175,9 +164,6 @@ public final class NewTopicModel: BuilderEditing {
 // MARK: - Appearance
 
 extension NewTopicModel: AppearanceEditingModel {
-    /// Whether the screen shows the Appearance row (it has somewhere to send it).
-    public var editsAppearance: Bool { appearanceSaver != nil }
-
     public func setAppearanceError(_ message: String?, for field: AppearanceField) {
         appearanceErrors[field] = message
     }

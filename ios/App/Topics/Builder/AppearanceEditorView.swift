@@ -3,7 +3,7 @@ import QuickrUI
 import SwiftUI
 
 /// The Appearance row of the new-topic and topic-settings forms (appearance.md §7): the glyph and a
-/// summary, opening ``AppearanceEditorView``. Nothing when the model has nowhere to send it.
+/// summary, opening ``AppearanceEditorView``.
 struct AppearanceRow<Model: AppearanceEditingModel>: View {
     @Bindable var model: Model
     /// The topic's name, for the fallback initial.
@@ -11,25 +11,23 @@ struct AppearanceRow<Model: AppearanceEditingModel>: View {
     let id: String
 
     var body: some View {
-        if model.editsAppearance {
-            NavigationLink {
-                AppearanceEditorView(model: model)
-            } label: {
-                HStack(spacing: 12) {
-                    TopicGlyphView(theme: TopicTheme(appearance: model.appearance.preview, name: name), size: 28)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Appearance").font(.qr(.label)).foregroundStyle(.qr.ink)
-                        Text(summary).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
-                    }
-                    if hasError {
-                        Spacer()
-                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.qr.danger)
-                            .accessibilityLabel("Needs attention")
-                    }
+        NavigationLink {
+            AppearanceEditorView(model: model)
+        } label: {
+            HStack(spacing: 12) {
+                TopicGlyphView(theme: TopicTheme(appearance: model.appearance.preview, name: name), size: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Appearance").font(.qr(.label)).foregroundStyle(.qr.ink)
+                    Text(summary).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                }
+                if hasError {
+                    Spacer()
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.qr.danger)
+                        .accessibilityLabel("Needs attention")
                 }
             }
-            .accessibilityIdentifier("\(id).appearance")
         }
+        .accessibilityIdentifier("\(id).appearance")
     }
 
     /// "Teal · 🚬 · 2 tags", or "Colour, emoji and tags" when there is none.
@@ -139,7 +137,7 @@ struct AppearanceEditorView<Model: AppearanceEditingModel>: View {
                         .accessibilityIdentifier("topic.icon.clear")
                 }
             }
-            TopicFieldError(model.appearance.iconError(limits: model.appearanceLimits) ?? model.appearanceErrors[.icon])
+            TopicFieldError(model.appearance.iconError(limits: model.limits) ?? model.appearanceErrors[.icon])
         } header: {
             Text("Emoji · optional")
         } footer: {
@@ -194,7 +192,7 @@ struct AppearanceEditorView<Model: AppearanceEditingModel>: View {
         } header: {
             HStack(alignment: .firstTextBaseline) {
                 Text("Tags")
-                Text("\(model.appearance.tags.count)/\(model.appearanceLimits.maxTags)").font(.qr(.monoCaption))
+                Text("\(model.appearance.tags.count)/\(model.limits.maxTags)").font(.qr(.monoCaption))
             }
         } footer: {
             Text("Filter the topic list by tag.")

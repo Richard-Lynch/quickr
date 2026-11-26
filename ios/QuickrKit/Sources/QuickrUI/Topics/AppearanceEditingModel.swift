@@ -6,9 +6,7 @@ import QuickrCore
 public protocol AppearanceEditingModel: AnyObject, Observable {
     var appearance: AppearanceDraft { get set }
     var appearanceErrors: [AppearanceField: String] { get }
-    var appearanceLimits: AppearanceLimits { get }
-    /// Whether the screen shows the Appearance row (it has somewhere to send it).
-    var editsAppearance: Bool { get }
+    var limits: Limits { get }
     func setAppearanceError(_ message: String?, for field: AppearanceField)
     func setAppearanceErrors(_ errors: [AppearanceField: String])
 }
@@ -16,7 +14,7 @@ public protocol AppearanceEditingModel: AnyObject, Observable {
 extension AppearanceEditingModel {
     /// "Add" in the tag field: the tag joins the chips, or the field shows why not.
     public func addTag() {
-        let message = appearance.addTag(limits: appearanceLimits)
+        let message = appearance.addTag(limits: limits)
         setAppearanceError(message, for: .newTag)
     }
 

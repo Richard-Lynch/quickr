@@ -3,15 +3,12 @@ import QuickrCore
 import QuickrUI
 import Testing
 
-/// A scripted `TopicWriter` (and `AppearanceSaving`): records what the screen asked for and answers
-/// as told.
+/// A scripted `TopicWriter`: records what the screen asked for and answers as told.
 @MainActor
-final class FakeTopicWriter: TopicWriter, AppearanceSaving {
+final class FakeTopicWriter: TopicWriter {
     enum Call: Equatable {
-        case create(name: String, schedule: Schedule?)
-        case createWithAppearance(name: String, appearance: TopicAppearance)
-        case appearance(AppearanceUpdate, baseRevision: Int)
-        case details(TopicDetailsChange)
+        case create(name: String, schedule: Schedule?, appearance: TopicAppearance = .empty)
+        case details(TopicDetailsChange, expectedRevision: Int)
         case schedule(Schedule?)
         case delete
         case archive(Bool, baseRevision: Int)
@@ -27,17 +24,26 @@ final class FakeTopicWriter: TopicWriter, AppearanceSaving {
 
     init(server: Topic) { self.server = server }
 
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?) async -> TopicWriteOutcome<Topic> {
-        calls.append(.create(name: creation.name, schedule: schedule))
+    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
+        -> TopicWriteOutcome<Topic>
+    {
+        calls.append(.create(name: creation.name, schedule: schedule, appearance: appearance))
         return topicResult ?? .done(server)
     }
 
-    func saveDetails(_ change: TopicDetailsChange, topicId: UUID) async -> TopicWriteOutcome<Topic> {
-        calls.append(.details(change))
+    func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
+        -> TopicWriteOutcome<Topic>
+    {
+        calls.append(.details(change, expectedRevision: expectedRevision))
         if let topicResult { return topicResult }
         server.name = change.name ?? server.name
         server.slug = change.slug ?? server.slug
         server.description = change.description ?? server.description
+        if let update = change.appearance {
+            if let color = update.color { server.appearance.color = color }
+            if let icon = update.icon { server.appearance.icon = icon }
+            if let tags = update.tags { server.appearance.tags = tags }
+        }
         server.revision += 1
         return .done(server)
     }
@@ -61,25 +67,6 @@ final class FakeTopicWriter: TopicWriter, AppearanceSaving {
     func setArchived(_ archived: Bool, topicId: UUID, baseRevision: Int) async throws {
         calls.append(.archive(archived, baseRevision: baseRevision))
         if let archiveError { throw archiveError }
-    }
-
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
-        -> TopicWriteOutcome<Topic>
-    {
-        calls.append(.createWithAppearance(name: creation.name, appearance: appearance))
-        return topicResult ?? .done(server)
-    }
-
-    /// Answers `appearanceResult` when set, else `topicResult`, else the server's copy one revision on.
-    var appearanceResult: TopicWriteOutcome<Topic>?
-
-    func saveAppearance(_ update: AppearanceUpdate, topicId: UUID, baseRevision: Int) async
-        -> TopicWriteOutcome<Topic>
-    {
-        calls.append(.appearance(update, baseRevision: baseRevision))
-        if let result = appearanceResult ?? topicResult { return result }
-        server.revision += 1
-        return .done(server)
     }
 }
 
@@ -138,7 +125,7 @@ final class FakeTopicWriter: TopicWriter, AppearanceSaving {
         model.description = "Feelings, daily"
         #expect(model.detailsDirty)
         await model.saveDetails()
-        #expect(writer.calls == [.details(TopicDetailsChange(description: "Feelings, daily"))])
+        #expect(writer.calls == [.details(TopicDetailsChange(description: "Feelings, daily"), expectedRevision: 3)])
         #expect(titles == ["Saved"])
         #expect(!model.detailsDirty)
         #expect(model.topic.description == "Feelings, daily")
