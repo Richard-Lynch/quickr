@@ -1,0 +1,80 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "BB9679F1-2E79-4697-A8C4-243B8765AE24",
+      "deviceName" : "quickR iOS-26-0 t2-m3a-uitest-9c2eef",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "2m 14s",
+                  "durationInSeconds" : 134.20935595035553,
+                  "name" : "testAppearanceAtTheLargestTextSize()",
+                  "nodeIdentifier" : "BuilderUITests/testAppearanceAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testAppearanceAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "3m 38s",
+                  "durationInSeconds" : 218.79036402702332,
+                  "name" : "testOrangeAppearanceInLightAndDark()",
+                  "nodeIdentifier" : "BuilderUITests/testOrangeAppearanceInLightAndDark()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testOrangeAppearanceInLightAndDark",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "2m 23s",
+                  "durationInSeconds" : 143.4549539089203,
+                  "name" : "testTealAppearanceInLightAndDark()",
+                  "nodeIdentifier" : "BuilderUITests/testTealAppearanceInLightAndDark()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testTealAppearanceInLightAndDark",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "3m 37s",
+                  "durationInSeconds" : 217.9154280424118,
+                  "name" : "testVioletAppearanceInLightAndDark()",
+                  "nodeIdentifier" : "BuilderUITests/testVioletAppearanceInLightAndDark()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testVioletAppearanceInLightAndDark",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "BuilderUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

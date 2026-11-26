@@ -1,0 +1,68 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "BB9679F1-2E79-4697-A8C4-243B8765AE24",
+      "deviceName" : "quickR iOS-26-0 t2-m3a-uitest-9c2eef",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "name" : "Test exceeded execution time allowance of 5 minutes",
+                      "nodeType" : "Failure Message"
+                    }
+                  ],
+                  "duration" : "5m",
+                  "durationInSeconds" : 300,
+                  "name" : "testAppearanceInLightDarkAndTheLargestTextSize()",
+                  "nodeIdentifier" : "BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "duration" : "1m 29s",
+                  "durationInSeconds" : 89.78517603874207,
+                  "name" : "testNewTopicWithAppearance()",
+                  "nodeIdentifier" : "BuilderUITests/testNewTopicWithAppearance()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testNewTopicWithAppearance",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "BuilderUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

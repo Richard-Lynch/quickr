@@ -1,0 +1,52 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "BB9679F1-2E79-4697-A8C4-243B8765AE24",
+        "deviceName" : "quickR iOS-26-0 t2-m3a-uitest-9c2eef",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 1,
+      "passedTests" : 1,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 1,
+  "finishTime" : 1795693558.974,
+  "passedTests" : 1,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795692522.067,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "Test exceeded execution time allowance of 5 minutes",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 1,
+      "testIdentifierString" : "BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize",
+      "testName" : "testAppearanceInLightDarkAndTheLargestTextSize()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 2
+}
