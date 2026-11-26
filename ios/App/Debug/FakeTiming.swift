@@ -45,11 +45,17 @@ enum FakeTiming {
     }
 
     /// The feed items the server starts with: the run's entry (Morning and its version are
-    /// `FakeServer`'s seeded page).
+    /// `FakeServer`'s seeded page), then `FakeLapTypes`'s.
     static func seedFeed() -> [String] {
-        guard isEnabled else { return [] }
-        let entry: [String: Any] = ["kind": "entry", "seq": FakeServer.seededHead + 1, "entry": entryJSON()]
-        return [entry].compactMap(json)
+        var items: [String] = []
+        if isEnabled {
+            let entry: [String: Any] = ["kind": "entry", "seq": FakeServer.seededHead + 1, "entry": entryJSON()]
+            items = [entry].compactMap(json)
+        }
+        // T2-M4: `-QuickrSeedTypedTopic`'s topic and runs (`FakeLapTypes`), next in the feed
+        items += FakeLapTypes.seedFeed(firstSeq: FakeServer.seededHead + 1 + items.count)
+        // end T2-M4
+        return items
     }
 
     /// The run's entry as `EntryOut`.
@@ -90,6 +96,9 @@ enum FakeTiming {
     static func route(
         _ request: HTTPRequest, headers: HTTPHeaders, appendToFeed: (_ kind: String, _ key: String, Any) -> Void
     ) -> HTTPResponse? {
+        // T2-M4: `-QuickrSeedTypedTopic`'s reads (`FakeLapTypes`)
+        if let response = FakeLapTypes.route(request, headers: headers) { return response }
+        // end T2-M4
         guard isEnabled else { return nil }
         let path = request.url.path()
         let entryPath = "/api/v1/entries/\(entryId.wireString)"
