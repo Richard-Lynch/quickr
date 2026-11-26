@@ -12,6 +12,19 @@ const TOP = new Set(['name', 'slug', 'description', 'change_note']);
  */
 export function builderFieldFor(path: string, draft: TopicDraft): FieldPath<TopicDraft> | null {
   if (TOP.has(path)) return path as FieldPath<TopicDraft>;
+  // T2-M3: appearance.md §1.3 paths, onto the Appearance card (`appearance` itself: the banner).
+  if (path.startsWith('appearance.')) {
+    const tags = draft.appearance?.tags;
+    if (!tags) return null;
+    if (path === 'appearance.color') return 'appearance.color';
+    if (path === 'appearance.icon' || path.startsWith('appearance.icon.')) return 'appearance.icon';
+    const t = /^appearance\.tags(?:\.(\d+))?$/.exec(path);
+    if (!t) return null;
+    return t[1] !== undefined && tags[Number(t[1])] !== undefined
+      ? `appearance.tags.${Number(t[1])}`
+      : 'appearance.tags';
+  }
+  // end T2-M3
   if (path === 'schedule' || path.startsWith('schedule.')) {
     const f = scheduleFieldFor(path);
     if (!f) return null;

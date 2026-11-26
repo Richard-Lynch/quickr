@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { FormProvider, useForm } from 'react-hook-form';
+import { FormProvider, useForm, type FieldPath } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
 
@@ -16,6 +16,8 @@ import { invalidateTopicData } from '../../api/queryClient';
 import { deleteTopicMutation, getTopicQueryKey } from '../../client/@tanstack/react-query.gen';
 import type { TopicDetail } from '../../client';
 import { Page, TopBar } from '../../components/AppShell';
+import { AppearanceFields } from '../../components/builder/AppearanceFields';
+import { builderFieldFor } from '../../components/builder/serverErrors';
 import { ScheduleEditor } from '../../components/schedule/ScheduleEditor';
 import { Button } from '../../components/ui/Button';
 import { Banner, Card, SectionTitle } from '../../components/ui/Card';
@@ -23,16 +25,34 @@ import { Field, Input, Textarea } from '../../components/ui/Field';
 import { Icon } from '../../components/ui/Icon';
 import { ConfirmSheet } from '../../components/ui/Sheet';
 import { useToast } from '../../components/ui/Toast';
-import { makeScheduleSchema, makeTopicMetaSchema } from '../../lib/builder';
+import {
+  appearanceChanges,
+  appearanceDraftOf,
+  emptyTopicDraft,
+  makeScheduleSchema,
+  makeTopicMetaAppearanceSchema,
+} from '../../lib/builder';
 import { formatDateTime } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { draftFromSchedule, scheduleFieldFor, type ScheduleDraft } from '../../lib/schedule';
+import { appearanceOf, type TopicUpdateBody } from '../../lib/topicAppearanceSeam';
 import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
 import { useTopic } from './TopicLayout';
 
-type MetaSchema = ReturnType<typeof makeTopicMetaSchema>;
+type MetaSchema = ReturnType<typeof makeTopicMetaAppearanceSchema>;
 type MetaValues = z.input<MetaSchema>;
 type MetaOutput = z.output<MetaSchema>;
+
+const META_FIELDS = new Set(['name', 'slug', 'description']);
+
+function metaValuesOf(t: TopicDetail): MetaValues {
+  return {
+    name: t.name,
+    slug: t.slug,
+    description: t.description,
+    appearance: appearanceDraftOf(appearanceOf(t)),
+  };
+}
 
 interface DirtyProps {
   /** Report unsaved edits to the page's single unsaved-changes guard. */
@@ -50,7 +70,7 @@ export function SettingsPage() {
       <TopBar back={`/t/${topic.slug}`} title="Topic settings" />
       <Page className="mx-auto max-w-2xl gap-6">
         <MetaForm
-          key={`${topic.name}\n${topic.slug}\n${topic.description}`}
+          key={topic.id}
           topic={topic}
           onDirty={(meta) => setDirty((d) => (d.meta === meta ? d : { ...d, meta }))}
           allowNavigation={guard.allowNavigation}
@@ -74,27 +94,33 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
   const navigate = useNavigate();
   const { toast } = useToast();
   const limits = useLimits();
-  const schema = useMemo(() => makeTopicMetaSchema(limits), [limits]);
+  const schema = useMemo(() => makeTopicMetaAppearanceSchema(limits), [limits]);
   const [banner, setBanner] = useState<string | null>(null);
   const update = useUpdateTopicMeta();
   const form = useForm<MetaValues, unknown, MetaOutput>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      name: topic.name,
-      slug: topic.slug,
-      description: topic.description,
-    },
+    defaultValues: metaValuesOf(topic),
   });
   const e = form.formState.errors;
-  const { isDirty } = form.formState;
+  const { isDirty, isSubmitting } = form.formState;
   useEffect(() => onDirty(isDirty), [isDirty, onDirty]);
+  // The topic the form's values came from: a save diffs against it and sends its revision, so a
+  // change made elsewhere meanwhile is refused (409) rather than overwritten. The form isn't keyed
+  // by the topic's values (the optimistic patch would remount it mid-save and a failure would lose
+  // the edits and the 422's field errors); a clean form takes a newer topic instead.
+  const [base, setBase] = useState(topic);
+  if (topic !== base && !isDirty && !isSubmitting) setBase(topic);
+  useEffect(() => form.reset(metaValuesOf(base)), [base, form]);
 
   const onSubmit = form.handleSubmit(async (v) => {
     setBanner(null);
-    const body = {
-      ...(v.name !== topic.name ? { name: v.name } : {}),
-      ...(v.slug !== topic.slug ? { slug: v.slug } : {}),
-      ...(v.description !== topic.description ? { description: v.description } : {}),
+    const from = base;
+    const changed = appearanceChanges(appearanceOf(from), v.appearance);
+    const body: TopicUpdateBody = {
+      ...(v.name !== from.name ? { name: v.name } : {}),
+      ...(v.slug !== from.slug ? { slug: v.slug } : {}),
+      ...(v.description !== from.description ? { description: v.description } : {}),
+      ...(changed ? { appearance: changed } : {}),
     };
     if (Object.keys(body).length === 0) {
       toast({ title: 'Nothing to save', tone: 'info' });
@@ -103,19 +129,26 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
     try {
       const updated = await update.mutateAsync({
         path: { ref: topic.slug },
-        body,
+        body: { ...body, expected_revision: from.revision },
       });
       toast({ title: 'Saved' });
-      // The form remounts with the saved values (keyed by them).
+      setBase(updated);
       onDirty(false);
       allowNavigation();
-      if (updated.slug !== topic.slug)
+      if (updated.slug !== from.slug)
         void navigate(`/t/${updated.slug}/settings`, { replace: true });
     } catch (err) {
       const mapped = mapApiError(err);
+      // builderFieldFor maps the meta and `appearance.*` paths (a meta PATCH sends no others).
+      const draft = { ...emptyTopicDraft(), appearance: form.getValues('appearance') };
       const rest = applyFieldErrors(
         mapped.fieldErrors,
-        (p) => (p === 'name' || p === 'slug' || p === 'description' ? p : null),
+        (p) => {
+          const f = builderFieldFor(p, draft);
+          return f && (META_FIELDS.has(f) || f.startsWith('appearance.'))
+            ? (f as FieldPath<MetaValues>)
+            : null;
+        },
         form.setError,
       );
       if (mapped.fieldErrors.length > 0 && rest.length === 0) return;
@@ -131,44 +164,52 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
       <form onSubmit={(ev) => void onSubmit(ev)} noValidate className="flex flex-col gap-4">
         <SectionTitle>Details</SectionTitle>
         {banner ? <Banner title={banner} /> : null}
-        <Field label="Name" error={e.name?.message}>
-          {({ id, describedBy, invalid }) => (
-            <Input
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              {...form.register('name')}
-            />
-          )}
-        </Field>
-        <Field
-          label="URL slug"
-          hint="Changing it breaks old links to this topic"
-          error={e.slug?.message}
-        >
-          {({ id, describedBy, invalid }) => (
-            <Input
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              autoCapitalize="none"
-              spellCheck={false}
-              className="font-mono"
-              {...form.register('slug')}
-            />
-          )}
-        </Field>
-        <Field label="Description" optional error={e.description?.message}>
-          {({ id, describedBy, invalid }) => (
-            <Textarea
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              rows={3}
-              {...form.register('description')}
-            />
-          )}
-        </Field>
+        {/* Read-only while saving: the reply resets the form, which would drop edits made meanwhile. */}
+        <fieldset disabled={isSubmitting} className="contents">
+          <Field label="Name" error={e.name?.message}>
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                {...form.register('name')}
+              />
+            )}
+          </Field>
+          <Field
+            label="URL slug"
+            hint="Changing it breaks old links to this topic"
+            error={e.slug?.message}
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                autoCapitalize="none"
+                spellCheck={false}
+                className="font-mono"
+                {...form.register('slug')}
+              />
+            )}
+          </Field>
+          <Field label="Description" optional error={e.description?.message}>
+            {({ id, describedBy, invalid }) => (
+              <Textarea
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                rows={3}
+                {...form.register('description')}
+              />
+            )}
+          </Field>
+          <FormProvider {...form}>
+            <div className="border-t border-line pt-4">
+              <AppearanceFields />
+            </div>
+          </FormProvider>
+        </fieldset>
         <p className="text-xs text-muted">Questions are edited by publishing a new version.</p>
         <div className="flex justify-end">
           <Button

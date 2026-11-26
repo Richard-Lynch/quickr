@@ -1,6 +1,15 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { COLOR_NAMES, PALETTE, glyphOf, topicStyle, type Appearance } from './appearance';
+import {
+  COLOR_NAMES,
+  PALETTE,
+  checkIcon,
+  checkTags,
+  glyphOf,
+  isBlankTag,
+  topicStyle,
+  type Appearance,
+} from './appearance';
 // T2-M3: the palette's source of truth (appearance.md §3.2, §3.3)
 import vectorsRaw from '../../../shared/fixtures/appearance-vectors.json?raw';
 
@@ -181,3 +190,68 @@ function luminance(hex: string): number {
   });
   return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
 }
+
+// T2-M3 (F3-EDIT): checkIcon / checkTags over appearance-vectors.json (§3.3). Only `ok` and the
+// stored value (or the failing tag's index) must agree; the PWA words its own messages.
+type Expected<T> = { ok: true; value: T } | { ok: false; message: string; loc?: string };
+const cases = JSON.parse(vectorsRaw) as {
+  meta: { max_icon_length: number; max_tags: number; max_tag_length: number };
+  icons: { name: string; value: string; expected: Expected<string> }[];
+  tags: { name: string; input: string[]; expected: Expected<string[]> }[];
+};
+
+describe('checkIcon', () => {
+  it('covers the vectors', () => {
+    expect(cases.icons.map((c) => c.name)).toEqual(
+      expect.arrayContaining([
+        'too_long',
+        'too_long_after_vs16',
+        'keycap',
+        'flag',
+        'copyright_bare',
+      ]),
+    );
+  });
+
+  it.each(cases.icons)('$name', ({ value, expected }) => {
+    const r = checkIcon(value, cases.meta.max_icon_length);
+    if (expected.ok) expect(r).toEqual({ ok: true, value: expected.value });
+    else expect(r.ok).toBe(false);
+  });
+
+  it('normalises to NFC before counting', () => {
+    expect(checkIcon('\u{263A}'.normalize('NFD'))).toEqual({ ok: true, value: '\u{263A}\u{FE0F}' });
+  });
+
+  it('takes the length limit from the caller', () => {
+    expect(checkIcon('👨\u{200D}👩\u{200D}👧', 4).ok).toBe(false);
+    expect(checkIcon('👨\u{200D}👩\u{200D}👧', 5).ok).toBe(true);
+  });
+});
+
+describe('checkTags', () => {
+  const limits = { maxTags: cases.meta.max_tags, maxLength: cases.meta.max_tag_length };
+
+  it.each(cases.tags)('$name', ({ input, expected }) => {
+    const r = checkTags(input, limits);
+    if (expected.ok) {
+      expect(r).toEqual({ ok: true, value: expected.value });
+      return;
+    }
+    // The vectors' `loc` is `tags.{i}` for a tag and `tags` for the list (index -1 here).
+    const index = expected.loc === 'tags' ? -1 : Number(expected.loc?.split('.')[1]);
+    expect(r).toMatchObject({ ok: false, index });
+  });
+
+  it('keeps U+FEFF, which Python’s strip() does not remove', () => {
+    expect(isBlankTag('\u{FEFF}')).toBe(false);
+    expect(isBlankTag(' \u{A0}\u{1C} ')).toBe(true);
+    expect(checkTags(['\u{FEFF}'])).toEqual({ ok: true, value: ['\u{FEFF}'] });
+  });
+
+  it('takes the limits from the caller', () => {
+    expect(checkTags(['a', 'b'], { maxTags: 1 })).toMatchObject({ ok: false, index: -1 });
+    expect(checkTags(['abc'], { maxLength: 2 })).toMatchObject({ ok: false, index: 0 });
+  });
+});
+// end T2-M3
