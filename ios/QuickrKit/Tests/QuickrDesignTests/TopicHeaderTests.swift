@@ -19,12 +19,33 @@ import Testing
         #expect(TopicHeaderContent.make(appearance: defaults, name: "Water") == nil)
     }
 
-    /// Until I3-STORE stores it, every topic's appearance is `.empty`: today's UI, no header.
-    @Test func topicWithoutAppearanceShowsNoHeader() {
-        let topic = Topic(
+    static func topic(_ appearance: TopicAppearance? = nil) -> Topic {
+        var topic = Topic(
             id: UUID(), slug: "water", name: "Water", currentVersion: 1, revision: 1, questionCount: 0,
             createdAt: .distantPast, updatedAt: .distantPast, questions: [])
-        #expect(TopicHeaderContent.make(for: topic) == nil)
+        if let appearance { topic.appearance = appearance }
+        return topic
+    }
+
+    /// A topic as the store builds it before any appearance is set: today's UI, no header.
+    @Test func topicWithoutAppearanceShowsNoHeader() {
+        #expect(Self.topic().appearance == .empty)
+        #expect(TopicHeaderContent.make(for: Self.topic()) == nil)
+    }
+
+    /// `Topic.appearance` is the stored property the DTOs and the store fill in (I3-STORE's
+    /// `feedTopicsCarryTheirAppearanceToTheView` takes a feed item to `ViewTopic.topic`, which
+    /// `TopicTabsView` passes here): a themed one gives its header.
+    @Test func storedThemedTopicShowsItsHeader() throws {
+        let appearance = try Self.decode(
+            #"{"color": "teal", "icon": {"kind": "emoji", "value": "🧪"}, "tags": ["Health"]}"#)
+        let header = try #require(TopicHeaderContent.make(for: Self.topic(appearance)))
+        #expect(header == TopicHeaderContent.make(appearance: appearance, name: "Water"))
+        #expect(header.name == "Water")
+        #expect(header.glyph == .emoji("🧪"))
+        #expect(header.tags == ["Health"])
+        #expect(header.showsRule)
+        #expect(header.theme.tint != TopicTheme.default.tint)
     }
 
     @Test func fullAppearanceShowsGlyphNameChipsAndRule() throws {
