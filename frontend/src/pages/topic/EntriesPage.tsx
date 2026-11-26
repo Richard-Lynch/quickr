@@ -149,11 +149,17 @@ function answersOut(
   map: Readonly<Record<string, unknown>>,
 ): EntryOut['answers'] {
   const types = new Map(questions.map((q) => [q.key, q.type]));
-  return Object.entries(map).flatMap(([key, value]) => {
+  return Object.entries(map).flatMap(([key, value]): EntryOut['answers'] => {
     const type = types.get(key);
     if (!type || value === null) return [];
-    return [{ key, type: type === 'enum' && Array.isArray(value) ? 'enum_list' : type, value }];
-  }) as EntryOut['answers'];
+    if (type === 'enum' && Array.isArray(value))
+      return [{ key, type: 'enum_list', value: value.map(String) }];
+    // A value that doesn't fit its question (read against another version's questions while
+    // the entry's own aren't in) is left out rather than mistyped.
+    if (type === 'int' || type === 'double')
+      return typeof value === 'number' ? [{ key, type, value }] : [];
+    return typeof value === 'string' ? [{ key, type, value }] : [];
+  });
 }
 
 /** A queued (not yet synced) entry, shaped like a stored one so it renders the same way. */

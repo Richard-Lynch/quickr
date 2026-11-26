@@ -163,14 +163,19 @@ const old = entry(OLD, {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-function stubServer(items: EntryOut[]) {
+function stubServer(items: EntryOut[], versionsUp = true) {
   const page: EntryPage = { items, total: items.length, offset: 0, limit: 25 };
   vi.stubGlobal(
     'fetch',
     vi.fn((input: Request) => {
       const path = new URL(input.url).pathname;
       if (path.endsWith('/entries')) return Promise.resolve(json(200, page));
-      if (path.endsWith('/versions')) return Promise.resolve(json(200, versions));
+      if (path.endsWith('/versions'))
+        return Promise.resolve(
+          versionsUp
+            ? json(200, versions)
+            : json(500, { code: 'internal', detail: 'down', errors: [] }),
+        );
       if (path.endsWith('/runs')) return Promise.resolve(json(200, []));
       return Promise.resolve(json(404, { code: 'not_found', detail: 'not found', errors: [] }));
     }),
@@ -216,6 +221,39 @@ afterEach(() => {
   client.setConfig({ baseUrl: '' });
   vi.unstubAllGlobals();
 });
+
+/**
+ * A run on this device against v1: two steps of a minute, then a queued stop that makes the
+ * entry, with `answers`.
+ */
+function queueRun(answers: Record<string, unknown>): OutboxItem[] {
+  const ofTopic = (item: OutboxItem): OutboxItem => {
+    const run = item as ReturnType<typeof runItem>;
+    return {
+      ...run,
+      payload: {
+        ...run.payload,
+        topic: { id: TOPIC_ID, slug: topic.slug, name: topic.name },
+        version: 1,
+        event: {
+          ...run.payload.event,
+          ...(run.payload.event.type === 'start' ? { topic_id: TOPIC_ID, version: 1 } : {}),
+        },
+      },
+    };
+  };
+  return [
+    runItem('start', { id: RUN, run: RUN, at: T0 }),
+    runItem('next', { id: `${RUN.slice(0, -2)}a1`, run: RUN, at: T0 + 60_000, seg: 0 }),
+    runItem('stop', {
+      id: `${RUN.slice(0, -2)}a2`,
+      run: RUN,
+      at: T0 + 120_000,
+      makes_entry: true,
+      answers: answers as never,
+    }),
+  ].map(ofTopic);
+}
 
 describe('EntriesPage rows', () => {
   it('show every entry’s summary line, in its own version’s labels', async () => {
@@ -273,34 +311,7 @@ describe('EntriesPage rows', () => {
   });
 
   it('show the same chip and summary on a timed entry still waiting to sync', async () => {
-    // A run on this device against v1: two steps of a minute, then a queued stop that makes
-    // the entry.
-    const ofTopic = (item: OutboxItem): OutboxItem => {
-      const run = item as ReturnType<typeof runItem>;
-      return {
-        ...run,
-        payload: {
-          ...run.payload,
-          topic: { id: TOPIC_ID, slug: topic.slug, name: topic.name },
-          version: 1,
-          event: {
-            ...run.payload.event,
-            ...(run.payload.event.type === 'start' ? { topic_id: TOPIC_ID, version: 1 } : {}),
-          },
-        },
-      };
-    };
-    queued = [
-      runItem('start', { id: RUN, run: RUN, at: T0 }),
-      runItem('next', { id: `${RUN.slice(0, -2)}a1`, run: RUN, at: T0 + 60_000, seg: 0 }),
-      runItem('stop', {
-        id: `${RUN.slice(0, -2)}a2`,
-        run: RUN,
-        at: T0 + 120_000,
-        makes_entry: true,
-        answers: { reps: 7, felt: 'strong' },
-      }),
-    ].map(ofTopic);
+    queued = queueRun({ reps: 7, felt: 'strong' });
     stubServer([untimed]);
     renderPage();
     // Once the versions are in (the table's v1 column), so labels are v1's.
@@ -313,5 +324,16 @@ describe('EntriesPage rows', () => {
     expect(within(pending).getByTestId('entry-summary').textContent).toBe(
       '2:00 · Count: 7 · Felt: strong',
     );
+  });
+
+  it('leave out a queued answer that doesn’t fit while its version’s questions are not in', async () => {
+    // The versions request fails: the current questions stand in, and v1's list answer to a
+    // question that is now an int is dropped rather than read as a number.
+    queued = queueRun({ reps: ['a', 'b'] });
+    stubServer([untimed], false);
+    renderPage();
+    const pending = await screen.findByRole('list', { name: 'Not yet synced' });
+    expect(within(pending).getByTestId('entry-summary').textContent).toBe('2:00');
+    expect(within(pending).getByTestId('entry-timing').textContent).toBe('2:00');
   });
 });
