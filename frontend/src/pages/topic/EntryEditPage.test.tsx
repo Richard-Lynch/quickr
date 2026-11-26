@@ -797,7 +797,7 @@ describe('EntryEditPage Edit times with lap types', () => {
     const hints = () =>
       within(form)
         .getAllByText(/^(Run|Rest) \d: /)
-        .map((h) => h.textContent?.split(':')[0]);
+        .map((h) => h.textContent.split(':')[0]);
     expect(hints()).toEqual(['Run 1', 'Rest 1', 'Run 2']);
     // Dropping the second lap's boundary: the third lap becomes Rest 1 (timers2.md §3.2).
     await a.user.click(within(form).getByRole('button', { name: 'Remove segment 2' }));
