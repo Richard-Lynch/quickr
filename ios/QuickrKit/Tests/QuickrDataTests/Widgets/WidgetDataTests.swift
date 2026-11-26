@@ -116,6 +116,38 @@ import Testing
         #expect(WidgetTimeline.reloadDate(after: dates, now: now) == dates.last)
     }
 
+    /// A shown run's pending alert rebuilds the timeline when it passes, if that comes before the
+    /// last entry; one past, or after the last entry, changes nothing.
+    @Test func aPendingAlertRebuildsTheTimelineWhenItPasses() {
+        let now = Make.t0
+        let dates = WidgetTimeline.entryDates(for: [], now: now, skew: 0)
+        let last = WidgetTimeline.reloadDate(after: dates, now: now)
+        let alert = now.addingTimeInterval(12)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: alert) == alert)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: now.addingTimeInterval(-1)) == last)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: last.addingTimeInterval(60)) == last)
+    }
+
+    /// The entries follow content changes (a run's alerts): one at each date and each change,
+    /// each with the value current then.
+    @Test func entriesTakeTheValueCurrentAtTheirDate() {
+        let now = Make.t0
+        let dates = [now, now.addingTimeInterval(900), now.addingTimeInterval(1800)]
+        let change = now.addingTimeInterval(1000)
+        let entries = WidgetTimeline.entries(dates, changes: [(now, "before"), (change, "after")])
+        #expect(entries.map(\.date) == [dates[0], dates[1], change, dates[2]])
+        #expect(entries.map(\.value) == ["before", "before", "after", "after"])
+        // A change past the cap is dropped with the later dates: the last entry keeps the value
+        // before it, whose pending alert the reload then follows (`reloadDate(alert:)`).
+        let full = (0..<WidgetTimeline.maxEntries).map { now.addingTimeInterval(Double($0) * 60) }
+        let capped = WidgetTimeline.entries(full, changes: [(now, "before"), (now.addingTimeInterval(1e6), "after")])
+        #expect(capped.count == WidgetTimeline.maxEntries)
+        #expect(capped.last?.value == "before")
+        let unchanged = WidgetTimeline.entries(dates, changes: [(now, "only")])
+        #expect(unchanged.map(\.date) == dates)
+        #expect(unchanged.allSatisfy { $0.value == "only" })
+    }
+
     /// A due change gets its own entry, so the widget turns due at the minute it does.
     @Test func aDueChangeIsAnEntry() {
         let now = Make.t0.addingTimeInterval(7 * 60)  // logged at t0, every 50 min: due at t0+50

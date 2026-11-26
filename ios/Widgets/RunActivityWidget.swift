@@ -27,7 +27,7 @@ struct RunActivityWidget: Widget {
                             .font(.qr(.footnote)).monospacedDigit()
                             .foregroundStyle(Color.qr.muted)
                         if let alert = display.alert {
-                            RunActivityAlertLine(alert: alert).font(.qr(.caption))
+                            RunAlertLine(alert: alert).font(.qr(.caption))
                         }
                     }
                 }
@@ -88,7 +88,7 @@ struct RunActivityLockScreen: View {
                             .font(.qr(.footnote)).monospacedDigit()
                             .foregroundStyle(Color.qr.muted)
                         if let alert = display.alert {
-                            RunActivityAlertLine(alert: alert).font(.qr(.footnote))
+                            RunAlertLine(alert: alert).font(.qr(.footnote))
                         }
                     }
                 }
@@ -120,26 +120,6 @@ struct RunActivityTimer: View {
         } else if let ended {
             Text(ended)
         }
-    }
-}
-
-/// "⏰ Half way · 0:12", counting down to the alert and staying at 0:00 until the next update
-/// (the activity cannot sound: timers2.md §9); "⏰ 0:12" when the payload budget dropped the label.
-struct RunActivityAlertLine: View {
-    let alert: RunActivityDisplay.Alert
-
-    var body: some View {
-        let at = Date(timeIntervalSince1970: alert.at)
-        HStack(spacing: 4) {
-            Image(systemName: "alarm")
-            if !alert.label.isEmpty {
-                Text(alert.label).lineLimit(1)
-                Text("·")
-            }
-            Text(timerInterval: min(Date(), at)...at, countsDown: true).monospacedDigit()
-        }
-        .foregroundStyle(Color.qr.warn)
-        .accessibilityElement(children: .combine)
     }
 }
 
