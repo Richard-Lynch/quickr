@@ -27,6 +27,7 @@ from app.models import (
     FeedOp,
     Run,
     RunAlias,
+    RunStatus,
     Topic,
     TopicStatus,
     TopicVersion,
@@ -230,6 +231,16 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
             raise InvalidRequest(
                 "an untimed entry has no run times to edit",
                 [FieldIssue(loc=["timing"], message="the entry isn't timed")],
+            )
+        open_again = await db.scalar(
+            select(Run.status).where(
+                Run.id == s.id, Run.status.in_((RunStatus.running, RunStatus.paused, RunStatus.finishing))
+            )
+        )
+        if open_again is not None:  # timers2.md §7.2: the reopened run owns its times
+            raise Conflict(
+                "the entry's run is open again: edit its times after it stops",
+                [FieldIssue(loc=["timing"], message=f"the run is {open_again.value}")],
             )
         version = await db.get_one(TopicVersion, s.topic_version_id)
         # timers2.md §3.3: an edit nulls the segment and pause ids and keeps terminal_id.

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import type { RunEventPayload } from '../outbox/kinds';
 import { STEPS, T0, ev, runItem, serverRun } from '../../test/runs';
 import {
   localRuns,
@@ -181,9 +180,7 @@ describe('local run view (timers.md §8.3)', () => {
       ev('k1', 'skip', T0 + 11 * S, { seg: 1, step: 'breakfast' }),
       ev('l1', 'lap', T0 + 20 * S, { seg: 1 }),
     ];
-    const queued = taps.map(({ type, ...e }) =>
-      runItem(type as RunEventPayload['event']['type'], { ...e, run: 'r1', at: e.at }),
-    );
+    const queued = taps.map(({ type, ...e }) => runItem(type, { ...e, run: 'r1', at: e.at }));
     const local = localRuns([], queued)[0]?.state;
     const acked = localRuns([serverRun('r1', taps)], [])[0]?.state;
     expect(local).toEqual(acked);

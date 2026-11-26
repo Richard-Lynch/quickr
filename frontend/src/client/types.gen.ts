@@ -1783,7 +1783,7 @@ export type RunEventEffect = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
 };
 
 /**
@@ -1801,7 +1801,7 @@ export type RunEventIn = {
     /**
      * Type
      */
-    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard' | 'reopen' | 'remove';
     /**
      * At
      *
@@ -1826,6 +1826,12 @@ export type RunEventIn = {
      * resume (required): the pause event it ends.
      */
     pause_id?: string | null;
+    /**
+     * Target
+     *
+     * reopen and remove only: the event acted on. remove (required): a pause, a lap, or a reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server resolves and stores.
+     */
+    target?: string | null;
     /**
      * Topic Id
      *
@@ -1878,7 +1884,7 @@ export type RunEventOut = {
     /**
      * Type
      */
-    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard' | 'reopen' | 'remove';
     /**
      * At
      */
@@ -1896,6 +1902,12 @@ export type RunEventOut = {
      */
     pause_id: string | null;
     /**
+     * Target
+     *
+     * A reopen's or remove's target as stored: a reopen sent without one carries the stop the server resolved it to (timers2.md §4.2); null for other types.
+     */
+    target: string | null;
+    /**
      * Arrival
      *
      * Server arrival order.
@@ -1908,7 +1920,7 @@ export type RunEventOut = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
     /**
      * Source
      */
@@ -1945,7 +1957,7 @@ export type RunEventResultEvent = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
 };
 
 /**

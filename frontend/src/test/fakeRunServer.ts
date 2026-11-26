@@ -19,9 +19,6 @@ import { fold, projectTiming, stateToWire, timingToWire } from '../lib/runs/fold
 import { formatInstant, parseInstant } from '../lib/runs/instant';
 import type { FoldTimer, RunEvent, RunStatus } from '../lib/runs/types';
 
-/** An event as `RunOut` lists it (fold v4 types are wider until M1-RUNS regenerates it). */
-type ApiEvent = RunOut['events'][number];
-
 export interface RecordedRequest {
   method: string;
   path: string;
@@ -100,17 +97,18 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
       edited: false,
       events: r.events.map((e) => ({
         id: e.id,
-        type: e.type as ApiEvent['type'], // the client has no reopen/remove until M1-RUNS
+        type: e.type,
         at: formatInstant(e.at),
         seg: e.seg,
         step: e.step,
         pause_id: e.pause_id,
+        target: e.target ?? null,
         arrival: e.arrival,
         effect: state.effects[e.id]?.effect ?? 'applied',
-        reason: (state.effects[e.id]?.reason ?? null) as ApiEvent['reason'],
+        reason: state.effects[e.id]?.reason ?? null,
         source: 'ui',
       })),
-      state: { ...stateToWire(state), status: r.status } as RunOut['state'],
+      state: { ...stateToWire(state), status: r.status },
       aliases: [],
     };
   }

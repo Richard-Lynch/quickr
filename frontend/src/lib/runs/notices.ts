@@ -28,6 +28,8 @@ const TAP_NAMES: Record<RunEventPayload['event']['type'], string> = {
   stop: 'Stop',
   finish: 'details',
   discard: 'Discard',
+  reopen: 'Resume',
+  remove: 'Remove',
 };
 
 function clockTime(iso: string): string {

@@ -231,6 +231,7 @@ async def test_start_creates_a_running_run(client: httpx.AsyncClient) -> None:
             "seg": None,
             "step": None,
             "pause_id": None,
+            "target": None,
             "arrival": out["events"][0]["arrival"],
             "effect": "applied",
             "reason": None,

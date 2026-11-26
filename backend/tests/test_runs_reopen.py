@@ -341,7 +341,7 @@ async def test_target_fields_per_type(
     await run.start()
     r = await run.tap(kind, 10, status=422, **fields)
     assert r["code"] == "invalid_request"
-    assert [e["loc"] for e in r["errors"]] == [[loc]]
+    assert [e["loc"] for e in r["errors"]] == [["body", loc]]
 
 
 async def test_timing_carries_event_ids(client: httpx.AsyncClient) -> None:
