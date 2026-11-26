@@ -213,4 +213,84 @@ extension TopicSettingsModelTests {
         #expect(Array(model.appearance.tags[0].unicodeScalars) == Array("cafe\u{301}".unicodeScalars))
         #expect(!model.detailsDirty)
     }
+
+    // MARK: Rebasing on this device's own saves (orchestrator ruling: only a change made elsewhere
+    // answers 409)
+
+    @Test func aScheduleSaveThenADetailsAndAppearanceSaveIsNoConflict() async {
+        let model = themed()
+        model.schedule.kind = .daily
+        model.name = "Feelings"
+        model.appearance.color = .pink
+        await model.saveSchedule()
+        #expect(model.topic.revision == 4)
+        // The schedule save kept the unsaved details and appearance edits.
+        #expect(model.name == "Feelings" && model.appearance.color == .pink)
+        await model.saveDetails()
+        let change = TopicDetailsChange(name: "Feelings", appearance: AppearanceUpdate(color: .some(.pink)))
+        #expect(writer.calls.last == .details(change, expectedRevision: 4))
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Schedule saved", "Saved"])
+        #expect(model.topic.revision == 5)
+    }
+
+    @Test func detailsThenAppearanceSavesAreNoConflict() async {
+        let model = themed()
+        model.name = "Feelings"
+        await model.saveDetails()
+        model.appearance.icon = "☺"
+        await model.saveDetails()
+        #expect(
+            writer.calls.last
+                == .details(
+                    TopicDetailsChange(appearance: AppearanceUpdate(icon: .some(.emoji("☺\u{FE0F}")))),
+                    expectedRevision: 4))
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved", "Saved"])
+    }
+
+    /// An archive is queued: the store's copy after it is sent brings the new revision, and the
+    /// edits in progress stay.
+    @Test func anArchiveThenAnAppearanceSaveRebasesOnTheStoresCopy() async {
+        let model = themed()
+        model.appearance.color = .pink
+        await model.archive()
+        var archived = model.topic
+        archived.status = .archived
+        archived.revision = 4
+        writer.server = archived
+        model.topicChanged(archived)
+        #expect(model.appearance.color == .pink, "unsaved edit kept")
+        await model.saveDetails()
+        #expect(
+            writer.calls.last
+                == .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 4))
+        #expect(model.detailsBanner == nil)
+    }
+
+    /// An older copy arriving after this device's own save doesn't put the old revision back.
+    @Test func anOlderCopyAfterAnOwnSaveIsIgnored() async {
+        let model = themed()
+        let before = model.topic
+        model.name = "Feelings"
+        await model.saveDetails()
+        model.topicChanged(before)
+        #expect(model.topic.revision == 4 && model.topic.name == "Feelings")
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(model.detailsBanner == nil)
+        #expect(
+            writer.calls.last
+                == .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 4))
+    }
+
+    /// A change made elsewhere (another device) that this screen hasn't seen still answers 409.
+    @Test func aChangeFromElsewhereStillConflicts() async {
+        let model = themed()
+        writer.server.revision = 4  // another device saved; no sync yet
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
+        #expect(model.appearance.color == .pink, "the edit stays to retry")
+    }
 }

@@ -84,8 +84,14 @@ public final class TopicSettingsModel {
     public var isArchived: Bool { topic.status == .archived }
 
     /// The store has a newer copy of the topic (a sync, an archive). Like the PWA's forms, which
-    /// are keyed by the saved values, a section whose saved values changed starts over from them.
+    /// are keyed by the saved values, a section whose saved values changed starts over from them;
+    /// the others keep their edits and rebase on the new revision (the next save sends it).
+    ///
+    /// A copy older than the one on screen is ignored: an observation already in flight when this
+    /// screen's own save returned would otherwise put the old revision back, and the next save
+    /// would answer `staleRevision` for a change this device made.
     public func topicChanged(_ newer: Topic) {
+        guard newer.revision >= topic.revision else { return }
         let old = topic
         topic = newer
         if (old.name, old.slug, old.description) != (newer.name, newer.slug, newer.description)

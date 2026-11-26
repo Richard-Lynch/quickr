@@ -36,6 +36,9 @@ final class FakeTopicWriter: TopicWriter {
     {
         calls.append(.details(change, expectedRevision: expectedRevision))
         if let topicResult { return topicResult }
+        // The server's `expected_revision` check, which `SessionTopicWriter` sends with an
+        // appearance change (`TopicWrites.updateAppearance`).
+        if change.appearance != nil && expectedRevision != server.revision { return .staleRevision }
         server.name = change.name ?? server.name
         server.slug = change.slug ?? server.slug
         server.description = change.description ?? server.description
