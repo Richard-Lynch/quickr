@@ -9,6 +9,7 @@ import {
   newDraftVariable,
   parseDurationText,
   timerFromDraft,
+  timerIssues,
   timerHistory,
   withAlertLabel,
   withLapTypeLabel,
@@ -466,6 +467,40 @@ describe('timer v2 drafts (timers2.md §1)', () => {
       steps: [],
       laps: [],
       variables: [],
+    });
+  });
+
+  it('trims labels and keys as the server does (pydantic strip: U+0085 goes, U+FEFF stays) (P3-3)', () => {
+    const nel = '\u0085';
+    const bom = '\ufeff';
+    // A label of U+0085 alone is empty to the server (422): Required here too.
+    const blank = timerIssues({
+      timed: true,
+      steps: [stepOf('a', nel)],
+      laps: [lapType('b', nel, [alert(nel, '1s', 'c')])],
+      variables: [],
+    });
+    expect(pathsOf(blank)).toEqual(
+      expect.arrayContaining([
+        ['steps.0.label', 'Required'],
+        ['laps.0.label', 'Required'],
+        ['laps.0.alerts.0.label', 'Required'],
+      ]),
+    );
+    // A label of U+FEFF alone is kept by the server: accepted, and stored as sent.
+    const r = timerFromDraft({
+      timed: true,
+      steps: [stepOf(`${nel}a${nel}`, `${nel}${bom}${nel}`)],
+      laps: [lapType('b', bom, [alert(`${bom}`, '1s', `${nel}c`)])],
+      variables: [],
+    });
+    expect(r).toEqual({
+      ok: true,
+      timer: {
+        steps: [{ key: 'a', label: bom, alerts: [] }],
+        laps: [{ key: 'b', label: bom, alerts: [{ key: 'c', label: bom, at: '1s', at_ms: 1000 }] }],
+        variables: [],
+      },
     });
   });
 
