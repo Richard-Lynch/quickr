@@ -5,8 +5,9 @@
  */
 import { zodResolver } from '@hookform/resolvers/zod';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { FormProvider, useForm } from 'react-hook-form';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -256,12 +257,20 @@ describe('SettingsPage appearance PATCH', () => {
     return () => sent.filter((r) => r.method === 'PATCH');
   }
 
+  /** `setTopic` stands in for a refetch that brings a newer topic (changed on another device). */
+  let setTopic: (t: TopicDetail) => void = () => undefined;
+  function Layout() {
+    const [current, set] = useState<TopicDetail>(topic);
+    setTopic = set;
+    return <Outlet context={{ topic: current }} />;
+  }
+
   function renderSettings() {
     const router = createMemoryRouter(
       [
         {
           path: '/t/:ref',
-          element: <Outlet context={{ topic }} />,
+          element: <Layout />,
           children: [{ path: 'settings', element: <SettingsPage /> }],
         },
       ],
@@ -315,6 +324,30 @@ describe('SettingsPage appearance PATCH', () => {
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(patches()[0]?.body).toEqual({ appearance: { icon: null }, expected_revision: 7 });
+  });
+
+  it('takes a newer topic into a clean form', async () => {
+    stubServer(() => json(500, {}));
+    renderSettings();
+    expect(await screen.findByRole('radio', { name: 'Red' })).toBeChecked();
+    act(() => setTopic({ ...topic, revision: 8, appearance: { ...appearance, color: 'green' } }));
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Green' })).toBeChecked());
+  });
+
+  it('keeps a dirty form’s base: only its own edits, with the revision it started from', async () => {
+    const patches = stubServer(() =>
+      json(409, { code: 'stale_revision', detail: 'Changed', errors: [] }),
+    );
+    const user = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    act(() =>
+      setTopic({ ...topic, revision: 8, name: 'Lifting', appearance: { ...appearance, tags: [] } }),
+    );
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    await waitFor(() => expect(patches()).toHaveLength(1));
+    expect(patches()[0]?.body).toEqual({ appearance: { color: 'blue' }, expected_revision: 7 });
+    expect(await screen.findByText('Changed')).toBeInTheDocument();
   });
 
   it('puts the server’s 422 paths on the matching field', async () => {
