@@ -30,6 +30,20 @@ run.
 | check-ios tail                       | `ios/scripts/resolved-check.sh`, `ios/scripts/lint.sh`                                                                               | 2026-11-26 13:21       | none                                        | both rc=0                                     | These are the last two steps of check-ios, run by hand because check-ios stopped at the iOS 26.0 UI plan.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | e2e UI                               | `IOS_RESULT_BUNDLE=… heavy.sh ios/scripts/uitest-e2e.sh 37467AE0… -collect-test-diagnostics never`, then `make ios-integration-down` | 2026-11-26 13:21–13:26 | `gate-e2e-ios26-UI-20261126-132152`         | **14 executed, 14 passed** / 0 / 3 (17 total) | Passed against the run's own stack `quickr-it-t2-m1-gate-f08e14`, which came up, passed its smoke check and went down; `ios-integration-down` rc=0. The 3 skips are `EndToEndUITests` `testDemoChipAndUndo`, `testDemoOfflineThenSync` and `testDemoSameAsLast`: "Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)". EndToEnd ran 4 and skipped those 3 demos; EntriesEndToEnd ran 4; TapCount ran 6. Load averages at end: 21.67 / 22.44 / 18.31.                                                                                                                                       |
 
+## SettingsUITests re-run after #232 (t2-m1-evidence)
+
+feat/t2's #232 fixes the #89 "Save Password?" flake. It reached `t2/m1` in
+`62eefeab`. `SettingsUITests` was re-run **once**, with no retry, on `t2/m1` at
+`da126790`. The run used this worktree's own clone
+`quickR iOS-26-0 t2-m1-evidence-1102f6`
+(`899113D3-4650-497B-AA2C-5C4CAD2E4F35`, iOS 26.0), from the worktree
+`quickr-worktrees/t2-m1-evidence`. `make ios-gen` and build-for-testing ran
+first, through `heavy.sh`. The clone was shut down straight after the run.
+
+| Run | Command | Date (UTC) | xcresult | Passed / failed / skipped | Notes |
+| --- | --- | --- | --- | --- | --- |
+| SettingsUITests after #232 | `IOS_RESULT_BUNDLE=… heavy.sh ios/scripts/test.sh UI 899113D3… -only-testing:QuickRUITests/SettingsUITests` | 2026-11-26 14:32–14:33 | `evidence-settings-ui-20261126-143211` | **5 / 0 / 0** (5 total) | Passed. `testOnboardingWithAServiceToken` and `testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain` both passed; these are the two #89 failures in the gate runs above. The other three passed too: `testCancellingTheTokenSheetSavesNothing`, `testOnboardingConnectsAndEndsAtTheTopicList` and `testOnboardingWorksAtAnAccessibilityTextSize`. Load averages at start: 32.95 / 10.64 / 7.75; at end: 18.45 / 13.44 / 9.27. |
+
 ## Earlier M1 bundles (exported here so they outlive cleanup)
 
 These come from the WP PRs. Their context, including the red-before-green runs,
