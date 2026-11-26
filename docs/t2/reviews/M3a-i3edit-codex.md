@@ -52,3 +52,18 @@ The create path carries appearance, and the concrete details writer routes an ap
 ### Resolution
 
 1. Medium, an older save response could overwrite a newer copy already on screen: fixed. Both save paths (details and schedule) now take the answer only if its revision is at least the screen's (`adopt`). Test `aNewerCopyDuringASaveWinsOverItsAnswer`; with the guard removed it fails 3 expectations.
+
+## Field-level conflicts (db49bd94, matching #220)
+
+- **High — Details-only saves bypass revision checks.** [SessionTopicWriter.swift](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/App/Topics/SessionTopicWriter.swift:30) sends `expectedRevision` only when the change includes appearance. A name, slug, or description edit therefore uses the unconditional update path. If another device changes the same field, the save can overwrite it instead of producing the conflict required by `MetaForm`. The new tests exercise the retry through appearance changes, so they do not catch this production-writer behavior.
+
+- **High — A concurrent schedule save can invalidate the conflict check for an in-flight Details save.** [TopicSettingsModel.swift](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/QuickrKit/Sources/QuickrUI/Topics/TopicSettingsModel.swift:91) rebases Details in `adopt()` even while `isSavingDetails` is true. If the schedule response arrives after the Details request starts, it can advance `detailsBase` and replace an untouched field. The stale-revision handler then computes `editedFields` against that *new* base but compares those fields against the captured *old* base at [line 216](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/QuickrKit/Sources/QuickrUI/Topics/TopicSettingsModel.swift:216). A field in the already-built `change` can disappear from that set, allowing a retry that overwrites a concurrent change. The PWA suppresses rebasing throughout submission.
+
+- **Medium — A topic update received during a failed Details save is never rebased afterward.** [TopicSettingsModel.swift](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/QuickrKit/Sources/QuickrUI/Topics/TopicSettingsModel.swift:112) skips rebasing while saving, but clearing `isSavingDetails` at [line 212](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/QuickrKit/Sources/QuickrUI/Topics/TopicSettingsModel.swift:212) does not reconsider the already-adopted `topic`. After a rejected or failed save, untouched fields can remain stale and the base retains its old revision until another observation arrives. The PWA re-evaluates the pending topic when submission ends.
+
+The existing tests cover ordinary rebasing, retry, conflict, and a newer observation during a successful save, but do not cover these concurrent schedule and failed-save paths or verify revision enforcement through `SessionTopicWriter`. I did not run the tests.
+### Resolution
+
+1. High, a details-only save sent no revision: fixed. `SessionTopicWriter.saveDetails` always sends `expected_revision` through `TopicWrites.updateAppearance`, as `MetaForm` does. The fake writer checks it on every details save. Test `aNameChangedElsewhereConflicts`.
+2. High, a schedule answer during a details save moved the base: fixed. `adopt` doesn't rebase while a details save is in flight, and the stale check uses the edited fields captured before sending. Test `aCopyDuringAFailedSaveIsTakenAfterIt`.
+3. Medium, a copy that arrived during a failed save was never rebased: fixed. A failed save rebases on the newest copy when it ends. The same test covers it; with the rebase removed it fails.

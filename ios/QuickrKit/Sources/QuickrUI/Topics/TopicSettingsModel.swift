@@ -87,11 +87,12 @@ public final class TopicSettingsModel {
     public var isArchived: Bool { topic.status == .archived }
 
     /// A save's answer, unless the store already brought a newer copy while it was in flight
-    /// (that copy includes this save). The Details edits rebase on it as on a synced copy.
+    /// (that copy includes this save). The Details edits rebase on it as on a synced copy, except
+    /// while a Details save is in flight (it rebases when that ends).
     private func adopt(_ updated: Topic) {
         guard updated.revision >= topic.revision else { return }
         topic = updated
-        rebaseDetails(on: updated)
+        if !isSavingDetails { rebaseDetails(on: updated) }
     }
 
     /// The store has a newer copy of the topic (a sync, an archive, this screen's own save).
@@ -208,19 +209,26 @@ public final class TopicSettingsModel {
             toasts.show(Toast("Nothing to save", tone: .info))
             return
         }
+        // The fields this save sends, fixed now: copies arriving meanwhile don't move the base.
+        let edited = editedFields
         isSavingDetails = true
-        defer { isSavingDetails = false }
         let oldSlug = base.slug
         var outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: base.revision)
         if case .staleRevision = outcome, case .done(let fresh) = await writer.latestTopic(topicId: base.id) {
-            if Self.changed(editedFields, from: base, to: fresh) {
+            if Self.changed(edited, from: base, to: fresh) {
                 // An edited field changed elsewhere: the conflict shows, the edits stay.
                 adopt(fresh)
             } else {
                 outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: fresh.revision)
             }
         }
-        guard detailsSaved(outcome) else { return }
+        let saved = detailsSaved(outcome)
+        isSavingDetails = false
+        guard saved else {
+            // Copies that arrived during the save are considered now.
+            rebaseDetails(on: topic)
+            return
+        }
         resetDetails()
         toasts.show(Toast("Saved"))
         if topic.slug != oldSlug { onSlugChanged(topic.slug) }

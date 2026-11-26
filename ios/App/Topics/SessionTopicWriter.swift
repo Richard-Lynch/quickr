@@ -25,17 +25,12 @@ final class SessionTopicWriter: TopicWriter, VersionWriter, EntryTimingWriting {
         await perform { await $0.create(TopicRequests.create(creation, schedule: schedule, appearance: appearance)) }
     }
 
-    /// An appearance change carries `expected_revision` (`TopicWrites.updateAppearance`); the
-    /// name, slug and description alone don't, as on the PWA.
+    /// Always with `expected_revision` (`TopicWrites.updateAppearance` sends the Details body with
+    /// it), as the PWA's `MetaForm` does: a field changed elsewhere answers `staleRevision`.
     func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
         -> TopicWriteOutcome<Topic>
     {
-        if change.appearance != nil {
-            return await perform {
-                await $0.updateAppearance(topicId: topicId, change, expectedRevision: expectedRevision)
-            }
-        }
-        return await perform { await $0.update(topicId: topicId, TopicRequests.details(change)) }
+        await perform { await $0.updateAppearance(topicId: topicId, change, expectedRevision: expectedRevision) }
     }
 
     func saveSchedule(_ schedule: Schedule?, topicId: UUID) async -> TopicWriteOutcome<Topic> {

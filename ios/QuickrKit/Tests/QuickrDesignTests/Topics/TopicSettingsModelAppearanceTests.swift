@@ -359,4 +359,38 @@ extension TopicSettingsModelTests {
                 == .details(TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink))), expectedRevision: 5))
         #expect(model.detailsBanner == nil)
     }
+
+    /// Codex field-level #1: a name-only save carries the revision too, so a name changed elsewhere
+    /// conflicts instead of being overwritten.
+    @Test func aNameChangedElsewhereConflicts() async {
+        writer.server.revision = 4
+        writer.server.name = "Renamed on the iPad"
+        model.name = "Feelings"
+        await model.saveDetails()
+        #expect(writer.calls == [.details(TopicDetailsChange(name: "Feelings"), expectedRevision: 3)])
+        #expect(model.detailsBanner == TopicWriteMessage.staleRevision)
+        #expect(model.name == "Feelings")
+    }
+
+    /// Codex field-level #2 and #3: a copy arriving during the save neither moves the base under
+    /// it nor is lost when the save fails; the next save sends its revision.
+    @Test func aCopyDuringAFailedSaveIsTakenAfterIt() async {
+        let model = themed()
+        model.name = "Feelings"
+        var newer = model.topic
+        newer.description = "Changed on the iPad"
+        newer.revision = 4
+        writer.topicResult = .offline
+        writer.whileSaving = { [model] in model.topicChanged(newer) }
+        await model.saveDetails()
+        #expect(model.detailsBanner == TopicWriteMessage.offline)
+        #expect(model.description == "Changed on the iPad", "the untouched field took the copy")
+        #expect(model.name == "Feelings", "the edit stays")
+        writer.whileSaving = nil
+        writer.topicResult = nil
+        writer.server = newer
+        await model.saveDetails()
+        #expect(writer.calls.last == .details(TopicDetailsChange(name: "Feelings"), expectedRevision: 4))
+        #expect(model.detailsBanner == nil)
+    }
 }

@@ -72,9 +72,9 @@ public protocol TopicWriter: AnyObject {
     /// "Create topic", with the appearance the topic starts with (`.empty`: the server's defaults).
     func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
         -> TopicWriteOutcome<Topic>
-    /// "Save details": one PATCH of the changed fields. `expectedRevision` is the revision on
-    /// screen; it is sent when the appearance changed (`TopicWrites.updateAppearance`), so a topic
-    /// themed elsewhere meanwhile answers `staleRevision` instead of being overwritten.
+    /// "Save details": one PATCH of the changed fields with `expected_revision: expectedRevision`
+    /// (the Details base's), so a topic changed elsewhere meanwhile answers `staleRevision`
+    /// instead of being overwritten.
     func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
         -> TopicWriteOutcome<Topic>
     /// The server's topic now: the fresh copy a `staleRevision` details save is checked against.
