@@ -27,6 +27,11 @@ public struct Topic: Sendable, Hashable, Identifiable {
     /// reads it from the current version's row, so it's nil there until that row is synced.
     public var timer: TopicTimer?
     public var questions: [Question]
+    // T2-M3
+    /// Colour, emoji and tags (appearance.md §1.1, §4.1); topic-level and unversioned. Empty (the
+    /// default theme) until set; the DTOs and the store fill it in after `init`.
+    public var appearance: TopicAppearance = .empty
+    // end T2-M3
 
     public init(
         id: UUID, slug: String, name: String, description: String = "", status: TopicStatus = .active,
@@ -75,6 +80,10 @@ public struct TopicSummary: Sendable, Hashable, Identifiable {
     public var due: DueStatus?
     /// The current version's timer; nil when the topic isn't timed (timers.md §2.1).
     public var timer: TopicTimer?
+    // T2-M3
+    /// See `Topic.appearance`.
+    public var appearance: TopicAppearance = .empty
+    // end T2-M3
 
     public init(
         id: UUID, slug: String, name: String, description: String, status: TopicStatus, currentVersion: Int,

@@ -8,7 +8,7 @@
  * field remembers its original text and millisecond: while its text is unchanged it sends that
  * exact millisecond; once edited, it sends the second it shows.
  */
-import type { Step as TimerStep, Timing, TimingEdit } from '../../client';
+import type { StepInput as TimerStep, Timing, TimingEdit } from '../../client';
 import { MAX_RUN_MS } from '../../lib/runs/fold';
 import { formatInstant, parseInstant } from '../../lib/runs/instant';
 

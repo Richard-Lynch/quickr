@@ -483,6 +483,14 @@ compatibility.md stays, with these changes (one PR, CV-COMPAT):
    skips. `client_fixtures.py add` (the TestFlight `record` job and manual adds)
    writes the `api_level` from `shared/api-level.json` at the build's sha. A
    listed client below the minimum MAY be removed in the same PR that raises it.
+   It also skips, and prints, a listed client whose `api_level` is **above**
+   the checkout's `api_level` (added 2026-11-25, T2 M1-LEVEL): a build uploaded
+   from a bumped branch (a release candidate's TestFlight build) is recorded on
+   `main` by its record PR before the bump merges there, and its wire suites
+   read fixtures that branch doesn't have yet. The record PR therefore passes
+   `main`'s `old clients` and `openapi breaking` jobs, and the build is checked
+   once the bump lands. `client_fixtures.py check` still requires its listed
+   level to be the one at its sha.
 3. **`openapi breaking` (§2).**
    - Against each **supported** listed client: unchanged. A break against one of
      them fails. The only way to break such a client is to raise the minimum

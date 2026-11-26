@@ -117,6 +117,54 @@ import Testing
         #expect(cut.unicodeScalars.count == 120 && cut.hasSuffix("…"))
     }
 
+    // T2-M3
+    // MARK: - The emoji prefix (appearance.md §6.7)
+
+    struct ReminderTitle: Decodable, Sendable, CustomTestStringConvertible {
+        var name: String
+        var topicName: String
+        var icon: String?
+        var expected: String
+
+        enum CodingKeys: String, CodingKey {
+            case name, icon, expected
+            case topicName = "topic_name"
+        }
+
+        var testDescription: String { name }
+    }
+
+    static let reminderTitles: [ReminderTitle] = {
+        struct Vectors: Decodable {
+            var reminderTitles: [ReminderTitle]
+            enum CodingKeys: String, CodingKey { case reminderTitles = "reminder_titles" }
+        }
+        do {
+            return try JSONDecoder().decode(Vectors.self, from: Fixtures.data("appearance-vectors.json")).reminderTitles
+        } catch {
+            fatalError("appearance-vectors.json: \(error)")
+        }
+    }()
+
+    @Test func hasTheReminderTitles() {
+        #expect(Self.reminderTitles.count >= 6)
+        #expect(Self.reminderTitles.contains { $0.icon == nil } && Self.reminderTitles.contains { $0.icon != nil })
+        #expect(Self.reminderTitles.contains { $0.expected.hasSuffix("…") && $0.icon != nil })
+    }
+
+    /// The local reminder's title is the server's: `"{emoji} {name}"`, cut from the end so the
+    /// emoji stays (`reminder_titles[]`).
+    @Test(arguments: reminderTitles)
+    func theTitleIsComposedAsTheServerDoes(_ vector: ReminderTitle) {
+        var topic = Self.topic(schedule: nil, lastMinutesAgo: nil)
+        topic.name = vector.topicName
+        topic.appearance.icon = vector.icon.map(TopicIcon.emoji)
+        let request = DueReminder.request(serverId: "s", topic: topic, category: nil, now: Self.now)
+        #expect(request.title == vector.expected)
+        #expect(request.title.unicodeScalars.elementsEqual(vector.expected.unicodeScalars), "scalar for scalar")
+    }
+    // end T2-M3
+
     static func instant(_ text: String) throws -> Date {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

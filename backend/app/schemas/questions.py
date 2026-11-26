@@ -24,6 +24,7 @@ from pydantic import (
     StrictFloat,
     StrictInt,
     StrictStr,
+    StringConstraints,
     ValidationError,
     ValidationInfo,
     ValidatorFunctionWrapHandler,
@@ -37,15 +38,25 @@ from app.schemas.limits import (
     INT64_MAX,
     INT64_MIN,
     KEY_PATTERN,
+    MAX_ALERTS,
     MAX_DECIMALS,
     MAX_ENUM_OPTIONS,
+    MAX_EXPR_LENGTH,
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
+    MAX_LAP_TYPES,
     MAX_QUESTIONS,
+    MAX_SHORT_LABEL_LENGTH,
     MAX_STEPS,
     MAX_STR_LENGTH,
     MAX_UNIT_LENGTH,
+    MAX_VAR_NAME_LENGTH,
+    MAX_VARIABLE_MS,
+    MAX_VARIABLES,
+    RESERVED_VAR_NAMES,
+    VAR_NAME_PATTERN,
 )
+from app.services import timer_expr
 
 __all__ = ["KEY_PATTERN", "MAX_ENUM_OPTIONS", "MAX_QUESTIONS", "MAX_STR_LENGTH", "StrictModel"]
 
@@ -243,24 +254,143 @@ class QuestionSet(StrictModel):
     questions: QuestionList
 
 
+ShortLabel = Annotated[str, Field(min_length=1, max_length=MAX_SHORT_LABEL_LENGTH)]
+# Not stripped, and its length is the evaluator's check: an error's `pos` is an offset into the
+# text as sent, and a long one is `too_long at 64` (timers2.md §1.3, §2.3).
+Expr = Annotated[
+    str,
+    StringConstraints(strip_whitespace=False),
+    Field(
+        description="An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. "
+        f"1..{MAX_EXPR_LENGTH} characters.",
+        examples=["t/2"],
+        json_schema_extra={"minLength": 1, "maxLength": MAX_EXPR_LENGTH},
+    ),
+]
+
+_VAR_NAME_INPUT_RE = re.compile(VAR_NAME_PATTERN.replace("a-z", "A-Za-z"))
+
+
+def _check_var_name(v: str) -> str:
+    if not _VAR_NAME_INPUT_RE.fullmatch(v):
+        raise PydanticCustomError(
+            "var_name_format",
+            "must start with a letter and contain only letters, digits and underscores "
+            f"(at most {MAX_VAR_NAME_LENGTH} characters)",
+        )
+    name = v.lower()
+    if name in RESERVED_VAR_NAMES:
+        raise PydanticCustomError(
+            "var_name_reserved",
+            "'{name}' is a unit (ms, s, m, h) and can't be a variable name",
+            {"name": name},
+        )
+    return name
+
+
+VarName = Annotated[
+    str,
+    AfterValidator(_check_var_name),
+    Field(
+        json_schema_extra={"pattern": _VAR_NAME_INPUT_RE.pattern},
+        description="Case-insensitive on input, stored and returned lowercase; not a unit (ms, s, m, h).",
+        examples=["t"],
+    ),
+]
+
+
+class Variable(StrictModel):
+    """A named duration that alert expressions refer to (``t``, ``rest``)."""
+
+    name: VarName
+    ms: Annotated[StrictInt, Field(ge=0, le=MAX_VARIABLE_MS)]
+
+
+class Alert(StrictModel):
+    """A cue that fires when its segment's active time reaches ``at_ms``."""
+
+    key: QuestionKey
+    label: ShortLabel
+    at: Expr
+    at_ms: StrictInt = Field(
+        default=0,
+        description="Output only: ``at`` evaluated over the timer's variables, in ms. A sent value "
+        "is ignored.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_sent_at_ms(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "at_ms" in data:
+            return {k: v for k, v in data.items() if k != "at_ms"}
+        return data
+
+
+Alerts = Annotated[list[Alert], Field(max_length=MAX_ALERTS, default_factory=list)]
+
+
 class Step(StrictModel):
     """A named checkpoint of a timed topic. Its key is its identity across versions, in a
-    namespace of its own (a step and a question may share a key)."""
+    namespace of its own (a step and a question may share a key) that it shares with the
+    timer's lap types."""
 
     key: QuestionKey
     label: Label
+    alerts: Alerts
+
+
+class LapType(StrictModel):
+    """A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two
+    or more alternate). Its key is its identity across versions, as a step's is."""
+
+    key: QuestionKey
+    label: ShortLabel
+    alerts: Alerts
 
 
 class Timer(StrictModel):
-    """A version's timing: its steps, timed in this order. No steps makes a plain stopwatch."""
+    """A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),
+    its lap types, and the variables its alerts refer to (timers2.md §1).
+
+    Output is normalised: every list is present and each alert's ``at_ms`` is filled. The v1
+    shape ``{steps: [{key, label}]}`` is accepted, stored ones included."""
 
     steps: Annotated[list[Step], Field(max_length=MAX_STEPS)]
+    laps: Annotated[
+        list[LapType],
+        Field(max_length=MAX_LAP_TYPES, default_factory=list, description="None: laps are untyped."),
+    ]
+    variables: Annotated[list[Variable], Field(max_length=MAX_VARIABLES, default_factory=list)]
 
     @model_validator(mode="after")
-    def _unique_keys(self) -> Self:
-        keys = [s.key for s in self.steps]
-        for i in _duplicate_indices(keys):
-            raise field_error(f"steps.{i}.key", f"duplicate step key '{keys[i]}'")
+    def _check(self) -> Self:
+        step_keys = [s.key for s in self.steps]
+        for i in _duplicate_indices(step_keys):
+            raise field_error(f"steps.{i}.key", f"duplicate step key '{step_keys[i]}'")
+        seen: set[str] = set()
+        for i, lap in enumerate(self.laps):
+            if lap.key in step_keys:
+                raise field_error(f"laps.{i}.key", f"duplicate key '{lap.key}' (also a step)")
+            if lap.key in seen:
+                raise field_error(f"laps.{i}.key", f"duplicate lap type key '{lap.key}'")
+            seen.add(lap.key)
+        names = [v.name for v in self.variables]
+        for i in _duplicate_indices(names):
+            raise field_error(f"variables.{i}.name", f"duplicate variable name '{names[i]}'")
+        owners: list[tuple[str, Sequence[Step | LapType]]] = [("steps", self.steps), ("laps", self.laps)]
+        for path, items in owners:
+            for i, owner in enumerate(items):
+                keys = [a.key for a in owner.alerts]
+                for j in _duplicate_indices(keys):
+                    raise field_error(f"{path}.{i}.alerts.{j}.key", f"duplicate alert key '{keys[j]}'")
+        variables = dict(zip(names, (v.ms for v in self.variables), strict=True))
+        for path, items in owners:
+            for i, owner in enumerate(items):
+                for j, alert in enumerate(owner.alerts):
+                    try:
+                        alert.at_ms = timer_expr.evaluate(alert.at, variables)
+                    except timer_expr.ExprError as exc:
+                        raise field_error(f"{path}.{i}.alerts.{j}.at", str(exc)) from None
         return self
 
 

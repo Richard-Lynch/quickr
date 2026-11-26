@@ -134,30 +134,32 @@ segmentation, so the server uses the `regex` package (added to
 `backend/pyproject.toml`; it supports `\X` and Unicode emoji properties).
 `appearance.check_icon(value: str) -> str` returns the stored form:
 
-1. `value = unicodedata.normalize("NFC", value)`; reject if empty or more than
-   16 code points.
+1. `value = unicodedata.normalize("NFC", value)`; reject if empty.
 2. **Normalise text-presentation pictographs:** if the first scalar is
    `\p{Extended_Pictographic}` without `\p{Emoji_Presentation}` and the second
    scalar is not U+FE0F, insert U+FE0F after it (so "☺" is stored as "☺️").
    Keycap bases (`[0-9#*]`) are not pictographs; they need the full
-   `base FE0F 20E3` sequence as sent.
+   `base FE0F 20E3` sequence as sent. Then reject if the result is more than
+   16 code points: the limit applies to the **stored** form, so it fits
+   `VARCHAR(16)` after the VS16 insert.
 3. Reject unless `regex.fullmatch(r"\X", value)` (exactly one extended grapheme
    cluster).
-4. Reject unless the cluster **starts** as an emoji:
-   `regex.match(r"(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}️|\p{Regional_Indicator}{2}|[0-9#*]️⃣)", value)`.
-   This admits ZWJ sequences (👨‍👩‍👧), skin tones, flags and keycaps, and refuses
-   letters, digits, "abc", two emoji, and a bare pictograph the normalisation
-   could not fix.
+4. Reject unless the cluster **starts** as an emoji, per the **server** row of
+   the table below. This admits ZWJ sequences (👨‍👩‍👧), skin-toned emoji, flags and
+   keycaps, and refuses letters, digits, "abc", two emoji, a bare pictograph the
+   normalisation could not fix, a **lone regional indicator** (🇮) and a **lone
+   skin-tone modifier** (🏽) — neither is `\p{Extended_Pictographic}`, although
+   both are `\p{Emoji_Presentation}`.
 
 **Exact predicates per platform** (after the shared NFC + VS16 normalisation of
 steps 1–2 and the one-cluster check of step 3; `s0` is the first scalar, `s1`
 the second):
 
-| Platform   | One cluster                                                                            | Starts as an emoji                                                                                                                                                                                                                                                         |
-| ---------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **server** | `regex.fullmatch(r"\X", value)`                                                        | `s0 ∈ \p{Extended_Pictographic}` and (`s0 ∈ \p{Emoji_Presentation}` or `s1 == U+FE0F`); or `s0, s1 ∈ \p{Regional_Indicator}`; or `s0 ∈ [0-9#*]` and `s1 == U+FE0F` and `s2 == U+20E3` (keycap)                                                                             |
-| **iOS**    | `value.count == 1` (one `Character`)                                                   | `s0.properties.isEmojiPresentation`; or (`s0.properties.isEmoji && !s0.isASCII` and `s1 == U+FE0F`); or `s0`, `s1` both in U+1F1E6–1F1FF; or the keycap sequence as on the server. Swift has no `Extended_Pictographic`; `isEmoji` is true for `0–9 # *`, hence `!isASCII` |
-| **PWA**    | `[...new Intl.Segmenter('en', {granularity: 'grapheme'}).segment(value)].length === 1` | the server's regex with the `v` flag: `/^(?:\p{Extended_Pictographic}(?:\p{Emoji_Presentation}                                                                                                                                                                             | ️)   | \p{Regional_Indicator}{2} | [0-9#*]️⃣)/v`— written as`s0`-level checks, identical to the server |
+| Platform   | One cluster                                                                            | Starts as an emoji                                                                                                                                                                                                                                                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **server** | `regex.fullmatch(r"\X", value)`                                                        | `s0 ∈ \p{Extended_Pictographic}` and (`s0 ∈ \p{Emoji_Presentation}` or `s1 == U+FE0F`); or `s0, s1 ∈ \p{Regional_Indicator}`; or `s0 ∈ [0-9#*]` and `s1 == U+FE0F` and `s2 == U+20E3` (keycap)                                                                                                                                                             |
+| **iOS**    | `value.count == 1` (one `Character`)                                                   | `s0` is neither a regional indicator (U+1F1E6–1F1FF) nor `isEmojiModifier`, and (`s0.properties.isEmojiPresentation`, or `s0.properties.isEmoji && !s0.isASCII` and `s1 == U+FE0F`); or `s0`, `s1` both in U+1F1E6–1F1FF; or the keycap sequence as on the server. Swift has no `Extended_Pictographic`; `isEmoji` is true for `0–9 # *`, hence `!isASCII` |
+| **PWA**    | `[...new Intl.Segmenter('en', {granularity: 'grapheme'}).segment(value)].length === 1` | the server row, as `s0`/`s1`/`s2` checks with `\p{…}` property escapes (`u` or `v` flag): `\p{Extended_Pictographic}` on `s0` and (`\p{Emoji_Presentation}` on `s0` or `s1 == U+FE0F`); or `\p{Regional_Indicator}` on `s0` and `s1`; or the keycap                                                                                                        |
 
 Where the platforms differ: a **digit or `#`/`*` followed by VS16** (`5️`) is
 refused everywhere (server: not `Extended_Pictographic`; iOS: `isASCII`);
@@ -218,7 +220,8 @@ does), README row added:
 `icons[]` (≥ 17): `plain` (🚬), `vs16_added` (☺ → ☺️), `vs16_present` (☺️),
 `copyright_vs16` (©️ ✓), `zwj_family`, `skin_tone`, `flag`, `keycap` (1️⃣),
 `letter` (✗), `digit` (✗), `digit_vs16` (`5️` ✗ — iOS must check `!isASCII`),
-`hash_vs16_no_keycap` (`#️` ✗), `two_emoji` (✗), `emoji_plus_letter` (✗), `empty`
+`hash_vs16_no_keycap` (`#️` ✗), `lone_regional_indicator` (🇮 ✗),
+`lone_skin_tone` (🏽 ✗), `two_emoji` (✗), `emoji_plus_letter` (✗), `empty`
 (✗), `too_long` (✗, 17 code points of tag characters),
 `text_symbol_no_vs16_unfixable` (✗, e.g. "→"). Every case carries one
 `expected`; the three validators MUST agree on all of them (§2). `tags[]` (≥ 8):
@@ -285,13 +288,18 @@ export function checkIcon(value: string): { ok: true; value: string } | { ok: fa
 export function checkTags(tags: readonly string[]): { ok: true; value: string[] } | { ok: false; index: number; message: string };
 ```
 
-`index.css` adds, in `@theme`, `--color-topic-tint: var(--color-accent)`,
-`--color-topic-tint-soft: var(--color-accent-soft)`,
-`--color-topic-on-tint: var(--color-on-accent)` (so `bg-topic-tint`,
-`bg-topic-tint-soft`, `text-topic-tint`, `text-topic-on-tint`,
-`border-topic-tint` utilities exist and default to the accent), and twelve
-`[data-topic-color="red"] { --color-topic-tint: … }` blocks with dark overrides
-under `@media (prefers-color-scheme: dark)`. `topicStyle` sets the three
+`index.css` adds, in `@theme inline`,
+`--color-topic-tint: var(--topic-tint, var(--color-accent))`,
+`--color-topic-tint-soft: var(--topic-tint-soft, var(--color-accent-soft))`,
+`--color-topic-on-tint: var(--topic-on-tint, var(--color-on-accent))` (so
+`bg-topic-tint`, `bg-topic-tint-soft`, `text-topic-tint`, `text-topic-on-tint`,
+`border-topic-tint` utilities exist and default to the accent; `inline` makes
+each utility read the variable on the element itself, which a plain `@theme`
+token resolved on `:root` would not). `src/topicColors.css` (imported from
+`index.css`, outside `TokenDriftTests`' scan) holds the `--topic-<name>-*` root
+variables, light and dark under `@media (prefers-color-scheme: dark)`, and
+twelve `[data-topic-color="red"] { --topic-tint: …; --topic-tint-soft: …;
+--topic-on-tint: … }` blocks. `topicStyle` sets the three
 variables inline so a themed subtree needs no attribute; the `data-topic-color`
 blocks serve static markup. `<TopicGlyph appearance name size/>`
 (`src/components/ui/TopicGlyph.tsx`) renders the emoji (`role="img"`,
@@ -303,8 +311,10 @@ circle.
 - A theme never changes **semantic** colours: `danger` (Stop, Discard), `warn`
   (Paused, Add details), `ok`. Only accent-coloured chrome is re-tinted.
 - Text on `tintSoft` is `ink`/`inkSoft`; text on `tint` is `onTint`.
-- The default theme is indistinguishable from today's UI: a topic without a
-  colour looks exactly as it does on `main`.
+- The default theme is indistinguishable from today's UI: a topic with no
+  appearance looks exactly as it does on `main`, and a topic without a colour
+  adds no accent-coloured chrome (no tint rule, no initial circle); its emoji
+  and tag chips still render where §5 and §6 place them.
 
 ## 5. Tags
 
@@ -683,11 +693,11 @@ visually.
 
 ### Round 2
 
-| Finding                                              | Outcome                                                                                                                    |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| K-S2 `?tag=` casefolded (plan) vs stored spelling     | Fixed in §5 (B4): exact match on the stored spelling; uniqueness casefolded on write; the plan follows                      |
-| K-S2 accessibility-id drift                          | Fixed in §7 (B3): `topic.color.<name>`, `topic.icon`, `topic.tags`, `topic.tags.add`, `topic.tags.<i>`; ids live here only |
-| K-S2 M3b plan and spec disagree on the cache design  | No spec change (B5): the §14 design stands (`photo_cache` BLOB table in the per-server store; SW `CacheFirst` + `ExpirationPlugin(300, 30 d)` with `v=<etag>`; `photo_etag VARCHAR(32)`; sizes `thumb\|medium\|full`; §11 headers); the plan copies it |
-| K-S3 PWA topic utilities have three spellings        | No change here (B6): §4.2 is the one set; active-surfaces §6.2 and M3-TOKENS align to it                                   |
-| C-S2 APNs payload bytes                              | Fixed in §15 (A9): the encoded-body budget and truncation order noted; appearance attributes count against it, never truncated |
-| K-S1 M3B-STORAGE still requires an eager delete       | Plan matter (C); §11–§12.1 unchanged: GC is the only deleter                                                               |
+| Finding                                             | Outcome                                                                                                                                                                                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| K-S2 `?tag=` casefolded (plan) vs stored spelling   | Fixed in §5 (B4): exact match on the stored spelling; uniqueness casefolded on write; the plan follows                                                                                                                                                 |
+| K-S2 accessibility-id drift                         | Fixed in §7 (B3): `topic.color.<name>`, `topic.icon`, `topic.tags`, `topic.tags.add`, `topic.tags.<i>`; ids live here only                                                                                                                             |
+| K-S2 M3b plan and spec disagree on the cache design | No spec change (B5): the §14 design stands (`photo_cache` BLOB table in the per-server store; SW `CacheFirst` + `ExpirationPlugin(300, 30 d)` with `v=<etag>`; `photo_etag VARCHAR(32)`; sizes `thumb\|medium\|full`; §11 headers); the plan copies it |
+| K-S3 PWA topic utilities have three spellings       | No change here (B6): §4.2 is the one set; active-surfaces §6.2 and M3-TOKENS align to it                                                                                                                                                               |
+| C-S2 APNs payload bytes                             | Fixed in §15 (A9): the encoded-body budget and truncation order noted; appearance attributes count against it, never truncated                                                                                                                         |
+| K-S1 M3B-STORAGE still requires an eager delete     | Plan matter (C); §11–§12.1 unchanged: GC is the only deleter                                                                                                                                                                                           |

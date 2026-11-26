@@ -1,7 +1,7 @@
 # Plan: M1 · timers v2
 
-**Status:** draft (revision 3, 2026-11-25, after review round 2). **Spec:**
-[timers2.md](../specs/timers2.md). **Programme plan:**
+**Status:** revision 4 (2026-11-25, the M1 lead's plan check; see "Plan check"
+at the end). **Spec:** [timers2.md](../specs/timers2.md). **Programme plan:**
 [t2-plan.md](../specs/t2-plan.md); its scope guard, out-of-scope list, merge
 ritual, seams and ownership table, simulator budget, effort legend and open
 questions apply here unchanged. **Branch:** `t2/m1` off `feat/t2`; WP branches
@@ -26,6 +26,22 @@ proof"):
   large Dynamic Type check, the Live Activity/widget states where relevant, PWA
   mobile width) and a short GIF/MP4 for interaction flows;
 - anything found outside scope filed as a `t2-followup` issue and linked.
+
+**Tests first.** Every WP commits the tests its DoD names (the R-cases R13–R27,
+the T-cases T18–T33, the vector case lists and coverage tests, the worked
+examples of timers2.md §6 as unit asserts) **before** the implementation they
+pin: the WP branch's first commit is the red tests, and the PR shows them going
+green. Generated vectors are the exception (the generator is the reference
+implementation); their case list and coverage test still come first.
+
+**CI on WP PRs.** `ci.yml`, `compat.yml` and `ios.yml` trigger on every
+`pull_request` whatever its base, so a PR into `t2/m1` runs all five required
+checks; no local substitute is needed.
+
+**Owners.** Each WP is implemented by one sub-agent named `t2-m1-<wp>` (lower
+case, e.g. `t2-m1-fold`, `t2-m1-i1-sync`), briefed and run by the sub-lead in
+the table; the M1 lead merges every WP PR into `t2/m1` and runs the merge
+ritual, so one merger owns the generated files.
 
 Friction is logged as it happens to
 `/Users/richie/code/quickr-worktrees/_friction/<agent-name>.jsonl` (format in
@@ -160,9 +176,13 @@ the M1↔M2 seam is active-surfaces.md §1.
 - **Areas:** `backend/app/services/run_fold.py`, `timing_stats.py`,
   `backend/tests/`, `shared/fixtures/run-fold-vectors.json`,
   `timing-stats-vectors.json`, `shared/fixtures/README.md`.
-- **Depends on:** M1-DB (the `Timer` schema). Stack: F1-CORE and I1-CORE branch
-  from `t2/m1-fold` and merge into it; `t2/m1-fold` merges into `t2/m1` when all
-  three are green.
+- **Depends on:** M1-DB (the `Timer` schema) **for the generator only**: the WP
+  starts in the first wave on `t2/m1-fold` cut from `t2/m1`, writes the case
+  lists, coverage tests, the §3.4–§3.6 rule tests and the §6 examples first,
+  then the fold against a plain `timer` dict, and merges `t2/m1-db` (or `t2/m1`
+  once M1-DB is in) before switching the generator's `timer_sets` to the `Timer`
+  schema. Stack: F1-CORE and I1-CORE branch from `t2/m1-fold` and merge into it;
+  `t2/m1-fold` merges into `t2/m1` when all three are green.
 - **Acceptance:** every case timers2.md §12.1 names for the two files exists and
   the coverage test proves it; the property test generates arrival orders that
   keep the relative order of terminals, discards, reopens and removes with
@@ -384,20 +404,20 @@ the M1↔M2 seam is active-surfaces.md §1.
   and its result; the Codex review file; the CI run link; when the fallback is
   taken, the checklist diff and the message to the orchestrator.
 
-### F1-CORE · PWA fold, expression, types and stats ports · fe · L · A · stacked on M1-FOLD
+### F1-CORE · PWA fold, types and stats ports · fe · L · A · stacked on M1-FOLD
 
 - **Scope:** `src/lib/runs/types.ts` (Timer v2, `lap_type`, `terminal_id`,
   `next_lap_type`, `lap_count`, new event types and void reasons, `target`),
-  `fold.ts` v4 (lap typing, reopen, remove, `seg` guard), new `timerExpr.ts`,
-  `stats.ts` v3; vector suites `runFold.vectors.test.ts`,
-  `timingStats.vectors.test.ts`, new `timerExpr.vectors.test.ts`.
-- **Areas:** `frontend/src/lib/runs/`.
-- **Depends on:** M1-FOLD (stack), M1-EXPR.
-- **Acceptance:** all three vector files pass; no `Date` arithmetic in the fold.
-- **Tests:** vector suites; `timerExpr.test.ts` for the error positions.
-- **DoD:** the Acceptance above holds, proven by vector suites;
-  `timerExpr.test.ts` for the error positions. Evidence in the PR:
-  `pnpm exec vitest run <the tests above>` pass counts and a green
+  `fold.ts` v4 (lap typing, reopen, remove, `seg` guard), `stats.ts` v3; vector
+  suites `runFold.vectors.test.ts`, `timingStats.vectors.test.ts`. (The
+  `timerExpr.ts` port is F1-BUILDER's, revision 4: it is a new vector file with
+  no stack, and the builder is its first consumer.)
+- **Areas:** `frontend/src/lib/runs/` except `timerExpr*.ts`.
+- **Depends on:** M1-FOLD (stack).
+- **Acceptance:** both vector files pass; no `Date` arithmetic in the fold.
+- **Tests:** vector suites.
+- **DoD:** the Acceptance above holds, proven by vector suites. Evidence in the
+  PR: `pnpm exec vitest run <the tests above>` pass counts and a green
   `make check-frontend`; the Codex review file with each finding resolved or
   justified; the CI run link.
 
@@ -453,12 +473,19 @@ the M1↔M2 seam is active-surfaces.md §1.
   and lap type; zod schemas taking `limits`; key derivation shares the step
   namespace; `timer_output` v2; `timer_changes` text), `TimerEditor.tsx` + new
   `LapTypesEditor.tsx`, `VariablesEditor.tsx`, `AlertsEditor.tsx` (live
-  evaluation with `timerExpr.ts`, server 422 paths mapped by `serverErrors.ts`),
-  `EditQuestionsPage.tsx` review section; `builderUi.vectors.test.ts` new
-  sections per timers2.md §12.1 → `shared/fixtures/builder-ui-vectors.json`.
+  evaluation with `timerExpr.ts`, server 422 paths mapped by
+  `src/components/builder/serverErrors.ts`), `EditQuestionsPage.tsx` review
+  section; `builderUi.vectors.test.ts` new sections per timers2.md §12.1 →
+  `shared/fixtures/builder-ui-vectors.json`. **Also the expression port** (moved
+  from F1-CORE in revision 4): new `src/lib/runs/timerExpr.ts` per timers2.md
+  §2, `timerExpr.vectors.test.ts` over `shared/fixtures/timer-expr-vectors.json`
+  and `timerExpr.test.ts` for the error positions. The builder reads the `Timer`
+  type from the generated client (`make client` after M1-DB) and does not edit
+  `src/lib/runs/types.ts` (F1-CORE's).
 - **Areas:** `frontend/src/lib/builder.ts`, `src/components/builder/`,
-  `src/pages/topic/EditQuestionsPage.tsx`, `src/lib/builderUi.vectors.test.ts`.
-- **Depends on:** M1-DB (schema, client, limits), F1-CORE (`timerExpr.ts`).
+  `src/pages/topic/EditQuestionsPage.tsx`, `src/lib/builderUi.vectors.test.ts`,
+  `src/lib/runs/timerExpr*.ts`.
+- **Depends on:** M1-DB (schema, client, limits), M1-EXPR (the vector file).
   Stack: I1-BUILDER branches from `t2/m1-builder-fe` and merges into it.
 - **Acceptance:** publish sends a normalised v2 `timer`; keys stay stable on
   rename; an invalid expression shows the server's message at the right field
@@ -555,7 +582,9 @@ the M1↔M2 seam is active-surfaces.md §1.
   bootstrap with revision; the migration with a queued item; an epoch rebuild
   with stop → reopen → re-stop in staged pages; a topic tombstone still clears
   its runs; the goldens validate in pytest (G2).
-- **Tests:** `RunSyncTests` (R14, R24, R25), the `StoreSchema` migration test,
+- **Tests:** `RunSyncTests` (R14, R24, R25; a new file
+  `QuickrDataTests/Sync/RunSyncTests.swift`, beside the existing
+  `SyncRunTests.swift`, which stays), the `StoreSchema` migration test,
   `RunOverlayFoldTests`, `RequestGoldenTests`.
 - **DoD:** the Acceptance above holds, proven by the tests named above. Evidence
   in the PR: `cd ios/QuickrKit && swift test --filter <suites>` summary lines
@@ -585,7 +614,7 @@ the M1↔M2 seam is active-surfaces.md §1.
   folds v4, accepts `reopen`/`remove`, scripts another device's reopen/remove;
   `UITestLaunch.swift` `// T2-M1` block for `target`.
 - **Areas:** `QuickrData/Session/`, `QuickrData/Store/RunOverlay.swift`,
-  `RunNotices.swift`, `QuickrCore/Runs/RunNoticeText.swift`,
+  `QuickrData/Store/RunNotices.swift`, `QuickrCore/Runs/RunNoticeText.swift`,
   `QuickrData/LiveActivity/RunActivityCenter+Reopen.swift`, `App/Debug/`.
 - **Depends on:** I1-SYNC.
 - **Acceptance:** timers2.md **R15, R16, R20, R26** and the Auto half of R18
@@ -655,8 +684,10 @@ the M1↔M2 seam is active-surfaces.md §1.
   `QuickrUI/Components/Haptics.swift`,
   `App/Notifications/Handler/NotificationResponder.swift`,
   `App/AppEnvironment.swift`, `ios/project.yml`.
-- **Depends on:** I1-CORE, I1-SYNC, I1-SIGNING (the interruption-level
-  constant).
+- **Depends on:** I1-CORE (`TopicTimer` v2, `LocalRun` lap typing), I1-SIGNING
+  (the interruption-level constant). Not I1-SYNC (revision 4): the scheduler's
+  triggers are `observeLocalRuns` and app activation, both v1 surfaces, and its
+  files are disjoint from I1-SYNC's.
 - **Acceptance:** timers2.md R17: for a 60 s rest lap with `t/2` and `t`, the
   plan holds two requests at +30 s and +60 s; a 10 s pause shifts both; while
   paused the plan is empty; a lap tap cancels the old segment's requests and
@@ -746,11 +777,10 @@ flowchart LR
   RUNS --> MCP[M1-MCP]
   RUNS --> FEED[M1-FEED]
   FOLD -. stack .-> FCORE[F1-CORE]
-  EXPR --> FCORE
   FCORE --> FOUT[F1-OUTBOX]
   RUNS --> FOUT
   DB --> FBUILD[F1-BUILDER]
-  FCORE --> FBUILD
+  EXPR --> FBUILD
   FOUT --> FALERT[F1-ALERTS]
   ACT[M1-ACTIONS] --> ICORE[I1-CORE]
   FOLD -. stack .-> ICORE
@@ -760,7 +790,7 @@ flowchart LR
   ISYNC --> IWRITE[I1-WRITES]
   FBUILD -. stack .-> IBUILD[I1-BUILDER]
   ICORE --> IBUILD
-  ISYNC --> IALERT[I1-ALERTS]
+  ICORE --> IALERT[I1-ALERTS]
   SIGN[I1-SIGNING] --> IALERT
   IWRITE --> IUI[I1-UI]
   IBUILD --> IUI
@@ -774,37 +804,56 @@ flowchart LR
   DEV --> REV
 ```
 
-| WP          | Depends on                             | Class     | Effort | Sub-lead |
-| ----------- | -------------------------------------- | --------- | ------ | -------- |
-| M1-LEVEL    | —                                      | be        | S      | A        |
-| M1-EXPR     | —                                      | be        | M      | A        |
-| M1-DB       | M1-LEVEL, M1-EXPR                      | be        | M      | A        |
-| M1-FOLD     | M1-DB (stack base)                     | be        | L      | A        |
-| M1-RUNS     | M1-DB, M1-FOLD                         | be        | L      | A        |
-| M1-FEED     | M1-RUNS                                | be        | M      | A        |
-| M1-LA-STATE | M1-FOLD                                | be + host | M      | A        |
-| M1-MCP      | M1-RUNS, M1-FOLD stack                 | be        | M      | A        |
-| M1-ACTIONS  | — (shared with M2)                     | host + fe | S      | B        |
-| I1-SIGNING  | —                                      | host      | S      | B        |
-| F1-CORE     | M1-FOLD (stacked), M1-EXPR             | fe        | L      | A        |
-| F1-OUTBOX   | F1-CORE, M1-RUNS                       | fe        | M      | A        |
-| F1-BUILDER  | M1-DB, F1-CORE (stack base)            | fe        | L      | B        |
-| F1-ALERTS   | F1-CORE, F1-OUTBOX                     | fe        | M      | B        |
-| I1-CORE     | M1-FOLD (stacked), M1-EXPR, M1-ACTIONS | host      | L      | A        |
-| I1-SYNC     | I1-CORE, M1-FEED                       | host      | M      | A        |
-| I1-WRITES   | I1-SYNC                                | host      | M      | A        |
-| I1-BUILDER  | F1-BUILDER (stacked), I1-CORE          | host      | L      | B        |
-| I1-ALERTS   | I1-CORE, I1-SYNC, I1-SIGNING           | host      | M      | B        |
-| I1-UI       | I1-WRITES, I1-BUILDER, I1-ALERTS       | sim       | M      | B        |
-| M1-DEV      | I1-ALERTS, M1-RUNS                     | docs      | S      | B        |
-| M1-REVIEW   | all                                    | docs      | S      | lead     |
+| WP          | Depends on                                                   | Class     | Effort | Sub-lead |
+| ----------- | ------------------------------------------------------------ | --------- | ------ | -------- |
+| M1-LEVEL    | —                                                            | be        | S      | A        |
+| M1-EXPR     | —                                                            | be        | M      | A        |
+| M1-DB       | M1-LEVEL, M1-EXPR                                            | be        | M      | A        |
+| M1-FOLD     | M1-DB for the generator only (stack base; starts first wave) | be        | L      | A        |
+| M1-RUNS     | M1-DB, M1-FOLD                                               | be        | L      | A        |
+| M1-FEED     | M1-RUNS                                                      | be        | M      | A        |
+| M1-LA-STATE | M1-FOLD                                                      | be + host | M      | A        |
+| M1-MCP      | M1-RUNS, M1-FOLD stack                                       | be        | M      | A        |
+| M1-ACTIONS  | — (shared with M2)                                           | host + fe | S      | B        |
+| I1-SIGNING  | —                                                            | host      | S      | B        |
+| F1-CORE     | M1-FOLD (stacked)                                            | fe        | L      | A        |
+| F1-OUTBOX   | F1-CORE, M1-RUNS                                             | fe        | M      | A        |
+| F1-BUILDER  | M1-DB, M1-EXPR (stack base)                                  | fe        | L      | B        |
+| F1-ALERTS   | F1-CORE, F1-OUTBOX                                           | fe        | M      | B        |
+| I1-CORE     | M1-FOLD (stacked), M1-EXPR, M1-ACTIONS                       | host      | L      | A        |
+| I1-SYNC     | I1-CORE, M1-FEED                                             | host      | M      | A        |
+| I1-WRITES   | I1-SYNC                                                      | host      | M      | A        |
+| I1-BUILDER  | F1-BUILDER (stacked), I1-CORE                                | host      | L      | B        |
+| I1-ALERTS   | I1-CORE, I1-SIGNING                                          | host      | M      | B        |
+| I1-UI       | I1-WRITES, I1-BUILDER, I1-ALERTS                             | sim       | M      | B        |
+| M1-DEV      | I1-ALERTS, M1-RUNS                                           | docs      | S      | B        |
+| M1-REVIEW   | all                                                          | docs      | S      | lead     |
 
 **Critical path:** M1-LEVEL ∥ M1-EXPR → M1-DB → M1-FOLD (with I1-CORE and
 F1-CORE stacked on it) → M1-RUNS → M1-FEED → I1-SYNC → I1-WRITES → I1-UI →
 M1-REVIEW. The builder chain (F1-BUILDER → I1-BUILDER) and the alerts chain
 (I1-ALERTS, F1-ALERTS) run beside it under sub-lead B and join at I1-UI.
 
-**First wave:** M1-LEVEL, M1-EXPR, M1-ACTIONS, I1-SIGNING.
+**First wave:** M1-LEVEL, M1-EXPR, M1-ACTIONS, I1-SIGNING, M1-FOLD (tests-first,
+see its "Depends on").
+
+**Waves** (each starts as soon as its dependencies have merged; the list is the
+expected order, not a barrier):
+
+1. M1-LEVEL, M1-EXPR, M1-ACTIONS, I1-SIGNING, M1-FOLD (tests and fold).
+2. M1-DB (after LEVEL + EXPR); F1-BUILDER (after DB + EXPR); M1-FOLD takes
+   `t2/m1-db` and finishes its generators.
+3. F1-CORE and I1-CORE on the fold stack; the stack merges into `t2/m1`.
+4. M1-RUNS, M1-LA-STATE, I1-ALERTS, I1-BUILDER (stacked on F1-BUILDER).
+5. M1-FEED, M1-MCP, F1-OUTBOX, M1-DEV.
+6. I1-SYNC, F1-ALERTS.
+7. I1-WRITES.
+8. I1-UI (the one simulator WP: its own clone, queued with `--wait`).
+9. M1-REVIEW: the milestone review, `make check-ios` once (both slots), the
+   evidence file, the PR to `feat/t2`.
+
+**Simulator use:** only I1-UI (wave 8) and the one `make check-ios` run before
+the milestone PR. Everything else is pytest, vitest or host `swift test`.
 
 ## Milestone evidence
 
@@ -827,3 +876,22 @@ justified; the `make check-ios` run; and the device-only list below copied into
 - Push-to-start of the Live Activity on a second device after a reopen.
 - The Web Audio tone on an installed iOS PWA after a tap gesture; silence while
   backgrounded.
+
+## Plan check
+
+- **Revision 4 (2026-11-25, M1 lead, before the first WP).** Checked against
+  timers2.md revision 3 and `origin/feat/t2` at b9c566cb. Paths: every file the
+  WPs name exists except the ones they create, with three corrections
+  (`serverErrors.ts` lives at `src/components/builder/`, `RunNotices.swift` at
+  `QuickrData/Store/`, and `RunSyncTests` is a new file beside the existing
+  `SyncRunTests.swift`); `ios/App/QuickR.entitlements` is gitignored xcodegen
+  output, as I1-SIGNING already says. Generator versions on `feat/t2` are
+  run-fold 3, timing-stats 2, live-activity 2, builder 3, matching the bumps the
+  WPs make; the Alembic head is `d5e2f8a3c104`. DAG: `timerExpr.ts` moved from
+  F1-CORE to F1-BUILDER so the builder chain starts after M1-DB instead of
+  after the fold stack; I1-ALERTS no longer waits for I1-SYNC; M1-FOLD starts in
+  the first wave tests-first and takes M1-DB for its generator. Added the
+  tests-first rule, the CI note, the owner naming and the wave list. The
+  signing path (`ios/scripts/testflight.sh`) is `CODE_SIGN_STYLE=Automatic`
+  with `-allowProvisioningUpdates` and the App Store Connect API key, which is
+  what I1-SIGNING verifies against.

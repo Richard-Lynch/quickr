@@ -257,6 +257,7 @@ final class FakeServerState: Sendable {
     /// into the feed. Returns the updated topic.
     fileprivate func publish(_ id: String, questions: [[String: Any]], timer: Any?, note: String) -> [String: Any]? {
         guard var topic = topic(id) else { return nil }
+        let timer = timer.map(FakeServer.normalisedTimer)
         let now = ISO8601DateFormatter().string(from: Date())
         let number = (topic["current_version"] as? Int ?? 1) + 1
         topic["current_version"] = number
@@ -412,8 +413,10 @@ enum FakeServer {
                       {"archived": false, "label": "Bad", "value": "bad"}]}]
         """#
     static let morningTimer = #"""
-        {"steps": [{"key": "shower", "label": "Shower"}, {"key": "dress", "label": "Dress"},
-                   {"key": "breakfast", "label": "Breakfast"}, {"key": "teeth", "label": "Teeth"}]}
+        {"steps": [{"key": "shower", "label": "Shower", "alerts": []}, {"key": "dress", "label": "Dress", "alerts": []},
+                   {"key": "breakfast", "label": "Breakfast", "alerts": []},
+                   {"key": "teeth", "label": "Teeth", "alerts": []}],
+         "laps": [], "variables": []}
         """#
 
     /// The seeded page's last seq: three topics, each a version row and a topic row.
@@ -423,7 +426,8 @@ enum FakeServer {
         _ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int, timer: String = "null"
     ) -> String {
         #"""
-        {"kind": "topic", "seq": \#(seq), "topic": {"archived_at": null, "created_at": "2026-01-01T00:00:00Z",
+        {"kind": "topic", "seq": \#(seq), "topic": {"appearance": {"color": null, "icon": null, "tags": []},
+         "archived_at": null, "created_at": "2026-01-01T00:00:00Z",
          "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
          "last_captured_at": null, "name": "\#(name)", "question_count": \#(count), "questions": \#(questions),
          "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
@@ -671,6 +675,7 @@ private struct FakeServerTransport: Transport {
                 "archived_at": NSNull(), "schedule": schedule,
                 "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
                 "timer": body["timer"] ?? NSNull(), "questions": questions,
+                "appearance": body["appearance"] ?? ["color": NSNull(), "icon": NSNull(), "tags": [String]()],
             ]
             state.put(topic)
             // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.
@@ -696,6 +701,13 @@ private struct FakeServerTransport: Transport {
                 return problem(409, "conflict", "slug '\(slug)' is already taken")
             }
             for key in ["name", "slug", "description"] where body[key] != nil { topic[key] = body[key] }
+            // T2-M3: an omitted appearance field is unchanged; null and [] clear (appearance.md §1.1).
+            if let patch = body["appearance"] as? [String: Any] {
+                var appearance = topic["appearance"] as? [String: Any] ?? [:]
+                for (key, value) in patch where ["color", "icon", "tags"].contains(key) { appearance[key] = value }
+                topic["appearance"] = appearance
+            }
+            // end T2-M3
             if let input = body["schedule"] {
                 // Like the backend: an unchanged schedule keeps its reference point; a removed one
                 // clears it.
@@ -762,7 +774,7 @@ private struct FakeServerTransport: Transport {
             history: [FakeServer.questions(topic["questions"] ?? [Any]())], proposed: FakeServer.questions(inputs))
         // Like the backend's `_report`: with the draft's timer, a timer-only change is a change.
         if let timer = body["timer"], report.changes.isEmpty,
-            !(timer as AnyObject).isEqual(topic["timer"] ?? NSNull())
+            !(FakeServer.normalisedTimer(timer) as AnyObject).isEqual(topic["timer"] ?? NSNull())
         {
             report.issues.removeAll { $0.questionKey == nil }
             report.ok = !report.issues.contains { $0.level == .error }
@@ -846,4 +858,28 @@ private struct FakeServerTransport: Transport {
         return HTTPResponse(status: 201, headers: headers, body: json)
     }
 }
+// T2-M1: the server returns a timer normalised (timers2.md §1.4)
+extension FakeServer {
+    /// A sent timer as the server stores and returns it: every list present, `at_ms` 0 (the fake
+    /// doesn't evaluate expressions). `NSNull` stays null.
+    static func normalisedTimer(_ timer: Any) -> Any {
+        guard var object = timer as? [String: Any] else { return timer }
+        func withAlerts(_ items: Any?) -> [[String: Any]] {
+            ((items as? [[String: Any]]) ?? []).map { item in
+                var item = item
+                item["alerts"] = ((item["alerts"] as? [[String: Any]]) ?? []).map { alert in
+                    var alert = alert
+                    alert["at_ms"] = alert["at_ms"] ?? 0
+                    return alert
+                }
+                return item
+            }
+        }
+        object["steps"] = withAlerts(object["steps"])
+        object["laps"] = withAlerts(object["laps"])
+        object["variables"] = object["variables"] ?? [[String: Any]]()
+        return object
+    }
+}
+// end T2-M1
 #endif

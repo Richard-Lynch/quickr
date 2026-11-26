@@ -60,9 +60,13 @@ import Testing
         let refresh = RefreshSignal(notifier: nil)
         let values = s.store.observeOutbox(refresh: refresh.stream())
         var iterator = values.makeAsyncIterator()
-        #expect(try await iterator.next() == [])
+        #expect(try await iterator.next() == OutboxSnapshot(items: [], summary: OutboxSummary()))
         refresh.poke()  // same value: dropped
         let item = try s.enqueue(Make.createPayload(topic: Make.topic()))
-        #expect(try await iterator.next()?.map(\.id) == [item.id])
+        let next = try #require(try await iterator.next())
+        #expect(next.items.map(\.id) == [item.id])
+        #expect(next.summary.queued == 1, "the summary comes from the same read as the items")
+        // The item is due now: a wake read from the clock would make every re-read a new value.
+        #expect(next.summary.nextWake == nil, "the observed summary leaves the clock out")
     }
 }

@@ -158,6 +158,9 @@ public struct ViewTopic: Sendable, Hashable, Identifiable {
     }
 
     public var id: UUID { topic.id }
+
+    /// The topic's colour, emoji and tags (appearance.md §8), as the server last sent them.
+    public var appearance: TopicAppearance { topic.appearance }
 }
 
 /// `outbox_item.last_error_json`: the PWA `OutboxError` shape `{message, status, body?}`.

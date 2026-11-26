@@ -81,6 +81,18 @@ import Testing
         #expect(page.items.map { $0.timer?.steps.map(\.key) } == [nil, ["pour", "drink"]])
     }
 
+    // T2-M3: the DTOs decode the server's appearance (appearance.md §1.1) into the domain.
+    @Test func topicDTOsDecodeTheAppearance() throws {
+        let topicBody = try #require(try Fixtures.api("getTopic").body)
+        let detail = try #require(try Endpoints.getTopic.erased.decodeResponse(topicBody) as? Topic)
+        #expect(detail.appearance == TopicAppearance(color: .teal, icon: .emoji("🧪"), tags: ["Health"]))
+        let body = try #require(try Fixtures.api("listTopics.tag").body)
+        let page = try #require(try Endpoints.listTopics.erased.decodeResponse(body) as? Page<TopicSummary>)
+        #expect(page.items.map(\.slug) == ["everything"])
+        #expect(page.items.first?.appearance.tags == ["Health"])
+    }
+    // end T2-M3
+
     private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema", "effects"]
 
     /// Every copy of `value` with exactly one object key removed, with the removed key's path.

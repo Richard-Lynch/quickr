@@ -5,11 +5,17 @@ public struct TopicDetailsChange: Sendable, Hashable {
     public var name: String?
     public var slug: String?
     public var description: String?
+    /// The appearance fields that changed (appearance.md §7), sent in the same PATCH; nil when none
+    /// did.
+    public var appearance: AppearanceUpdate?
 
-    public init(name: String? = nil, slug: String? = nil, description: String? = nil) {
+    public init(
+        name: String? = nil, slug: String? = nil, description: String? = nil, appearance: AppearanceUpdate? = nil
+    ) {
         self.name = name
         self.slug = slug
         self.description = description
+        self.appearance = appearance
     }
 
     /// The fields of `details` that differ from `topic`'s; nil when none do ("Nothing to save").

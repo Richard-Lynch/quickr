@@ -70,11 +70,3 @@ public enum TopicIcon: Codable, Sendable, Hashable {
         }
     }
 }
-
-extension Topic {
-    /// Stand-in until I3-STORE adds the stored property (appearance.md §4.1, §8): every topic reads as
-    /// untinted, so `.topicTheme(for:)` compiles and renders the default theme today. I3-STORE
-    /// deletes this extension when it adds `public var appearance: TopicAppearance` to `Topic`; the
-    /// compiler reports the duplicate otherwise.
-    public var appearance: TopicAppearance { .empty }
-}

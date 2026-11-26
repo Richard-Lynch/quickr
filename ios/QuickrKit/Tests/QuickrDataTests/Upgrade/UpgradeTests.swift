@@ -65,8 +65,11 @@ import Testing
         #expect(RegistrySchema.migrations[1].identifier == "v2")
         #expect(RegistrySchema.migrations[1].statements == Self.frozen.registryV2)
         for migrations in [StoreSchema.migrations, RegistrySchema.migrations] {
-            #expect(
-                migrations.map(\.identifier) == migrations.indices.map { "v\($0 + 1)" }, "migrations are v1, v2, …")
+            // The `v` series first, then the T2 milestones' own (`t2m1_*`, `t2m3_*`, t2-plan.md
+            // "iOS store migrations"), in either order.
+            let series = migrations.map(\.identifier).prefix { $0.hasPrefix("v") }
+            #expect(Array(series) == series.indices.map { "v\($0 + 1)" }, "migrations are v1, v2, …")
+            #expect(migrations.dropFirst(series.count).allSatisfy { $0.identifier.hasPrefix("t2m") })
         }
     }
 
@@ -92,13 +95,15 @@ import Testing
     }
 
     /// The store's columns that "nothing lost" compares: v2's `timer_json`, v3's `timing_json`,
-    /// v4's `sync_state.server_offset_ms` and v6's `client_outdated_min` and `server_api_level` are
-    /// new, and v2 and v3 set `sync_state.rebuilding` (checked on their own).
+    /// v4's `sync_state.server_offset_ms`, v6's `client_outdated_min` and `server_api_level` and
+    /// t2m3's topic `color`, `icon` and `tags_json` are new, and v2, v3 and t2m3 set
+    /// `sync_state.rebuilding` (checked on their own).
     static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
         let added: [String: Set<String>] = [
             "topic_version": ["timer_json"], "stage_topic_version": ["timer_json"], "entry": ["timing_json"],
             "stage_entry": ["timing_json"],
             "sync_state": ["rebuilding", "server_offset_ms", "client_outdated_min", "server_api_level"],
+            "topic": ["color", "icon", "tags_json"], "stage_topic": ["color", "icon", "tags_json"],
         ]
         var columns: [String: [String]] = [:]
         for table in tables {
@@ -246,7 +251,8 @@ import Testing
         #expect(
             try await registry.read { db in try Self.migrations(db) } == RegistrySchema.migrations.map(\.identifier))
         #expect(
-            try await store.writer.read { db in try Self.migrations(db) } == StoreSchema.migrations.map(\.identifier))
+            try await store.writer.read { db in try Self.migrations(db) }
+                == StoreSchema.migrations.map(\.identifier).sorted())
 
         // Nothing lost: every v1 row, column for column.
         let storeV1Columns = try await store.writer.read { db in try Self.storeV1Columns(db, tables: storeTables) }
