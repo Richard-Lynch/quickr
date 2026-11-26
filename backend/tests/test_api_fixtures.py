@@ -102,7 +102,11 @@ R1, R2, R3, R4, R5 = RUN_IDS
 EVENT_IDS = [f"0e000000-0000-4000-8000-{n:012d}" for n in range(1, 13)]
 # Reopen and remove (timers2.md §12.1).
 REOPEN_IDS = [f"0e000000-0000-4000-8000-{n:012d}" for n in range(13, 22)]
-CLIENT_IDS = [*ENTRY_IDS, *RUN_IDS, *EVENT_IDS, *REOPEN_IDS]
+# A run of a topic with lap types (timers2.md §7.4): its run id, then its laps and stop.
+LAP_TYPE_IDS = ["0a000000-0000-4000-8000-000000000006"] + [
+    f"0e000000-0000-4000-8000-{n:012d}" for n in range(22, 25)
+]
+CLIENT_IDS = [*ENTRY_IDS, *RUN_IDS, *EVENT_IDS, *REOPEN_IDS, *LAP_TYPE_IDS]
 
 EVERYTHING: list[dict[str, Any]] = [
     {"key": "glasses", "label": "Glasses of water", "type": "int", "min": 0, "max": 30, "unit": "glasses"},
@@ -453,7 +457,27 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
     )
     await runs(client, rec)
     await live_activities(client, rec)
+    await lap_types(client, rec)
     return rec.files
+
+
+async def lap_types(client: httpx.AsyncClient, rec: Recorder) -> None:
+    """``getTopicTiming`` of a topic with lap types (timers2.md §7.4): one run whose laps cycle
+    Run, Rest, Run."""
+    run_id, lap1, lap2, stop = LAP_TYPE_IDS
+    timer = {"steps": [], "laps": [{"key": "run", "label": "Run"}, {"key": "rest", "label": "Rest"}]}
+    topic = (await client.post("/topics", json={"name": "Intervals", "questions": [], "timer": timer})).json()
+    post = f"/runs/{run_id}/events"
+    start = run_event(run_id, "start", "2026-03-04T11:50:00Z", topic_id=topic["id"], version=1)
+    for body in (
+        start,
+        run_event(lap1, "lap", "2026-03-04T11:52:00Z", seg=0),
+        run_event(lap2, "lap", "2026-03-04T11:52:30Z", seg=1),
+        run_event(stop, "stop", "2026-03-04T11:55:00Z"),
+    ):
+        r = await client.post(post, json=body)
+        assert r.status_code < 300, r.text
+    await rec("getTopicTiming", "GET", "/topics/intervals/timing", status=200, variant="lap_types")
 
 
 async def live_activities(client: httpx.AsyncClient, rec: Recorder) -> None:

@@ -189,6 +189,12 @@ enum FakeTiming {
                     "mean_ms": value(step.meanMs),
                 ]
             },
+            "lap_types": s.lapTypes.map { type -> [String: Any] in
+                [
+                    "key": type.key, "label": type.label, "laps": type.laps, "best_ms": value(type.bestMs),
+                    "median_ms": value(type.medianMs), "mean_ms": value(type.meanMs),
+                ]
+            },
             "laps": [
                 "runs_with_laps": s.laps.runsWithLaps, "median_ms": value(s.laps.medianMs),
                 "mean_ms": value(s.laps.meanMs),
@@ -198,7 +204,7 @@ enum FakeTiming {
                 [
                     "entry_id": p.entryId, "captured_at": RunInstant.format(p.capturedAt),
                     "started_at": RunInstant.format(p.startedAt), "active_ms": p.activeMs, "paused_ms": p.pausedMs,
-                    "complete": p.complete, "steps": p.steps,
+                    "complete": p.complete, "steps": p.steps, "lap_types": p.lapTypes,
                 ]
             },
         ]

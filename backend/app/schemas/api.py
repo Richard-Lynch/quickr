@@ -734,6 +734,19 @@ class TimingStepStats(StrictModel):
     mean_ms: int | None
 
 
+# T2-M1: timers2.md §7.4
+class TimingLapTypeStats(StrictModel):
+    key: str
+    label: str = Field(description="The latest version's label for the lap type.")
+    laps: int = Field(description="Lap segments of this type, over every timed run.")
+    best_ms: int | None = Field(description="Over those segments' active_ms.")
+    median_ms: int | None
+    mean_ms: int | None
+
+
+# end T2-M1
+
+
 class TimingLaps(StrictModel):
     runs_with_laps: int
     median_ms: int | None = Field(description="Of each such run's summed lap time.")
@@ -753,6 +766,9 @@ class TimingSeriesPoint(StrictModel):
     paused_ms: int
     complete: bool
     steps: dict[str, int] = Field(description="Each step segment's key and its active_ms.")
+    lap_types: dict[str, int] = Field(
+        description="Each lap type and its lap segments' summed active_ms; untyped laps are left out."
+    )  # T2-M1: timers2.md §7.4
 
 
 class TopicTiming(StrictModel):
@@ -766,6 +782,10 @@ class TopicTiming(StrictModel):
         description="Every step key seen in range: the current version's steps in step order, "
         "then the rest by key."
     )
+    lap_types: list[TimingLapTypeStats] = Field(
+        description="Every lap type with a lap segment in range: the current version's lap types in order, "
+        "then the rest by key. Keyed apart from steps; untyped laps count only toward laps."
+    )  # T2-M1: timers2.md §7.4
     laps: TimingLaps
     paused: TimingPaused
     series: list[TimingSeriesPoint] = Field(

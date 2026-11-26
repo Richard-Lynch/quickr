@@ -951,6 +951,18 @@ export const zEntryUpdate = z.object({
 });
 
 /**
+ * TimingLapTypeStats
+ */
+export const zTimingLapTypeStats = z.object({
+    key: z.string(),
+    label: z.string(),
+    laps: z.int(),
+    best_ms: z.int().nullable(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
  * TimingLaps
  */
 export const zTimingLaps = z.object({
@@ -1147,7 +1159,8 @@ export const zTimingSeriesPoint = z.object({
     active_ms: z.int(),
     paused_ms: z.int(),
     complete: z.boolean(),
-    steps: z.record(z.string(), z.int())
+    steps: z.record(z.string(), z.int()),
+    lap_types: z.record(z.string(), z.int())
 });
 
 /**
@@ -1191,6 +1204,7 @@ export const zTopicTiming = z.object({
     complete_runs: z.int(),
     total: zTimingSummary,
     steps: z.array(zTimingStepStats),
+    lap_types: z.array(zTimingLapTypeStats),
     laps: zTimingLaps,
     paused: zTimingPaused,
     series: z.array(zTimingSeriesPoint)
