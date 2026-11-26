@@ -70,9 +70,12 @@ export function cardTint(topic: CardTopic): {
  */
 export const isResuming: (run: LocalRun) => boolean = () => false;
 
-/** The controls row's buttons: 56 px, as `Button size="lg"`, tinted or semantic per §6.2. */
+/**
+ * The controls row's buttons: 56 px, as `Button size="lg"`, tinted or semantic per §6.2. A long
+ * label ("Next: {long step}") wraps to a second line rather than being cut off.
+ */
 const CONTROL =
-  'inline-flex h-14 select-none items-center justify-center gap-2 rounded-full text-base font-semibold whitespace-nowrap transition-[background-color,filter,transform] duration-150 active:scale-[0.97] motion-reduce:transform-none disabled:pointer-events-none disabled:opacity-50';
+  'inline-flex min-h-14 select-none items-center justify-center gap-2 rounded-full py-2 text-center text-base leading-tight font-semibold transition-[background-color,filter,transform] duration-150 active:scale-[0.97] motion-reduce:transform-none disabled:pointer-events-none disabled:opacity-50';
 
 export function ActiveTopicCard({
   topic,
@@ -108,13 +111,15 @@ export function ActiveTopicCard({
       data-testid="active-card"
       style={tint.style}
       className={cn(
-        'relative flex overflow-hidden rounded-card border shadow-card transition-[border-color]',
+        '@container relative flex overflow-hidden rounded-card border shadow-card transition-[border-color]',
         tint.card,
       )}
     >
       <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tint.bar)} />
       <div className="flex min-w-0 flex-1 flex-col gap-3 py-3.5 pr-3 pl-5">
-        <div className={cn('flex min-w-0 items-start', pauseResume && 'pr-[6.5rem]')}>
+        <div
+          className={cn('flex min-w-0 items-start', pauseResume && 'pr-[6.5rem] @max-[21rem]:pr-0')}
+        >
           <h2 className="flex min-w-0 items-center gap-2 pt-1.5 font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
             <span aria-hidden className="contents">
               <TopicGlyph appearance={topic.appearance} name={topic.name} size={24} />
@@ -169,7 +174,7 @@ export function ActiveTopicCard({
 
         {primary || stop ? (
           // Stacks when the text is large (rem bases): the primary over a full-width Stop (§7).
-          <div className="relative z-10 flex flex-wrap gap-2">
+          <div className="relative z-10 flex flex-wrap gap-2 @max-[21rem]:order-2">
             {primary ? (
               <button
                 type="button"
@@ -183,7 +188,7 @@ export function ActiveTopicCard({
                 )}
               >
                 <Icon name={primary.icon} className="size-5 shrink-0" strokeWidth={2.6} />
-                <span className="truncate">{primary.title}</span>
+                <span className="min-w-0">{primary.title}</span>
               </button>
             ) : null}
             {stop ? (
@@ -205,7 +210,7 @@ export function ActiveTopicCard({
           </div>
         ) : null}
         {/* Last for screen readers (§7: the controls in order primary, Stop, Pause), shown in
-            the title row's corner. */}
+            the title row's corner; at large text (a card under 21rem) under the headline. */}
         {pauseResume ? (
           <button
             type="button"
@@ -213,7 +218,7 @@ export function ActiveTopicCard({
             aria-label={pauseResume.label}
             disabled={pauseResume.disabled}
             onClick={pauseResume.onTap}
-            className="absolute top-2.5 right-2 z-10 inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-ink-soft transition-colors hover:bg-surface/70 hover:text-ink disabled:cursor-wait disabled:opacity-60"
+            className="absolute top-2.5 right-2 z-10 inline-flex min-h-11 shrink-0 items-center gap-1.5 self-start rounded-full px-3 text-sm font-semibold text-ink-soft transition-colors hover:bg-surface/70 hover:text-ink disabled:cursor-wait disabled:opacity-60 @max-[21rem]:relative @max-[21rem]:top-auto @max-[21rem]:right-auto @max-[21rem]:order-1 @max-[21rem]:-my-1.5 @max-[21rem]:-ml-3"
           >
             <Icon name={pauseResume.icon} className="size-4" strokeWidth={2.4} />
             {pauseResume.title}

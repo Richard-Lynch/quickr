@@ -131,7 +131,7 @@ describe('the active card', () => {
     const card = renderCard(runOf(), controls);
     const primary = within(card).getByTestId('card-primary');
     expect(primary).toHaveAccessibleName('Next: Breakfast · Morning');
-    expect(primary).toHaveClass('h-14');
+    expect(primary).toHaveClass('min-h-14');
     expect(primary).toHaveTextContent('Next: Breakfast');
     expect(within(card).getByTestId('card-stop')).toHaveAccessibleName('Stop · Morning');
     expect(within(card).getByTestId('card-pause')).toHaveAccessibleName('Pause · Morning');
