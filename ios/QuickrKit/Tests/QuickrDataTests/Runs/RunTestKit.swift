@@ -29,6 +29,27 @@ extension OutboxHarness {
         try write { db in _ = try ServerLayer.insert(db, version: row, id: UUID(), topicId: topicId) }
     }
 
+    /// Stores a v2 version of `T` (version 2) in the local server layer: no steps, lap types Run
+    /// then Rest, Rest's "Go" alert 15 minutes in.
+    func lapTyped() throws {
+        let timer = TopicTimer(
+            steps: [],
+            laps: [
+                TopicTimer.LapType(key: "run", label: "Run"),
+                TopicTimer.LapType(
+                    key: "rest", label: "Rest",
+                    alerts: [TopicTimer.Alert(key: "go", label: "Go", at: "15m", atMs: 900_000)]),
+            ])
+        let questions = Make.questions.map { question in
+            var question = question
+            question.required = false
+            return question
+        }
+        let row = TopicVersion(version: 2, questions: questions, timer: timer, createdAt: Make.t0)
+        let topicId = topic.id
+        try write { db in _ = try ServerLayer.insert(db, version: row, id: UUID(), topicId: topicId) }
+    }
+
     /// The façade of one process, on this harness's store (or another process's).
     func runs(_ origin: OutboxOrigin = .app, store: LocalStore? = nil) -> RunWrites {
         RunWrites(store: store ?? self.store, origin: origin)

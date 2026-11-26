@@ -73,7 +73,8 @@ that mirror the primary rule; PWA equivalents. Layout only: the model is M1's
   dependency and are the WP's first commit.
 - **Acceptance:** for each of the 14 rows of active-surfaces.md §1.2 the
   primary, secondaries and overflow match the table; `reopen`/`revert` in the
-  input land in overflow without code changes.
+  input land in their role's slot without code changes (`reopen` secondary,
+  `revert` destructive; active-surfaces.md §1.2).
 - **Tests:** `RunControlsLayoutTests` (host), `controlsLayout.test.ts`.
 - **Review round 1 (A9, D8):** the primary rule is cited from timers2.md §10
   verbatim, never restated; the layout model consumes M1's

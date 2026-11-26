@@ -106,31 +106,10 @@ import Testing
 
     // MARK: - Lap types and alerts (I2-LA-FIELDS)
 
-    /// A stored v2 version of `T` (version 2): no steps, lap types Run then Rest, Rest's "Go"
-    /// alert 15 minutes in.
-    static func storeLapTypes(_ h: OutboxHarness) throws {
-        let timer = TopicTimer(
-            steps: [],
-            laps: [
-                TopicTimer.LapType(key: "run", label: "Run"),
-                TopicTimer.LapType(
-                    key: "rest", label: "Rest",
-                    alerts: [TopicTimer.Alert(key: "go", label: "Go", at: "15m", atMs: 900_000)]),
-            ])
-        let questions = Make.questions.map { question in
-            var question = question
-            question.required = false
-            return question
-        }
-        let row = TopicVersion(version: 2, questions: questions, timer: timer, createdAt: Make.t0)
-        let topicId = h.topic.id
-        try h.write { db in _ = try ServerLayer.insert(db, version: row, id: UUID(), topicId: topicId) }
-    }
-
     @Test("I2-LA-FIELDS · the snapshot carries the pinned timer: lap type, next lap type and the alert")
     func lapTypesAndAlertFromThePinnedTimer() async throws {
         let rig = try await Rig.make()
-        try Self.storeLapTypes(rig.h)
+        try rig.h.lapTyped()
         let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
         rig.h.wall.advance(by: 60)
         _ = try await rig.h.runs().lap(runId: runId)
@@ -166,7 +145,7 @@ import Testing
     @Test("I2-LA-FIELDS · a pause drops the alert from the activity, and a resume brings it back")
     func pauseDropsTheAlert() async throws {
         let rig = try await Rig.make()
-        try Self.storeLapTypes(rig.h)
+        try rig.h.lapTyped()
         let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
         rig.h.wall.advance(by: 60)
         _ = try await rig.h.runs().lap(runId: runId)
@@ -197,7 +176,7 @@ import Testing
     @Test("I2-LA-FIELDS · time alone updates the activity only as each alert passes")
     func alertBoundaries() async throws {
         let rig = try await Rig.make()
-        try Self.storeLapTypes(rig.h)
+        try rig.h.lapTyped()
         let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
         rig.h.wall.advance(by: 60)
         _ = try await rig.h.runs().lap(runId: runId)

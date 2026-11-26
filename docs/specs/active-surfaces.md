@@ -182,11 +182,12 @@ timers2.md §10 is the single normative text. Quoted:
 
 In `RunState` terms: Lap when
 `state.open.kind == .lap || state.nextStep == nil`. Pause/Resume are secondary
-with Stop; Skip, Reopen, Discard and Revert are overflow (Discard and Revert
-`destructive`). This replaces timers.md §11.1 "On the last step the primary
-button is **Stop**, with Lap secondary." The Lap primary is labelled with the
-lap it opens: `lap(nextTypeLabel: "Rest")`. The `actions` signature of §1.1 is
-the one timers2.md §10 and M1-ACTIONS copy.
+with Stop; Reopen is secondary (a visible Resume, rows 2 and 13); Skip is
+overflow; Discard and Revert are `destructive` (overflow, last). This replaces
+timers.md §11.1 "On the last step the primary button is **Stop**, with Lap
+secondary." The Lap primary is labelled with the lap it opens:
+`lap(nextTypeLabel: "Rest")`. The `actions` signature of §1.1 is the one
+timers2.md §10 and M1-ACTIONS copy.
 
 There is exactly one primary while a run is open; `start` is the primary of an
 idle topic; `addDetails` the primary of a finishing run. The "Auto" advance of
@@ -207,7 +208,7 @@ enabled. `timer` is the run's pinned version's timer; "laps only" = `steps: []`.
 | 6   | open, last step open (`nextStep == nil`), running      | `lap(nextTypeLabel)` (primary ✓), `stop`, `pause` (secondary ✓), `skip(label)` (overflow ✓ — skips the open step), `discard` (destructive ✓)                                          |
 | 7   | open, no steps, running (the stopwatch)                | `lap(nextTypeLabel)` (primary ✓), `stop`, `pause` (secondary ✓), `discard` (destructive ✓); no `skip`                                                                                 |
 | 8   | open, paused (any of 4–7)                              | as the running row but `resume` replaces `pause`; the primary and `skip` are **present and ✓** (a tap while paused is valid: the fold resumes nothing, it closes the segment at `at`) |
-| 9   | open, `timer == nil` (steps unknown)                   | `next("Next")` (primary ✓), `stop`, `pause`/`resume` (secondary ✓), `discard` (destructive ✓); no `skip`, no `lap`                                                                    |
+| 9   | open, `timer == nil` (steps unknown)                   | `next(nil)` (primary ✓), `stop`, `pause`/`resume` (secondary ✓), `discard` (destructive ✓); no `skip`, no `lap`                                                                       |
 | 10  | open after a `reopen` (terminal cleared)               | as 4–8 plus `revert` (destructive ✓) **instead of** `discard`                                                                                                                         |
 | 11  | queued `reopen` not yet acked ("Resuming…" projection) | `[]` — no controls until the ack (§2.4)                                                                                                                                               |
 | 12  | finishing                                              | `addDetails` (primary ✓), `discard` (destructive ✓)                                                                                                                                   |
@@ -218,12 +219,26 @@ Rows 2/13 are the same action seen from the topic and from the entry; row 13's
 `reopen` is hidden while the topic has another open run (A15: the server would
 answer 409 `conflict`).
 
+**Idle rows 1–3 and 13 (M2 implementation decision, 2026-11-26).** They take the
+topic's latest run: `actions(lastRun.state, lastRun.status, timer, now)` with
+`stopped`/`discarded` yields `start` (primary) and, within OQ-1's window with
+`terminalId` set, `reopen(terminalId)` (secondary). A topic with no run shows
+`start` without calling `actions`. Row 9's `next(nil)` is the steps-unknown
+fallback: no step label, rendered as a plain "Next" (§1.3).
+
+**Placement.** The layout model (`RunControlsLayout` / `controlsLayout.ts`)
+places by `role` only: `reopen`/`revert` land in their role's slot without code
+changes. One exception: the active card's tile layout (§3.2, §6.2) picks Stop
+and Pause/Resume out of the secondaries **by kind**, because they sit in
+different rows.
+
 ### 1.3 Titles and icons (M2 renders)
 
 | Kind               | Title                                   | Icon (iOS SF Symbol / PWA `Icon`) | VoiceOver / `aria-label`            |
 | ------------------ | --------------------------------------- | --------------------------------- | ----------------------------------- |
 | `start`            | "Start"                                 | `play` / `play`                   | "Start {topic}"                     |
 | `next(label)`      | "Next: {label}"                         | `chevron.right` / `chevronRight`  | "Next: {label}"                     |
+| `next(nil)`        | "Next"                                  | `chevron.right` / `chevronRight`  | "Next"                              |
 | `lap(nil)`         | "Lap"                                   | `flag` / `flag`                   | "Lap"                               |
 | `lap("Rest")`      | "Lap → Rest"                            | `flag` / `flag`                   | "Lap, then Rest"                    |
 | `skip(label)`      | "Skip {label}"                          | `forward.end` / `skip`            | "Skip {label}"                      |
@@ -249,7 +264,10 @@ answer 409 `conflict`).
    "Saved on this device"; the 60 pt total clock (`run.total`); the headline
    with the segment timer (`run.segment`: "Rest 2 · lap 4 0:41"); the alert line
    (`run.alert`: "Half way · in 0:12", a countdown ticking on the `RunTicker`;
-   for 10 s after an alert fires, its label with a bell, per timers2.md §9). The
+   for 10 s after an alert fires, its label with a bell, per timers2.md §9: that
+   label is run-screen state owned by I1-ALERTS,
+   `AppEnvironment.runAlerts.label(runId:)`, not part of `alertLine`, which
+   stays the persistent next-alert line and is nil when none remain). The
    headline replaces today's bare `open.label` (`RunScreen.swift:292-299`).
 2. **Controls** (`RunControls`): see §2.2. Directly under the header, above the
    table, so the thumb reaches them without scrolling past the table.
@@ -371,22 +389,25 @@ when `RunTileState` is `.open`; idle and finishing timed topics keep `TileView`
 struct ActiveTopicCard: View {
     let topic: ViewTopic
     let run: LocalRun
-    let now: Date                 // environment.runTicker.serverNow
     let onOpen: () -> Void        // the run screen
 }
 ```
+
+The card reads `environment.runTicker.serverNow` itself and holds the ticker
+with `.runTicking` while running (M2 implementation correction: no `now`
+parameter).
 
 Layout (one card, `qrCard`, tinted: background `tintSoft`, border
 `tint.opacity(0.45)`, 4 pt leading bar `tint`; via `.topicTheme(for:)` from M3,
 accent tokens until then):
 
-| Row        | Content                                                                                                                                                                                         | Ids                                                   |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| Title      | `TopicGlyphView` (M3) + name (`.qr(.title)`); trailing a small **Pause**/**Resume** text button (44 pt target)                                                                                  | `tile.<slug>` (card), `tile.<slug>.pause`/`.resume`   |
-| Clock      | the **segment** timer, `.qr(.sansSemiBold, size: 40, relativeTo: .largeTitle)`, `monospacedDigit`, dimmed when paused; the total to its right in `.qr(.footnote)` ("total 12:40")               | `tile.<slug>.segment`, `tile.<slug>.total`            |
-| Headline   | "Running · Rest 2 · lap 4" / "Paused · …" as a `QuickrBadge` (accent, or warn when paused)                                                                                                      | `run.status` (kept, `RunStatusLine`)                  |
-| Alert line | "Half way · in 0:12" when `alertLine` is non-nil; otherwise the row collapses                                                                                                                   | `tile.<slug>.alert`                                   |
-| Controls   | the **primary** (Lap/Next) as a 56 pt `.qr(.primary, size: .large)` filling the row, and **Stop** as a 56 pt secondary of fixed width `QuickrMetrics.logBlockWidth` (84 pt, `Metrics.swift:19`) | `tile.<slug>.run` (primary, kept), `tile.<slug>.stop` |
+| Row        | Content                                                                                                                                                                                                                               | Ids                                                   |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Title      | `TopicGlyphView` (M3) + name (`.qr(.title)`); trailing a small **Pause**/**Resume** text button (44 pt target)                                                                                                                        | `tile.<slug>` (card), `tile.<slug>.pause`/`.resume`   |
+| Clock      | the **segment** timer, `.qr(.sansSemiBold, size: 40, relativeTo: .largeTitle)`, `monospacedDigit`, dimmed when paused; the total to its right in `.qr(.footnote)` ("total 12:40")                                                     | `tile.<slug>.segment`, `tile.<slug>.total`            |
+| Headline   | "Running · Rest 2 · lap 4" / "Paused · …" as a `QuickrBadge` (accent, or warn when paused)                                                                                                                                            | `run.status` (kept, `RunStatusLine`)                  |
+| Alert line | "Half way · in 0:12" when `alertLine` is non-nil; otherwise the row collapses                                                                                                                                                         | `tile.<slug>.alert`                                   |
+| Controls   | the **primary** (Lap/Next) as a 56 pt `.qr(.primary, size: .large)` filling the row, and **Stop** as a 56 pt secondary of at least `QuickrMetrics.logBlockWidth` (84 pt), at its natural width; the primary fills the rest of the row | `tile.<slug>.run` (primary, kept), `tile.<slug>.stop` |
 
 Tapping anywhere else opens the run screen (`onOpen`), as the timed tile does
 today (`TopicTile.swift:53`). The segment clock is the big one because the lap
@@ -410,13 +431,14 @@ slots change by other milestones:
   entries. Until M4 lands, M2 keeps `lastLine`.
 
 An idle **timed** tile whose latest entry is `resumable` adds a text button
-"Resume · 1:44" (`tile.<slug>.reopen`) under the meta line, 44 pt tall, for 15
-minutes after the stop; its target is **`entry.timing.terminalId`** (the latest
-local entry's, the optimistic one included — the run row is gone from the store
-by then). The stop toast's **Resume** action (§3.2) uses the same source. On tap
-the card switches to `ActiveTopicCard`; while the reopen is queued and unacked
-the card shows the **"Resuming…"** badge in place of "Running" and hides its
-controls row (timers2.md §5.3 projection), then the ordinary open layout on ack.
+"Resume · 1:44" (`tile.<slug>.reopen`) in the tile's quick slot, directly under
+the meta line, 44 pt tall, for 15 minutes after the stop; its target is
+**`entry.timing.terminalId`** (the latest local entry's, the optimistic one
+included — the run row is gone from the store by then). The stop toast's
+**Resume** action (§3.2) uses the same source. On tap the card switches to
+`ActiveTopicCard`; while the reopen is queued and unacked the card shows the
+**"Resuming…"** badge in place of "Running" and hides its controls row
+(timers2.md §5.3 projection), then the ordinary open layout on ack.
 
 ## 4. Live Activity **[ios]**
 
@@ -610,9 +632,11 @@ whenever `active` is non-empty, sectioned or not. `splitByDue` and
 mirrors §3.2: `<article>` with `style={topicStyle(topic.appearance)}` (M3),
 `bg-topic-tint-soft border-topic-tint/45` (the one utility set of appearance.md
 §4.2), a 4 px `bg-topic-tint` left bar; title row with `<TopicGlyph/>` and a
-Pause/Resume text button (`data-testid="card-pause"`); the segment `Duration` at
-`text-5xl`, total beside it; `<RunStatus/>` badge (`RunTile.tsx:38-70`, now with
-the headline); alert line; controls row: the primary
+Pause/Resume text button (`data-testid="card-pause"` / `card-resume`); the
+segment `Duration` at `text-5xl`, total beside it; the status badge
+`data-testid="card-status"` ("Running · {headline}"; the card does not reuse
+`<RunStatus/>`, whose total and segment the clock row already shows); alert
+line; controls row: the primary
 (`<Button size="lg" variant="primary" className="flex-1">`,
 `data-testid="card-primary"`) and Stop (`w-[5.25rem]`, `card-stop`). The whole
 card links to `/t/{slug}/record`. `TopicTile` renders it instead of its own
@@ -624,7 +648,10 @@ markup when `running` (`TopicTile.tsx:102`).
   timed tiles now; `useRunPrimary` (`:159-192`) returns
   `primaryAction(run, timer)` with `onTap` dispatching `lap` as it does `next`.
   The running bar (`RunningBar.tsx:84-99`) renders the primary's icon and title
-  (`flag`/"Lap → Rest"), no Stop (the bar links to the panel).
+  (`flag`/"Lap → Rest"), no Stop (the bar links to the panel). The running bar
+  leaves out a run whose controls are already on screen: the run panel's, and an
+  "Active now" card's (each card registers its topic while mounted). A running
+  topic the topics page doesn't list keeps its bar row.
 - `RecordPage` timed branch: idle `RunStart` gains "Resume · 1:44"
   (`run-reopen`) under Start while `resumable(lastEntry)`, target
   `lastEntry.timing.terminal_id` (`last_entry` from the topic summary,
@@ -652,10 +679,11 @@ markup when `running` (`TopicTile.tsx:102`).
   (`WidgetStyle.largestTypeSize`).
 - **VoiceOver.** The active card is one container
   (`accessibilityElement(children: .contain)`) whose first element is the
-  title + headline + clock combined (`.updatesFrequently` while running), then
-  the controls in order primary, Stop, Pause. The clock keeps
-  `RunPresentation.spoken(ms)` labels (`RunViews.swift:51`). The "Active now"
-  header reads "Active now, 1".
+  title + headline + clock combined (`.updatesFrequently` while running; UI
+  tests read `tile.<slug>.segment` / `.total` / `run.status` values from that
+  element's label), then the controls in order primary, Stop, Pause. The clock
+  keeps `RunPresentation.spoken(ms)` labels (`RunViews.swift:51`). The "Active
+  now" header reads "Active now, 1".
 - **Tap targets.** Everything tappable is ≥ 44 pt; the primary ≥ 72 pt; the
   tile's Pause text button has a 44 pt hit area despite its small glyph.
 - **Haptics** as §2.5; the PWA keeps its 10 ms `buzz()` per tap
@@ -782,6 +810,8 @@ are M1's, consumed here.
 
 ### M2 implementation corrections
 
-| Finding                                                  | Outcome                                                                                                             |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| I2-LA: iOS truncates a Lock Screen activity above 160 pt | Fixed in §4.2: two text rows and one button row (primary ½, Pause/Resume ¼, Stop ¼); Dynamic Type capped at xxLarge |
+| Finding                                                  | Outcome                                                                                                                               |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| I2-LA: iOS truncates a Lock Screen activity above 160 pt | Fixed in §4.2: two text rows and one button row (primary ½, Pause/Resume ¼, Stop ¼); Dynamic Type capped at xxLarge                   |
+| M1 seams (rows 1–3, 9, 13; 10 s alert label)             | Fixed in §1.2, §1.3, §2.1: idle rows from the latest run; `next(nil)` → "Next"; `reopen` secondary; the 10 s label is I1-ALERTS state |
+| I2-HOME / F2-HOME / F2-BAR / MODEL-ADOPT                 | Fixed in §1.2 (placement), §3.2 (no `now`, Stop width, combined element), §3.3 (Resume slot), §6.2 (`card-status`), §6.3 (bar)        |
