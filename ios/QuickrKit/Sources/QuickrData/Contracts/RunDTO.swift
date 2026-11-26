@@ -93,6 +93,16 @@ public struct RunEventDTO: Codable, Sendable, Hashable {
     }
 }
 
+extension CodingUserInfoKey {
+    /// Set by the store's JSON decoder (`StoreJSON.decode`): the JSON was written by this app,
+    /// possibly by a build from before a field existed.
+    static let storedJSON = CodingUserInfoKey(rawValue: "quickr.storedJSON")!
+}
+
+extension Decoder {
+    var isStoredJSON: Bool { userInfo[.storedJSON] as? Bool == true }
+}
+
 /// `RunOpenSegment`.
 public struct RunOpenSegmentDTO: Codable, Sendable, Hashable {
     public var index: Int
@@ -106,6 +116,28 @@ public struct RunOpenSegmentDTO: Codable, Sendable, Hashable {
         case index, kind, step, label
         case startedAt = "started_at"
         case lapType = "lap_type"
+    }
+
+    public init(index: Int, kind: String, step: String?, label: String, startedAt: String, lapType: String?) {
+        self.index = index
+        self.kind = kind
+        self.step = step
+        self.label = label
+        self.startedAt = startedAt
+        self.lapType = lapType
+    }
+
+    /// `lap_type` is required on the wire; a run cached before fold v4 lacks it (untyped).
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        index = try c.decode(Int.self, forKey: .index)
+        kind = try c.decode(String.self, forKey: .kind)
+        _step = try c.decode(RequiredKey<String>.self, forKey: .step)
+        label = try c.decode(String.self, forKey: .label)
+        startedAt = try c.decode(String.self, forKey: .startedAt)
+        _lapType =
+            decoder.isStoredJSON && !c.contains(.lapType)
+            ? RequiredKey(wrappedValue: nil) : try c.decode(RequiredKey<String>.self, forKey: .lapType)
     }
 }
 
@@ -135,6 +167,53 @@ public struct RunStateDTO: Codable, Sendable, Hashable {
         case terminalId = "terminal_id"
         case nextLapType = "next_lap_type"
         case lapCount = "lap_count"
+    }
+
+    public init(
+        status: String, startedAt: String, endedAt: String?, open: RunOpenSegmentDTO?, nextStep: String?,
+        pausedSince: String?, segments: [TimingSegmentDTO], skipped: [String], pauses: [TimingPauseDTO],
+        effects: [String: RunEventEffectDTO], terminalId: String?, nextLapType: String?, lapCount: Int
+    ) {
+        self.status = status
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.open = open
+        self.nextStep = nextStep
+        self.pausedSince = pausedSince
+        self.segments = segments
+        self.skipped = skipped
+        self.pauses = pauses
+        self.effects = effects
+        self.terminalId = terminalId
+        self.nextLapType = nextLapType
+        self.lapCount = lapCount
+    }
+
+    /// The v2 fields are required on the wire. A run cached before fold v4 (store JSON) lacks
+    /// them: no terminal id (it can't be reopened from here until the feed refreshes it), no lap
+    /// types, and the lap count of its segments.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        status = try c.decode(String.self, forKey: .status)
+        startedAt = try c.decode(String.self, forKey: .startedAt)
+        _endedAt = try c.decode(RequiredKey<String>.self, forKey: .endedAt)
+        _open = try c.decode(RequiredKey<RunOpenSegmentDTO>.self, forKey: .open)
+        _nextStep = try c.decode(RequiredKey<String>.self, forKey: .nextStep)
+        _pausedSince = try c.decode(RequiredKey<String>.self, forKey: .pausedSince)
+        segments = try c.decode([TimingSegmentDTO].self, forKey: .segments)
+        skipped = try c.decode([String].self, forKey: .skipped)
+        pauses = try c.decode([TimingPauseDTO].self, forKey: .pauses)
+        effects = try c.decode([String: RunEventEffectDTO].self, forKey: .effects)
+        let legacy = decoder.isStoredJSON && !c.contains(.lapCount)
+        if legacy {
+            _terminalId = RequiredKey(wrappedValue: nil)
+            _nextLapType = RequiredKey(wrappedValue: nil)
+            lapCount = segments.count { $0.kind == "lap" }
+        } else {
+            _terminalId = try c.decode(RequiredKey<String>.self, forKey: .terminalId)
+            _nextLapType = try c.decode(RequiredKey<String>.self, forKey: .nextLapType)
+            lapCount = try c.decode(Int.self, forKey: .lapCount)
+        }
     }
 }
 
