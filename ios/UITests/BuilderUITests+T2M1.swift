@@ -73,7 +73,7 @@ extension BuilderUITests {
         let segment = find("run.segment", in: app)
         XCTAssertTrue(segment.waitForExistence(timeout: 10))
         XCTAssertTrue(waitUntil(segment, labelContains: "Run 1"), segment.label)
-        let lap = find("run.lap", in: app)
+        let lap = find("run.primary", in: app)
         XCTAssertTrue(lap.waitForExistence(timeout: 5))
         lap.tap()
         XCTAssertTrue(waitUntil(segment, labelContains: "Rest 1"), segment.label)

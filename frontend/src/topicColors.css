@@ -1,0 +1,151 @@
+/*
+ * Topic palette (docs/specs/appearance.md §3.1), the same values as `PALETTE` in
+ * src/lib/appearance.ts (appearance.test.ts asserts the two equal). Kept out of index.css because
+ * the iOS TokenDriftTests parses every `--color-*: #hex` pair there as a brand token; these are
+ * `--topic-*` and live in TopicColors.xcassets on iOS.
+ *
+ * `--topic-<name>-tint|soft|on` are the colours per mode. `[data-topic-color="<name>"]` points the
+ * element's `--topic-tint`, `--topic-tint-soft` and `--topic-on-tint` at them for static markup;
+ * `topicStyle()` does the same inline. The `topic-*` utilities (index.css `@theme inline`) read
+ * those three and fall back to the brand accent.
+ */
+:root {
+  --topic-red-tint: #c2362b;
+  --topic-red-soft: #f8dcd8;
+  --topic-red-on: #ffffff;
+  --topic-orange-tint: #c2470a;
+  --topic-orange-soft: #fde4d4;
+  --topic-orange-on: #ffffff;
+  --topic-amber-tint: #9e5406;
+  --topic-amber-soft: #fbe7c6;
+  --topic-amber-on: #ffffff;
+  --topic-yellow-tint: #f2c230;
+  --topic-yellow-soft: #fbf0c4;
+  --topic-yellow-on: #1b1915;
+  --topic-lime-tint: #4f7a0c;
+  --topic-lime-soft: #e6f2cc;
+  --topic-lime-on: #ffffff;
+  --topic-green-tint: #2f7d4f;
+  --topic-green-soft: #dcefe2;
+  --topic-green-on: #ffffff;
+  --topic-teal-tint: #19786f;
+  --topic-teal-soft: #d4eeea;
+  --topic-teal-on: #ffffff;
+  --topic-cyan-tint: #1c7fa3;
+  --topic-cyan-soft: #d6ecf5;
+  --topic-cyan-on: #ffffff;
+  --topic-blue-tint: #2f5f8f;
+  --topic-blue-soft: #dce7f2;
+  --topic-blue-on: #ffffff;
+  --topic-indigo-tint: #4a3aa7;
+  --topic-indigo-soft: #e3dff6;
+  --topic-indigo-on: #ffffff;
+  --topic-violet-tint: #7a3c9e;
+  --topic-violet-soft: #ecdff4;
+  --topic-violet-on: #ffffff;
+  --topic-pink-tint: #b8386e;
+  --topic-pink-soft: #f8dde9;
+  --topic-pink-on: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --topic-red-tint: #ff7b6e;
+    --topic-red-soft: #3b1714;
+    --topic-red-on: #1b0d04;
+    --topic-orange-tint: #ff7a2e;
+    --topic-orange-soft: #3a2214;
+    --topic-orange-on: #1b0d04;
+    --topic-amber-tint: #f0a63a;
+    --topic-amber-soft: #3a2a0e;
+    --topic-amber-on: #1b1204;
+    --topic-yellow-tint: #f5cf4f;
+    --topic-yellow-soft: #3a3110;
+    --topic-yellow-on: #1b1804;
+    --topic-lime-tint: #a9d64c;
+    --topic-lime-soft: #243410;
+    --topic-lime-on: #101a04;
+    --topic-green-tint: #5cc28a;
+    --topic-green-soft: #173323;
+    --topic-green-on: #04170c;
+    --topic-teal-tint: #4fc4b7;
+    --topic-teal-soft: #113330;
+    --topic-teal-on: #04201c;
+    --topic-cyan-tint: #5cc0e8;
+    --topic-cyan-soft: #113040;
+    --topic-cyan-on: #041a26;
+    --topic-blue-tint: #7fb1e3;
+    --topic-blue-soft: #16283a;
+    --topic-blue-on: #071624;
+    --topic-indigo-tint: #9085e9;
+    --topic-indigo-soft: #1f1a3d;
+    --topic-indigo-on: #0d0a24;
+    --topic-violet-tint: #c08ae0;
+    --topic-violet-soft: #2d1a3a;
+    --topic-violet-on: #1b0a26;
+    --topic-pink-tint: #ec84b1;
+    --topic-pink-soft: #3a1728;
+    --topic-pink-on: #260a18;
+  }
+}
+
+[data-topic-color='red'] {
+  --topic-tint: var(--topic-red-tint);
+  --topic-tint-soft: var(--topic-red-soft);
+  --topic-on-tint: var(--topic-red-on);
+}
+[data-topic-color='orange'] {
+  --topic-tint: var(--topic-orange-tint);
+  --topic-tint-soft: var(--topic-orange-soft);
+  --topic-on-tint: var(--topic-orange-on);
+}
+[data-topic-color='amber'] {
+  --topic-tint: var(--topic-amber-tint);
+  --topic-tint-soft: var(--topic-amber-soft);
+  --topic-on-tint: var(--topic-amber-on);
+}
+[data-topic-color='yellow'] {
+  --topic-tint: var(--topic-yellow-tint);
+  --topic-tint-soft: var(--topic-yellow-soft);
+  --topic-on-tint: var(--topic-yellow-on);
+}
+[data-topic-color='lime'] {
+  --topic-tint: var(--topic-lime-tint);
+  --topic-tint-soft: var(--topic-lime-soft);
+  --topic-on-tint: var(--topic-lime-on);
+}
+[data-topic-color='green'] {
+  --topic-tint: var(--topic-green-tint);
+  --topic-tint-soft: var(--topic-green-soft);
+  --topic-on-tint: var(--topic-green-on);
+}
+[data-topic-color='teal'] {
+  --topic-tint: var(--topic-teal-tint);
+  --topic-tint-soft: var(--topic-teal-soft);
+  --topic-on-tint: var(--topic-teal-on);
+}
+[data-topic-color='cyan'] {
+  --topic-tint: var(--topic-cyan-tint);
+  --topic-tint-soft: var(--topic-cyan-soft);
+  --topic-on-tint: var(--topic-cyan-on);
+}
+[data-topic-color='blue'] {
+  --topic-tint: var(--topic-blue-tint);
+  --topic-tint-soft: var(--topic-blue-soft);
+  --topic-on-tint: var(--topic-blue-on);
+}
+[data-topic-color='indigo'] {
+  --topic-tint: var(--topic-indigo-tint);
+  --topic-tint-soft: var(--topic-indigo-soft);
+  --topic-on-tint: var(--topic-indigo-on);
+}
+[data-topic-color='violet'] {
+  --topic-tint: var(--topic-violet-tint);
+  --topic-tint-soft: var(--topic-violet-soft);
+  --topic-on-tint: var(--topic-violet-on);
+}
+[data-topic-color='pink'] {
+  --topic-tint: var(--topic-pink-tint);
+  --topic-tint-soft: var(--topic-pink-soft);
+  --topic-on-tint: var(--topic-pink-on);
+}

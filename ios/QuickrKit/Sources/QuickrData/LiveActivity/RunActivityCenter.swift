@@ -60,11 +60,16 @@ public struct RunActivitySnapshot: Sendable, Hashable {
     public var runs: [LocalRun]
     /// By topic id.
     public var topicNames: [UUID: String]
+    /// Each run's pinned version's timer (steps, lap types and their alerts), by run id, when that
+    /// version is stored and timed: the lap type labels and alerts of the content state
+    /// (timers2.md §8.1). `LocalRun` carries only the steps.
+    public var timers: [String: TopicTimer]
 
-    public init(serverId: String, runs: [LocalRun], topicNames: [UUID: String]) {
+    public init(serverId: String, runs: [LocalRun], topicNames: [UUID: String], timers: [String: TopicTimer] = [:]) {
         self.serverId = serverId
         self.runs = runs
         self.topicNames = topicNames
+        self.timers = timers
     }
 
     /// One read of `store`; nil until its bootstrap is complete (its view of runs would be
@@ -81,8 +86,30 @@ public struct RunActivitySnapshot: Sendable, Hashable {
                 names[topicId] = try String.fetchOne(
                     db, sql: "SELECT name FROM topic WHERE id = ?", arguments: [topicId.wireString])
             }
-            return RunActivitySnapshot(serverId: serverId, runs: runs, topicNames: names)
+            return RunActivitySnapshot(
+                serverId: serverId, runs: runs, topicNames: names, timers: try timers(db, runs: runs))
         }
+    }
+
+    /// Each run's pinned version's timer, by run id, when that version is stored and timed (one
+    /// read per version): what `timers` holds. The widget reader reads the same.
+    static func timers(_ db: Database, runs: [LocalRun]) throws -> [String: TopicTimer] {
+        var versions: [String: TopicTimer?] = [:]
+        var timers: [String: TopicTimer] = [:]
+        for run in runs where run.steps != nil {
+            let key = "\(run.topicId.wireString)#\(run.version)"
+            if versions[key] == nil { versions[key] = try timer(db, topicId: run.topicId, version: run.version) }
+            if let timer = versions[key] ?? nil { timers[run.id] = timer }
+        }
+        return timers
+    }
+
+    /// A stored version's timer; nil when the version isn't stored or is untimed.
+    private static func timer(_ db: Database, topicId: UUID, version: Int) throws -> TopicTimer? {
+        let json = try String.fetchOne(
+            db, sql: "SELECT timer_json FROM topic_version WHERE topic_id = ? AND version = ?",
+            arguments: [topicId.wireString, version])
+        return try json.map { try StoreJSON.decode(TopicTimer.self, $0) }
     }
 
     /// The run a topic's activity shows: the run it shows (`runId`, its id or an alias) while
@@ -100,13 +127,21 @@ public struct RunActivitySnapshot: Sendable, Hashable {
         return newest(mine.filter { $0.status == .finishing }) ?? newest(mine)
     }
 
+    /// The content state the view gives `run` at `now`, with the lap type labels and the next
+    /// alert of its pinned timer (`timers`). Nil when the pinned version's steps aren't stored.
+    public func state(_ run: LocalRun, now: Date) -> RunActivityState? {
+        Self.state(run, timer: timers[run.id], now: now)
+    }
+
     /// The content state the view gives `run`. Nil when the pinned version's steps aren't stored
     /// here (a run started elsewhere): the labels and step positions would be wrong, so the
-    /// activity keeps the server's.
-    public static func state(_ run: LocalRun) -> RunActivityState? {
+    /// activity keeps the server's. Without `timer` (or `now`) there are no lap type labels (or no
+    /// alert): `timer` is the pinned version's, `now` the instant `alert_at` is computed for.
+    public static func state(_ run: LocalRun, timer: TopicTimer? = nil, now: Date? = nil) -> RunActivityState? {
         guard let steps = run.steps else { return nil }
         return RunActivityContent.state(
-            runId: run.id, revision: run.server?.revision ?? 0, status: run.status, state: run.state, steps: steps)
+            runId: run.id, revision: run.server?.revision ?? 0, status: run.status, state: run.state,
+            timer: timer ?? TopicTimer(steps: steps), now: now.map(RunInstant.milliseconds))
     }
 
     /// For a request when the steps aren't stored: no positions or next label, and marked
@@ -162,7 +197,7 @@ public enum RunActivityPlan {
                 actions.append(.end(id: keep.id, keep.state, .immediate))
                 continue
             }
-            let desired = RunActivitySnapshot.state(run)
+            let desired = snapshot.state(run, now: now)
             switch run.status {
             case .running, .paused:
                 shown.insert(key)
@@ -180,7 +215,7 @@ public enum RunActivityPlan {
             case .finishing, .running, .paused:
                 continue  // still waiting for its answers; or a new run, whose activity is another
             case .stopped:
-                guard let run, run.answers(to: activity.state.runId), let desired = RunActivitySnapshot.state(run)
+                guard let run, run.answers(to: activity.state.runId), let desired = snapshot.state(run, now: now)
                 else { continue }
                 actions.append(.end(id: activity.id, desired, later))
             case .discarded, nil:
@@ -193,7 +228,7 @@ public enum RunActivityPlan {
                 topicName: snapshot.topicNames[startFor] ?? run.topic?.name ?? "")
             if !shown.contains(key(attributes)) {
                 // A run whose steps aren't stored here is shown without them until they are.
-                let state = RunActivitySnapshot.state(run) ?? RunActivitySnapshot.stateWithoutSteps(run)
+                let state = snapshot.state(run, now: now) ?? RunActivitySnapshot.stateWithoutSteps(run)
                 actions.append(.request(attributes, state))
             }
         }

@@ -242,12 +242,13 @@ public struct TopicWidgetView: View {
         return view.kind == .none ? nil : view.label()
     }
 
-    // MARK: Timed (timers.md §11.3)
+    // MARK: Timed (timers.md §11.3, active-surfaces.md §5.1)
 
-    /// A timed topic: never a one-tap log. Idle, its due state and Start; running, the segment's
-    /// label, its ticking timer and the total, and Next (or Lap) and Stop, the small size one
-    /// Auto button; finishing, "Add details", which opens its answers form. A tap elsewhere opens
-    /// the run screen.
+    /// A timed topic: never a one-tap log. Idle, its due state and Start; open, the segment's
+    /// headline ("Rest 2 · lap 4", "Shower · 1 of 3"), its ticking timer, on the medium size the
+    /// total and the pending alert, and the primary (Lap or Next) with Stop, the small size one
+    /// Auto button (§5.3); finishing, "Add details", which opens its answers form. A tap elsewhere
+    /// opens the run screen.
     private func timedHome(_ topic: WidgetTopic) -> some View {
         let display = topic.runDisplay
         let state = topic.runTile
@@ -262,18 +263,29 @@ public struct TopicWidgetView: View {
                 switch state {
                 case .open(let paused):
                     if let display {
-                        Text(paused ? "Paused · \(display.label)" : display.label)
+                        Text(paused ? "Paused · \(display.headline)" : display.headline)
                             .font(.qr(.footnote))
                             .foregroundStyle(.qr.muted)
                             .lineLimit(1)
-                        RunWidgetTimer(timer: display.segmentTimer)
-                            .font(.qr(.title))
-                            .foregroundStyle(.qr.ink)
-                            .widgetAccentable()
-                        if style.family != .systemSmall {
-                            RunWidgetTimer(timer: display.totalTimer)
-                                .font(.qr(.footnote))
-                                .foregroundStyle(.qr.muted)
+                        if style.family == .systemSmall {
+                            segmentTimer(display)
+                        } else {
+                            // The total and, under it, the pending alert trail the segment timer on
+                            // one row, as on the Lock Screen (§4.2): stacked, the alert line would
+                            // push the chips out of the medium size. The segment timer keeps its
+                            // width; a long alert label truncates first.
+                            HStack(alignment: .lastTextBaseline, spacing: 8) {
+                                segmentTimer(display).layoutPriority(2)
+                                Spacer(minLength: 0)
+                                VStack(alignment: .trailing, spacing: 0) {
+                                    RunWidgetTimer(timer: display.totalTimer)
+                                        .font(.qr(.footnote))
+                                        .foregroundStyle(.qr.muted)
+                                    if let alert = display.alert {
+                                        RunAlertLine(alert: alert).font(.qr(.footnote))
+                                    }
+                                }
+                            }
                         }
                     }
                 case .finishing:
@@ -300,6 +312,13 @@ public struct TopicWidgetView: View {
         .widgetURL(topic.runURL)
     }
 
+    private func segmentTimer(_ display: RunActivityDisplay) -> some View {
+        RunWidgetTimer(timer: display.segmentTimer)
+            .font(.qr(.title))
+            .foregroundStyle(.qr.ink)
+            .widgetAccentable()
+    }
+
     @ViewBuilder private func runControls(_ topic: WidgetTopic) -> some View {
         if topic.runTile == .finishing {
             Link(destination: topic.runURL) {
@@ -307,16 +326,19 @@ public struct TopicWidgetView: View {
             }
             .accessibilityLabel("Add details to \(topic.topic.name)")
         } else {
+            // The primary (Start, Lap or Next: §1.3 titles) is the filled chip and takes the row;
+            // Stop is a secondary of the tile's fixed width beside it. The small size's one Auto
+            // chip is filled whatever it does (§5.3). Accented modes outline every chip.
             let compact = style.family == .systemSmall
             HStack(spacing: 6) {
                 ForEach(topic.runButtons(compact: compact), id: \.self) { button in
+                    let isPrimary = compact || button != .stop
                     runControl(actions?.run(button), topic) {
                         WidgetChip(
-                            label: compact && button == .next
-                                ? (topic.run?.nextLabel.map { "Next: \($0)" } ?? "Next")
-                                : button.title,
-                            isLast: false, isAccented: style.isAccented, isPrimary: button != .lap)
+                            label: topic.runButtonTitle(button), isLast: false, isAccented: style.isAccented,
+                            isPrimary: isPrimary)
                     }
+                    .frame(maxWidth: isPrimary ? .infinity : QuickrMetrics.logBlockWidth)
                     .accessibilityLabel(topic.runButtonLabel(button))
                 }
             }
@@ -545,6 +567,30 @@ struct RunWidgetTimer: View {
             )
             .monospacedDigit()
         }
+    }
+}
+
+/// A run's pending alert, "⏰ Half way · 0:12", counting down to it and staying at 0:00 until the
+/// next update (a widget or Live Activity cannot sound: timers2.md §9); "⏰ 0:12" when the payload
+/// budget dropped the label. The Live Activity's and the timed widget's.
+public struct RunAlertLine: View {
+    let alert: RunActivityDisplay.Alert
+
+    public init(alert: RunActivityDisplay.Alert) { self.alert = alert }
+
+    public var body: some View {
+        let at = Date(timeIntervalSince1970: alert.at)
+        HStack(spacing: 4) {
+            Image(systemName: "alarm")
+            if !alert.label.isEmpty {
+                Text(alert.label).lineLimit(1)
+                Text("·")
+            }
+            Text(timerInterval: min(Date(), at)...at, countsDown: true).monospacedDigit().layoutPriority(1)
+        }
+        .lineLimit(1)
+        .foregroundStyle(Color.qr.warn)
+        .accessibilityElement(children: .combine)
     }
 }
 

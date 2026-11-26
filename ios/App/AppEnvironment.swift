@@ -141,7 +141,8 @@ final class AppEnvironment {
                     },
                     tap: { type, runId, target in
                         let result = try await base.tap(type, runId, target)
-                        await activities.reconcile()
+                        // A reopen made here requests the run's activity, as a start does (R20).
+                        await activities.reconcile(after: result)
                         return result
                     })
             }, now: runClock)

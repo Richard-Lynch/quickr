@@ -133,11 +133,13 @@ struct TopicControl: ControlWidget {
 
 // MARK: - Timer
 
-/// What a timed topic's Control (timers.md §11.3) shows and does: "Timer: {topic}", and what a
-/// press does now, which is Auto (`RunWidgetIntent`, pinned to the store it was read from): Start,
-/// "Next: Breakfast" (or a plain Next while the steps aren't known), or Stop on the last step. A
-/// finishing run isn't open, so a press starts a new one. A topic it can't time (untimed,
-/// archived, gone) gets an empty intent, which does nothing.
+/// What a timed topic's Control (timers.md §11.3, active-surfaces.md §5.2) shows and does:
+/// "Timer: {topic}", and what a press does now, which is Auto (`RunWidgetIntent`, pinned to the
+/// store it was read from): Start, "Next: Breakfast" (or a plain Next while the steps aren't
+/// known), "Lap" or "Lap → Rest" on a lap-typed timer, or Stop in the §5.3 carve-out (a lap or the
+/// last step open on a timer without lap types). A finishing run isn't open, so a press starts a
+/// new one. A topic it can't time (untimed, archived, gone) gets an empty intent, which does
+/// nothing.
 struct TimerControlValue: Sendable {
     let title: String
     let detail: String?
@@ -165,11 +167,14 @@ struct TimerControlValue: Sendable {
         case .untimed:
             self.init(title: title, detail: "Not timed", intent: RunWidgetIntent(), icon: "timer")
         case .open:
-            if shown.runButtons(compact: true).first == .next {
-                let detail = shown.run?.nextLabel.map { "Next: \($0)" } ?? "Next"
-                self.init(title: title, detail: detail, intent: auto, icon: "forward.end")
-            } else {
+            // The one Auto button (§5.3), with the §1.3 title and icon of what it does.
+            let button = shown.runButtons(compact: true).first
+            if button == .lap {
+                self.init(title: title, detail: shown.runButtonTitle(.lap), intent: auto, icon: "flag")
+            } else if button == .stop {
                 self.init(title: title, detail: "Stop", intent: auto, icon: "stop")
+            } else {
+                self.init(title: title, detail: shown.runButtonTitle(.next), intent: auto, icon: "chevron.right")
             }
         case .idle, .finishing:
             guard shown.topic.status != .archived else {
@@ -239,7 +244,7 @@ struct TimerControl: ControlWidget {
             }
         }
         .displayName("Timer")
-        .description("Starts a timed topic, moves to its next step, or stops it on the last one.")
+        .description("Starts a timed topic, moves to its next step or lap, or stops it on the last one.")
         .promptsForUserConfiguration()
     }
 }

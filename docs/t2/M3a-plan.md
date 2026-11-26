@@ -6,8 +6,20 @@
 ritual, seams and ownership table, simulator budget, effort legend and open
 questions apply here unchanged. **Branch:** `t2/m3a` off `feat/t2`; WP branches
 `t2/m3a-<wp>`, one worktree each under `/Users/richie/code/quickr-worktrees/`.
-**Lead:** M3 lead. **Evidence:** `docs/t2/evidence/M3a.md` and
-`docs/t2/evidence/M3a/` (below).
+**Lead:** `t2-m3a-lead`; WP owners are the sub-agents named in the table under
+the DAG. **Evidence:** `docs/t2/evidence/M3a.md` and `docs/t2/evidence/M3a/`
+(below). **CI:** `ci.yml`, `ios.yml` and `compat.yml` trigger on every
+`pull_request` with no branch filter, so a WP PR into `t2/m3a` runs the real
+checks; the WP gate uses them, not local equivalents.
+
+_Plan check (2026-11-25, `t2-m3a-lead`, before any WP started): paths corrected
+to the tree at b9c566cb
+(`backend/app/services/push/{apns,web,live_activity}.py`,
+`frontend/src/components/builder/serverErrors.ts`,
+`QuickrUI/Catalog/DesignCatalogView.swift`); the `regex` dependency named in
+M3-DB; `Topic.swift`'s stored property and the `DueReminder` local title moved
+into I3-STORE's scope explicitly; the UI test goes in its own file; owners
+added._
 
 ## Definition of done (every WP)
 
@@ -43,12 +55,13 @@ unless M2 took M3-TOKENS early.
 - **Scope:** iOS `QuickrCore/Models/TopicAppearance.swift` (value type:
   `color: ColorName?`, `icon: TopicIcon?` (`.emoji(String)`), `tags: [String]`),
   `QuickrUI/Tokens/TopicTheme.swift` (`tint`, `tintSoft`, `onTint`, `glyph`;
-  `TopicTheme(appearance:)` default = accent tokens, no glyph; environment key
+  `TopicTheme(appearance:name:)`, nil or no colour = accent tokens, no glyph;
+  `TopicTheme.default`; environment key
   `\.topicTheme`; `.topicTheme(for:)`), `QuickrUI/Icons/TopicGlyph.swift` +
   `TopicGlyphView` (emoji or fallback initial),
   `QuickrUI/Resources/TopicColors.xcassets` (12 colours ×
-  `tint`/`tintSoft`/`onTint`, light/dark; outside `TokenDriftTests`' scope), a
-  `DesignCatalogView` section. PWA `src/lib/appearance.ts`
+  `tint`/`tintSoft`/`onTint`, light/dark; outside `TokenDriftTests`' scope), a section in
+  `QuickrUI/Catalog/DesignCatalogView.swift`. PWA `src/lib/appearance.ts`
   (`topicStyle(appearance) -> CSSProperties` setting `--topic-tint`,
   `--topic-tint-soft`, `--topic-on-tint`; palette table light and dark),
   `index.css` utilities as appearance.md §4.2 names them (the one set, also used
@@ -78,7 +91,8 @@ unless M2 took M3-TOKENS early.
   validation of appearance.md §1.3 and §2: named colour, one emoji grapheme
   after normalisation, tags stripped and whitespace-collapsed, 1..24 code
   points, ≤ 10, unique casefolded) with dotted 422 paths; `services/topics.py`
-  PATCH bumps `revision` and `_log_topic` re-sends the topic; `listTopics`
+  PATCH bumps `revision` and `_log_topic` re-sends the topic; the `regex`
+  package added to `backend/pyproject.toml` (`uv lock`; spec §2, D-3a); `listTopics`
   `?tag=` filter (appearance.md §15); `limits.py` + `Limits`: `max_tags 10`,
   `max_tag_length 24`, `max_icon_length 16`, `color_names` (the 12, in palette
   order); mirrors (`FALLBACK_LIMITS`, `Limits.serverDefaults`,
@@ -86,16 +100,19 @@ unless M2 took M3-TOKENS early.
   `shared/fixtures/appearance-vectors.json` (`palette[]` with light/dark
   `tint`/`tintSoft`/`onTint` and a contrast assertion, `icons[]`, `tags[]`,
   `reminder_titles[]`, appearance.md §3.2) and the drift tests on both clients
-  switched to it; reminder title prefix `"{emoji} {topic name}"` in
-  `push/apns.py` and the Web Push payload with new cases in
+  switched to it; reminder title prefix `"{emoji} {topic name}"` built where `scheduler.py:199`
+  sets `title=name`, so both `services/push/apns.py` and `services/push/web.py`
+  carry it, with new cases in
   `apns-payload-vectors.json`/`notification-vectors.json` as appearance.md §6
-  and §16 name them; MCP `create_topic`/`update_topic` params `color`, `icon`,
+  and §16 name them (iOS `DueReminderVectorTests` reads the composed `title`
+  from the vector, so no Swift beyond the DTO is needed here); MCP `create_topic`/`update_topic` params `color`, `icon`,
   `tags`, `clear_icon`; API fixtures (`getTopic`, `updateTopic`, `listTopics`
   with appearance); `openapi.json`, `make client`; minimal Swift:
   `TopicDTO`/`TopicSummaryDTO` optional `appearance` (M3's own file).
 - **Areas:** `backend/alembic/versions/`, `backend/app/models.py`,
-  `schemas/{api,limits}.py`, `services/topics.py`, `push/apns.py`,
-  `services/notification.py`, `mcp_server.py`, `backend/tests/`,
+  `schemas/{api,limits}.py`, `services/topics.py`, `services/scheduler.py`,
+  `services/push/apns.py`, `services/push/web.py`, `services/notification.py`,
+  `mcp_server.py`, `backend/pyproject.toml`, `backend/tests/`,
   `shared/fixtures/`, the limits mirrors, `QuickrData/Contracts/TopicDTO.swift`.
 - **Depends on:** M1-DB (shared branch, for the Alembic chain), M3-TOKENS.
 - **Acceptance:** migration round trip; 422 paths `appearance.tags.3`,
@@ -131,8 +148,12 @@ unless M2 took M3-TOKENS early.
   `stage_topic`; **resets the feed cursor** (topic re-pull) as `v2` did; review
   D3 reversed the earlier "no re-pull" claim, appearance.md §8 updated);
   `TopicDTO`, `TopicSummaryDTO` `@RequiredKey appearance`, `TopicRequestDTO`;
-  `StoreView` mapping; `Topic`/`ViewTopic.appearance`;
-  `TopicWrites.updateAppearance` (PATCH with `expected_revision`); `TopicWriter`
+  `StoreView` mapping; `ViewTopic.appearance`; `Topic`/`TopicSummary.appearance`
+  (default empty) in M1's `QuickrCore/Models/Topic.swift` as one delimited
+  `// T2-M3` block each, the diff sent to `t2-m1-lead` (spec §4.1 "a patch
+  limited to one stored property each"); `DueReminder.swift:51` local-fallback
+  title composed `"{emoji} {name}"` (spec §6.7, checked against
+  `reminder_titles[]`); `TopicWrites.updateAppearance` (PATCH with `expected_revision`); `TopicWriter`
   `TopicDetailsChange.appearance`; request golden `updateTopic.appearance`.
 - **Depends on:** M3-DB, M3-TOKENS.
 - **Acceptance:** `api/getTopic.json` decodes with and without appearance;
@@ -140,8 +161,9 @@ unless M2 took M3-TOKENS early.
   sync re-pulls topics, so a topic themed on another device shows its theme
   (upgrade test with an unchanged pre-existing topic); the golden validates in
   pytest.
-- **Tests:** store migration test, `TopicDTOTests`, `MappingTests`,
-  `TopicWritesTests`, `RequestGoldenTests`.
+- **Tests:** store migration test (`QuickrDataTests/Upgrade/UpgradeTests.swift`
+  pattern), `TopicDTOTests` (new), `MappingTests`, `TopicWritesTests`,
+  `RequestGoldenTests`, `DueReminderVectorTests`.
 - **Review round 1 (E4):** the `StoreSchema.swift` registration line is added at
   merge time by the merger, not here; if M1's `t2m1_*` migration is already on
   `feat/t2` when this merges, this WP adds `StoreMigrationOrderTests` (upgrade a
@@ -183,7 +205,7 @@ unless M2 took M3-TOKENS early.
 
 - **Scope:** `App/Entries/TopicTabsView.swift` header: glyph, tint bar, tag
   chips (ids per appearance.md §7). The coordinated patch to M1:
-  `push/live_activity.py attributes()` gains `appearance` (optional) with the
+  `services/push/live_activity.py attributes()` gains `appearance` (optional) with the
   vector case appearance.md §15 names, and `RunActivity.swift`
   `RunActivityAttributes.appearance: TopicAppearance?`; the M3 lead sends the
   diff to the M1 lead after M1-LA-STATE has merged, the M1 lead approves, it
@@ -208,7 +230,8 @@ unless M2 took M3-TOKENS early.
 
 - **Scope:** `TopicMetaFields.tsx` Appearance row (swatches, a small curated
   emoji grid plus free input, tags input), `SettingsPage.tsx` `MetaForm`,
-  `builder.ts` meta zod schemas with `limits`, `serverErrors.ts` paths,
+  `builder.ts` meta zod schemas with `limits`,
+  `src/components/builder/serverErrors.ts` `builderFieldFor` paths,
   `src/api/mutations.ts`/`cache.ts` optimistic appearance patch.
 - **Depends on:** M3-DB.
 - **Acceptance:** a PATCH sends only changed appearance fields with
@@ -218,8 +241,8 @@ unless M2 took M3-TOKENS early.
   `mutations.test.ts`.
 - **Review round 1 (D7, E3):** PWA predicate = `Intl.Segmenter` one grapheme +
   `\p{Extended_Pictographic}` on the first scalar (same as the server), run
-  against `icons[]`. Edits to `src/lib/builder.ts` and `serverErrors.ts` are
-  limited to the meta-schema block, delimited `// T2-M3` (M1 owns the files).
+  against `icons[]`. Edits to `src/lib/builder.ts` and
+  `src/components/builder/serverErrors.ts` are limited to the meta-schema block, delimited `// T2-M3` (M1 owns the files).
 - **DoD:** the Acceptance above holds, proven by `TopicMetaFields.test.tsx`
   (new), `builder.test.ts`, `mutations.test.ts`. Evidence in the PR:
   `pnpm exec vitest run <the tests above>` pass counts and a green
@@ -241,7 +264,9 @@ unless M2 took M3-TOKENS early.
 
 ### M3-UITEST · simulator: set appearance, see header · sim · S · last
 
-- **Scope:** `BuilderUITests.testNewTopicWithAppearance` (pick a colour and an
+- **Scope:** `UITests/BuilderUITests+T2M3.swift` (new file, as M1's
+  `BuilderUITests+T2M1.swift`; review C4) with `testNewTopicWithAppearance`
+  (pick a colour and an
   emoji in New topic, add two tags; the topic header shows them; the tile's
   glyph and tinted bar are checked here only if M2 wired the theme, else in
   T2-WIRE-I; appearance.md §16); light/dark screenshots; `UITestLaunch.swift`
@@ -296,17 +321,17 @@ flowchart LR
   FREN --> REV
 ```
 
-| WP        | Depends on                   | Class     | Effort |
-| --------- | ---------------------------- | --------- | ------ |
-| M3-TOKENS | —                            | host + fe | M      |
-| M3-DB     | M1-DB (shared), M3-TOKENS    | be        | M      |
-| I3-STORE  | M3-DB, M3-TOKENS             | host      | M      |
-| I3-EDIT   | I3-STORE                     | host      | M      |
-| I3-RENDER | I3-STORE, M1-LA-STATE merged | host      | S      |
-| F3-EDIT   | M3-DB                        | fe        | M      |
-| F3-RENDER | M3-TOKENS, F3-EDIT           | fe        | S      |
-| M3-UITEST | I3-EDIT, I3-RENDER           | sim       | S      |
-| M3-REVIEW | all                          | docs      | S      |
+| WP        | Depends on                   | Class     | Effort | Owner (sub-agent) |
+| --------- | ---------------------------- | --------- | ------ | ----------------- |
+| M3-TOKENS | —                            | host + fe | M      | `m3a-tokens`      |
+| M3-DB     | M1-DB (shared), M3-TOKENS    | be        | M      | `m3a-db`          |
+| I3-STORE  | M3-DB, M3-TOKENS             | host      | M      | `m3a-istore`      |
+| I3-EDIT   | I3-STORE                     | host      | M      | `m3a-iedit`       |
+| I3-RENDER | I3-STORE, M1-LA-STATE merged | host      | S      | `m3a-irender`     |
+| F3-EDIT   | M3-DB                        | fe        | M      | `m3a-fedit`       |
+| F3-RENDER | M3-TOKENS, F3-EDIT           | fe        | S      | `m3a-frender`     |
+| M3-UITEST | I3-EDIT, I3-RENDER           | sim       | S      | `m3a-uitest`      |
+| M3-REVIEW | all                          | docs      | S      | `t2-m3a-lead`     |
 
 **Critical path:** M3-TOKENS → M3-DB (waits for `t2/m1-db`) → I3-STORE → I3-EDIT
 → M3-UITEST → M3-REVIEW.
