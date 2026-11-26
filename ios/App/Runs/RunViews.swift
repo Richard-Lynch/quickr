@@ -104,6 +104,29 @@ enum RunHeadline {
     }
 }
 
+extension View {
+    /// Calls `perform` when `resumable`'s Resume window closes (OQ-1's 15 minutes, on the run clock
+    /// with `offsetMs`), so an idle surface left on screen re-reads it then. Restarts whenever the
+    /// offer or the offset changes, so an offset moving either way reschedules.
+    func onResumeWindowClose(
+        _ resumable: ResumableRun?, offsetMs: Int, perform: @escaping @MainActor () -> Void
+    ) -> some View {
+        task(id: ResumeWindowKey(resumable: resumable, offsetMs: offsetMs)) {
+            guard let resumable else { return }
+            let left = resumable.closes(offsetMs: offsetMs).timeIntervalSinceNow
+            if left > 0 {
+                do { try await Task.sleep(for: .seconds(left)) } catch { return }
+            }
+            perform()
+        }
+    }
+}
+
+private struct ResumeWindowKey: Hashable {
+    var resumable: ResumableRun?
+    var offsetMs: Int
+}
+
 /// The run screen's alert line (active-surfaces.md §2.1, `RunHeaderText.alert`): for 10 s after an
 /// alert fires in the foreground, its label with a bell (`fired`, I1-ALERTS'
 /// `runAlerts.label(runId:)`); otherwise the next alert and its countdown ("Half way · in 0:12",

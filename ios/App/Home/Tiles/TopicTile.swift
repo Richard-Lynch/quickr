@@ -29,6 +29,8 @@ struct TopicTile: View {
     @State private var starts = 0
     /// A timed topic's latest stop, while the store offers it "Resume" (`observeResumable`).
     @State private var resumable: ResumableRun?
+    /// Moved when the Resume window closes, so the tile re-reads it then.
+    @State private var windowClosed = Date.distantPast
 
     private let text = TopicText()
 
@@ -51,6 +53,8 @@ struct TopicTile: View {
         .task(id: ResumableKey(binding: environment.session?.binding, topicId: topic.topic.id, timed: state.isTimed)) {
             await followResumable(timed: state.isTimed)
         }
+        // Re-read when the window closes, rescheduled when the offset moves.
+        .onResumeWindowClose(resumable, offsetMs: environment.runTicker.offsetMs) { windowClosed = .now }
     }
 
     /// A timed topic without an open run (timers.md §11.1, §11.2): never a one-tap log or quick
@@ -75,14 +79,11 @@ struct TopicTile: View {
             }
         } quick: {
             // Interactive, so under the meta line in the quick slot (the meta passes taps through).
-            if state == .idle, topic.status != .archived, let resumable {
-                let offset = environment.runTicker.offsetMs
-                // Re-read when the window closes; the schedule follows the offset (observed).
-                TimelineView(.explicit([resumable.closes(offsetMs: offset)])) { _ in
-                    if resumable.isOffered(at: RunInstant.milliseconds(Date()) + offset) {
-                        reopenButton(resumable, slug: topic.slug)
-                    }
-                }
+            if state == .idle, topic.status != .archived, let resumable,
+                resumable.isOffered(
+                    at: RunInstant.milliseconds(max(now, windowClosed, Date())) + environment.runTicker.offsetMs)
+            {
+                reopenButton(resumable, slug: topic.slug)
             }
         }
         .accessibilityIdentifier("tile.\(topic.slug)")

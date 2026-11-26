@@ -92,7 +92,7 @@ extension TileUITests {
     /// online, it is Running with its controls.
     @MainActor
     func testResumingCardHasNoControlsUntilTheAck() {
-        let app = launchTikTok(["-QuickrSyncControls", "-QuickrRunControls"])
+        let app = launchTikTok(["-QuickrSyncControls", "-QuickrRunControls", "-QuickrClockControl"])
         let find = { (id: String) in app.descendants(matching: .any)[id].firstMatch }
         let start = find("tile.tiktok.run")
         XCTAssertTrue(start.waitForExistence(timeout: 20))
@@ -101,8 +101,11 @@ extension TileUITests {
         XCTAssertTrue(stop.waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 0.6)
         stop.tap()
-        // The server has the stop, so the run row is gone here: a reopen goes from the entry.
+        // The server has the stop, and once a pull has returned this device has applied its ack,
+        // so the run row is gone here: a reopen goes from the entry.
         XCTAssertTrue(resumeWait(find("debug.serverRun"), prefix: "stopped", timeout: 15))
+        find("debug.pull").tap()
+        XCTAssertTrue(resumeWait(find("debug.pulled"), prefix: "pulled 1", timeout: 15))
         let reopen = find("tile.tiktok.reopen")
         XCTAssertTrue(reopen.waitForExistence(timeout: 10))
 
