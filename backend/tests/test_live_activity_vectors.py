@@ -757,3 +757,14 @@ def test_budget_skips_missing_fields_on_an_update() -> None:
     body = la.payload("update", state, timestamp=TIMESTAMP)
     assert la.shrink(body, "topic_name") == body
     assert "attributes" not in la.shrink(body, "terminal")["aps"]
+
+
+def test_lap_count_falls_back_to_the_lap_segments_on_a_state_stored_before_fold_v4() -> None:
+    """M1-REVIEW P3-4: a state stored before fold v4 has no ``lap_count``; the push counts its
+    closed lap segments rather than sending null."""
+    events = [START, ev(1, "lap", 60, seg=0), ev(2, "lap", 120, seg=1)]
+    state = state_of(TIMERS["tiktok"], events)
+    assert state["lap_count"] == 2
+    v3 = {k: v for k, v in state.items() if k != "lap_count"}
+    pushed = la.content_state(RUN, 3, v3, TIMERS["tiktok"], now=T0 + 130_000)
+    assert pushed["lap_count"] == 2
