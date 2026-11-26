@@ -994,3 +994,110 @@ export function previewQuestion(d: DraftQuestion, index: number): Question {
     max_selected: null,
   };
 }
+
+// T2-M3 (F3-EDIT): appearance in the new-topic and settings forms (appearance.md §1.1, §1.3, §7).
+// M1 owns the rest of this file, so this block is appended whole (t2-plan.md "Shared files"): it
+// reaches `TopicDraft` by declaration merging and wraps M1's schemas instead of editing them.
+import {
+  checkIcon,
+  checkTags,
+  COLOR_NAMES,
+  EMPTY_APPEARANCE,
+  isBlankTag,
+  type Appearance,
+  type ColorName,
+} from './appearance';
+import {
+  appearanceLimitsOf,
+  type AppearanceUpdate,
+  type TopicCreateBody,
+} from './topicAppearanceSeam';
+
+/**
+ * The Appearance card's state: `icon` is the emoji field's text (`''` for none); `tagInput` the tag
+ * being typed, which must be added or cleared before the form submits.
+ */
+export interface AppearanceDraft {
+  color: ColorName | null;
+  icon: string;
+  tags: string[];
+  tagInput: string;
+}
+
+export interface TopicDraft {
+  /** Present in the forms that show the Appearance card (new topic, topic settings). */
+  appearance?: AppearanceDraft | undefined;
+}
+
+export function appearanceDraftOf(a: Appearance | null): AppearanceDraft {
+  return {
+    color: a?.color ?? null,
+    icon: a?.icon?.value ?? '',
+    tags: [...(a?.tags ?? [])],
+    tagInput: '',
+  };
+}
+
+/** An Appearance draft → the wire `Appearance`, with `checkIcon`/`checkTags` and the limits. */
+export function makeAppearanceSchema(limits: Limits = FALLBACK_LIMITS) {
+  const l = appearanceLimitsOf(limits);
+  return z
+    .object({
+      color: z
+        .enum(COLOR_NAMES)
+        .nullable()
+        .refine((c) => c === null || l.color_names.includes(c), 'Pick one of the colours'),
+      icon: z.string().transform((v, ctx): Appearance['icon'] => {
+        if (v.trim() === '') return null;
+        const r = checkIcon(v.trim(), l.max_icon_length);
+        if (r.ok) return { kind: 'emoji', value: r.value };
+        ctx.addIssue({ code: 'custom', message: r.message });
+        return z.NEVER;
+      }),
+      tags: z.array(z.string()).transform((tags, ctx) => {
+        const r = checkTags(tags, { maxTags: l.max_tags, maxLength: l.max_tag_length });
+        if (r.ok) return r.value;
+        ctx.addIssue({ code: 'custom', message: r.message, path: r.index < 0 ? [] : [r.index] });
+        return z.NEVER;
+      }),
+      // The editor adds a valid tag on Enter, comma or blur, so text left here is one it refused.
+      tagInput: z.string().refine(isBlankTag, 'Fix this tag or clear it'),
+    })
+    .transform(({ color, icon, tags }): Appearance => ({ color, icon, tags }));
+}
+
+/**
+ * `makeTopicDraftSchema` plus the appearance: a `TopicCreate` body that carries `appearance` only
+ * when it isn't the default (a topic created without one gets the defaults, §1.1).
+ */
+export function makeTopicDraftAppearanceSchema(limits: Limits = FALLBACK_LIMITS) {
+  return z
+    .intersection(
+      makeTopicDraftSchema(limits),
+      z.object({ appearance: makeAppearanceSchema(limits).optional() }),
+    )
+    .transform(({ appearance, ...body }): TopicCreateBody => {
+      const changed = appearance && appearanceChanges(null, appearance);
+      return changed ? { ...body, appearance } : body;
+    });
+}
+
+/** `makeTopicMetaSchema` plus the appearance (topic settings). */
+export function makeTopicMetaAppearanceSchema(limits: Limits = FALLBACK_LIMITS) {
+  return makeTopicMetaSchema(limits).extend({ appearance: makeAppearanceSchema(limits) });
+}
+
+/** The fields of `next` that differ from `base`, for a PATCH; `null` when nothing changed. */
+export function appearanceChanges(
+  base: Appearance | null,
+  next: Appearance,
+): AppearanceUpdate | null {
+  const b = base ?? EMPTY_APPEARANCE;
+  const out: AppearanceUpdate = {};
+  if (next.color !== b.color) out.color = next.color;
+  if ((next.icon?.value ?? null) !== (b.icon?.value ?? null)) out.icon = next.icon;
+  if (next.tags.length !== b.tags.length || next.tags.some((t, i) => t !== b.tags[i]))
+    out.tags = next.tags;
+  return Object.keys(out).length > 0 ? out : null;
+}
+// end T2-M3
