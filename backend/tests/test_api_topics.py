@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import event
 
 from app.db import get_engine
-from tests.helpers import make_topic, record, sleep_questions
+from tests.helpers import make_topic, normal_timer, record, sleep_questions
 
 
 async def test_health(client: httpx.AsyncClient) -> None:
@@ -321,6 +321,7 @@ async def test_summary_and_detail_carry_the_current_versions_timer(client: httpx
     steps = {"steps": [{"key": "pour", "label": "Pour"}, {"key": "drink", "label": "Drink"}]}
     timed = await make_topic(client, "Coffee", timer=steps)
     plain = await make_topic(client, "Plain")
+    steps = normal_timer(steps)
     assert timed["timer"] == steps
     assert plain["timer"] is None
 
@@ -344,6 +345,7 @@ async def test_summary_and_detail_carry_the_current_versions_timer(client: httpx
     assert (await client.get("/topics/coffee")).json()["timer"] is None
     one_step = {"steps": [{"key": "brew", "label": "Brew"}]}
     body = {"questions": timed["questions"], "base_version": 2, "timer": one_step}
+    one_step = normal_timer(one_step)
     assert (await client.post("/topics/coffee/versions", json=body)).json()["timer"] == one_step
     assert timers((await client.get("/topics")).json()) == {"coffee": one_step, "plain": None}
 
@@ -364,5 +366,5 @@ async def test_list_topics_loads_timers_without_a_query_per_topic(client: httpx.
         page = (await client.get("/topics", params={"sort": "name"})).json()
     finally:
         event.remove(engine, "before_cursor_execute", count)
-    assert [t["timer"] for t in page["items"]] == [steps] * 4
+    assert [t["timer"] for t in page["items"]] == [normal_timer(steps)] * 4
     assert len(statements) == 1  # the page's one joined select

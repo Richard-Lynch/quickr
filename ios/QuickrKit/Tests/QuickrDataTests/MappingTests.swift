@@ -41,6 +41,31 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(topic.revision == 2)
     }
 
+    /// The normalised v2 `Timer` (timers2.md §1.4) reaches the domain whole: lap types,
+    /// variables and alerts with their `at_ms`, not only the steps.
+    @Test func aV2TimerMapsLapTypesVariablesAndAlerts() throws {
+        let json = #"""
+            {"steps": [{"key": "warmup", "label": "Warmup", "alerts": [
+                {"key": "half", "label": "Half", "at": "t/2", "at_ms": 30000}]}],
+             "laps": [{"key": "run", "label": "Run", "alerts": []},
+                      {"key": "rest", "label": "Rest", "alerts": [{"key": "go", "label": "Go", "at": "rest", "at_ms": 20000}]}],
+             "variables": [{"name": "t", "ms": 60000}, {"name": "rest", "ms": 20000}]}
+            """#
+        let timer = try WireCoding.decoder().decode(TopicTimerDTO.self, from: Data(json.utf8)).toDomain()
+        #expect(
+            timer.steps == [
+                .init(
+                    key: "warmup", label: "Warmup", alerts: [.init(key: "half", label: "Half", at: "t/2", atMs: 30000)])
+            ])
+        #expect(
+            timer.laps == [
+                .init(key: "run", label: "Run"),
+                .init(key: "rest", label: "Rest", alerts: [.init(key: "go", label: "Go", at: "rest", atMs: 20000)]),
+            ])
+        #expect(timer.variables == [.init(name: "t", ms: 60000), .init(name: "rest", ms: 20000)])
+        #expect(TopicTimerDTO(timer).toDomain() == timer)
+    }
+
     @Test func intervalScheduleAndNullDue() throws {
         let water = try decode(TopicDetailDTO.self, "getTopic.interval")
         #expect(water.schedule == .interval(.init(everyMinutes: 180, timezone: "Europe/London", notify: false)))
@@ -257,6 +282,22 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         let limits = try decode(LimitsDTO.self, "getLimits")
         #expect(limits.capturedAtMin == (try date("2000-01-01T00:00:00Z")))
         #expect(limits.capturedAtMaxFutureHours == 24)
+        // Timer v2 rows (timers2.md §1.2) reach the domain value.
+        let rows: [Int] = [
+            limits.maxSteps, limits.maxLapTypes, limits.maxVariables, limits.maxAlerts, limits.maxExprLength,
+            limits.maxVarNameLength, limits.maxShortLabelLength,
+        ]
+        #expect(rows == [30, 8, 16, 8, 64, 16, 64])
+        var tight = try LimitsDTO.decode(
+            try #require(try Fixtures.api("getLimits").body), using: WireCoding.decoder())
+        (tight.maxSteps, tight.maxLapTypes, tight.maxVariables, tight.maxAlerts) = (1, 2, 3, 4)
+        (tight.maxExprLength, tight.maxVarNameLength, tight.maxShortLabelLength) = (5, 6, 7)
+        let domain = tight.toDomain()
+        let mapped: [Int] = [
+            domain.maxSteps, domain.maxLapTypes, domain.maxVariables, domain.maxAlerts, domain.maxExprLength,
+            domain.maxVarNameLength, domain.maxShortLabelLength,
+        ]
+        #expect(mapped == [1, 2, 3, 4, 5, 6, 7])
         let types = try decode([QuestionTypeInfoDTO].self, "listQuestionTypes")
         #expect(types.map(\.type) == [.int, .double, .str, .enum])
         #expect(types.first?.jsonSchema["title"] == .string("IntQuestion"))

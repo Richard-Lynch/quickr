@@ -179,16 +179,20 @@
           "slug": "everything",
           "status": "active",
           "timer": {
+            "laps": [],
             "steps": [
               {
+                "alerts": [],
                 "key": "pour",
                 "label": "Pour"
               },
               {
+                "alerts": [],
                 "key": "drink",
                 "label": "Drink"
               }
-            ]
+            ],
+            "variables": []
           },
           "updated_at": "2026-06-01T12:00:00.123456Z"
         }
@@ -475,16 +479,20 @@
             }
           ],
           "timer": {
+            "laps": [],
             "steps": [
               {
+                "alerts": [],
                 "key": "pour",
                 "label": "Pour"
               },
               {
+                "alerts": [],
                 "key": "drink",
                 "label": "Drink"
               }
-            ]
+            ],
+            "variables": []
           },
           "version": 2
         }

@@ -1,9 +1,9 @@
 {
   "body": {
-    "api_level": 1,
+    "api_level": 2,
     "min_client_level": {
-      "ios": 0,
-      "web": 0
+      "ios": 2,
+      "web": 2
     },
     "update_url": {
       "ios": "itms-beta://"

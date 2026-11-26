@@ -257,6 +257,7 @@ final class FakeServerState: Sendable {
     /// into the feed. Returns the updated topic.
     fileprivate func publish(_ id: String, questions: [[String: Any]], timer: Any?, note: String) -> [String: Any]? {
         guard var topic = topic(id) else { return nil }
+        let timer = timer.map(FakeServer.normalisedTimer)
         let now = ISO8601DateFormatter().string(from: Date())
         let number = (topic["current_version"] as? Int ?? 1) + 1
         topic["current_version"] = number
@@ -412,8 +413,10 @@ enum FakeServer {
                       {"archived": false, "label": "Bad", "value": "bad"}]}]
         """#
     static let morningTimer = #"""
-        {"steps": [{"key": "shower", "label": "Shower"}, {"key": "dress", "label": "Dress"},
-                   {"key": "breakfast", "label": "Breakfast"}, {"key": "teeth", "label": "Teeth"}]}
+        {"steps": [{"key": "shower", "label": "Shower", "alerts": []}, {"key": "dress", "label": "Dress", "alerts": []},
+                   {"key": "breakfast", "label": "Breakfast", "alerts": []},
+                   {"key": "teeth", "label": "Teeth", "alerts": []}],
+         "laps": [], "variables": []}
         """#
 
     /// The seeded page's last seq: three topics, each a version row and a topic row.
@@ -762,7 +765,7 @@ private struct FakeServerTransport: Transport {
             history: [FakeServer.questions(topic["questions"] ?? [Any]())], proposed: FakeServer.questions(inputs))
         // Like the backend's `_report`: with the draft's timer, a timer-only change is a change.
         if let timer = body["timer"], report.changes.isEmpty,
-            !(timer as AnyObject).isEqual(topic["timer"] ?? NSNull())
+            !(FakeServer.normalisedTimer(timer) as AnyObject).isEqual(topic["timer"] ?? NSNull())
         {
             report.issues.removeAll { $0.questionKey == nil }
             report.ok = !report.issues.contains { $0.level == .error }
@@ -846,4 +849,28 @@ private struct FakeServerTransport: Transport {
         return HTTPResponse(status: 201, headers: headers, body: json)
     }
 }
+// T2-M1: the server returns a timer normalised (timers2.md §1.4)
+extension FakeServer {
+    /// A sent timer as the server stores and returns it: every list present, `at_ms` 0 (the fake
+    /// doesn't evaluate expressions). `NSNull` stays null.
+    static func normalisedTimer(_ timer: Any) -> Any {
+        guard var object = timer as? [String: Any] else { return timer }
+        func withAlerts(_ items: Any?) -> [[String: Any]] {
+            ((items as? [[String: Any]]) ?? []).map { item in
+                var item = item
+                item["alerts"] = ((item["alerts"] as? [[String: Any]]) ?? []).map { alert in
+                    var alert = alert
+                    alert["at_ms"] = alert["at_ms"] ?? 0
+                    return alert
+                }
+                return item
+            }
+        }
+        object["steps"] = withAlerts(object["steps"])
+        object["laps"] = withAlerts(object["laps"])
+        object["variables"] = object["variables"] ?? [[String: Any]]()
+        return object
+    }
+}
+// end T2-M1
 #endif

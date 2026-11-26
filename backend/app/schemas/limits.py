@@ -48,3 +48,15 @@ MAX_DEVICE_NAME_LENGTH = 200
 
 # Integer answers and bounds are stored as BIGINT.
 INT64_MIN, INT64_MAX = -(2**63), 2**63 - 1
+
+# T2-M1: Timer v2 (docs/specs/timers2.md §1.2)
+MAX_LAP_TYPES = 8
+MAX_VARIABLES = 16
+MAX_ALERTS = 8  # per step or lap type
+MAX_EXPR_LENGTH = 64  # an alert's `at` (timer_expr.MAX_LENGTH)
+MAX_VAR_NAME_LENGTH = 16
+MAX_SHORT_LABEL_LENGTH = 64  # lap-type and alert labels (the Live Activity label cap)
+MAX_VARIABLE_MS = 7 * 24 * 3_600_000  # 7 days (timer_expr.MAX_MS)
+VAR_NAME_PATTERN = r"^[a-z][a-z0-9_]{0,15}$"  # after lowercasing
+RESERVED_VAR_NAMES = frozenset({"ms", "s", "m", "h"})  # the expression units
+# end T2-M1

@@ -1,7 +1,8 @@
 /**
  * TS/Python parity for the timing stats (the timing chart models): every case in
  * shared/fixtures/timing-stats-vectors.json (generated from
- * backend/app/services/timing_stats.py by `make vectors`) must give the same answer here.
+ * backend/app/services/timing_stats.py by `make vectors`; stats v3, timers2.md §7.4 lap types)
+ * must give the same answer here.
  */
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -9,17 +10,17 @@ import raw from '../../../../shared/fixtures/timing-stats-vectors.json?raw';
 import { timingFromWire } from './fold';
 import { formatInstant, parseInstant } from './instant';
 import { timingStats } from './stats';
-import type { TimerStep, TimingWire, TopicTiming, TopicTimingWire } from './types';
+import type { FoldTimer, TimingWire, TopicTiming, TopicTimingWire } from './types';
 
 interface Case {
   name: string;
-  versions: Record<string, TimerStep[] | null>;
+  versions: Record<string, FoldTimer | null>;
   current_version: number;
   entries: { entry_id: string; captured_at: string; timing: TimingWire | null }[];
   expected: TopicTimingWire;
 }
 
-const vectors = JSON.parse(raw) as { cases: Case[] };
+const vectors = JSON.parse(raw) as { meta: { generator_version: number }; cases: Case[] };
 const ran = new Set<string>();
 
 // A case that is skipped, filtered out or lost from the table fails the file.
@@ -38,8 +39,9 @@ const toWire = (t: TopicTiming): TopicTimingWire => ({
 });
 
 describe('timing stats vectors (shared with the backend and iOS)', () => {
-  it('has cases with unique names', () => {
-    expect(vectors.cases.length).toBeGreaterThanOrEqual(15);
+  it('is stats v3, with cases with unique names', () => {
+    expect(vectors.meta.generator_version).toBe(3);
+    expect(vectors.cases.length).toBeGreaterThanOrEqual(21);
     expect(new Set(vectors.cases.map((c) => c.name)).size).toBe(vectors.cases.length);
   });
 
@@ -48,7 +50,7 @@ describe('timing stats vectors (shared with the backend and iOS)', () => {
     // number) gets the wrong labels in versions-sort-as-numbers.
     const versions = new Map(
       Object.entries(c.versions)
-        .map(([n, s]) => [Number(n), s] as const)
+        .map(([n, t]) => [Number(n), t] as const)
         .sort(([a], [b]) => b - a),
     );
     const entries = c.entries.map((e) => ({

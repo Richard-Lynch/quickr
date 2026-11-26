@@ -548,7 +548,7 @@ private struct WireTopic: Encodable {
         try c.encode(topic.schedule.map(ScheduleDTO.init), forKey: .schedule)
         try c.encode(topic.scheduleUpdatedAt, forKey: .scheduleUpdatedAt)
         try c.encodeNil(forKey: .due)
-        try c.encode(topic.timer, forKey: .timer)
+        try c.encode(topic.timer.map(TopicTimerDTO.init), forKey: .timer)
         try c.encode(topic.questions.map(QuestionDTO.init), forKey: .questions)
     }
 }

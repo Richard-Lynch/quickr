@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -69,6 +69,7 @@ from app.schemas.api import (
     FieldIssue,
     RunDevice,
     RunEventIn,
+    RunEventKind,
     RunEventOut,
     RunEventResult,
     RunEventResultEvent,
@@ -138,7 +139,8 @@ async def run_out(db: AsyncSession, run: Run) -> RunOut:
         events=[
             RunEventOut(
                 id=e.id,
-                type=e.type.value,
+                # `reopen`/`remove` rows can't exist until fold v4 accepts them (M1-FOLD).
+                type=cast("RunEventKind", e.type.value),
                 at=e.at,
                 seg=e.seg,
                 step=e.step,
@@ -433,7 +435,7 @@ def _effect_json(effect: Effect) -> dict[str, Any]:
 def _fold(run: Run, version: TopicVersion, events: Sequence[RunEvent]) -> run_fold.RunState:
     return run_fold.fold(
         str(run.id),
-        entry_svc.version_steps(version),
+        entry_svc.version_timer(version),
         [
             run_fold.Event(
                 id=str(e.id),
@@ -442,6 +444,7 @@ def _fold(run: Run, version: TopicVersion, events: Sequence[RunEvent]) -> run_fo
                 seg=e.seg,
                 step=e.step,
                 pause_id=None if e.pause_id is None else str(e.pause_id),
+                target=None if e.target_id is None else str(e.target_id),
             )
             for e in events
         ],
@@ -502,7 +505,7 @@ async def _create_entry(
     """The run's entry (§3.5): checked as ``createEntry`` checks one, except that an archived
     topic doesn't block it. Then the run is closed."""
     typed = validate_answers(parse_questions(version.questions), body.answers or {})
-    timing = run_fold.project_timing(state, entry_svc.version_steps(version))
+    timing = run_fold.project_timing(state, entry_svc.version_timer(version))
     assert state.ended_at is not None
     run_fold.check_timing(timing, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
     stop = await _terminal_stop(db, run)
@@ -549,7 +552,7 @@ async def _merge_into_entry(
     db: AsyncSession, run: Run, version: TopicVersion, state: run_fold.RunState
 ) -> None:
     """A late event on a stopped run (§4.4): when it changes the times, the entry gets them."""
-    projected = run_fold.project_timing(state, entry_svc.version_steps(version))
+    projected = run_fold.project_timing(state, entry_svc.version_timer(version))
     run_fold.check_timing(projected, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
     timing = run_fold.timing_json(projected)
     entry = await db.get_one(Entry, run.id, populate_existing=True)

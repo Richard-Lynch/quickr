@@ -11,9 +11,10 @@ import timingRaw from '../../../../shared/fixtures/api/getTopicTiming.json?raw';
 import untimedRaw from '../../../../shared/fixtures/api/getTopicTiming.untimed.json?raw';
 import statsRaw from '../../../../shared/fixtures/api/getTopicStats.json?raw';
 import vectorsRaw from '../../../../shared/fixtures/timing-stats-vectors.json?raw';
-import type { TopicDetail, TopicStats, TopicTiming } from '../../client';
+import type { TimerInput, TopicDetail, TopicStats, TopicTiming } from '../../client';
 import { client } from '../../client/client.gen';
 import { ToastProvider } from '../../components/ui/Toast';
+import { normalTimer } from '../../test/timer';
 import { OverviewPage } from './OverviewPage';
 
 const timingFixture = (JSON.parse(timingRaw) as { body: TopicTiming }).body;
@@ -46,19 +47,16 @@ const topic: TopicDetail = {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-const versionWith = (timer: { steps: { key: string; label: string }[] } | null) => ({
+const versionWith = (timer: TimerInput | null) => ({
   version: 1,
   questions: [],
-  timer,
+  timer: timer && normalTimer(timer),
   change_note: '',
   created_at: '2026-10-01T00:00:00Z',
   entry_count: 4,
 });
 
-function stubServer(
-  timing: TopicTiming,
-  timer: { steps: { key: string; label: string }[] } | null = null,
-) {
+function stubServer(timing: TopicTiming, timer: TimerInput | null = null) {
   const paths: string[] = [];
   vi.stubGlobal(
     'fetch',
