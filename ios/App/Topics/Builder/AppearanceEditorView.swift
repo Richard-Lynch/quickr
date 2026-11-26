@@ -46,7 +46,7 @@ struct AppearanceRow<Model: AppearanceEditingModel>: View {
         return parts.isEmpty ? "Colour, emoji and tags" : parts.joined(separator: " · ")
     }
 
-    private var hasError: Bool { model.appearanceErrors.keys.contains { $0 != .newTag } }
+    private var hasError: Bool { !model.appearanceErrors.isEmpty }
 }
 
 /// The colour swatches, the emoji field and the tags (appearance.md §7). Edits go straight into the

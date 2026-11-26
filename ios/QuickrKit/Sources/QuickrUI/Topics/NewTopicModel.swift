@@ -154,7 +154,7 @@ public final class NewTopicModel: BuilderEditing {
         var unplaced: [String] = []
         for issue in mapped.unplaced {
             let path = ProblemMapping.path(issue.location)
-            if let field = AppearanceField(serverPath: path) {
+            if let field = appearance.field(serverPath: path) {
                 appearanceErrors[field] = issue.message
                 continue
             }

@@ -165,8 +165,14 @@ public struct AppearanceUpdate: Sendable, Hashable {
         self.init(
             color: appearance.color == saved.color ? nil : .some(appearance.color),
             icon: appearance.icon == saved.icon ? nil : .some(appearance.icon),
-            tags: appearance.tags == saved.tags ? nil : appearance.tags)
+            tags: Self.sameSpelling(appearance.tags, saved.tags) ? nil : appearance.tags)
         if color == nil && icon == nil && tags == nil { return nil }
+    }
+
+    /// Code point by code point: the tag filter matches the stored spelling exactly (§5), so "é"
+    /// and "e\u{301}" are different tags even though Swift's `==` calls them equal.
+    static func sameSpelling(_ a: [String], _ b: [String]) -> Bool {
+        a.count == b.count && zip(a, b).allSatisfy { $0.unicodeScalars.elementsEqual($1.unicodeScalars) }
     }
 }
 
@@ -193,6 +199,16 @@ public enum AppearanceField: Sendable, Hashable {
             if parts.count >= 3, let index = Int(parts[2]) { self = .tag(index) } else { self = .tags }
         default: return nil
         }
+    }
+}
+
+extension AppearanceDraft {
+    /// The field for a server path (`appearance.tags.3`); a tag index the draft doesn't have
+    /// lights up the tag list instead, so the message is never hidden.
+    public func field(serverPath path: String) -> AppearanceField? {
+        guard let field = AppearanceField(serverPath: path) else { return nil }
+        if case .tag(let i) = field, !tags.indices.contains(i) { return .tags }
+        return field
     }
 }
 
@@ -247,8 +263,9 @@ public struct AppearanceDraft: Sendable, Hashable {
         tags.remove(at: index)
     }
 
-    /// The appearance to send, or the errors by field. Tag text not added yet isn't sent (like an
-    /// option not added yet); it only counts as an unsaved change.
+    /// The appearance to send, or the errors by field. Tag text typed but not added yet is added
+    /// as if "Add" had been tapped (so a Create or Save never drops it); when it can't be, the
+    /// error is on the "Add a tag" field.
     public func validated(limits: AppearanceLimits = .serverDefaults)
         -> Result<TopicAppearance, AppearanceErrors>
     {
@@ -260,10 +277,17 @@ public struct AppearanceDraft: Sendable, Hashable {
             case .failure(let issue): errors[.icon] = issue.message
             }
         }
+        let pending = !ServerText.strip(newTag).isEmpty
+        let candidate = pending ? self.tags + [newTag] : self.tags
         var tags = self.tags
-        switch TopicAppearance.checkTags(self.tags, limits: limits) {
+        switch TopicAppearance.checkTags(candidate, limits: limits) {
         case .success(let value): tags = value
-        case .failure(let issue): errors[issue.index.map(AppearanceField.tag) ?? .tags] = issue.message
+        case .failure(let issue):
+            // The pending tag is the last one: its problem (or one more than the limit) is the
+            // field's.
+            let onPending =
+                pending && (issue.index == self.tags.count || (issue.index == nil && self.tags.count <= limits.maxTags))
+            errors[onPending ? .newTag : (issue.index.map(AppearanceField.tag) ?? .tags)] = issue.message
         }
         guard errors.isEmpty else { return .failure(AppearanceErrors(byField: errors)) }
         return .success(TopicAppearance(color: color, icon: icon, tags: tags))

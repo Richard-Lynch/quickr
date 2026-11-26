@@ -182,7 +182,7 @@ public final class TopicSettingsModel {
             // The `appearance.*` issues go on the editor's fields; the rest map as before.
             var rest: [FieldIssue] = []
             for issue in problem.errors {
-                if let field = AppearanceField(serverPath: ProblemMapping.path(issue.location)) {
+                if let field = appearance.field(serverPath: ProblemMapping.path(issue.location)) {
                     appearanceErrors[field] = ProblemMapping.cleanMessage(issue.message)
                 } else {
                     rest.append(issue)

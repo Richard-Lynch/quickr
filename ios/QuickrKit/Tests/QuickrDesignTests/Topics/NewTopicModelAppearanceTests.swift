@@ -114,4 +114,50 @@ extension NewTopicModelTests {
         model.removeTag(at: 0)
         #expect(model.appearanceErrors.isEmpty)
     }
+
+    /// Codex I3-EDIT #1: a tag typed but not added is sent, never dropped.
+    @Test func aTagTypedButNotAddedIsSent() async {
+        let model = themed()
+        model.draft.setName("Water")
+        add("Gym", to: model)
+        model.appearance.newTag = " run "
+        await model.create()
+        #expect(
+            writer.calls == [
+                .createWithAppearance(name: "Water", appearance: TopicAppearance(tags: ["Gym", "run"]))
+            ])
+    }
+
+    @Test func aTagTypedButInvalidBlocksTheCreateOnTheAddField() async {
+        let model = themed()
+        model.draft.setName("Water")
+        add("Gym", to: model)
+        model.appearance.newTag = "gym"
+        await model.create()
+        #expect(writer.calls.isEmpty)
+        #expect(model.appearanceErrors == [.newTag: AppearanceMessage.tagDuplicate("gym")])
+        model.appearance.newTag = ""
+        #expect(model.appearanceErrors.isEmpty)
+    }
+
+    @Test func anEleventhTagTypedButNotAddedIsTheAddFieldsError() async {
+        let model = themed()
+        model.draft.setName("Water")
+        for i in 1...10 { add("t\(i)", to: model) }
+        model.appearance.newTag = "t11"
+        await model.create()
+        #expect(model.appearanceErrors == [.newTag: AppearanceMessage.tooManyTags(10)])
+    }
+
+    /// Codex I3-EDIT #4: a server error on a tag the draft doesn't have shows on the tag list.
+    @Test func aServerErrorOnAMissingTagLandsOnTheList() async {
+        let model = themed()
+        model.draft.setName("Water")
+        writer.topicResult = .rejected(
+            Problem(
+                code: .invalidRequest, detail: "Request validation failed",
+                errors: [FieldIssue(location: Self.appearancePath(.key("tags"), .index(4)), message: "bad tag")]))
+        await model.create()
+        #expect(model.appearanceErrors[.tags] == "Bad tag")
+    }
 }

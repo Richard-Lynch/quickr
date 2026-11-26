@@ -90,6 +90,7 @@ extension TopicSettingsModelTests {
         #expect(model.appearanceErrors[.newTag] == AppearanceMessage.tooManyTags(10))
         #expect(model.appearance.tags.count == 10)
         // A list edited past the rules some other way is still refused on save, on its field.
+        model.appearance.newTag = ""
         model.appearance.tags.append("t11")
         await model.saveDetails()
         #expect(model.appearanceErrors[.tags] == AppearanceMessage.tooManyTags(10))
@@ -139,5 +140,24 @@ extension TopicSettingsModelTests {
         #expect(slugs.values == ["feelings"])
         #expect(model.detailsBanner == TopicWriteMessage.offline)
         #expect(model.appearance.color == .pink)
+    }
+
+    /// Codex I3-EDIT #2: the stored spelling is what the filter matches, so a canonically equal
+    /// but differently spelled tag is a change.
+    @Test func aRespelledTagIsAChange() async {
+        let model = themed(saved: TopicAppearance(tags: ["caf\u{E9}"]))
+        model.appearance.tags = ["cafe\u{301}"]
+        await model.saveDetails()
+        #expect(writer.calls == [.appearance(AppearanceUpdate(tags: ["cafe\u{301}"]), baseRevision: 3)])
+    }
+
+    @Test func aTagTypedButNotAddedIsSaved() async {
+        let model = themed()
+        model.appearance.newTag = "swim"
+        #expect(model.detailsDirty)
+        await model.saveDetails()
+        #expect(writer.calls == [.appearance(AppearanceUpdate(tags: ["Gym", "run", "swim"]), baseRevision: 3)])
+        #expect(model.appearance.newTag.isEmpty)
+        #expect(model.appearance.tags == ["Gym", "run", "swim"])
     }
 }
