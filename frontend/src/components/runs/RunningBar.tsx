@@ -133,11 +133,12 @@ function useOpenRunPrimary(
   const runCtx = useRunContext(run, topic);
   const cooling = useRunCooldown(run?.topic_id ?? '');
   const now = useServerNow(run?.status === 'running');
-  if (!run || !isOpen(run)) return null;
+  // None for a queued reopen before its ack (§1.2 row 11, M1's `resuming` projection): it has
+  // no controls anywhere, and `actions` can't say so itself (model.ts).
+  if (!run || !isOpen(run) || run.resuming) return null;
   const steps = runCtx ? runCtx.steps : run.steps;
   const timer = runTimer(timerOf(versions.data, run.version), steps);
   const action = controlsLayout(runActions(run.state, run.status, timer, now)).primary;
-  // None: a queued reopen before its ack (§1.2 row 11) has no controls anywhere.
   if (!action) return null;
   // Captured at render: a second tap before the bar catches up targets what it showed.
   const expect = expectOf(run, steps);
