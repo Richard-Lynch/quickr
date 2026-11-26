@@ -191,8 +191,9 @@ Consumers: `backend/tests` (the reference itself), PWA
   topic's `listTopics` pages and `getTopic` (`outboxEffects.ts:117-139`,
   `mutations.ts`), and the enqueue path patches `last_entry` optimistically from
   the payload as it bumps `entry_count` today. An entry created, edited or
-  deleted on **another device** therefore shows on the tile within 60 s or at
-  the next focus, never later (review C-S2); the iOS tile is exact because it
+  deleted on **another device** therefore shows on the tile within 60 s (the
+  interval), or sooner at the next focus once the cached list is older than the
+  20 s `staleTime` (review C-S2); the iOS tile is exact because it
   reads the store.
 - **PWA tile query reduction:** `TopicTile.tsx` drops `useTopicVersions` (`:71`)
   and `lastEntryOptions` (`:91-95`): `timed = Boolean(t.timer) || run` and
@@ -307,7 +308,9 @@ arithmetic on dates, never `now − 84 × 86 400 s`), the last cell is **today**
 the trailing cells of the current week after today are blank. An entry falls in
 the cell of its `captured_at` converted to `tz` and truncated to the date. Data:
 **client-side from entries**, not a new endpoint: **[ios]**
-`store.entries(topicId, from: firstCell.localMidnight(tz))`; **[pwa]**
+`store.entries(topicId, from: firstCell.localMidnight(tz))` (counted view
+entries, not capped, so the iOS caption is always "N entries in the last 12
+weeks"); **[pwa]**
 `listEntries(captured_from = <first cell's local midnight as an instant>, limit = 500, order = -captured_at)`;
 with `total > 500` the caption says "Showing the last 500 entries". The query bound and the
 cells derive from the same date, so no entry of a shown day is excluded and
