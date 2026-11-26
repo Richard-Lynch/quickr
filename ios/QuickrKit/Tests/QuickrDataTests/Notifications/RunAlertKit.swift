@@ -60,7 +60,8 @@ enum RunAlertKit {
         let state = try RunFold.fold(runId: id, timer: timer, events: all)
         return LocalRun(
             id: id, topicId: topicId, topic: nil, version: 1, status: state.status, state: state, events: all,
-            aliases: [], server: nil, queued: [], steps: timer.steps, requiresAnswers: false, hasQuestions: false)
+            aliases: [], server: nil, queued: [], steps: timer.steps, requiresAnswers: false, hasQuestions: false,
+            timer: timer)
     }
 
     /// Resting since 10 s: the first lap closed at 10 s.
