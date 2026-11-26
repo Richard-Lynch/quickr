@@ -415,12 +415,24 @@ extension HomeModelTests {
         #expect(model.runs[meds.id]?.isOpen == true)
         #expect(Self.names(model.activeRows) == ["Meds"], "the first tiles already show the run's card")
 
-        // A failed runs observation doesn't hold the list back for good.
+        // The runs can't be read: no list (it couldn't show the runs), the error and Retry; the
+        // retried observation reads them.
+        struct Broken: Error {}
         let failing = HomeModel(session: w.session, now: Self.now, debounce: .zero)
-        failing.localRunsForTesting = { _ in AsyncThrowingStream { $0.finish(throwing: CancellationError()) } }
+        failing.localRunsForTesting = { _ in AsyncThrowingStream { $0.finish(throwing: Broken()) } }
         let observingFailing = Task { await failing.observe() }
-        defer { observingFailing.cancel() }
-        try await eventually("the list shows") { await MainActor.run { failing.loaded } }
+        try await eventually("the failure shows") {
+            await MainActor.run { if case .failed = failing.phase { true } else { false } }
+        }
+        #expect(!failing.loaded)
+        observingFailing.cancel()
+        failing.localRunsForTesting = nil
+        await failing.retry()
+        let retried = Task { await failing.observe() }
+        defer { retried.cancel() }
+        try await eventually("the retry reads the runs") { await MainActor.run { failing.loaded } }
+        #expect(failing.phase == .ready)
+        #expect(failing.runs[meds.id]?.isOpen == true)
     }
 
     @Test func activePartition() async throws {

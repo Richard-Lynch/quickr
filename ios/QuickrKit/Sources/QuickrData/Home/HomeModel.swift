@@ -88,6 +88,9 @@ public final class HomeModel {
     /// This observation's first topics and first runs have been read (`loaded` is both).
     @ObservationIgnored private var topicsRead = false
     @ObservationIgnored private var runsRead = false
+    /// The runs' observation failed: the list stays back (it can't show the runs) with the error
+    /// and Retry, even as the topics keep arriving.
+    @ObservationIgnored private var runsFailure: String?
 
     public init(session: AppSession, now: Date = Date(), debounce: Duration = .milliseconds(250)) {
         self.session = session
@@ -149,6 +152,7 @@ public final class HomeModel {
         loaded = false
         topicsRead = false
         runsRead = false
+        runsFailure = nil
         loadError = nil
         relist()
         guard let store = session.store else { return }
@@ -176,7 +180,7 @@ public final class HomeModel {
                 self.topics = topics
                 topicsRead = true
                 loaded = runsRead
-                loadError = nil
+                loadError = runsFailure
                 relist()
             }
         } catch is CancellationError {
@@ -201,12 +205,14 @@ public final class HomeModel {
                 openRuns = open
                 relist()
             }
+        } catch is CancellationError {
         } catch {
-            // As above: the topics' observation reports store failures. The list shows without
-            // runs rather than waiting for them forever.
+            // Before the first runs, a list without them would offer Start on a topic with a run:
+            // it stays back, with the error and Retry. After them, the topics' observation reports
+            // store failures.
             if isCurrent(observation), !runsRead {
-                runsRead = true
-                loaded = topicsRead
+                runsFailure = String(describing: error)
+                loadError = runsFailure
             }
         }
     }

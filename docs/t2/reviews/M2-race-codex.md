@@ -18,3 +18,11 @@ The conclusion that there is **no app race** is therefore not established. The s
 3. **[P2] The host test bypasses the launch and the UI wiring: partly stands.** The UI test drives the app's own path: `AppEnvironment`'s writer wrapper, the tile's action and Home's observations. The host test isolates the one window the UI test cannot pin, which is item 2. HomeModel's independent observations are now covered by item 1's test.
 4. **[P2] The POST may come from the old scheduler: accepted as intended.** The claim is "not dropped", not "sent by the new scheduler". The doc comment now says the start is sent by the old scheduler or by the new one's first flush. The test proves the item is queued at once in the bound store and is sent.
 5. **[P2] The hold isn't atomic: fixed.** `waitIfFeedHeld` admits the first request and turns `holdFeed` on inside the same lock. The deferred `feedAnswered()` is gone.
+
+## Round 2
+
+Codex r2 (re-review of 846b70e7..c59cb816):
+
+> 1. **[P1] A failed runs observation restores the unsafe Start state** — HomeModel.swift:207. If the initial runs read fails independently of the topics read, this marks runs as read and shows the list with an empty `runs` dictionary. An existing open or finishing run can then appear as an idle topic with an enabled Start button—the race this change is meant to prevent. The runs observation has also ended, so it cannot later correct the tile, and the user receives no error or retry action. Surface the failure and allow retry instead of treating it as a successful empty snapshot.
+
+**Resolution: fixed.** If the runs observation fails before its first value, the list stays back. The error is kept as `loadError`, and the topics' later emissions keep it set instead of clearing it. Home then shows its error banner with Retry, and the phase is `.failed` while nothing is loaded. Retry restarts `observe()`. `theListWaitsForTheRuns` now checks the failure (`phase == .failed`, not loaded) and the retry that reads the runs.
