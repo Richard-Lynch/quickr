@@ -212,7 +212,7 @@ enabled. `timer` is the run's pinned version's timer; "laps only" = `steps: []`.
 | 10  | open after a `reopen` (terminal cleared)               | as 4–8 plus `revert` (destructive ✓) **instead of** `discard`                                                                                                                         |
 | 11  | queued `reopen` not yet acked ("Resuming…" projection) | `[]` — no controls until the ack (§2.4)                                                                                                                                               |
 | 12  | finishing                                              | `addDetails` (primary ✓), `discard` (destructive ✓)                                                                                                                                   |
-| 13  | stopped, entry `resumable` (within OQ-1's window)      | `reopen(terminalId)` (secondary ✓) — rendered by the idle screen / tile / toast; `[]` once the window passes or the entry is edited                                                   |
+| 13  | stopped, entry `resumable` (within OQ-1's window)      | `reopen(terminalId)` (secondary ✓) — rendered by the idle screen / tile / toast, beside `start` (primary ✓); only `start` once the window passes or the entry is edited               |
 | 14  | any open state while `busy` (cooldown)                 | the same list with every `enabled == false`                                                                                                                                           |
 
 Rows 2/13 are the same action seen from the topic and from the entry; row 13's
