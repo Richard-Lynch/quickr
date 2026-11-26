@@ -245,8 +245,17 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
     const stop = (await outbox.list()).find(
       (i) => (i.payload as { event: { type: string } }).event.type === 'stop',
     );
-    hold = false;
+    // The tap is async: the reopen must be queued while the stop still is (the case under
+    // test), so the stop stays held until then. Released earlier, the outbox's retry could ack
+    // the stop first, and the tap would find neither the optimistic entry nor a local row.
     await user.click(resume);
+    await waitFor(async () => {
+      const queued = await outbox.list();
+      expect(
+        queued.some((i) => (i.payload as { event: { type: string } }).event.type === 'reopen'),
+      ).toBe(true);
+    });
+    hold = false;
     await outbox.retry(stop?.id ?? '');
     await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
     expect(reopens(server())[0]?.target).toBe(stop?.id);
