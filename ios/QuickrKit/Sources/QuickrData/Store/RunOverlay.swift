@@ -180,7 +180,9 @@ public enum RunOverlay {
             state = RunFold.overlay(
                 server.state, events: mine.compactMap { queuedEvent($0.0, $0.1) },
                 pauseId: LocalRun.openPauseId(server.state, server.foldEvents))
-        } else if let folded = try? RunFold.fold(runId: id, steps: info.steps ?? [], events: events) {
+        } else if let folded = try? RunFold.fold(
+            runId: id, timer: info.timer ?? TopicTimer(steps: []), events: events)
+        {
             state = folded
         } else if let server {
             state = server.state
@@ -294,6 +296,9 @@ public enum RunOverlay {
 /// transaction.
 private final class VersionBook {
     struct Info {
+        /// The version's timer (steps and lap types, the fold's input); nil when not stored or
+        /// untimed.
+        var timer: TopicTimer?
         var steps: [TopicTimer.Step]?
         var requiresAnswers: Bool?
         var hasQuestions: Bool?
@@ -315,6 +320,7 @@ private final class VersionBook {
         var info = Info()
         if let row {
             let timer = try (row["timer_json"] as String?).map { try StoreJSON.decode(TopicTimer.self, $0) }
+            info.timer = timer
             info.steps = timer?.steps ?? []
             let questions = try StoreJSON.decode([QuestionDTO].self, row["questions_json"]).toDomain()
             info.requiresAnswers = questions.contains(where: \.required)

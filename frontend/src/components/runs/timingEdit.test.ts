@@ -30,13 +30,14 @@ const timing: Timing = {
   paused_ms: 30_000,
   complete: false,
   edited: false,
+  terminal_id: null,
   segments: [
     seg('step', 'shower', 'Shower', '07:00:00.000', '07:04:00.250', 30_000),
     seg('lap', null, 'Lap 1', '07:04:00.250', '07:05:00.000', 0),
     seg('step', 'dress', 'Dress', '07:05:00.000', '07:09:00.000', 0),
   ],
   skipped: ['coffee'],
-  pauses: [{ start: '2026-10-23T07:01:00.000Z', end: '2026-10-23T07:01:30.000Z' }],
+  pauses: [{ start: '2026-10-23T07:01:00.000Z', end: '2026-10-23T07:01:30.000Z', id: null }],
 };
 
 function seg(
@@ -57,6 +58,9 @@ function seg(
     ended_at: b,
     active_ms: parseInstant(b) - parseInstant(a) - paused,
     paused_ms: paused,
+    lap_type: null,
+    event_id: null,
+    opened_by: null,
   };
 }
 

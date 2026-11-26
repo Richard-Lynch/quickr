@@ -30,7 +30,7 @@ const STEPS: TimerStep[] = [
   { key: 'teeth', label: 'Teeth' },
 ];
 const s = (n: number) => T0 + n * 1000;
-const run = (events: RunEvent[], steps = STEPS) => ({ state: fold('r1', steps, events) });
+const run = (events: RunEvent[], steps = STEPS) => ({ state: fold('r1', { steps }, events) });
 const start = ev('r1', 'start', T0);
 
 describe('the timers', () => {
@@ -296,7 +296,7 @@ describe('actions (timers2.md Â§10, R18 stub half; fixture: active-surfaces.md Â
     { row: '13 discarded', events: [x], status: 'discarded', timer: TIMER, expected: [] },
   ];
   const of = (r: Row) => {
-    const state = fold('r1', r.steps ?? STEPS, [start, ...r.events]);
+    const state = fold('r1', { steps: r.steps ?? STEPS }, [start, ...r.events]);
     return { state, status: r.status ?? state.status };
   };
 
@@ -353,21 +353,21 @@ describe('actions (timers2.md Â§10, R18 stub half; fixture: active-surfaces.md Â
   });
 
   it('headline: the open segmentâ€™s label today; Running/Paused when nothing is open; no counter', () => {
-    expect(headline(fold('r1', STEPS, [start]), 'running', TIMER)).toEqual({
+    expect(headline(fold('r1', { steps: STEPS }, [start]), 'running', TIMER)).toEqual({
       text: 'Shower',
       counter: null,
     });
-    expect(headline(fold('r1', STEPS, [start, l1]), 'running', null)).toEqual({
+    expect(headline(fold('r1', { steps: STEPS }, [start, l1]), 'running', null)).toEqual({
       text: 'Lap 1',
       counter: null,
     });
-    const stopped = fold('r1', STEPS, [start, x]);
+    const stopped = fold('r1', { steps: STEPS }, [start, x]);
     expect(headline(stopped, 'finishing', TIMER)).toEqual({ text: 'Running', counter: null });
     expect(headline(stopped, 'paused', TIMER)).toEqual({ text: 'Paused', counter: null });
   });
 
   it('alertLine is null and resumable false until I1-CORE / F1-CORE fill them', () => {
-    expect(alertLine(fold('r1', STEPS, [start]), TIMER, T0)).toBeNull();
+    expect(alertLine(fold('r1', { steps: STEPS }, [start]), TIMER, T0)).toBeNull();
     const now = new Date(T0).toISOString();
     const entry: EntryOut = {
       id: 'r1',

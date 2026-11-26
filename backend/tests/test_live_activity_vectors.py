@@ -27,7 +27,7 @@ from typing import Any
 from app.services import run_fold
 from app.services.push import live_activity as la
 from app.services.push.apns import MAX_PAYLOAD_BYTES
-from app.services.run_fold import Event, Step
+from app.services.run_fold import Event, Step, Timer
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_json
 
 PATH = FIXTURES_DIR / "live-activity-vectors.json"
@@ -57,7 +57,7 @@ def ev(n: int, type_: str, seconds: float, **fields: Any) -> Event:
 
 def state_of(steps: list[Step], events: list[Event], status: str | None = None) -> dict[str, Any]:
     """The run's stored state (``RunOut.state``), as the server keeps it."""
-    state = run_fold.state_json(run_fold.fold(RUN, steps, events))
+    state = run_fold.state_json(run_fold.fold(RUN, Timer(steps), events))
     if status is not None:  # the server's own statuses: finishing (§3.5)
         state["status"] = status
     return state

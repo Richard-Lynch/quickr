@@ -278,6 +278,59 @@ import Testing
         #expect(d.localTimeNote("2026-10-24 01:30:00") == nil)
         #expect(d.localTimeNote("") == nil)
     }
+
+    // MARK: Lap types (timers2.md §3.2, §3.3)
+
+    static let tiktok = TopicTimer(
+        steps: [], laps: [TopicTimer.LapType(key: "run", label: "Run"), TopicTimer.LapType(key: "rest", label: "Rest")])
+
+    /// Run 1 0:00–1:00, Rest 1 to 1:30, Run 2 to 2:30, as a fold of a tiktok run writes it.
+    static let typed = Timing(
+        startedAt: ms("07:00:00.000"), endedAt: ms("07:02:30.000"), activeMs: 150_000, pausedMs: 0, complete: true,
+        edited: false,
+        segments: [
+            RunSegment(
+                kind: .lap, step: nil, label: "Run 1", startedAt: ms("07:00:00.000"), endedAt: ms("07:01:00.000"),
+                activeMs: 60_000, pausedMs: 0, lapType: "run", eventId: nil, openedBy: .start),
+            RunSegment(
+                kind: .lap, step: nil, label: "Rest 1", startedAt: ms("07:01:00.000"), endedAt: ms("07:01:30.000"),
+                activeMs: 30_000, pausedMs: 0, lapType: "rest", eventId: "l1", openedBy: .lap),
+            RunSegment(
+                kind: .lap, step: nil, label: "Run 2", startedAt: ms("07:01:30.000"), endedAt: ms("07:02:30.000"),
+                activeMs: 60_000, pausedMs: 0, lapType: "run", eventId: "l2", openedBy: .lap),
+        ],
+        skipped: [], pauses: [RunPause(start: ms("07:00:10.000"), end: ms("07:00:10.000"), id: "p1")],
+        terminalId: "s1")
+
+    @Test func lapTypesLabelTheFormAndTheRebuild() throws {
+        var d = Self.draft(Self.typed)
+        let r = d.check(timer: Self.tiktok, now: Self.now)
+        #expect(r.errors.isEmpty)
+        #expect(r.segments.map(\.label) == ["Run 1", "Rest 1", "Run 2"])
+        let edit = try #require(r.edit)
+        let rebuilt = edit.timing(timer: Self.tiktok, terminalId: Self.typed.terminalId)
+        #expect(rebuilt.segments.map(\.label) == ["Run 1", "Rest 1", "Run 2"])
+        #expect(rebuilt.segments.map(\.lapType) == ["run", "rest", "run"])
+        // An edit's timing carries no event ids; it keeps the terminal id (§3.3).
+        #expect(rebuilt.segments.allSatisfy { $0.eventId == nil && $0.openedBy == nil })
+        #expect(rebuilt.pauses.allSatisfy { $0.id == nil })
+        #expect(rebuilt.terminalId == "s1")
+        #expect(rebuilt.edited)
+
+        // Removing the middle lap renumbers and flips the later lap's type.
+        d.segments.remove(at: 1)
+        let merged = d.check(timer: Self.tiktok, now: Self.now)
+        #expect(merged.segments.map(\.label) == ["Run 1", "Rest 1"])
+        let mergedTiming = try #require(merged.edit).timing(timer: Self.tiktok, terminalId: nil)
+        #expect(mergedTiming.segments.map(\.lapType) == ["run", "rest"])
+    }
+
+    @Test func untypedTimersStillReadLapN() throws {
+        let r = Self.draft().check(timer: TopicTimer(steps: Self.steps), now: Self.now)
+        #expect(r.segments.map(\.label) == ["Shower", "Lap 1", "Dress"])
+        let rebuilt = try #require(r.edit).timing(timer: TopicTimer(steps: Self.steps), terminalId: nil)
+        #expect(rebuilt.segments.map(\.lapType) == [nil, nil, nil])
+    }
 }
 
 /// `StepKeys.history` (`stepHistory`): every key any version used, with the label of the latest

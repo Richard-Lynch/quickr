@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { RunEventPayload } from '../outbox/kinds';
 import { STEPS, T0, ev, runItem, serverRun } from '../../test/runs';
 import {
   localRuns,
@@ -180,7 +181,9 @@ describe('local run view (timers.md §8.3)', () => {
       ev('k1', 'skip', T0 + 11 * S, { seg: 1, step: 'breakfast' }),
       ev('l1', 'lap', T0 + 20 * S, { seg: 1 }),
     ];
-    const queued = taps.map((e) => runItem(e.type, { ...e, run: 'r1', at: e.at }));
+    const queued = taps.map(({ type, ...e }) =>
+      runItem(type as RunEventPayload['event']['type'], { ...e, run: 'r1', at: e.at }),
+    );
     const local = localRuns([], queued)[0]?.state;
     const acked = localRuns([serverRun('r1', taps)], [])[0]?.state;
     expect(local).toEqual(acked);
@@ -260,7 +263,7 @@ describe('review fixes', () => {
       );
       const [running] = localRuns([server], [pause, resume]);
       expect(running?.status).toBe('running');
-      expect(running?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 100 * S }]);
+      expect(running?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 100 * S, id: 'p1' }]);
     });
 
     it('an offline Stop closes it; a Next waits for the server', () => {
@@ -335,7 +338,7 @@ describe('review fixes', () => {
       expect(run?.state.effects.p1).toEqual({ effect: 'void', reason: 'after_stop' });
       expect(run?.state.effects.l1).toEqual({ effect: 'applied', reason: null });
       expect(run?.state.effects.u1).toEqual({ effect: 'applied', reason: null });
-      expect(run?.state.pauses).toEqual([{ start: T0 + 70 * S, end: T0 + 80 * S }]);
+      expect(run?.state.pauses).toEqual([{ start: T0 + 70 * S, end: T0 + 80 * S, id: 'p0' }]);
       expect(run?.state.segments.map((x) => [x.label, x.active_ms])).toEqual([
         ['Shower', 60 * S],
         ['Breakfast', 20 * S],
@@ -378,7 +381,7 @@ describe('review fixes', () => {
       const [run] = localRuns([server], [pause, stop]);
       expect(run?.status).toBe('stopped');
       expect(run?.state.paused_since).toBeNull();
-      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S }]);
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: 'p1' }]);
       expect(run?.state.segments.at(-1)).toMatchObject({
         label: 'Breakfast',
         active_ms: 30 * S,
@@ -410,7 +413,7 @@ describe('review fixes', () => {
       expect(run?.status).toBe('paused');
       const [resumed] = localRuns([listed], [resume], [pause]);
       expect(resumed?.status).toBe('running');
-      expect(resumed?.state.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 40 * S }]);
+      expect(resumed?.state.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 40 * S, id: 'p1' }]);
     });
   });
 });
