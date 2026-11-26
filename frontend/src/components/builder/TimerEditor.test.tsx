@@ -26,7 +26,7 @@ function Harness({
   onValid,
 }: {
   timer: TimerInput | null;
-  history?: TimerHistory;
+  history?: TimerHistory | undefined;
   onValid: (out: VersionDraftOutput) => void;
 }) {
   const form = useForm<TopicDraft, unknown, VersionDraftOutput>({

@@ -445,7 +445,7 @@ const QUESTIONS: Question[] = [
 // Timed topics (timers.md §2.1)
 // ---------------------------------------------------------------------------
 
-type PlainStep = Omit<DraftStep, 'uid'>;
+type PlainStep = Pick<DraftStep, 'key' | 'label' | 'locked'>;
 const plainStep = ({ key, label, locked }: DraftStep): PlainStep => ({ key, label, locked });
 const step = (
   key: string,

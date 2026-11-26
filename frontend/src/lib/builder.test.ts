@@ -157,6 +157,8 @@ describe('topicDraftSchema', () => {
       schedule,
       timed: false,
       steps: [],
+      laps: [],
+      variables: [],
       questions: [draft('int', { key: 'hours' })],
     });
     expect(r.success).toBe(true);
@@ -174,6 +176,8 @@ describe('topicDraftSchema', () => {
       schedule,
       timed: false,
       steps: [],
+      laps: [],
+      variables: [],
       questions: [draft('int', { key: 'a' }), draft('str', { key: 'a' })],
     });
     expect(dup.success).toBe(false);
@@ -190,6 +194,8 @@ describe('topicDraftSchema', () => {
       schedule,
       timed: false,
       steps: [],
+      laps: [],
+      variables: [],
       questions: [],
     });
     // No questions is allowed (a single topic, logged with one tap): only the name is missing.
@@ -207,6 +213,8 @@ describe('topicDraftSchema', () => {
       schedule,
       timed: false,
       steps: [],
+      laps: [],
+      variables: [],
     });
     expect(r.data?.change_note).toBe('hi');
   });
@@ -278,6 +286,8 @@ describe('timer drafts (timers.md §2.1)', () => {
       schedule,
       timed: true,
       steps,
+      laps: [],
+      variables: [],
     });
     expect(r.data?.timer).toEqual({
       steps: [
@@ -301,6 +311,8 @@ describe('timer drafts (timers.md §2.1)', () => {
       schedule,
       timed: true,
       steps: [],
+      laps: [],
+      variables: [],
     });
     expect(stopwatch.data?.timer).toEqual({ steps: [], laps: [], variables: [] });
   });
@@ -333,6 +345,8 @@ describe('timer drafts (timers.md §2.1)', () => {
       schedule,
       timed: true,
       steps: [newDraftStep('')],
+      laps: [],
+      variables: [],
     });
     expect(r.error?.issues.map((i) => i.path.join('.'))).toEqual(['steps.0.label']);
   });
