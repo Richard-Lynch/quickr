@@ -92,7 +92,7 @@ public enum RunPresentation {
     /// destructive last (active-surfaces.md §1.1, §1.2). The on-screen primary rule (timers2.md
     /// §10): Lap when the open segment is a lap or no named step remains, labelled with the lap it
     /// opens when the timer has lap types ("Lap → Rest"), else Next with the step it opens; Stop is
-    /// never primary. `timer == nil` (steps unknown) is the v1 fallback: a plain `next("Next")` and
+    /// never primary. `timer == nil` (steps unknown) is the v1 fallback: a plain `next(label: nil)` and
     /// no `skip`, no `lap`.
     ///
     /// - An open run reached by a reopen (`state.reopenId`) offers `revert` instead of `discard`
@@ -132,7 +132,7 @@ public enum RunPresentation {
                 primary = .next(label: label(of: state.nextStep ?? "", in: timer.steps))
             }
         } else {
-            primary = .next(label: "Next")
+            primary = .next(label: nil)
         }
         var out = [
             RunAction(kind: primary, role: .primary, enabled: true),
@@ -289,7 +289,9 @@ public enum RunPresentation {
 public struct RunAction: Sendable, Hashable, Identifiable {
     public enum Kind: Sendable, Hashable {
         case start
-        case next(label: String)  // "Shower" — the step it opens (M2 renders "Next: Shower", §1.3)
+        /// "Shower": the step it opens (M2 renders "Next: Shower", §1.3). Nil: the steps are unknown
+        /// (`timer == nil`, row 9), so a plain "Next".
+        case next(label: String?)
         case lap(nextTypeLabel: String?)  // nil: untyped laps ("Lap"); "Rest": the lap it opens
         case skip(label: String)  // the step a skip would skip
         case pause, resume, stop
