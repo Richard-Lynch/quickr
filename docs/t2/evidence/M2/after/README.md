@@ -100,3 +100,11 @@ the Resuming card (the shot test's scroll left the card above the frame) and its
 layout is the open card's and run screen's at XXXL (I2-UITEST's `ios-home-xxxl.png`,
 `ios-run-xxxl.png`) with the controls row hidden. The XXXL toast shows the action breaking
 mid-word ("Resu/me"): a shared `ToastView` layout issue, filed as #259.
+
+**M2-RESUME on M1-merged `t2/m2`** (after merging f0660615, a fresh clone `C9EAEA56-4741-4D64-8FF1-26D121085073`, one
+session, `-collect-test-diagnostics never`): `xcresults/M2-RESUME-pr-ui.*`, UI 26/26 passed (HomeTests 9,
+RunUITests 9 incl. R9 `testStartNextNextSkipPauseResumeStopAnswerSave`, `testStopToastOffersResume`,
+`testUndoResumeKeepsTheStop`; TileUITests 8 incl. `testIdleTileOffersResumeWithin15Min`,
+`testResumingCardHasNoControlsUntilTheAck`), load average 90 at the start and 11 at the end;
+`xcresults/M2-RESUME-pr-unit.*`, the Unit plan's named suites 17/17 (WidgetControlTests 11 incl.
+`theTimerControlOfALapTypedTimerLaps`, LiveActivityTapTests 3, RunIntentHandlerTests 3).
