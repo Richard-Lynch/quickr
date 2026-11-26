@@ -1,0 +1,155 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "37467AE0-F858-45C0-BA28-431CF163C24C",
+        "deviceName" : "quickR iOS-26-0 t2-m1-gate-f08e14",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 2,
+      "passedTests" : 103,
+      "skippedTests" : 20,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 2,
+  "finishTime" : 1795693869.094,
+  "passedTests" : 103,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 20,
+  "startTime" : 1795691477.058,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "Failed to not hittable: Button, {{24.0, 394.0}, {354.0, 56.0}}, identifier: 'onboarding.done', label: 'Not now'",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 90,
+      "testIdentifierString" : "SettingsUITests/testOnboardingWithAServiceToken()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testOnboardingWithAServiceToken",
+      "testName" : "testOnboardingWithAServiceToken()"
+    },
+    {
+      "failureText" : "Failed to not hittable: Button, {{16.0, 554.3}, {370.0, 52.0}}, identifier: 'settings.removeToken', label: 'Remove token'",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 92,
+      "testIdentifierString" : "SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain",
+      "testName" : "testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "14% of duration",
+      "text" : "2 longest test runs with outlier durations exceeding 94.00s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 125
+}

@@ -25,7 +25,11 @@ import Synchronization
 ///   (client-versions.md §4.5). Without it, or the controls' level switches, the fake server sends
 ///   no level headers and refuses nothing;
 /// - `-QuickrServerOutdated`: the fake server refuses this build from the start (a fresh install's
-///   first connect, client-versions.md §4.1).
+///   first connect, client-versions.md §4.1);
+/// - `-QuickrSeedTikTok` (T2-M1): the fake server also has TikTok, timed with no steps and the lap
+///   types Run and Rest (timers2.md §3.1's `tiktok`), and no questions; with
+///   `-QuickrTikTokAlert`, Run has an alert 5 s in. `-QuickrRunControls` shows
+///   `UITestRunControls` (another device's reopen or remove of the latest run).
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
@@ -154,11 +158,12 @@ final class FakeServerState: Sendable {
         var held: [UUID: CheckedContinuation<Void, any Error>] = [:]
         /// Topics as the server holds them now (`TopicDetail` JSON), after the online-only writes
         /// and archives the tests made (TOPIC). Seeded with the feed's two.
-        var topics: [String: Data] = FakeServer.seedTopics()
+        var topics: [String: Data] = FakeServer.seedTopics().merging(FakeServer.tikTokTopics()) { $1 }
         /// Feed items after the seeded page (seq 7, 8, …): the topic and version rows of the
         /// versions published here, and the entries runs made, as the change feed lists them.
-        /// `-QuickrSeedTimedTopic` starts it with Morning's finished run (`FakeTiming`).
-        var feed: [String] = FakeTiming.seedFeed()
+        /// `-QuickrSeedTimedTopic` starts it with Morning's finished run (`FakeTiming`),
+        /// `-QuickrSeedTikTok` with the TikTok topic (`FakeServer.seedFeed`).
+        var feed: [String] = FakeServer.seedFeed()
         var publishElsewhere = false
         /// The runs started here (`FakeRuns`, UITestRuns.swift).
         var runs = FakeRunBook()
@@ -906,6 +911,79 @@ extension FakeServerState {
         if let openRun { appendItem(kind: "run", key: "run", openRun) }
         guard case .answer(let status, _) = outcome.result else { return false }
         return status == 200
+    }
+}
+// end T2-M1
+
+// T2-M1: TikTok (timers2.md §3.1), and which run and lap another device's write names
+extension FakeServer {
+    static let tikTokId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c4")!
+    static var seedsTikTok: Bool {
+        UITestLaunch.isActive && ProcessInfo.processInfo.arguments.contains("-QuickrSeedTikTok")
+    }
+
+    /// No steps; Run and Rest, Run with a 5 s alert under `-QuickrTikTokAlert`. As the server
+    /// returns it (`at_ms` evaluated).
+    static var tikTokTimer: String {
+        let alerts =
+            ProcessInfo.processInfo.arguments.contains("-QuickrTikTokAlert")
+            ? #"[{"key": "cue", "label": "Cue", "at": "5s", "at_ms": 5000}]"# : "[]"
+        return #"""
+            {"steps": [], "laps": [{"key": "run", "label": "Run", "alerts": \#(alerts)},
+                                   {"key": "rest", "label": "Rest", "alerts": []}],
+             "variables": []}
+            """#
+    }
+
+    /// The feed after the seeded page: `FakeTiming`'s entry, then TikTok's version and topic rows.
+    static func seedFeed() -> [String] {
+        let timing = FakeTiming.seedFeed()
+        guard seedsTikTok else { return timing }
+        let seq = seededHead + 1 + timing.count
+        return timing + [
+            version(
+                tikTokId, versionId: "00000000-0000-4000-8000-0000000000d4", questions: "[]", seq: seq,
+                timer: tikTokTimer),
+            topic(
+                tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: seq + 1, timer: tikTokTimer),
+        ]
+    }
+
+    /// TikTok as `TopicDetail`, when seeded.
+    static func tikTokTopics() -> [String: Data] {
+        guard seedsTikTok else { return [:] }
+        let item = topic(
+            tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: 0, timer: tikTokTimer)
+        guard let object = try? JSONSerialization.jsonObject(with: Data(item.utf8)) as? [String: Any],
+            let detail = object["topic"], let data = try? JSONSerialization.data(withJSONObject: detail)
+        else { return [:] }
+        return [tikTokId.wireString: data]
+    }
+}
+
+extension FakeServerState {
+    /// The run started last here (by its start), lowercase.
+    var latestRunId: String? {
+        state.withLock { state in state.runs.runs.values.max { $0.state.startedAt < $1.state.startedAt }?.id }
+    }
+
+    /// The latest run as the server holds it, for a test to wait on: "stopped · laps 3".
+    var latestRunSummary: String? {
+        state.withLock { state in
+            state.runs.runs.values.max { $0.state.startedAt < $1.state.startedAt }.map { run in
+                "\(run.status.rawValue) · laps \(run.events.filter { $0.event.type == .lap }.count)"
+            }
+        }
+    }
+
+    /// The id of the run's `n`th lap event (1-based, in time order).
+    func lapEventId(runId: String, n: Int) -> String? {
+        state.withLock { state in
+            let path = runId.lowercased()
+            guard let run = state.runs.runs[state.runs.aliases[path] ?? path] else { return nil }
+            let laps = run.events.map(\.event).filter { $0.type == .lap }.sorted { $0.at < $1.at }
+            return laps.indices.contains(n - 1) ? laps[n - 1].id : nil
+        }
     }
 }
 // end T2-M1

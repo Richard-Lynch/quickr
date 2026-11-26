@@ -2,15 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Timing, TimingSegment } from '../client';
-import {
-  RESUME_FROM_DETAIL_MS,
-  removeControl,
-  resumableFromDetail,
-  spokenChip,
-  spokenDuration,
-  timingChip,
-  timingRows,
-} from './entryTiming';
+import { removeControl, spokenChip, spokenDuration, timingChip, timingRows } from './entryTiming';
 
 const at = (s: number) => new Date(Date.UTC(2026, 9, 23, 8, 0, s)).toISOString();
 
@@ -171,17 +163,5 @@ describe('removeControl (content-display.md §3.2)', () => {
   it('is absent everywhere on an edited timing', () => {
     const edited = { ...t, edited: true };
     for (const row of timingRows(edited)) expect(removeControl(row, edited).kind).toBe('none');
-  });
-});
-
-describe('resumableFromDetail', () => {
-  const start = Date.parse(at(0));
-  const t = timing([segment('lap', 0, 10)]);
-
-  it('holds for 7 days from the run’s start, unedited only', () => {
-    expect(resumableFromDetail(t, start + RESUME_FROM_DETAIL_MS)).toBe(true);
-    expect(resumableFromDetail(t, start + RESUME_FROM_DETAIL_MS + 1)).toBe(false);
-    expect(resumableFromDetail({ ...t, edited: true }, start + 1000)).toBe(false);
-    expect(resumableFromDetail(null, start)).toBe(false);
   });
 });

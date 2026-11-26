@@ -90,6 +90,50 @@ import Testing
         #expect(ran == vectors.cases.map(\.name), "every case ran")
     }
 
+    /// M1-REVIEW (test evidence): `RunWire.State` and `WireTiming` decode the raw JSON with no
+    /// key left over or missing, so a key the server adds can't be silently ignored here.
+    @Test func wireShapesCoverEveryKeyOfTheRawJSON() throws {
+        let raw = try #require(
+            try JSONSerialization.jsonObject(with: Fixtures.data("run-fold-vectors.json")) as? [String: Any])
+        func keys<K: CodingKey & CaseIterable>(_: K.Type) -> Set<String> { Set(K.allCases.map(\.stringValue)) }
+        let segment = keys(RunWire.Segment.CodingKeys.self)
+        let pause: Set<String> = ["start", "end", "id"]
+        func check(_ object: Any?, _ expected: Set<String>, _ at: String) {
+            guard let object = object as? [String: Any] else {
+                Issue.record("\(at): not an object")
+                return
+            }
+            #expect(Set(object.keys) == expected, "\(at)")
+        }
+        func checkTiming(_ timing: [String: Any], _ at: String) {
+            check(timing, keys(RunWire.WireTiming.CodingKeys.self), at)
+            for s in timing["segments"] as? [Any] ?? [] { check(s, segment, "\(at).segments[]") }
+            for p in timing["pauses"] as? [Any] ?? [] { check(p, pause, "\(at).pauses[]") }
+        }
+        let cases = try #require(raw["cases"] as? [[String: Any]])
+        var states = 0
+        for c in cases {
+            let name = c["name"] as? String ?? "?"
+            let expected = try #require(c["expected"] as? [String: Any], "\(name)")
+            let state = try #require(expected["state"] as? [String: Any], "\(name)")
+            states += 1
+            check(state, keys(RunWire.State.CodingKeys.self), "\(name).state")
+            if let open = state["open"] as? [String: Any] {
+                check(open, keys(RunWire.Open.CodingKeys.self), "\(name).state.open")
+            }
+            for s in state["segments"] as? [Any] ?? [] { check(s, segment, "\(name).state.segments[]") }
+            for p in state["pauses"] as? [Any] ?? [] { check(p, pause, "\(name).state.pauses[]") }
+            for (_, e) in state["effects"] as? [String: Any] ?? [:] {
+                check(e, ["effect", "reason"], "\(name).state.effects")
+            }
+            if let timing = expected["timing"] as? [String: Any] { checkTiming(timing, "\(name).timing") }
+        }
+        #expect(states == cases.count)
+        for t in raw["timings"] as? [[String: Any]] ?? [] {
+            if let expected = t["expected"] as? [String: Any] { checkTiming(expected, "timings.expected") }
+        }
+    }
+
     /// `timings`: a stored v1 timing reads with null ids and lap types (timers2.md §3.3).
     @Test func storedTimingsReadAsServed() throws {
         let vectors = try Self.load()

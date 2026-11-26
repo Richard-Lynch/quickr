@@ -7,19 +7,14 @@ import { useUpdateEntry } from '../../api/mutations';
 import type { EntryOut, StepInput as Step, Timing, TimingEdit } from '../../client';
 import { getEntryOptions, getEntryQueryKey } from '../../client/@tanstack/react-query.gen';
 import { formatDateTime } from '../../lib/dates';
-import {
-  removeControl,
-  resumableFromDetail,
-  spokenDuration,
-  timingRows,
-  type TimingRow,
-} from '../../lib/entryTiming';
+import { removeControl, spokenDuration, timingRows, type TimingRow } from '../../lib/entryTiming';
 import { kickOutbox } from '../../lib/outbox/client';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import { tapRun, type EntryRef, type RunContext } from '../../lib/runs/actions';
 import { timingFromWire, timingToWire } from '../../lib/runs/fold';
 import { fmtDuration } from '../../lib/runs/format';
 import { isOpen, projectedEntryTiming } from '../../lib/runs/localView';
+import { resumableFromDetail } from './model';
 import type { LapType } from '../../lib/runs/types';
 import { useRuns } from '../../lib/runs/useRuns';
 import { Button, IconButton } from '../ui/Button';
@@ -87,11 +82,7 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
     runs.some((r) => r.topic_id === ctx.topic.id && (isOpen(r) || r.status === 'finishing'));
   // Not before the open runs are known: an empty list then doesn't prove the topic is free.
   const canResume =
-    ctx !== null &&
-    runsLoaded &&
-    !pending &&
-    !topicBusy &&
-    resumableFromDetail(entry.timing, now());
+    ctx !== null && runsLoaded && !pending && !topicBusy && resumableFromDetail(entry, now());
   const update = useUpdateEntry();
   const qc = useQueryClient();
   const { toast } = useToast();

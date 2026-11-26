@@ -105,10 +105,16 @@ extension RunOverlay {
         let mine = queued.compactMap { item in (try? item.runEventPayload()).map { (item, $0) } }
         guard let at = mine.firstIndex(where: { $0.1.type == .reopen }),
             let reopen = queuedEvent(mine[at].0, mine[at].1),
-            let stored = try storedEntry(db, id: id), let timing = stored.timing,
+            let stored = try storedEntry(db, id: id), var timing = stored.timing,
             try topicExists(db, stored.topicId)
         else { return nil }
         let info = try book.info(stored.topicId, stored.version)
+        // M1-REVIEW P2-5 (R26): the removes queued before the reopen apply to the entry's timing
+        // first, as the server folds them (`entryProjection` skips them once this run is shown).
+        for (_, payload) in mine[..<at] where payload.type == .remove {
+            guard let target = payload.event.target?.lowercased() else { continue }
+            timing = removing(target, from: timing, laps: info.timer?.laps)
+        }
         let closed = RunState(
             status: .stopped, startedAt: timing.startedAt, endedAt: timing.endedAt, open: nil, nextStep: nil,
             pausedSince: nil, segments: timing.segments, skipped: timing.skipped, pauses: timing.pauses, effects: [:],

@@ -183,7 +183,7 @@ def content_state(
         "ended_at": None if ended_at is None else _seconds(ended_at),
         "active_ms": sum(s["active_ms"] for s in segments) if ended_at is not None else None,
         "lap_type": lap_type,
-        "lap_count": state.get("lap_count"),
+        "lap_count": run_fold.stored_lap_count(state),
         "alert_at": None if alert is None else _seconds(alert[0]),
         "alert_label": None if alert is None else truncate(alert[1], MAX_LABEL_LENGTH),
     }

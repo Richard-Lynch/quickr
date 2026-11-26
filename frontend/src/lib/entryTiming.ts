@@ -95,23 +95,6 @@ function unit(n: number, one: string): string {
 }
 
 /**
- * How long the entry detail offers Resume run: 7 days from the run's start (timers2.md
- * glossary "Resumable", OQ-1's detail rule; tiles and toasts use 15 minutes from the stop).
- */
-export const RESUME_FROM_DETAIL_MS = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * Whether the entry detail offers Resume run for this timing (content-display.md §3.2): an
- * unedited timing (timers2.md §3.6: an edited run can't be reopened) whose run started
- * within {@link RESUME_FROM_DETAIL_MS}. The page also hides it while the entry has a queued
- * remove and while the topic has a locally open or finishing run (A15).
- */
-export function resumableFromDetail(timing: Timing | null, now: number): boolean {
-  if (!timing || timing.edited) return false;
-  return now - parseInstant(timing.started_at) <= RESUME_FROM_DETAIL_MS;
-}
-
-/**
  * A detail row's one-tap Remove (content-display.md §3.2): `none` on a step, the first
  * segment, an edited timing and a row whose id is null (a pre-v2 timing, A12); `disabled` on
  * every lap row not opened by a `lap` event (a `next`, the lap after the last step, or a
