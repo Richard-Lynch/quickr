@@ -82,3 +82,7 @@
 ### Resolution (m2-resume-pwa-2)
 
 1. Fixed (`reopen.ts` `laterUntimed`): the offer, and the toast's re-check, end when the topic's latest served entry is untimed and captured after the candidate's stop. Test: TopicTile "a just-stopped run, its stop queued, and a later entry logged without the timer: no Resume" (mutation: dropping the check fails it).
+
+## Round 8 (m2-resume-pwa-2, after the round 7 fix)
+
+No findings.
