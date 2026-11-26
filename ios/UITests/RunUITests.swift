@@ -86,7 +86,7 @@ final class RunUITests: XCTestCase {
         XCTAssertEqual(lapButtons.count, 1, "Lap shows once: \(lapButtons.allElementsBoundByIndex.map(\.label))")
         let lapRow = element(app, "run.step.lap.1")
         XCTAssertGreaterThanOrEqual(lapRow.frame.minY, stop.frame.maxY, "the table is under the controls")
-        XCTAssertEqual(app.buttons.matching(identifier: "run.step.lap.1").count, 0, "a lap row is not a button")
+        assertNoControlsInTable(app, below: stop)
         snap(app, "run-lap-primary")
 
         // Lap: the lap closes and the next opens; the primary is still Lap.
@@ -95,12 +95,71 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(waitForValue(element(app, "run.step.lap.2"), "current"))
         XCTAssertTrue(waitForLabel(primary, containing: "Lap"), primary.label)
         XCTAssertEqual(lapButtons.count, 1, "still once")
+        assertNoControlsInTable(app, below: stop)
+        pastCooldown()
+
+        // Pause (§1.2 row 8): Resume replaces Pause; Lap stays the primary, enabled, once.
+        pause.tap()
+        let resume = element(app, "run.resume")
+        XCTAssertTrue(resume.waitForExistence(timeout: 10))
+        XCTAssertFalse(pause.exists, "Resume replaces Pause")
+        XCTAssertTrue(waitForLabel(element(app, "run.state"), containing: "Paused"))
+        XCTAssertTrue(waitForLabel(primary, containing: "Lap"), primary.label)
+        XCTAssertTrue(primary.isEnabled, "a lap while paused is valid")
+        XCTAssertEqual(lapButtons.count, 1, "still once while paused")
+        pastCooldown()
+        resume.tap()
+        XCTAssertTrue(pause.waitForExistence(timeout: 10))
         pastCooldown()
 
         // Stop: the run is finishing and its answers form opens.
         stop.tap()
         XCTAssertTrue(element(app, "runDetails.save").waitForExistence(timeout: 10), "the answers form")
         snap(app, "run-stopped-details")
+    }
+
+    /// At the largest accessibility text size (§2.3) on Morning (the stacking doesn't depend on
+    /// the primary's kind): the primary keeps its 72 pt, the secondaries stack full width under
+    /// it, Stop over Pause, and every control can be tapped.
+    func testRunControlsStackAtAnAccessibilitySize() {
+        let app = XCUIApplication()
+        app.launchArguments =
+            ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrOpen", "quickr://t/morning/run"]
+            + AccessibilityLaunch.arguments()
+        app.launch()
+        let start = element(app, "run.start")
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        start.tap()
+        let primary = element(app, "run.primary")
+        XCTAssertTrue(primary.waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForLabel(primary, containing: "Next"), primary.label)
+        let stop = element(app, "run.stop")
+        let pause = element(app, "run.pause")
+        XCTAssertTrue(stop.waitForExistence(timeout: 10) && pause.exists)
+        bringIntoFullView([primary, stop, pause], in: app)
+        let window = app.windows.firstMatch.frame
+        XCTAssertGreaterThanOrEqual(primary.frame.height, 72)
+        XCTAssertGreaterThanOrEqual(stop.frame.minY, primary.frame.maxY, "Stop under the primary")
+        XCTAssertGreaterThanOrEqual(pause.frame.minY, stop.frame.maxY, "Pause stacked under Stop")
+        for control in [primary, stop, pause] {
+            XCTAssertGreaterThan(control.frame.width, window.width * 0.8, "\(control.identifier) is full width")
+            XCTAssertTrue(control.isHittable, control.identifier)
+        }
+        snap(app, "run-controls-xxxl")
+        pastCooldown()
+        pause.tap()
+        XCTAssertTrue(element(app, "run.resume").waitForExistence(timeout: 10), "the stacked Pause works")
+    }
+
+    /// No control sits in the step and lap table (§2.2): no button below the secondaries, and no
+    /// `run.lap` anywhere.
+    private func assertNoControlsInTable(
+        _ app: XCUIApplication, below secondary: XCUIElement, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let floor = secondary.frame.maxY
+        let inTable = app.buttons.allElementsBoundByIndex.filter { $0.frame.minY >= floor && $0.frame.height > 0 }
+        XCTAssertEqual(inTable.map(\.identifier), [], "buttons in the table", file: file, line: line)
+        XCTAssertFalse(element(app, "run.lap").exists, "no run.lap control", file: file, line: line)
     }
 
     func testStartNextNextSkipPauseResumeStopAnswerSave() {

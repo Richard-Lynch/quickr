@@ -210,9 +210,11 @@ final class HomeTests: XCTestCase {
         XCTAssertEqual(morning.count, 1, "the open run's topic shows once")
         let card = morning.firstMatch
         XCTAssertGreaterThan(card.frame.minY, active.frame.maxY)
+        // The fake server's three topics all fit on the first screen, so none is lazily missing.
         for other in ["workout", "mood"] {
             let tile = app.descendants(matching: .any)["tile.\(other)"]
-            if tile.exists { XCTAssertGreaterThan(tile.frame.minY, card.frame.maxY, "\(other) is below Active now") }
+            XCTAssertTrue(tile.exists, other)
+            XCTAssertGreaterThan(tile.frame.minY, card.frame.maxY, "\(other) is below Active now")
         }
         // The card (§3.2): the clocks, the headline, Next with Stop beside it, Pause.
         let next = card.descendants(matching: .any)["tile.morning.run"].firstMatch

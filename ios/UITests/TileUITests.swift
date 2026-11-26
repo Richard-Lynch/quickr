@@ -146,6 +146,45 @@ final class TileUITests: XCTestCase {
         XCTAssertTrue(element("runDetails.save").waitForExistence(timeout: 10), "stopped: the answers form")
     }
 
+    /// The active card at the largest accessibility text size (§3.2, §7), on Morning against the
+    /// UI-test fake server: Pause moves under the headline and the primary stacks over a
+    /// full-width Stop; both can be tapped.
+    @MainActor
+    func testActiveCardStacksAtAnAccessibilitySize() {
+        let app = XCUIApplication()
+        app.launchArguments =
+            ["-QuickrUITest", "-QuickrServer", "https://quickr.test"] + AccessibilityLaunch.arguments()
+        app.launch()
+        let element = { (id: String) in app.descendants(matching: .any)[id].firstMatch }
+        let start = element("tile.morning.run")
+        XCTAssertTrue(start.waitForExistence(timeout: 20))
+        reveal(start, in: app)
+        start.tap()
+
+        // Started, Morning moves up into "Active now", above where the list was scrolled to.
+        let active = element("home.section.active")
+        XCTAssertTrue(active.waitForExistence(timeout: 10))
+        let top = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        for _ in 0..<12 where !(active.exists && active.isHittable) {
+            top.press(forDuration: 0.05, thenDragTo: top.withOffset(CGVector(dx: 0, dy: 300)))
+        }
+        let card = element("tile.morning")
+        let next = card.descendants(matching: .any)["tile.morning.run"].firstMatch
+        let stop = card.descendants(matching: .any)["tile.morning.stop"].firstMatch
+        let pause = card.descendants(matching: .any)["tile.morning.pause"].firstMatch
+        XCTAssertTrue(waitForLabel(next, prefix: "Next"), next.label)
+        // Home has no navigation bar (its header is in the list): scroll until Stop can be tapped.
+        reveal(stop, in: app)
+        XCTAssertGreaterThanOrEqual(stop.frame.minY, next.frame.maxY, "Stop stacks under the primary")
+        XCTAssertEqual(stop.frame.width, next.frame.width, accuracy: 2, "both full width")
+        XCTAssertLessThan(pause.frame.maxY, next.frame.minY, "Pause sits above the controls row")
+        XCTAssertTrue(next.isHittable && stop.isHittable)
+        attach(app, "tiles-active-card-ax")
+        Thread.sleep(forTimeInterval: 0.6)  // past the run controls' tap cooldown (450 ms)
+        stop.tap()
+        XCTAssertTrue(element("runDetails.save").waitForExistence(timeout: 10), "the stacked Stop works")
+    }
+
     /// A tile, scrolled fully into view: the home list is lazy, so a tile further down doesn't
     /// exist until it is scrolled to.
     private func tile(_ app: XCUIApplication, _ slug: String) -> XCUIElement {
