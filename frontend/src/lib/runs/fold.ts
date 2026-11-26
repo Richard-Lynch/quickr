@@ -34,6 +34,7 @@ import type {
   RunEventWire,
   RunState,
   RunStateWire,
+  RunStatus,
   Segment,
   SegmentWire,
   StoredPauseWire,
@@ -113,7 +114,36 @@ export function fold(
     else reason = clock.apply(item);
     effects[lc(item.id)] = effectOf(reason);
   }
-  return clock.state(start.at, terminal, effects);
+  const state = clock.state(start.at, terminal, effects);
+  const reopenId = arrival.openReopenId;
+  return reopenId !== null && (state.status === 'running' || state.status === 'paused')
+    ? { ...state, reopen_id: reopenId }
+    : state;
+}
+
+/**
+ * The applied reopen that cleared the current terminal of an open run, from its events in
+ * arrival order and their effects (what `fold` sets as `RunState.reopen_id`): the last
+ * applied reopen with no applied stop or discard after it. For a state that didn't come from
+ * `fold` (the server's). iOS: `RunFold.openReopen(events:effects:status:)`.
+ */
+export function openReopen(
+  events: readonly RunEvent[],
+  effects: Readonly<Record<string, Effect>>,
+  status: RunStatus,
+): string | null {
+  if (status !== 'running' && status !== 'paused') return null;
+  let open: string | null = null;
+  const seen = new Set<string>();
+  for (const e of events) {
+    const id = lc(e.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (effects[id]?.effect !== 'applied') continue;
+    if (e.type === 'reopen') open = id;
+    else if (e.type === 'stop' || e.type === 'discard') open = null;
+  }
+  return open;
 }
 
 /**
@@ -202,6 +232,11 @@ class Arrival {
       }
       this.effects[eid] = effectOf(reason);
     });
+  }
+
+  /** The applied reopen that cleared the current terminal (lowercase id), if any. */
+  get openReopenId(): string | null {
+    return this.openReopen === null ? null : lc(this.openReopen[1].id);
   }
 
   /** Pass 2's roles: gap pauses of pairs whose stop isn't removed, and every gap resume. */
@@ -598,7 +633,7 @@ const pauseFromWire = (p: StoredPauseWire): Pause => ({
 
 /** `RunState` as the API carries it (§4.3, timers2.md §3.3). */
 export function stateToWire(state: RunState): RunStateWire {
-  return {
+  const wire: RunStateWire & Pick<RunState, 'reopen_id'> = {
     ...state,
     started_at: formatInstant(state.started_at),
     ended_at: state.ended_at === null ? null : formatInstant(state.ended_at),
@@ -612,6 +647,8 @@ export function stateToWire(state: RunState): RunStateWire {
     effects: { ...state.effects },
     pauses: state.pauses.map(pauseToWire),
   };
+  delete wire.reopen_id; // not on the wire
+  return wire;
 }
 
 /**

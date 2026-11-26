@@ -17,6 +17,7 @@ import {
   fold,
   lapTyping,
   MAX_RUN_MS,
+  openReopen,
   overlap,
   projectTiming,
   stateFromWire,
@@ -130,6 +131,13 @@ function serverEvent(e: RunOut['events'][number]): RunEvent {
 }
 
 const applied = (state: RunState, id: string) => state.effects[lc(id)]?.effect === 'applied';
+
+/** The server's state, with the open reopen its events show (`RunState.reopen_id`). */
+function serverState(server: RunOut): RunState {
+  const state = stateFromWire(server.state);
+  const reopenId = openReopen(server.events.map(serverEvent), state.effects, state.status);
+  return reopenId === null ? state : { ...state, reopen_id: reopenId };
+}
 
 /** The run's events of `type` that the state applied. */
 const appliedOf = (state: RunState, events: readonly RunEvent[], type: RunEvent['type']) =>
@@ -258,6 +266,7 @@ function reopenState(
       ? lapTyping(lapCount + (last.kind === 'lap' ? 1 : 0) + 1, laps)[0]
       : null,
     lap_count: lapCount,
+    reopen_id: reopen.id,
   };
 }
 
@@ -428,6 +437,8 @@ function overlay(
     terminal_id: terminalId,
     next_lap_type: nextLapType,
     lap_count: segments.filter((x) => x.kind === 'lap').length,
+    // A close here (stop or discard) ends the reopen transaction.
+    reopen_id: open === null ? null : (base.reopen_id ?? null),
   };
 }
 
@@ -451,7 +462,7 @@ function buildRun(
   const timer = { steps: steps ?? [], laps: laps ?? [] };
   let state: RunState;
   if (mine.length === 0 && server) {
-    state = stateFromWire(server.state);
+    state = serverState(server);
   } else if (steps) {
     try {
       state = fold(id, timer, events);
@@ -459,12 +470,12 @@ function buildRun(
       // Not foldable (no start yet, say): the server's state, if there is one.
       if (!server) return null;
       console.error('[runs] could not fold the local view', err);
-      state = stateFromWire(server.state);
+      state = serverState(server);
     }
   } else if (server) {
     // The pinned version's steps aren't known here: the server's labels, with this
     // device's step-independent taps on top.
-    state = overlay(server, stateFromWire(server.state), mine, laps);
+    state = overlay(server, serverState(server), mine, laps);
   } else if (mine.some((i) => i.payload.event.type === 'start')) {
     // This device's start that didn't know the steps (a reminder's, nothing cached, §10.2):
     // fold over none, so the run shows its clock and can be stopped offline. `steps` stays

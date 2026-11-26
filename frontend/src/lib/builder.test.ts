@@ -491,7 +491,7 @@ describe('timer v2 drafts (timers2.md §1)', () => {
     const r = timerFromDraft({
       timed: true,
       steps: [stepOf(`${nel}a${nel}`, `${nel}${bom}${nel}`)],
-      laps: [lapType('b', bom, [alert(`${bom}`, '1s', `${nel}c`)])],
+      laps: [lapType('b', bom, [alert(bom, '1s', `${nel}c`)])],
       variables: [],
     });
     expect(r).toEqual({
