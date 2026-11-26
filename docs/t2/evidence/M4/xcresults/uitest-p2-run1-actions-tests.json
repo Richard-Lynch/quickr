@@ -18,8 +18,8 @@
             {
               "children" : [
                 {
-                  "duration" : "15s",
-                  "durationInSeconds" : 15.055150985717773,
+                  "duration" : "19s",
+                  "durationInSeconds" : 19.968245029449463,
                   "name" : "testRemovePauseFromEntryDetail()",
                   "nodeIdentifier" : "EntriesTests/testRemovePauseFromEntryDetail()",
                   "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testRemovePauseFromEntryDetail",
@@ -27,8 +27,8 @@
                   "result" : "Passed"
                 },
                 {
-                  "duration" : "14s",
-                  "durationInSeconds" : 14.323876023292542,
+                  "duration" : "15s",
+                  "durationInSeconds" : 15.231879949569702,
                   "name" : "testResumeRunFromEntryDetail()",
                   "nodeIdentifier" : "EntriesTests/testResumeRunFromEntryDetail()",
                   "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testResumeRunFromEntryDetail",

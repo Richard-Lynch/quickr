@@ -120,24 +120,39 @@ final class EntriesTests: XCTestCase {
         XCTAssertFalse(find(app, "entry.timing.pause.0").exists)
         XCTAssertEqual(total.label, "Total 5 minutes 20 seconds")
         XCTAssertTrue(find(app, "entry.timing.segment.1").label.hasPrefix("Rest 1"), "the laps stay")
+
+        // No projection is left (its outbox item is done): the list and a fresh detail show the
+        // server's entry.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let row = find(app, "\(Self.newest).summary")
+        XCTAssertTrue(waitForLabel(row, "5:20 · Run 3 · Rest 2 · Effort: 7"), "the list row, not \(row.label)")
+        find(app, Self.newest).tap()
+        XCTAssertTrue(waitForLabel(find(app, "entry.timing.total"), "Total 5 minutes 20 seconds"))
+        XCTAssertFalse(find(app, "entry.timing.pause.0").exists)
+        XCTAssertFalse(find(app, "entry.timing.pending").exists)
     }
 
-    /// Resume run (content-display.md §3.2): the run reopens and the screen goes to it, Running
-    /// once the fake server's ack lands. The entry is then the open run (OQ-14): the list hides
-    /// it, so it offers neither Remove nor Resume.
+    /// Resume run (content-display.md §3.2): offline, the reopen queues and the detail goes to the
+    /// run (OQ-14), "Saved on this device"; back online the fake server acks it and the run stays
+    /// Running. ("Resuming…" before the ack is M2's #161, not in t2/m4 yet.) The entry is then the
+    /// open run: the list hides it, so it offers neither Remove nor Resume.
     @MainActor
     func testResumeRunFromEntryDetail() {
-        let app = launchTyped()
+        let app = launchTyped(["-QuickrSyncControls"])
         find(app, Self.newest).tap()
         let resume = app.buttons["entry.resume"]
         XCTAssertTrue(resume.waitForExistence(timeout: 10), "yesterday's run is within the 7 days")
+        find(app, "debug.offline").tap()
         resume.tap()
 
         let state = find(app, "run.state")
-        XCTAssertTrue(state.waitForExistence(timeout: 10), "the run screen")
-        XCTAssertTrue(waitForLabel(state, "Running", timeout: 15), "Running, not \(state.label)")
-        // The reopen is no longer only on this device: the fake server acked it.
-        XCTAssertTrue(waitForAbsence(app.staticTexts["Saved on this device"], timeout: 15), "the ack")
+        let queued = app.staticTexts["Saved on this device"]
+        XCTAssertTrue(state.waitForExistence(timeout: 10), "the detail went to the run")
+        XCTAssertTrue(queued.waitForExistence(timeout: 10), "the reopen waits offline")
+        XCTAssertEqual(state.label, "Running")
+
+        find(app, "debug.online").tap()
+        XCTAssertTrue(waitForAbsence(queued, timeout: 20), "the fake server acked the reopen")
         XCTAssertEqual(state.label, "Running")
 
         // Back to the list (the run took the detail's place): the open run's entry isn't there.
