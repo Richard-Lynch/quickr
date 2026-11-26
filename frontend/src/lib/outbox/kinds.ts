@@ -148,7 +148,9 @@ const runEvent: OutboxKind<RunEventPayload> = {
    *
    * timers2.md §5.5: a reopen or remove also waits for the pending item whose id is its
    * `target`, and any event of the run enqueued after a pending reopen waits for that
-   * reopen (A7). Failed items hold none of them.
+   * reopen (A7). A reopen also waits for its run's pending finishes enqueued before it, so a
+   * retrying finish isn't overtaken (and refused with `run_open`). Failed items hold none of
+   * them.
    *
    * A start waits for the pending stops and discards of the topic's other runs enqueued
    * before it (§8.1): the local view has that run closed, but the server, still having it
@@ -189,6 +191,14 @@ const runEvent: OutboxKind<RunEventPayload> = {
       const target = lc(event.target);
       const named = queue.find((i) => lc(i.id) === target && pendingOfRun(i));
       if (named) deps.push(named.id);
+    }
+    // A reopen also waits for the run's pending finishes enqueued before it: sent first, it
+    // would open the run, and the finish would fail with 409 `run_open`, its answers stranded.
+    if (event.type === 'reopen') {
+      const finishes = queue.filter(
+        (i) => pendingOfRun(i) && i.payload.event.type === 'finish' && enqueuedBefore(i, item),
+      );
+      for (const f of finishes) if (!deps.includes(f.id)) deps.push(f.id);
     }
     // A7: anything enqueued after a pending reopen of the run waits for it, so a lap can't
     // reach a run still stopped on the server (and come back after_stop).
