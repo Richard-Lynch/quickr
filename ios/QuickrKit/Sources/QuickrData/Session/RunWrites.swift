@@ -270,8 +270,9 @@ public struct RunWrites: Sendable {
         return RunStartResult(runId: runId, item: queued)
     }
 
-    /// The id is already used: an item with it (any state), a run or alias, a run tombstone, or an
-    /// entry (or entry tombstone) with it. Runs and entries share one id space (§3.3).
+    /// The id is already used: an item with it (any state), a run or alias, a closed run's marker
+    /// or a run tombstone, or an entry (or entry tombstone) with it. Runs and entries share one id
+    /// space (§3.3).
     static func isKnown(_ db: Database, runId: String) throws -> Bool {
         try Bool.fetchOne(
             db,
@@ -281,8 +282,9 @@ public struct RunWrites: Sendable {
                     OR EXISTS (SELECT 1 FROM run_alias WHERE id = ?)
                     OR EXISTS (SELECT 1 FROM entry WHERE id = ?)
                     OR EXISTS (SELECT 1 FROM tombstone WHERE kind IN ('run', 'entry') AND id = ?)
+                    OR EXISTS (SELECT 1 FROM run_closed WHERE id = ?)
                 """,
-            arguments: [runId, runId, runId, runId, runId]) ?? false
+            arguments: [runId, runId, runId, runId, runId, runId]) ?? false
     }
 
     static func tap(

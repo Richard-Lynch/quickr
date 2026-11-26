@@ -61,8 +61,10 @@ public struct LocalStore: Sendable {
     /// The atomic ack (sync-protocol.md §6) in one `IMMEDIATE` transaction.
     public func ack(itemId: String, sender: SenderContext, effect: AckEffect) async throws -> AckOutcome {
         let clock = leaseClock
+        let wallClock = wallClock
         return try await writer.write { db in
-            try AtomicAck.ack(db, itemId: itemId, sender: sender, effect: effect, at: clock.now())
+            try AtomicAck.ack(
+                db, itemId: itemId, sender: sender, effect: effect, at: clock.now(), wall: wallClock.now())
         }
     }
 

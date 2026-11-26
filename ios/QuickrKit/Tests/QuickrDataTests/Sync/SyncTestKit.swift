@@ -11,8 +11,10 @@ import Testing
 /// the current entities and `deleted_ids`, paged the way `services/changes.py` pages it
 /// (sync-protocol.md F1–F3, F8): a page covers `after < seq ≤ next` (`limit` counts log rows),
 /// each entity appears once in its latest state, a vanished entity is emitted as a deletion only
-/// if its id is in `deleted_ids`. A closed run is emitted as a deletion only on the page with its
-/// own delete row (timers.md §7.1).
+/// if its id is in `deleted_ids`. A closed run is emitted as a deletion only on a page whose latest
+/// row for it is one of its delete rows (timers.md §7.1), with its revision at read time; a run is
+/// emitted by its state at read time, so a reopened run's delete row emits it as an item
+/// (timers2.md §5.1).
 final class FakeFeedServer: @unchecked Sendable {
     struct Snapshot {
         var epoch: String
@@ -26,6 +28,8 @@ final class FakeFeedServer: @unchecked Sendable {
         var runsClosedAt: [String: Int] = [:]
         /// Each closed run's revision: the close bumps it (timers2.md §5.2, `FeedDeletion.revision`).
         var runsClosedRevision: [String: Int] = [:]
+        /// Every run delete row's seq (a reopened run's earlier closes included).
+        var runDeleteRows: Set<Int> = []
         var deleted: [String: (kind: String, id: String, topicId: String)]
     }
 
@@ -195,9 +199,26 @@ final class FakeFeedServer: @unchecked Sendable {
             state.deleted["run:\(id)"] = ("run", id, run["topic_id"] as? String ?? "")
             state.runsClosedAt[id] = seq
             state.runsClosedRevision[id] = (run["revision"] as? Int ?? 0) + 1
+            state.runDeleteRows.insert(seq)
             state.log.append((seq, "run", id))
         }
     }
+
+    /// A `reopen` (timers2.md §4): the closed run is open again, as `run` (whose revision the
+    /// caller sets above the close's), with a new upsert row.
+    func reopenRun(_ run: [String: Any]) {
+        locked {
+            let id = run["id"] as? String ?? ""
+            state.deleted["run:\(id)"] = nil
+            state.runsClosedAt[id] = nil
+            state.runsClosedRevision[id] = nil
+            state.runs[id] = run
+            state.log.append((nextSeq(), "run", id))
+        }
+    }
+
+    /// The revision a closed run's deletion carries now (nil when open or gone).
+    func closedRevision(_ id: String) -> Int? { locked { state.runsClosedRevision[id] } }
 
     /// Children go into `deleted_ids` before the cascade (runs and their aliases as kind `run`);
     /// only the topic's own row is logged (F3).
@@ -297,7 +318,11 @@ final class FakeFeedServer: @unchecked Sendable {
                     items["run"]!.append(["kind": "run", "seq": seq, "run": state.runs[id]!])
                 default:
                     guard let gone = state.deleted[key] else { continue }
-                    if kind == "run", let closed = state.runsClosedAt[id], closed > next { continue }
+                    // A stopped run's row is still there: skipped unless this page's latest row for
+                    // it is a delete row. A run deleted with its topic is emitted at its latest row.
+                    if kind == "run", state.runsClosedRevision[id] != nil, !state.runDeleteRows.contains(seq) {
+                        continue
+                    }
                     // A closed run's revision; null for a topic cascade and other kinds.
                     let revision: Any = (kind == "run" ? state.runsClosedRevision[id] : nil) ?? NSNull()
                     deleted[kind]!.append([

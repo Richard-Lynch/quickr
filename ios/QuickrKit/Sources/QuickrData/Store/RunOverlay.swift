@@ -123,10 +123,10 @@ public enum RunOverlay {
             }
         }
         for key in order {
-            // A closed run's tombstone: its start was answered elsewhere, its queued taps are
-            // the server's to merge (§4.4).
+            // A closed run's marker (or a deleted one's tombstone): its start was answered
+            // elsewhere, its queued taps are the server's to merge (§4.4).
             guard let queued = groups[key], queued.contains(where: { $0.id == key }),
-                try !ServerLayer.isTombstoned(db, kind: .run, id: key),
+                try !ServerLayer.isClosedRun(db, id: key),
                 let run = try build(db, id: key, server: nil, queued: queued, aliases: [], book)
             else { continue }
             result.append(run)
