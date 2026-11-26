@@ -1430,8 +1430,8 @@ then offers plain Next/Lap, as v1's `steps_unknown`).
 - **On-screen primary** = **Lap** when the open segment is a lap **or no named
   step remains** (`next_step == null`), labelled with the next lap type's label
   when `timer.laps` is non-empty ("Lap → Rest") and plain "Lap" otherwise; else
-  **Next: {step}**. **Stop is never primary**: Stop, Pause and Resume are
-  secondary; Skip, Reopen, Discard are overflow.
+  **Next: {step}**. **Stop is never primary**: Stop, Pause, Resume and Reopen
+  are secondary; Skip, Discard are overflow.
 - **Auto** (the Action button, the Control, the small widget, Siri) is a
   separate rule: `timer.laps` non-empty → Auto = the on-screen primary (idle →
   Start); `timer.laps` empty → v1 §11.1's Auto (idle → Start; a named step
