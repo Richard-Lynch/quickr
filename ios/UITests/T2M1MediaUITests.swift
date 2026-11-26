@@ -61,6 +61,7 @@ final class T2M1MediaUITests: XCTestCase {
 
         let banner = springboard.descendants(matching: .any)["NotificationShortLookView"]
         XCTAssertTrue(banner.waitForExistence(timeout: 20), "the alert's banner")
+        Thread.sleep(forTimeInterval: 1)  // slid fully in
         snapScreen("i1-alert-banner")
         XCTAssertTrue(banner.label.contains("Cue"), banner.label)
     }
@@ -73,7 +74,8 @@ final class T2M1MediaUITests: XCTestCase {
         app.launchArguments =
             ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrOpen", "quickr://t/mood/edit"] + extra
         app.launch()
-        XCTAssertTrue(find("editQuestions.q0.header", in: app).waitForExistence(timeout: 15))
+        // The intro: at the largest text size the first question's card starts below the screen.
+        XCTAssertTrue(find("editQuestions.intro", in: app).waitForExistence(timeout: 15))
         let timed = app.switches["editQuestions.timed"]
         reveal(timed, in: app)
         timed.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
@@ -141,8 +143,12 @@ final class T2M1MediaUITests: XCTestCase {
         for _ in 0..<10 where !shown() { drag(up: !above) }
     }
 
+    /// Without the keyboard: Return ends the edit (a tap on the bar doesn't always).
     @MainActor
     private func snap(_ app: XCUIApplication, _ name: String) {
+        let returnKey = app.keyboards.buttons["Return"]
+        if returnKey.exists { returnKey.tap() }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "\(name): the keyboard is up")
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name
         shot.lifetime = .keepAlways
