@@ -667,6 +667,7 @@ async def reopen_and_remove(client: httpx.AsyncClient, rec: Recorder, post: Any)
     11:14:05.5 (``ev9``) closed with an entry."""
     ev9 = EVENT_IDS[8]
     reopen, lap, pause, resume, remove, restop, remove_late, again, discard = REOPEN_IDS
+    before = (await client.get("/changes", params={"after": 0, "limit": 1})).json()["head"]
     # The accidental stop: the gap 11:14:05.5 to 11:15 becomes a pause; the entry stays.
     await rec(
         "recordRunEvent",
@@ -697,6 +698,9 @@ async def reopen_and_remove(client: httpx.AsyncClient, rec: Recorder, post: Any)
         status=200,
         variant="restop",
     )
+    # The feed from the reopen to the re-stop: the entry, and one run deletion carrying the run's
+    # revision (timers2.md §5.1, §5.2).
+    await rec("listChanges", "GET", f"/changes?after={before}", status=200, variant="reopened_run")
     # Removing the lap from the stopped run's entry: a late merge (revision 3, not edited).
     await rec(
         "recordRunEvent",

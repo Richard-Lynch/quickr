@@ -315,8 +315,9 @@ export const zEnumStats = z.object({
  * FeedDeletion
  *
  * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
- * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
- * discarded, or went with its topic.
+ * runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+ * was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+ * with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2).
  */
 export const zFeedDeletion = z.object({
     kind: z.enum([
@@ -328,7 +329,8 @@ export const zFeedDeletion = z.object({
     seq: z.int(),
     id: z.uuid(),
     topic_id: z.uuid(),
-    deleted_at: z.iso.datetime({ offset: true })
+    deleted_at: z.iso.datetime({ offset: true }),
+    revision: z.int().nullable()
 });
 
 /**

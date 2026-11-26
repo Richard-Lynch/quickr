@@ -1,6 +1,10 @@
-"""Runs in the change feed (docs/specs/timers.md §2.4, §7.1): spec cases T7 and T8 (§13.2).
+"""Runs in the change feed (docs/specs/timers.md §2.4, §7.1; timers2.md §5.1, §5.2, §5.4): spec
+cases T7 and T8 (timers.md §13.2) as updated by T27 (timers2.md §12.2).
 
-T8 checks page contents, never just the order of the log rows.
+T8 checks page contents, never just the order of the log rows. A page emits a run by its state in
+the page's snapshot (current state at read time): its latest row on the page decides whether it is
+on the page, its current row decides as what. A ``run`` deletion carries the run's ``revision`` in
+that snapshot, or null when the row is gone (topic cascade); every other kind carries null.
 """
 
 from __future__ import annotations
@@ -61,6 +65,9 @@ async def test_bootstrap_carries_open_and_finishing_runs_only(client: httpx.Asyn
     run_deletions = deleted(page, "run")
     assert set(run_deletions) == {stopped.id, discarded.id}
     assert run_deletions[stopped.id]["topic_id"] == stopped.topic["id"]
+    # T27: bootstrap deletions carry the run's revision in the snapshot (timers2.md §5.4).
+    assert run_deletions[stopped.id]["revision"] == (await stopped.get())["revision"]
+    assert run_deletions[discarded.id]["revision"] == (await discarded.get())["revision"]
     # Runs apply after entries (deletion order: test_a_run_deleted_with_its_topic_is_a_deletion).
     assert [i["kind"] for i in page["items"]][-3:] == ["run"] * 3
 
@@ -92,6 +99,7 @@ async def test_incremental_pages_carry_run_upserts_and_deletions(client: httpx.A
     assert deletion["seq"] == page["next"]  # the delete row, after the entry's
     assert set(deleted(page, "run")) == {run.id}
     assert len(page["deleted"]) == 1
+    assert deletion["revision"] == (await run.get())["revision"] == 3  # start, next, stop
 
     # A late event changes the entry, never the run item (§2.4).
     cursor = page["next"]
@@ -145,6 +153,8 @@ async def test_a_run_deleted_with_its_topic_is_a_deletion(client: httpx.AsyncCli
     assert set(deleted(page, "topic")) == {run.topic["id"]}
     # Deletions apply children first: runs, then entries, versions and the topic.
     assert [d["kind"] for d in page["deleted"]] == ["run", "entry", "version", "topic"]
+    # T27: the cascade run deletion has no row to read a revision from; other kinds never carry one.
+    assert [d["revision"] for d in page["deleted"]] == [None] * 4
 
 
 # --- T8 ---------------------------------------------------------------------------------------
@@ -199,3 +209,187 @@ async def test_limit_between_a_runs_rows_and_its_delete_row(client: httpx.AsyncC
         assert sorted(all_deletions) == sorted(delete_seq), limit
         assert live == {open_run.id}, limit
         assert seen_entries >= stopped_runs, limit
+
+
+# --- T27: reopen, revision and the page cuts (timers2.md §5.1, §5.2) ------------------------------
+
+
+OPEN_REVISION = 2  # start, lap: what a client synced up to the cursor holds
+
+
+class Client:
+    """A feed consumer applying timers2.md §5.2's revision rules to runs: an item applies iff its
+    revision is above the local row's or marker's; a deletion against a row applies iff its revision
+    is above the row's, and against a marker only raises it."""
+
+    def __init__(self, live: dict[str, int] | None = None) -> None:
+        self.live: dict[str, int] = dict(live or {})
+        self.closed: dict[str, int] = {}
+
+    def apply(self, page: dict[str, Any]) -> None:
+        for run_id, item in run_items(page).items():
+            rev = item["run"]["revision"]
+            if rev > self.live.get(run_id, self.closed.get(run_id, -1)):
+                self.live[run_id] = rev
+                self.closed.pop(run_id, None)
+        for run_id, d in deleted(page, "run").items():
+            rev = d["revision"]
+            assert isinstance(rev, int), d
+            if run_id in self.live:
+                if rev > self.live[run_id]:
+                    del self.live[run_id]
+                    self.closed[run_id] = rev
+            else:
+                self.closed[run_id] = max(self.closed.get(run_id, -1), rev)
+
+
+async def stop_reopen(client: httpx.AsyncClient, name: str) -> tuple[Driver, int]:
+    """A run open (revision 2) at the returned cursor, then stopped (``(entry, upsert)``,
+    ``(run, delete)``) and reopened (``(run, upsert)``) after it."""
+    run = await started(client, name, questions=OPTIONAL)
+    await run.tap("lap", 10, seg=0)
+    assert (await run.get())["revision"] == OPEN_REVISION
+    cursor = await head()
+    stop = (await run.tap("stop", 20))["event"]["id"]
+    reopened = await run.tap("reopen", 30, target=stop)
+    assert reopened["run"]["status"] == "running"
+    return run, cursor
+
+
+async def every_cut(client: httpx.AsyncClient, cursor: int) -> list[tuple[int, list[dict[str, Any]]]]:
+    """``(start, pages)`` for every start cursor in the span since ``cursor`` and every limit."""
+    end = await head()
+    return [
+        (start, await drain(client, start, limit))
+        for start in range(cursor, end)
+        for limit in range(1, end - start + 1)
+    ]
+
+
+def spans(start: int, pages: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+    """Each page with the cursor it was fetched after."""
+    out = []
+    for page in pages:
+        out.append((start, page))
+        start = page["next"]
+    return out
+
+
+async def test_a_stop_reopen_restop_within_one_page_is_one_deletion(client: httpx.AsyncClient) -> None:
+    run, cursor = await stop_reopen(client, "Once")
+    await run.tap("stop", 40)
+    page = await changes(client, cursor)
+    assert not run_items(page)
+    [deletion] = page["deleted"]
+    assert (deletion["kind"], deletion["id"]) == ("run", run.id)
+    assert deletion["revision"] == (await run.get())["revision"]
+    assert deletion["seq"] == page["next"]  # the re-stop's delete row, after the entry's
+    assert entry_ids(page) == {run.id}
+
+
+async def test_an_incremental_page_after_a_reopen_carries_the_run_again(client: httpx.AsyncClient) -> None:
+    run, _ = await stop_reopen(client, "Resurrected")
+    page = await changes(client, await head() - 1)  # just the reopen's upsert
+    item = run_items(page)[run.id]
+    assert item["run"] == await run.get()
+    assert item["run"]["status"] == "running"
+    assert not page["deleted"]
+
+
+async def test_stop_reopen_restop_split_every_way_converges(client: httpx.AsyncClient) -> None:
+    """§5.1's first cut: the run is closed at read time, so no page emits it as an item; a page
+    emits its deletion exactly when the page's latest row for it is a delete row (so the middle
+    page of stop | reopen | re-stop emits nothing for it), and every page sequence converges."""
+    run, cursor = await stop_reopen(client, "Every way")
+    await run.tap("lap", 35, seg=1)
+    await run.tap("stop", 40)
+    rows = await log_rows(cursor)
+    assert [r[:2] for r in rows] == [
+        ("entry", "upsert"),
+        ("run", "delete"),
+        ("run", "upsert"),
+        ("run", "upsert"),
+        ("entry", "upsert"),
+        ("run", "delete"),
+    ]
+    final = await run.get()
+    assert final["status"] == "stopped"
+    middles = 0
+    for start, pages in await every_cut(client, cursor):
+        model = Client({run.id: OPEN_REVISION})  # synced up to the cursor
+        for after, page in spans(start, pages):
+            model.apply(page)
+            latest = latest_op(rows, cursor, after, page["next"], run.id)
+            assert run.id not in run_items(page), (start, after, "a closed run is never an item")
+            if latest == "delete":
+                assert deleted(page, "run")[run.id]["revision"] == final["revision"], (start, after)
+            else:
+                assert run.id not in deleted(page, "run"), (start, after, latest)
+                middles += latest == "upsert"
+        assert run.id not in model.live, start
+        assert model.closed.get(run.id) == final["revision"], start
+    assert middles  # some cut yields a page whose latest row for the run is the reopen's upsert
+
+
+async def test_stop_reopen_split_with_the_run_open_emits_the_item(client: httpx.AsyncClient) -> None:
+    """§5.1's second cut: the run is open again at read time, so a page whose latest row for it is
+    the stop's delete row emits the item at its current revision, never a deletion."""
+    run, cursor = await stop_reopen(client, "Open again")
+    rows = await log_rows(cursor)
+    assert [r[:2] for r in rows] == [("entry", "upsert"), ("run", "delete"), ("run", "upsert")]
+    current = await run.get()
+    deletes_first = 0
+    for start, pages in await every_cut(client, cursor):
+        model = Client({run.id: OPEN_REVISION})  # synced up to the cursor
+        for after, page in spans(start, pages):
+            model.apply(page)
+            latest = latest_op(rows, cursor, after, page["next"], run.id)
+            assert run.id not in deleted(page, "run"), (start, after)
+            if latest is None:
+                assert run.id not in run_items(page), (start, after)
+            else:
+                assert run_items(page)[run.id]["run"] == current, (start, after)
+                deletes_first += latest == "delete"
+        assert model.live == {run.id: current["revision"]}, start
+    assert deletes_first  # the cut between the stop's delete row and the reopen's upsert
+
+
+async def test_an_upsert_row_of_a_run_discarded_since_emits_nothing(client: httpx.AsyncClient) -> None:
+    """A reopened run whose entry was deleted is discarded by its revert (issue #183): a page whose
+    latest row for it is the reopen's upsert emits nothing; the next page, with the discard's delete
+    row, emits the deletion with its revision."""
+    run, cursor = await stop_reopen(client, "Reverted")
+    upsert = await head()
+    assert (await client.delete(f"/entries/{run.id}")).status_code == 204
+    assert (await run.tap("discard", 40))["run"]["status"] == "discarded"
+    revision = (await run.get())["revision"]
+    page = await changes(client, cursor, upsert - cursor)
+    assert page["next"] == upsert
+    assert not run_items(page)
+    assert run.id not in deleted(page, "run")
+    page = await changes(client, upsert)
+    assert deleted(page, "run")[run.id]["revision"] == revision
+
+
+async def test_a_bootstrap_carries_a_reopened_run_as_an_item(client: httpx.AsyncClient) -> None:
+    run, _ = await stop_reopen(client, "Bootstrap open")
+    closed, _ = await stop_reopen(client, "Bootstrap closed")
+    await closed.tap("stop", 40)
+    pages = await drain(client, 0, 3)
+    model = Client()
+    for page in pages:
+        model.apply(page)
+    assert model.live.get(run.id) == (await run.get())["revision"]
+    assert model.closed.get(closed.id) == (await closed.get())["revision"]
+
+
+def latest_op(
+    rows: list[tuple[str, str, str]], cursor: int, after: int, upto: int, run_id: str
+) -> str | None:
+    """The run's latest op among the log rows with ``after < seq <= upto`` (``rows`` start after
+    ``cursor``)."""
+    op = None
+    for seq, (kind, row_op, eid) in enumerate(rows, cursor + 1):
+        if kind == "run" and eid == run_id and after < seq <= upto:
+            op = row_op
+    return op
