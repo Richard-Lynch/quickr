@@ -921,9 +921,6 @@ export function makeQuestionsSchema(limits: Limits = FALLBACK_LIMITS) {
   });
 }
 
-/** Steps per version (backend `MAX_STEPS`, timers.md §5); also `GET /limits` `max_steps`. */
-export const MAX_STEPS = FALLBACK_LIMITS.max_steps;
-
 /**
  * The steps' rules (timers.md §2.1, §5): a label (at most the label limit), a key matching the
  * key pattern, keys unique (labels may repeat, as on the server), at most `max_steps`. Paths

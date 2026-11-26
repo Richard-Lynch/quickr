@@ -305,6 +305,33 @@ version, whose key never changes.
 - `timer_changes[]`: `{name, base, next, expected}` (`timerChanges`: the review
   sheet's timing lines).
 
+`timer_output` and `timer_changes` keep their v1 spelling (steps only).
+
+Timer v2 (timers2.md §1.6, §12.1). A step draft gains `alerts`; a lap-type draft
+is `{key, label, locked, alerts}`; an alert draft is `{key, label, at, locked}`
+(`at` as typed, never trimmed); a variable draft is `{name, duration}` (the
+duration as typed, `m:ss` or `h:mm:ss`). A timer history is `{steps, laps}`,
+each `[{key, label}]` (`timerHistory`).
+
+- `new_lap_type[]`: `{label, taken, history, expected}` (`newDraftLapType`: as
+  `new_step`, with `lap` for a label with no usable characters; `taken` holds the
+  draft's other lap types' and steps' keys; it avoids every historic key of both
+  kinds, and takes back only a retired lap type's key).
+- `lap_type_label[]`: `{name, lap_type, label, taken, history, expected}`
+  (`withLapTypeLabel`).
+- `variable[]`: `{name, duration, expected: {name, variable, issues}}`: the name as
+  entered (lowercased), then `convertDraftVariable`: `{name, ms}` or the issues at
+  `["name"]` / `["duration"]`.
+- `alert_expr[]`: `{name, at, variables, expected}` (`alertPreview`: `{ms, text}`
+  with `text` = `fmtDuration(ms)`, or `{error, pos}` with the server's message as
+  the PWA shows it; only valid, first-named variables count).
+- `timer_output_v2[]`: `{name, draft: {timed, steps, laps, variables}, expected:
+  {timer, issues}}` (`timerFromDraft`: the normalised timer with `at_ms` filled,
+  or every issue at the draft's paths: `["laps", 0, "key"]`,
+  `["steps", 0, "alerts", 1, "at"]`, `["variables"]`).
+- `timer_changes_v2[]`: `{name, base, next, expected}` (`timerChanges` with lap
+  types, variables and alerts).
+
 ## `entries-vectors.json`
 
 A topic's entry list as the server filters and orders it, for the iOS app's

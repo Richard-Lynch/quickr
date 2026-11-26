@@ -72,32 +72,36 @@ export function VariablesEditor({ limits }: { limits: Limits }) {
                 )}
               >
                 <div className="flex items-center gap-2">
-                  <Input
-                    id={`variable-${f.uid}`}
-                    aria-label={`Variable ${String(i + 1)} name`}
-                    aria-invalid={nameError ? true : undefined}
-                    aria-describedby={nameError ? nameErrorId : undefined}
-                    placeholder="t"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    maxLength={limits.max_var_name_length}
-                    className="h-11 min-w-0 flex-1 font-mono"
-                    {...nameReg}
-                    onChange={(e) => void lowercase(e)}
-                  />
+                  <div className="min-w-0 flex-1">
+                    <Input
+                      id={`variable-${f.uid}`}
+                      aria-label={`Variable ${String(i + 1)} name`}
+                      aria-invalid={nameError ? true : undefined}
+                      aria-describedby={nameError ? nameErrorId : undefined}
+                      placeholder="t"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      maxLength={limits.max_var_name_length}
+                      className="h-11 font-mono"
+                      {...nameReg}
+                      onChange={(e) => void lowercase(e)}
+                    />
+                  </div>
                   <span aria-hidden className="text-muted">
                     =
                   </span>
-                  <Input
-                    aria-label={`Variable ${String(i + 1)} duration`}
-                    aria-invalid={durationError ? true : undefined}
-                    aria-describedby={durationError ? durationErrorId : undefined}
-                    placeholder="m:ss"
-                    autoComplete="off"
-                    className="h-11 w-28 shrink-0 font-mono tabular-nums"
-                    {...register(`variables.${i}.duration`)}
-                  />
+                  <div className="w-28 shrink-0">
+                    <Input
+                      aria-label={`Variable ${String(i + 1)} duration`}
+                      aria-invalid={durationError ? true : undefined}
+                      aria-describedby={durationError ? durationErrorId : undefined}
+                      placeholder="m:ss"
+                      autoComplete="off"
+                      className="h-11 font-mono tabular-nums"
+                      {...register(`variables.${i}.duration`)}
+                    />
+                  </div>
                   <IconButton
                     label={`Remove variable ${String(i + 1)}`}
                     size="sm"
