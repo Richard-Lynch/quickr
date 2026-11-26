@@ -34,8 +34,10 @@ public final class NewTopicModel: BuilderEditing {
     private var submitted = false
 
     public let limits: Limits
-    /// A new topic has no versions, so no step key is taken yet.
-    public var stepHistory: [HistoricStep] { [] }
+    /// A new topic has no versions, so no step or lap-type key is taken yet.
+    public var timerHistory: TimerHistory { TimerHistory() }
+    /// The step and lap-type rows showing their alerts.
+    public var timerItemsOpen: Set<TimerItemID> = []
     @ObservationIgnored private let initialDraft: TopicDraft
     @ObservationIgnored private let initialSchedule: ScheduleDraft
     @ObservationIgnored private let writer: any TopicWriter

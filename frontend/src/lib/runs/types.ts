@@ -207,6 +207,14 @@ export interface RunState {
   terminal_id: string | null;
   next_lap_type: string | null;
   lap_count: number;
+  /**
+   * Not on the wire (as iOS's `RunState.reopenId`): the applied reopen that cleared the
+   * current terminal of an open run, so a discard now reverts it (timers2.md §3.4, §4.1;
+   * active-surfaces.md §1.2 row 10). Null or absent for a run not reached by a reopen, and
+   * for every closed run. The fold sets it; for the server's state the local view derives it
+   * from the events ({@link openReopen} in `fold.ts`).
+   */
+  reopen_id?: string | null;
 }
 export interface RunStateWire {
   status: RunStatus;

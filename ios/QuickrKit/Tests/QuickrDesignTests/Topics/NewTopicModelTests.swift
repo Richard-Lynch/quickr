@@ -135,6 +135,55 @@ import Testing
         #expect(opened.topics.isEmpty)
     }
 
+    /// Timer v2 (timers2.md §1.6): a new topic with two lap types, a variable and an alert on a
+    /// lap type creates with the normalised timer (`at_ms` evaluated, the name lowercased).
+    @Test func createSendsATimerWithLapTypesVariablesAndAlerts() async throws {
+        fill()
+        model.draft.timed = true
+        let run = try #require(model.addLapType())
+        model.setLapTypeLabel(run, "Run")
+        let rest = try #require(model.addLapType())
+        model.setLapTypeLabel(rest, "Rest")
+        let t = try #require(model.addVariable())
+        model.draft.setVariableName(t, "T")
+        model.draft.setVariableDuration(t, "1:00")
+        let half = try #require(model.addAlert(to: .lapType(run)))
+        model.setAlertLabel(.lapType(run), half, "Half")
+        model.draft.setAlertAt(.lapType(run), half, "T/2")
+        await model.create()
+        #expect(model.draftErrors.isEmpty)
+        let sent = writer.creations.last?.timer
+        #expect(
+            sent
+                == TopicTimer(
+                    steps: [],
+                    laps: [
+                        .init(
+                            key: "run", label: "Run",
+                            alerts: [.init(key: "half", label: "Half", at: "T/2", atMs: 30_000)]),
+                        .init(key: "rest", label: "Rest"),
+                    ],
+                    variables: [.init(name: "t", ms: 60_000)]))
+    }
+
+    @Test func anInvalidTimerBlocksCreateAtItsFields() async throws {
+        fill()
+        model.draft.timed = true
+        let run = try #require(model.addLapType())
+        model.setLapTypeLabel(run, "Run")
+        let alert = try #require(model.addAlert(to: .lapType(run)))
+        model.setAlertLabel(.lapType(run), alert, "Half")
+        model.draft.setAlertAt(.lapType(run), alert, "x/2")
+        let v = try #require(model.addVariable())
+        model.draft.setVariableName(v, "m")
+        model.draft.setVariableDuration(v, "1:00")
+        await model.create()
+        #expect(writer.calls.isEmpty)
+        #expect(model.draftErrors[.alert(.lap(0), 0, .at)] == "Unknown_variable at 0: unknown variable 'x'")
+        #expect(model.draftErrors[.variable(0, .name)] == "'m' is a unit (ms, s, m, h) and can't be a variable name")
+        #expect(model.isOpen(.lapType(run)), "a lap type whose alert has an error opens")
+    }
+
     @Test func typeLabelsAreThePWAs() {
         #expect(QuestionType.allCases.map(\.builderLabel) == ["Whole number", "Decimal number", "Text", "Choice"])
     }

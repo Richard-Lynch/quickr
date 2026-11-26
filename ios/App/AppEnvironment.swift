@@ -37,6 +37,12 @@ final class AppEnvironment {
     let liveActivities: LiveActivities
     /// Their tokens' registration with the active server.
     let activityTokens: LiveActivityTokens
+    // T2-M1 (timers2.md §9.1): run alerts. The scheduler keeps the pending alerts in line with
+    // the local view (`observeRunsForAlerts`, App/Runs/RunAlertPresence.swift); a foreground
+    // alert's haptic and 10 s inline label are `runAlerts`'.
+    let runAlerts = RunAlertPresence()
+    @ObservationIgnored var runAlertScheduler: RunAlertScheduler?
+    // end T2-M1
     /// A Live Activity button's flush (outbox.md §10: the intent's 4 s); tests raise it.
     var activityTapFlushBudget: Duration = .seconds(4)
     /// How the last button's flush ended (tests and diagnostics).

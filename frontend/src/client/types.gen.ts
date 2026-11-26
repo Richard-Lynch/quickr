@@ -950,8 +950,9 @@ export type EnumStats = {
  * FeedDeletion
  *
  * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
- * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
- * discarded, or went with its topic.
+ * runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+ * was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+ * with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2).
  */
 export type FeedDeletion = {
     /**
@@ -974,6 +975,12 @@ export type FeedDeletion = {
      * Deleted At
      */
     deleted_at: string;
+    /**
+     * Revision
+     *
+     * A run deletion: the run's revision in the page's snapshot, which bounds every earlier state of the run. Null for a run that went with its topic and for other kinds (timers2.md §5.2).
+     */
+    revision: number | null;
 };
 
 /**
@@ -1013,7 +1020,7 @@ export type FeedRun = {
  * FeedTopic
  *
  * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
- * ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries.
+ * ``due``) are not re-sent when entries change: clients recompute them from entries.
  */
 export type FeedTopic = {
     /**
@@ -1783,7 +1790,7 @@ export type RunEventEffect = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
 };
 
 /**
@@ -1801,7 +1808,7 @@ export type RunEventIn = {
     /**
      * Type
      */
-    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard' | 'reopen' | 'remove';
     /**
      * At
      *
@@ -1826,6 +1833,12 @@ export type RunEventIn = {
      * resume (required): the pause event it ends.
      */
     pause_id?: string | null;
+    /**
+     * Target
+     *
+     * reopen and remove only: the event acted on. remove (required): a pause, a lap, or a reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server resolves and stores.
+     */
+    target?: string | null;
     /**
      * Topic Id
      *
@@ -1878,7 +1891,7 @@ export type RunEventOut = {
     /**
      * Type
      */
-    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard' | 'reopen' | 'remove';
     /**
      * At
      */
@@ -1896,6 +1909,12 @@ export type RunEventOut = {
      */
     pause_id: string | null;
     /**
+     * Target
+     *
+     * A reopen's or remove's target as stored: a reopen sent without one carries the stop the server resolved it to (timers2.md §4.2); null for other types.
+     */
+    target: string | null;
+    /**
      * Arrival
      *
      * Server arrival order.
@@ -1908,7 +1927,7 @@ export type RunEventOut = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
     /**
      * Source
      */
@@ -1945,7 +1964,7 @@ export type RunEventResultEvent = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
 };
 
 /**
@@ -2535,13 +2554,13 @@ export type TimingLapTypeStats = {
     /**
      * Label
      *
-     * The latest version's label for the key.
+     * The latest version's label for the lap type.
      */
     label: string;
     /**
      * Laps
      *
-     * Lap segments of the type, over every run.
+     * Lap segments of this type, over every timed run.
      */
     laps: number;
     /**
@@ -2717,7 +2736,7 @@ export type TimingSeriesPoint = {
     /**
      * Lap Types
      *
-     * Each lap type's key and its lap segments' summed active_ms; untyped laps are left out.
+     * Each lap type and its lap segments' summed active_ms; untyped laps are left out.
      */
     lap_types: {
         [key: string]: number;
@@ -2908,10 +2927,6 @@ export type TopicDetail = {
      */
     timer: TimerOutput | null;
     /**
-     * The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change.
-     */
-    last_entry: EntryOut | null;
-    /**
      * Questions
      */
     questions: Array<IntQuestionOutput | DoubleQuestionOutput | StrQuestionOutput | EnumQuestionOutput>;
@@ -3053,10 +3068,6 @@ export type TopicSummary = {
      * The current version's timer; null when the topic is not timed.
      */
     timer: TimerOutput | null;
-    /**
-     * The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change.
-     */
-    last_entry: EntryOut | null;
 };
 
 /**
@@ -3084,6 +3095,12 @@ export type TopicTiming = {
      * Every step key seen in range: the current version's steps in step order, then the rest by key.
      */
     steps: Array<TimingStepStats>;
+    /**
+     * Lap Types
+     *
+     * Every lap type with a lap segment in range: the current version's lap types in order, then the rest by key. Keyed apart from steps; untyped laps count only toward laps.
+     */
+    lap_types: Array<TimingLapTypeStats>;
     laps: TimingLaps;
     paused: TimingPaused;
     /**
@@ -3092,12 +3109,6 @@ export type TopicTiming = {
      * One point per timed entry, by captured_at then entry_id.
      */
     series: Array<TimingSeriesPoint>;
-    /**
-     * Lap Types
-     *
-     * Every lap-type key with a lap segment in range: the current version's lap types in order, then the rest by key. Keyed apart from steps; untyped laps count only toward laps.
-     */
-    lap_types: Array<TimingLapTypeStats>;
 };
 
 /**

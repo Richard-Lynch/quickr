@@ -1,0 +1,3 @@
+- **P1 — [RunAlerts.tsx:123](/Users/richie/code/quickr-worktrees/t2-m1-alerts-fe/frontend/src/components/runs/RunAlerts.tsx:123):** Muted alerts still produce a system notification when permission is granted. For example, with mute enabled, an alert shows both a toast and a silent notification; the device checklist requires a toast only.
+
+- **P2 — [RunAlerts.tsx:146](/Users/richie/code/quickr-worktrees/t2-m1-alerts-fe/frontend/src/components/runs/RunAlerts.tsx:146):** The timeout is not rescheduled when the server-clock offset changes independently of the run sources. For example, if an API response corrects the offset by 40 seconds after a timeout is scheduled, the alert can fire 40 seconds late and be dropped, even though the page remained open.

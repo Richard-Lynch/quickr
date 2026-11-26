@@ -1,0 +1,3 @@
+- **[P2] The shared fixture still specifies `next("Next")`** — [active-surfaces.md:210](/Users/richie/code/quickr-worktrees/t2-m1-actions-nit/docs/specs/active-surfaces.md:210). The table identifies itself as the fixture for both platforms’ `actions` tests, but row 9 now contradicts their `nil`/`null` output. Update it to specify a null label and a plain “Next”.
+
+I found no existing consumers of the changed action type that need nil handling. The separate v1 types remain unchanged as intended.

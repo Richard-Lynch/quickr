@@ -15,16 +15,19 @@ import type { OutboxItem } from '../outbox/types';
 import {
   eventFromWire,
   fold,
-  lapLabel,
+  lapTyping,
   MAX_RUN_MS,
+  openReopen,
   overlap,
   projectTiming,
   stateFromWire,
   timeOrder,
+  timingFromWire,
 } from './fold';
 import { parseInstant } from './instant';
 import type {
   Effect,
+  LapType,
   OpenedBy,
   OpenSegment,
   Pause,
@@ -60,6 +63,20 @@ export interface LocalRun {
   /** The version's steps and required-question flag, when a queued item carries them. */
   steps: readonly TimerStep[] | null;
   requires_answers: boolean | null;
+  /** The version's lap types, when a queued item carries them (timers2.md §3.2). */
+  laps: readonly LapType[] | null;
+  /**
+   * A reopen enqueued from an entry with no run row here (timers2.md §5.3): the run is
+   * projected from the entry's timing, "Resuming…" without controls until the ack.
+   */
+  resuming: boolean;
+  /**
+   * A reopened run that has its entry already (timers2.md §4.1): its re-stop updates that
+   * entry, so it never makes one, and never leaves the run finishing. False for a run never
+   * reopened; null when that hinges on whether the version has a required question, which
+   * no queued item here says (the tapping context does).
+   */
+  has_entry: boolean | null;
 }
 
 /** A queued stop's or finish's entry, shown until the server's replaces it (§8.3). */
@@ -97,6 +114,7 @@ function queuedEvent(item: QueuedRunEvent): RunEvent {
     seg: e.seg ?? null,
     step: e.step ?? null,
     pause_id: e.pause_id == null ? null : lc(e.pause_id),
+    target: e.target == null ? null : lc(e.target),
   };
 }
 
@@ -108,37 +126,101 @@ function serverEvent(e: RunOut['events'][number]): RunEvent {
     seg: e.seg,
     step: e.step,
     pause_id: e.pause_id == null ? null : lc(e.pause_id),
+    target: e.target == null ? null : lc(e.target),
   });
 }
 
 const applied = (state: RunState, id: string) => state.effects[lc(id)]?.effect === 'applied';
 
+/** The server's state, with the open reopen its events show (`RunState.reopen_id`). */
+function serverState(server: RunOut): RunState {
+  const state = stateFromWire(server.state);
+  const reopenId = openReopen(server.events.map(serverEvent), state.effects, state.status);
+  return reopenId === null ? state : { ...state, reopen_id: reopenId };
+}
+
+/** The run's events of `type` that the state applied. */
+const appliedOf = (state: RunState, events: readonly RunEvent[], type: RunEvent['type']) =>
+  events.filter((e) => e.type === type && applied(state, e.id));
+
+/** Whether a reopen in the run's events was reverted by a discard (timers2.md §3.4). */
+const reverted = (state: RunState, events: readonly RunEvent[]) =>
+  events.some((e) => e.type === 'reopen' && state.effects[e.id]?.reason === 'reverted');
+
+/**
+ * Whether the run has its entry (timers2.md §4.1), as far as this device can tell: the
+ * stop that a reopen reopened made it, or a finish did. A reopen from an entry
+ * (`payload.entry`) says so outright; this device's stop that carried answers, or any stop
+ * of a version without a required question, made one; one without answers on a version
+ * with one left the run finishing, until a finish. Only asked of a reopened run.
+ */
+function hasEntry(
+  server: RunOut | null,
+  events: readonly RunEvent[],
+  mine: readonly QueuedRunEvent[],
+  requiresAnswers: boolean | null,
+): boolean | null {
+  if (mine.some((i) => i.payload.entry !== undefined)) return true;
+  // A finish the server applied, or one of this device's (sent only once the run is
+  // stopped or finishing, so it makes the entry, or fails without being stored).
+  if (server?.events.some((e) => e.type === 'finish' && e.effect === 'applied')) return true;
+  if (mine.some((i) => i.payload.event.type === 'finish')) return true;
+  const reopen = events.find((e) => e.type === 'reopen' && e.target != null);
+  const stop = mine.find((i) => lc(i.id) === reopen?.target);
+  if (stop?.payload.event.answers != null) return true;
+  return requiresAnswers === null ? null : !requiresAnswers;
+}
+
 /**
  * Whether the run's stop leaves it `finishing` (§3.5): the server says so, or the stop is
  * this device's (queued or just acked), carries no answers, and the version has a
- * required question.
+ * required question. The stop is the run's terminal; a re-stop of a run that has its entry
+ * never leaves it finishing (timers2.md §4.1).
  */
 function stopLeavesFinishing(
   server: RunOut | null,
   state: RunState,
   mine: readonly QueuedRunEvent[],
   requiresAnswers: boolean,
+  entry: boolean,
 ): boolean {
+  // A re-stop of a run that has its entry closes it, whatever the server's status said
+  // before the reopen (timers2.md §4.1).
+  if (entry) return false;
   if (server?.status === 'finishing') return true;
   if (server?.status === 'stopped') return false;
-  const stop = mine.find((i) => i.payload.event.type === 'stop' && applied(state, i.id));
+  const stop = mine.find((i) => i.payload.event.type === 'stop' && lc(i.id) === state.terminal_id);
   if (!stop) return false;
   return stop.payload.event.answers == null && requiresAnswers;
 }
 
+/** Whether a reopen in the run's events applied, or was reverted since. */
+const reopened = (state: RunState, events: readonly RunEvent[]) =>
+  appliedOf(state, events, 'reopen').length > 0 || reverted(state, events);
+
+/**
+ * The run's status as the server will have it. `entry`: the run was reopened and has
+ * its entry ({@link reopenedWithEntry}, unknown counting as yes).
+ */
 function statusOf(
   server: RunOut | null,
   state: RunState,
+  events: readonly RunEvent[],
   mine: readonly QueuedRunEvent[],
   requiresAnswers: boolean,
+  entry: boolean,
 ): RunStatus {
+  // An open run is open, whatever came before: a reopen reverted by a discard stays void
+  // `reverted` after a later reopen opens the run again (vector
+  // reopen-revert-then-reopen-again).
+  if (state.status === 'running' || state.status === 'paused') return state.status;
+  if (reverted(state, events) || (state.status === 'discarded' && reopened(state, events))) {
+    // A revert (timers2.md §4.1): the fold restores the stop, but a reopened finishing run
+    // (no entry) is thrown away by the server (§5.3, A15).
+    return entry ? 'stopped' : 'discarded';
+  }
   if (state.status !== 'stopped') return state.status;
-  if (!stopLeavesFinishing(server, state, mine, requiresAnswers)) return 'stopped';
+  if (!stopLeavesFinishing(server, state, mine, requiresAnswers, entry)) return 'stopped';
   // A finishing run's discard and finish are decided outside the fold (§3.6, §3.7).
   if (mine.some((i) => i.payload.event.type === 'discard')) return 'discarded';
   if (mine.some((i) => i.payload.event.type === 'finish')) return 'stopped';
@@ -146,14 +228,77 @@ function statusOf(
 }
 
 /**
+ * `state` (stopped) reopened by `reopen` (timers2.md §3.4): the last segment open again from
+ * its start, the gap from the stop to the reopen a pause carrying the stop's id. What the
+ * fold makes of a reopen with no taps after it, built without the events: for the overlay
+ * (no step list) and for a reopen from an entry (no events at all, §5.3).
+ */
+function reopenState(
+  state: RunState,
+  reopen: RunEvent,
+  steps: readonly TimerStep[] | null,
+  laps: readonly LapType[] | null,
+): RunState {
+  const last = state.segments.at(-1);
+  if (!last || state.ended_at === null) return state;
+  const segments = state.segments.slice(0, -1);
+  const lapCount = segments.filter((x) => x.kind === 'lap').length;
+  const done = new Set([...state.segments.map((x) => x.step), ...state.skipped]);
+  return {
+    ...state,
+    status: 'running',
+    ended_at: null,
+    open: {
+      index: segments.length,
+      kind: last.kind,
+      step: last.step,
+      label: last.label,
+      started_at: last.started_at,
+      lap_type: last.lap_type,
+    },
+    next_step: steps?.find((x) => !done.has(x.key))?.key ?? null,
+    paused_since: null,
+    segments,
+    pauses: [...state.pauses, { start: state.ended_at, end: reopen.at, id: state.terminal_id }],
+    effects: { ...state.effects, [reopen.id]: { effect: 'applied', reason: null } },
+    terminal_id: null,
+    next_lap_type: laps?.length
+      ? lapTyping(lapCount + (last.kind === 'lap' ? 1 : 0) + 1, laps)[0]
+      : null,
+    lap_count: lapCount,
+    reopen_id: reopen.id,
+  };
+}
+
+/**
  * The server's state with this device's taps that need no step list applied on top, in
  * outbox order (§8.3): pause, resume, lap, stop and discard, with the fold's rules. A Next
  * or Skip needs the steps: it shows once the server answers. For a run whose pinned
  * version's steps this device doesn't know, so an offline Pause or Stop still shows.
- * The lap types aren't known either: a lap tapped here is untyped ("Lap n") until the
- * server answers.
+ * A lap tapped here is labelled from the version's lap types when a queued item carries
+ * them (`laps`), else untyped ("Lap n") until the server answers. A reopen of a finishing
+ * run reopens it first ({@link reopenState}); taps queued before it are left to the server.
  */
-function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]): RunState {
+function overlay(
+  server: RunOut,
+  stateOfServer: RunState,
+  queuedTaps: readonly QueuedRunEvent[],
+  lapTypes: readonly LapType[] | null,
+): RunState {
+  let base = stateOfServer;
+  let mine = queuedTaps;
+  const reopenAt = mine.findIndex(
+    (i) =>
+      i.payload.event.type === 'reopen' &&
+      !stateOfServer.effects[lc(i.id)] &&
+      stateOfServer.status === 'stopped' &&
+      (i.payload.event.target == null || lc(i.payload.event.target) === stateOfServer.terminal_id),
+  );
+  const reopenItem = mine[reopenAt];
+  if (reopenItem) {
+    base = reopenState(stateOfServer, queuedEvent(reopenItem), null, lapTypes);
+    mine = mine.slice(reopenAt + 1);
+  }
   const effects: Record<string, Effect> = { ...base.effects };
   const segments: Segment[] = [...base.segments];
   const pauses: Pause[] = [...base.pauses];
@@ -209,16 +354,17 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
       if (e.seg !== open.index) return 'stale';
       close(open, e.at);
       const laps = segments.filter((x) => x.kind === 'lap').length;
+      const [lapType, label] = lapTyping(laps + 1, lapTypes ?? []);
       open = {
         index: open.index + 1,
         kind: 'lap',
         step: null,
-        label: lapLabel(laps + 1),
+        label,
         started_at: e.at,
-        lap_type: null,
+        lap_type: lapType,
       };
       opener = [e.id, 'lap'];
-      nextLapType = null;
+      nextLapType = lapTypes?.length ? lapTyping(laps + 2, lapTypes)[0] : null;
       return null;
     }
     if (e.type === 'pause') {
@@ -254,8 +400,15 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
   }
   const rest = taps.filter((e) => e.type === 'pause' || e.type === 'resume' || e.type === 'lap');
   rest.sort(timeOrder(rest));
-  for (const e of rest)
-    decide(e, terminal !== null && e.at > terminal.at ? 'after_stop' : apply(e));
+  // The fold's range checks first (iOS `RunFold.overlay` `inRange`): before the start, after
+  // the terminal, more than 7 days after the start.
+  const inRange = (e: RunEvent): VoidReason | null => {
+    if (e.at < base.started_at) return 'before_start';
+    if (terminal !== null && e.at > terminal.at) return 'after_stop';
+    if (e.at > base.started_at + MAX_RUN_MS) return 'too_long';
+    return null;
+  };
+  for (const e of rest) decide(e, inRange(e) ?? apply(e));
   if (terminal !== null && open !== null) {
     if (terminal.type === 'stop') {
       if (pausedSince !== null) pauses.push({ start: pausedSince, end: terminal.at, id: pauseId });
@@ -284,6 +437,8 @@ function overlay(server: RunOut, base: RunState, mine: readonly QueuedRunEvent[]
     terminal_id: terminalId,
     next_lap_type: nextLapType,
     lap_count: segments.filter((x) => x.kind === 'lap').length,
+    // A close here (stop or discard) ends the reopen transaction.
+    reopen_id: open === null ? null : (base.reopen_id ?? null),
   };
 }
 
@@ -303,28 +458,30 @@ function buildRun(
   // A reminder's Start may not know the steps (null): another item's, else the server's.
   const known = fitting.findLast((i) => i.payload.steps !== null)?.payload;
   const steps = known?.steps ?? null;
+  const laps = fitting.findLast((i) => i.payload.laps != null)?.payload.laps ?? null;
+  const timer = { steps: steps ?? [], laps: laps ?? [] };
   let state: RunState;
   if (mine.length === 0 && server) {
-    state = stateFromWire(server.state);
+    state = serverState(server);
   } else if (steps) {
     try {
-      state = fold(id, { steps }, events);
+      state = fold(id, timer, events);
     } catch (err) {
       // Not foldable (no start yet, say): the server's state, if there is one.
       if (!server) return null;
       console.error('[runs] could not fold the local view', err);
-      state = stateFromWire(server.state);
+      state = serverState(server);
     }
   } else if (server) {
     // The pinned version's steps aren't known here: the server's labels, with this
     // device's step-independent taps on top.
-    state = overlay(server, stateFromWire(server.state), mine);
+    state = overlay(server, serverState(server), mine, laps);
   } else if (mine.some((i) => i.payload.event.type === 'start')) {
     // This device's start that didn't know the steps (a reminder's, nothing cached, §10.2):
     // fold over none, so the run shows its clock and can be stopped offline. `steps` stays
     // null: there is no step list yet.
     try {
-      state = fold(id, { steps: [] }, events);
+      state = fold(id, timer, events);
     } catch (err) {
       console.error('[runs] could not fold the local view', err);
       return null;
@@ -339,12 +496,20 @@ function buildRun(
     ...mine.map((i) => lc(i.payload.run_id)),
   ]);
   aliases.delete(id);
+  const entry = reopenedWithEntry(server, state, events, mine, known?.requires_answers ?? null);
   return {
     id,
     topic_id: topicId,
     topic: meta?.topic ?? null,
     version: server?.version ?? meta?.version ?? 0,
-    status: statusOf(server, state, mine, known?.requires_answers ?? false),
+    status: statusOf(
+      server,
+      state,
+      events,
+      mine,
+      known?.requires_answers ?? false,
+      entry !== false,
+    ),
     state,
     events,
     aliases: [...aliases],
@@ -352,6 +517,98 @@ function buildRun(
     queued,
     steps,
     requires_answers: known?.requires_answers ?? null,
+    laps,
+    resuming: false,
+    has_entry: entry,
+  };
+}
+
+/**
+ * Whether a reopened run (applied, or reverted since) has its entry ({@link hasEntry}):
+ * false for a run never reopened, null when it hinges on a required question not known here.
+ */
+function reopenedWithEntry(
+  server: RunOut | null,
+  state: RunState,
+  events: readonly RunEvent[],
+  mine: readonly QueuedRunEvent[],
+  requiresAnswers: boolean | null,
+): boolean | null {
+  return reopened(state, events) && hasEntry(server, events, mine, requiresAnswers);
+}
+
+/**
+ * A run that only a reopen enqueued from its entry knows (timers2.md §5.3): no run row here,
+ * no start. Projected from the entry's timing as the reopen leaves it, "resuming" until the
+ * ack replaces it with the server's run. A discard queued after it reverts it: the entry's
+ * state again, stopped. Other taps aren't offered on it ({@link tapRun}).
+ */
+function resumingRun(id: string, queued: readonly QueuedRunEvent[]): LocalRun | null {
+  const at = queued.findIndex(
+    (i) => i.payload.event.type === 'reopen' && i.payload.entry !== undefined,
+  );
+  const item = queued[at];
+  const entry = item?.payload.entry;
+  if (!item || !entry) return null;
+  // This device's removes of the entry queued before the reopen apply first (§5.3, R26):
+  // the server folds them before it, and the entry's timing at the tap doesn't have them.
+  const timing = queued
+    .slice(0, at)
+    .filter((i) => i.payload.event.type === 'remove' && i.payload.event.target != null)
+    .reduce(
+      (t, i) =>
+        removeFromTiming(
+          t,
+          lc(i.payload.event.target ?? ''),
+          i.payload.laps ?? null,
+          i.payload.gap,
+        ),
+      timingFromWire(entry.timing),
+    );
+  const closed: RunState = {
+    status: 'stopped',
+    started_at: timing.started_at,
+    ended_at: timing.ended_at,
+    open: null,
+    next_step: null,
+    paused_since: null,
+    segments: timing.segments,
+    skipped: timing.skipped,
+    pauses: timing.pauses,
+    effects: {},
+    terminal_id: timing.terminal_id,
+    next_lap_type: null,
+    lap_count: timing.segments.filter((x) => x.kind === 'lap').length,
+  };
+  const { steps, laps } = item.payload;
+  const reopen = queuedEvent(item);
+  const discard = queued.slice(at + 1).find((i) => i.payload.event.type === 'discard');
+  let state = reopenState(closed, reopen, steps, laps ?? null);
+  if (discard) {
+    state = {
+      ...closed,
+      effects: {
+        [reopen.id]: { effect: 'void', reason: 'reverted' },
+        [lc(discard.id)]: { effect: 'applied', reason: null },
+      },
+    };
+  }
+  return {
+    id,
+    topic_id: item.payload.topic.id,
+    topic: item.payload.topic,
+    version: item.payload.version,
+    status: state.status,
+    state,
+    events: queued.map(queuedEvent),
+    aliases: [],
+    server: null,
+    queued,
+    steps,
+    requires_answers: item.payload.requires_answers,
+    laps: laps ?? null,
+    resuming: !discard,
+    has_entry: true,
   };
 }
 
@@ -396,8 +653,9 @@ export function localRuns(
   for (const id of new Set([...queued.keys(), ...sent.keys()])) {
     const q = queued.get(id) ?? [];
     const a = sent.get(id) ?? [];
-    if (![...a, ...q].some((i) => lc(i.id) === id && i.payload.event.type === 'start')) continue;
-    const run = buildRun(id, null, q, a);
+    const run = [...a, ...q].some((i) => lc(i.id) === id && i.payload.event.type === 'start')
+      ? buildRun(id, null, q, a)
+      : resumingRun(id, q);
     if (run) out.push(run);
   }
   return out;
@@ -465,4 +723,107 @@ export function optimisticEntries(runs: readonly LocalRun[]): OptimisticEntry[] 
     });
   }
   return out;
+}
+
+/**
+ * Ids of the entries not to show as entries (timers2.md §5.3, OQ-14): an entry whose id is
+ * a locally open or finishing run (a reopen, here or elsewhere); the run represents it.
+ * Counts, due state, stats and CSV still count it.
+ */
+export function hiddenEntryIds(runs: readonly LocalRun[]): ReadonlySet<string> {
+  return new Set(runs.filter((r) => isOpen(r) || r.status === 'finishing').map((r) => r.id));
+}
+
+/**
+ * An entry's timing with this device's pending `remove`s of its run applied (timers2.md
+ * §5.3, A14): a removed pause's time becomes active, a removed lap boundary joins its
+ * segment to the previous one and later laps renumber (and so flip type, §3.2). `pending`
+ * marks it until the ack, when the server's entry (its revision bumped) replaces it; the
+ * entry's revision is unchanged here. A remove whose target isn't in the timing changes
+ * nothing (the server answers `no_target`).
+ */
+export function projectedEntryTiming(
+  entry: { id: string; timing: Timing },
+  items: readonly OutboxItem[],
+): { timing: Timing; pending: boolean } {
+  const id = lc(entry.id);
+  const removes = items
+    .filter(isRunEvent)
+    .filter(
+      (i) =>
+        i.status === 'pending' &&
+        i.payload.event.type === 'remove' &&
+        i.payload.event.target != null &&
+        lc(i.payload.run_id) === id,
+    )
+    .sort(outboxOrder);
+  let timing = entry.timing;
+  for (const item of removes) {
+    const laps = item.payload.laps ?? null;
+    timing = removeFromTiming(timing, lc(item.payload.event.target ?? ''), laps, item.payload.gap);
+  }
+  return { timing, pending: removes.length > 0 };
+}
+
+/**
+ * `timing` with the remove of `target` applied, as the fold will have it. `gap`: the remove's
+ * gap-pause take-over ({@link RunEventPayload.gap}).
+ */
+function removeFromTiming(
+  timing: Timing,
+  target: string,
+  laps: readonly LapType[] | null,
+  gap?: RunEventPayload['gap'],
+): Timing {
+  const pause = timing.pauses.find((p) => p.id !== null && lc(p.id) === target);
+  if (pause && gap?.absorbs != null) {
+    // The gap took over a user pause open at its stop: with the gap gone, the user pause
+    // runs on to the reopen (the gap resume ends whatever is open), so only its id changes
+    // (timers2.md §3.4; vector reopen-while-paused-ends-pause).
+    const id = lc(gap.absorbs);
+    return { ...timing, pauses: timing.pauses.map((p) => (p === pause ? { ...p, id } : p)) };
+  }
+  if (pause) {
+    const ms = pause.end - pause.start;
+    const segments = timing.segments.map((x) => {
+      const covered = Math.max(
+        0,
+        Math.min(x.ended_at, pause.end) - Math.max(x.started_at, pause.start),
+      );
+      return covered
+        ? { ...x, active_ms: x.active_ms + covered, paused_ms: x.paused_ms - covered }
+        : x;
+    });
+    return {
+      ...timing,
+      active_ms: timing.active_ms + ms,
+      paused_ms: timing.paused_ms - ms,
+      segments,
+      pauses: timing.pauses.filter((p) => p !== pause),
+    };
+  }
+  const at = timing.segments.findIndex(
+    (x, i) => i > 0 && x.event_id !== null && lc(x.event_id) === target && x.opened_by === 'lap',
+  );
+  const prev = timing.segments[at - 1];
+  const removed = timing.segments[at];
+  if (at < 1 || !prev || !removed) return timing;
+  const merged: Segment = {
+    ...prev,
+    ended_at: removed.ended_at,
+    active_ms: prev.active_ms + removed.active_ms,
+    paused_ms: prev.paused_ms + removed.paused_ms,
+  };
+  const joined = [...timing.segments.slice(0, at - 1), merged, ...timing.segments.slice(at + 1)];
+  // Relabel the laps in order (§3.2). Without the lap types, typed laps keep their labels.
+  const typed = joined.some((x) => x.kind === 'lap' && x.lap_type !== null);
+  if (laps === null && typed) return { ...timing, segments: joined };
+  let n = 0;
+  const segments = joined.map((x) => {
+    if (x.kind !== 'lap') return x;
+    n += 1;
+    const [lapType, label] = lapTyping(n, laps ?? []);
+    return { ...x, lap_type: lapType, label };
+  });
+  return { ...timing, segments };
 }

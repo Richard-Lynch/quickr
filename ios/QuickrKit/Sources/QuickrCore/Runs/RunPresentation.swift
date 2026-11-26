@@ -92,19 +92,20 @@ public enum RunPresentation {
     /// destructive last (active-surfaces.md §1.1, §1.2). The on-screen primary rule (timers2.md
     /// §10): Lap when the open segment is a lap or no named step remains, labelled with the lap it
     /// opens when the timer has lap types ("Lap → Rest"), else Next with the step it opens; Stop is
-    /// never primary. `timer == nil` (steps unknown) is the v1 fallback: a plain `next("Next")` and
-    /// no `skip`, no `lap`.
+    /// never primary. `timer == nil` (steps unknown) is the v1 fallback: `next(label: "")`, which
+    /// §1.3 renders as a plain "Next", and no `skip`, no `lap`.
     ///
     /// - An open run reached by a reopen (`state.reopenId`) offers `revert` instead of `discard`
     ///   (row 10).
-    /// - A stopped run offers `reopen(terminalId)` in overflow within `reopenWindowMs` of its stop
-    ///   (row 13); `[]` after. The store-level rules (the entry unedited, the latest stop, no other
-    ///   open run: A15) are `resumable`'s and the surface's.
-    /// - A finishing run: `addDetails`, `discard` (row 12). A discarded run: `[]`.
+    /// - A closed run (stopped or discarded) is idle (rows 1–3): `start` (primary). A stopped run
+    ///   with a terminal also offers `reopen(terminalId)` (secondary) within `reopenWindowMs` of
+    ///   its stop (row 13). The store-level rules (the entry unedited, the latest stop, no other
+    ///   open run: A15) are `resumable`'s and the surface's. A topic with no run doesn't call this.
+    /// - A finishing run: `addDetails`, `discard` (row 12).
     ///
-    /// Not expressible here: rows 1–3 (an idle topic has no `RunState`; its surface shows Start),
-    /// 11 (a queued reopen: I1-WRITES' "resuming" projection shows no controls) and 14 (busy:
-    /// I1-WRITES' cooldown sets `enabled`). Every action returned is enabled.
+    /// Not expressible here: rows 11 (a queued reopen's "resuming" run shows no controls) and 14
+    /// (busy: every `enabled` false). `RunActions.actions(for:timer:now:)` adds both. Every
+    /// action returned here is enabled.
     // Verbatim from timers2.md §10 (A13).
     public static func actions(_ state: RunState, status: RunStatus, timer: TopicTimer?, now: Date) -> [RunAction] {
         switch status {
@@ -113,13 +114,14 @@ public enum RunPresentation {
                 RunAction(kind: .addDetails, role: .primary, enabled: true),
                 RunAction(kind: .discard, role: .destructive, enabled: true),
             ]
-        case .discarded:
-            return []
-        case .stopped:
-            guard let id = state.terminalId, let target = UUID(uuidString: id), let end = state.endedAt,
-                RunInstant.milliseconds(now) - end <= reopenWindowMs
-            else { return [] }
-            return [RunAction(kind: .reopen(target: target), role: .overflow, enabled: true)]
+        case .stopped, .discarded:
+            var out = [RunAction(kind: .start, role: .primary, enabled: true)]
+            if status == .stopped, let id = state.terminalId, let target = UUID(uuidString: id),
+                let end = state.endedAt, RunInstant.milliseconds(now) - end <= reopenWindowMs
+            {
+                out.append(RunAction(kind: .reopen(target: target), role: .secondary, enabled: true))
+            }
+            return out
         case .running, .paused:
             break
         }
@@ -132,7 +134,7 @@ public enum RunPresentation {
                 primary = .next(label: label(of: state.nextStep ?? "", in: timer.steps))
             }
         } else {
-            primary = .next(label: "Next")
+            primary = .next(label: "")
         }
         var out = [
             RunAction(kind: primary, role: .primary, enabled: true),
@@ -187,12 +189,25 @@ public enum RunPresentation {
         return "\(next.label) · in \(DurationFormat.format(next.at - active))"
     }
 
-    /// Whether the entry's run can be reopened (active-surfaces.md OQ-1: an unedited timed entry
-    /// of the topic's latest stop, within 15 minutes, while the topic has no other open run).
-    /// T2-M1: false until I1-WRITES, which owns the store-level half (the latest stop, the open
-    /// run); `Entry` alone can't tell.
+    /// OQ-1: from the entry detail, a run can be reopened within 7 days of its start.
+    public static let entryReopenWindowMs = 7 * 24 * 60 * 60 * 1000
+
+    /// The entry's half of "resumable" (timers2.md glossary, OQ-1) on tiles, toasts and the run
+    /// screen: a timed entry whose times are unedited (`timing.edited == false`, i.e.
+    /// `run.edited == false`; answers, notes and meta changes don't count), within
+    /// `reopenWindowMs` of its stop. The store's half (the entry is the topic's latest stop, the
+    /// topic has no locally open run: A15, and the run isn't open here already) is
+    /// `RunOverlay.resumable(_:entryId:now:)`, which surfaces call; `Entry` alone can't tell.
     public static func resumable(_ entry: Entry, now: Date) -> Bool {
-        return false
+        guard let timing = entry.timing, !timing.edited else { return false }
+        return RunInstant.milliseconds(now) - timing.endedAt <= reopenWindowMs
+    }
+
+    /// `resumable` from the entry detail (OQ-1): unedited, within `entryReopenWindowMs` of the
+    /// run's start.
+    public static func resumableFromDetail(_ entry: Entry, now: Date) -> Bool {
+        guard let timing = entry.timing, !timing.edited else { return false }
+        return RunInstant.milliseconds(now) - timing.startedAt <= entryReopenWindowMs
     }
 
     // MARK: - The step list
@@ -289,7 +304,9 @@ public enum RunPresentation {
 public struct RunAction: Sendable, Hashable, Identifiable {
     public enum Kind: Sendable, Hashable {
         case start
-        case next(label: String)  // "Shower" — the step it opens (M2 renders "Next: Shower", §1.3)
+        /// "Shower": the step it opens (M2 renders "Next: Shower", §1.3). Empty: the steps are
+        /// unknown (`timer == nil`, row 9), so a plain "Next".
+        case next(label: String)
         case lap(nextTypeLabel: String?)  // nil: untyped laps ("Lap"); "Rest": the lap it opens
         case skip(label: String)  // the step a skip would skip
         case pause, resume, stop

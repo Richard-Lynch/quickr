@@ -73,6 +73,17 @@ import Testing
         #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil && topic?.timer == nil)
     }
 
+    /// getTopicTiming of a topic with lap types (timers2.md §7.4): the rows and each point's sums.
+    @Test func timingCarriesLapTypes() throws {
+        let body = try #require(try Fixtures.api("getTopicTiming.lap_types").body)
+        let timing = try #require(try Endpoints.getTopicTiming.erased.decodeResponse(body) as? TopicTimingDTO)
+        #expect(timing.lapTypes.map(\.key) == ["run", "rest"])
+        #expect(timing.lapTypes.map(\.laps) == [2, 1])
+        #expect(timing.series.first?.lapTypes == ["run": 270_000, "rest": 30_000])
+        let untyped = try #require(try Fixtures.api("getTopicTiming").body)
+        #expect(try JSONDecoder().decode(TopicTimingDTO.self, from: untyped).lapTypes.isEmpty)
+    }
+
     /// A summary carries its current version's timer (timers.md §2.1); null when untimed.
     @Test func topicSummaryCarriesTheTimer() throws {
         let body = try #require(try Fixtures.api("listTopics").body)
@@ -114,8 +125,8 @@ import Testing
                 var removed = object
                 removed[key] = nil
                 variants.append(("\(path)/\(key)", removed))
-                // A series point's `steps` and `lap_types` are maps; a topic's `steps` and a timing's
-                // `lap_types` are arrays of objects.
+                // A series point's `steps` and `lap_types` are maps; a topic's `steps` and a
+                // timing's `lap_types` are arrays of objects.
                 guard !freeFormMaps.contains(key), !(["steps", "lap_types"].contains(key) && child is [String: Any])
                 else { continue }
                 for (childPath, childVariant) in withOneKeyRemoved(child, path: "\(path)/\(key)") {

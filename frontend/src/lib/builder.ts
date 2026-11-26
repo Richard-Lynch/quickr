@@ -10,8 +10,9 @@
  */
 import { z } from 'zod';
 
+import { cleanMessage } from '../api/errors';
 import { FALLBACK_LIMITS, patternOf } from '../api/limits';
-import type { Limits, TimerInput as Timer } from '../client';
+import type { Limits, TimerInput as Timer, TimerOutput, Variable } from '../client';
 import {
   zDoubleQuestionInput,
   zEnumQuestionInput,
@@ -27,7 +28,10 @@ import {
   type ScheduleInput,
 } from './schedule';
 import { plural } from './format';
-import { charCount } from './text';
+import { fmtDuration } from './runs/format';
+import { MAX_EXPR_MS, tryEvaluate } from './runs/timerExpr';
+import { casefold } from './caseFold';
+import { builderStrip, charCount } from './text';
 
 export interface DraftOption {
   uid: string;
@@ -69,6 +73,18 @@ export interface DraftQuestion {
   publishedMultiple: boolean;
 }
 
+/** An alert on a step or lap type (timers2.md §1.1): a cue at `at` (an expression, §2). */
+export interface DraftAlert {
+  uid: string;
+  /** Derived from the label (unique within its owner) until published; fixed from then on. */
+  key: string;
+  label: string;
+  /** The expression as typed: never trimmed, so an error's position is an offset into it. */
+  at: string;
+  /** Exists in the base version: renaming keeps its key. */
+  locked: boolean;
+}
+
 /** A named step of a timed topic (timers.md §2.1). */
 export interface DraftStep {
   uid: string;
@@ -77,6 +93,27 @@ export interface DraftStep {
   label: string;
   /** Exists in the base version: renaming keeps its key, so stats join across versions. */
   locked: boolean;
+  alerts: DraftAlert[];
+}
+
+/** A lap type (timers2.md §1.1): laps cycle through them; its key shares the steps' namespace. */
+export interface DraftLapType {
+  uid: string;
+  /** Derived from the label until the lap type is published; fixed from then on. */
+  key: string;
+  label: string;
+  /** Exists in the base version: renaming keeps its key, so stats join across versions. */
+  locked: boolean;
+  alerts: DraftAlert[];
+}
+
+/** A variable alerts refer to (timers2.md §1.1): a name and a duration typed as `m:ss` or
+ * `h:mm:ss`. */
+export interface DraftVariable {
+  uid: string;
+  /** Lowercased on entry. */
+  name: string;
+  duration: string;
 }
 
 export interface TopicDraft {
@@ -89,6 +126,10 @@ export interface TopicDraft {
   timed: boolean;
   /** The timer's steps, in order. Empty while timed is a plain stopwatch. */
   steps: DraftStep[];
+  /** The timer's lap types, in order. Empty: laps are untyped ("Lap n"). */
+  laps: DraftLapType[];
+  /** The variables the alerts refer to. */
+  variables: DraftVariable[];
   /** Only used when publishing a new version. */
   change_note: string;
   /** Only used when creating a topic (an existing topic's schedule is edited in settings). */
@@ -233,8 +274,26 @@ export function draftFromQuestion(q: Question, locked: boolean): DraftQuestion {
   }
 }
 
-/** The draft a published timer opens as: its steps locked, so their keys never change. */
-export function draftFromTimer(timer: Timer | null): Pick<TopicDraft, 'timed' | 'steps'> {
+/** The timer fields of a draft. */
+export type TimerDraft = Pick<TopicDraft, 'timed' | 'steps' | 'laps' | 'variables'>;
+
+type AlertLike = Pick<
+  NonNullable<Timer['steps'][number]['alerts']>[number],
+  'key' | 'label' | 'at'
+>;
+
+const draftAlerts = (alerts: readonly AlertLike[] | undefined): DraftAlert[] =>
+  (alerts ?? []).map((a) => ({
+    uid: uid('a'),
+    key: a.key,
+    label: a.label,
+    at: a.at,
+    locked: true,
+  }));
+
+/** The draft a published timer opens as: its steps, lap types and alerts locked, so their keys
+ * never change. A v1 timer (`{steps}`) opens with no lap types, variables or alerts. */
+export function draftFromTimer(timer: Timer | null): TimerDraft {
   return {
     timed: timer !== null,
     steps: (timer?.steps ?? []).map((s) => ({
@@ -242,6 +301,19 @@ export function draftFromTimer(timer: Timer | null): Pick<TopicDraft, 'timed' | 
       key: s.key,
       label: s.label,
       locked: true,
+      alerts: draftAlerts(s.alerts),
+    })),
+    laps: (timer?.laps ?? []).map((l) => ({
+      uid: uid('l'),
+      key: l.key,
+      label: l.label,
+      locked: true,
+      alerts: draftAlerts(l.alerts),
+    })),
+    variables: (timer?.variables ?? []).map((v) => ({
+      uid: uid('v'),
+      name: v.name,
+      duration: durationText(v.ms),
     })),
   };
 }
@@ -278,6 +350,8 @@ export function emptyTopicDraft(): TopicDraft {
     questions: [],
     timed: false,
     steps: [],
+    laps: [],
+    variables: [],
     change_note: '',
     schedule: emptyScheduleDraft(),
   };
@@ -315,20 +389,27 @@ export function stepKeyFor(
   taken: Iterable<string>,
   history: readonly HistoricStep[] = [],
 ): string {
-  if (!label.trim()) return '';
+  if (!builderStrip(label)) return '';
   const used = new Set(taken);
   const same = history.find((h) => !used.has(h.key) && fold(h.label) === fold(label));
   if (same) return same.key;
   return uniqueKey(toSnakeKey(label) || 'step', [...used, ...history.map((h) => h.key)]);
 }
 
-/** A new, unpublished step. `taken`: the other steps' keys; `history`: see {@link stepKeyFor}. */
+/** A new, unpublished step. `taken`: the other steps' keys (and the lap types', which share the
+ * namespace: {@link takenTimerKeys}); `history`: see {@link stepKeyFor}. */
 export function newDraftStep(
   label = '',
   taken: Iterable<string> = [],
   history: readonly HistoricStep[] = [],
 ): DraftStep {
-  return { uid: uid('s'), key: stepKeyFor(label, taken, history), label, locked: false };
+  return {
+    uid: uid('s'),
+    key: stepKeyFor(label, taken, history),
+    label,
+    locked: false,
+    alerts: [],
+  };
 }
 
 /** Rename a step. A published step keeps its key; a new one re-derives it from the label. */
@@ -342,6 +423,148 @@ export function withStepLabel(
   return { ...step, label, key: stepKeyFor(label, takenKeys, history) };
 }
 
+// ---------------------------------------------------------------------------
+// Timer v2: lap types, variables, alerts (timers2.md §1)
+// ---------------------------------------------------------------------------
+
+/** Every key the topic's versions have used, for steps and for lap types (one namespace). */
+export interface TimerHistory {
+  steps: HistoricStep[];
+  laps: HistoricStep[];
+}
+
+/** {@link stepHistory} for steps and for lap types. */
+export function timerHistory(
+  versions: readonly { version: number; timer: Timer | null }[],
+): TimerHistory {
+  const laps = new Map<string, string>();
+  for (const v of [...versions].sort((a, b) => a.version - b.version))
+    for (const lap of v.timer?.laps ?? []) laps.set(lap.key, lap.label);
+  return {
+    steps: stepHistory(versions),
+    laps: [...laps].map(([key, label]) => ({ key, label })),
+  };
+}
+
+/**
+ * The keys a step (`kind: 'step'`) or lap type at `index` must avoid, beyond its own kind's
+ * history: the draft's other steps and lap types (one namespace, timers2.md §1.1), and for a
+ * step the historic lap-type keys (a lap type's key function adds the historic step keys).
+ */
+export function takenTimerKeys(
+  draft: Pick<TimerDraft, 'steps' | 'laps'>,
+  kind: 'step' | 'lap',
+  index: number,
+  history: TimerHistory = { steps: [], laps: [] },
+): string[] {
+  const steps = draft.steps.filter((_, i) => kind !== 'step' || i !== index).map((x) => x.key);
+  const laps = draft.laps.filter((_, i) => kind !== 'lap' || i !== index).map((x) => x.key);
+  return kind === 'step'
+    ? [...steps, ...laps, ...history.laps.map((h) => h.key)]
+    : [...laps, ...steps];
+}
+
+/**
+ * A new lap type's key from its label; '' for a blank label. As {@link stepKeyFor}, with the
+ * lap-type history: a label matching a retired lap type whose key is free takes that key back;
+ * otherwise the key is derived (`lap` for a label with no letters) and avoids `taken` (the
+ * draft's other lap types and its steps), every historic lap-type key and every historic step
+ * key.
+ */
+export function lapTypeKeyFor(
+  label: string,
+  taken: Iterable<string>,
+  history: TimerHistory = { steps: [], laps: [] },
+): string {
+  if (!builderStrip(label)) return '';
+  const used = new Set(taken);
+  const same = history.laps.find((h) => !used.has(h.key) && fold(h.label) === fold(label));
+  if (same) return same.key;
+  return uniqueKey(toSnakeKey(label) || 'lap', [
+    ...used,
+    ...history.laps.map((h) => h.key),
+    ...history.steps.map((h) => h.key),
+  ]);
+}
+
+/** A new, unpublished lap type. */
+export function newDraftLapType(
+  label = '',
+  taken: Iterable<string> = [],
+  history: TimerHistory = { steps: [], laps: [] },
+): DraftLapType {
+  return {
+    uid: uid('l'),
+    key: lapTypeKeyFor(label, taken, history),
+    label,
+    locked: false,
+    alerts: [],
+  };
+}
+
+/** Rename a lap type. A published one keeps its key; a new one re-derives it. */
+export function withLapTypeLabel(
+  lap: DraftLapType,
+  label: string,
+  takenKeys: Iterable<string>,
+  history: TimerHistory = { steps: [], laps: [] },
+): DraftLapType {
+  if (lap.locked) return { ...lap, label };
+  return { ...lap, label, key: lapTypeKeyFor(label, takenKeys, history) };
+}
+
+/** An alert's key from its label, unique among `taken` (its owner's other alerts); `alert` for a
+ * label with no letters, '' for a blank one. */
+export function alertKeyFor(label: string, taken: Iterable<string>): string {
+  if (!builderStrip(label)) return '';
+  return uniqueKey(toSnakeKey(label) || 'alert', taken);
+}
+
+/** A new, unpublished alert. */
+export function newDraftAlert(label = '', taken: Iterable<string> = [], at = ''): DraftAlert {
+  return { uid: uid('a'), key: alertKeyFor(label, taken), label, at, locked: false };
+}
+
+/** Rename an alert. A published one keeps its key; a new one re-derives it. */
+export function withAlertLabel(
+  alert: DraftAlert,
+  label: string,
+  takenKeys: Iterable<string>,
+): DraftAlert {
+  if (alert.locked) return { ...alert, label };
+  return { ...alert, label, key: alertKeyFor(label, takenKeys) };
+}
+
+export function newDraftVariable(name = '', duration = ''): DraftVariable {
+  return { uid: uid('v'), name: name.toLowerCase(), duration };
+}
+
+/** A variable's name as entered: lowercased (the server stores it so, timers2.md §1.1). */
+export function withVariableName(v: DraftVariable, name: string): DraftVariable {
+  return { ...v, name: name.toLowerCase() };
+}
+
+const DURATION_RE = /^(?:(\d+):([0-5]\d):([0-5]\d)|(\d+):([0-5]\d))(?:\.(\d{1,3}))?$/;
+
+/** `m:ss` or `h:mm:ss` (seconds may carry up to three decimals) as ms; null when it isn't one. */
+export function parseDurationText(text: string): number | null {
+  const m = DURATION_RE.exec(text.trim());
+  if (!m) return null;
+  const [, h, hm, hs, mm, ms, frac] = m;
+  const hours = h ? Number(h) : 0;
+  const minutes = Number(h ? hm : mm);
+  const seconds = Number(h ? hs : ms);
+  const fraction = frac ? Number(frac.padEnd(3, '0')) : 0;
+  const total = ((hours * 60 + minutes) * 60 + seconds) * 1000 + fraction;
+  return Number.isSafeInteger(total) ? total : null;
+}
+
+/** A variable's duration as the editor shows it: `m:ss` or `h:mm:ss`, with ms when it has any. */
+export function durationText(ms: number): string {
+  const rest = ms % 1000;
+  return rest ? `${fmtDuration(ms)}.${String(rest).padStart(3, '0')}` : fmtDuration(ms);
+}
+
 /** Apply a label change, deriving the key while it has not been hand-edited. */
 export function withLabel(
   q: DraftQuestion,
@@ -349,7 +572,7 @@ export function withLabel(
   takenKeys: Iterable<string>,
 ): DraftQuestion {
   if (q.keyEdited || q.locked) return { ...q, label };
-  return { ...q, label, key: label.trim() ? uniqueKey(toSnakeKey(label), takenKeys) : '' };
+  return { ...q, label, key: builderStrip(label) ? uniqueKey(toSnakeKey(label), takenKeys) : '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +653,8 @@ function duplicates(items: readonly string[], norm: (s: string) => string = (x) 
   return out;
 }
 
-const fold = (v: string) => v.trim().toLocaleLowerCase();
+/** What the server compares labels and names by: stripped, then Python's `str.casefold()`. */
+const fold = (v: string) => casefold(builderStrip(v));
 
 const GENERATED = {
   int: zIntQuestionInput,
@@ -448,9 +672,9 @@ export function convertDraftQuestion(
   limits: Limits = FALLBACK_LIMITS,
 ): { ok: true; question: QuestionInput } | { ok: false; issues: Issue[] } {
   const issues: Issue[] = [];
-  const key = d.key.trim();
-  const label = d.label.trim();
-  const helpText = d.help_text.trim();
+  const key = builderStrip(d.key);
+  const label = builderStrip(d.label);
+  const helpText = builderStrip(d.help_text);
   const keyRe = keyPattern(limits);
   if (!label) issues.push({ path: ['label'], message: 'Required' });
   maxLength(issues, ['label'], label, limits.max_label_length);
@@ -470,7 +694,7 @@ export function convertDraftQuestion(
       if (typeof min === 'number' && typeof max === 'number' && min > max) {
         issues.push({ path: ['max'], message: 'Max must be ≥ min' });
       }
-      const unit = d.unit.trim();
+      const unit = builderStrip(d.unit);
       maxLength(issues, ['unit'], unit, limits.max_unit_length);
       candidate = {
         ...common,
@@ -516,15 +740,15 @@ export function convertDraftQuestion(
     }
     case 'enum': {
       d.options.forEach((o, i) => {
-        const value = o.value.trim();
-        const optLabel = o.label.trim();
+        const value = builderStrip(o.value);
+        const optLabel = builderStrip(o.label);
         if (!optLabel) issues.push({ path: ['options', i, 'label'], message: 'Required' });
         maxLength(issues, ['options', i, 'label'], optLabel, limits.max_label_length);
         if (!value) issues.push({ path: ['options', i, 'value'], message: 'Required' });
         else if (!keyRe.test(value))
           issues.push({ path: ['options', i, 'value'], message: KEY_MESSAGE });
       });
-      for (const i of duplicates(d.options.map((o) => o.value.trim())))
+      for (const i of duplicates(d.options.map((o) => builderStrip(o.value))))
         issues.push({ path: ['options', i, 'value'], message: 'Another option has this value' });
       for (const i of duplicates(
         d.options.map((o) => o.label),
@@ -582,8 +806,8 @@ export function convertDraftQuestion(
         ...common,
         type: 'enum',
         options: d.options.map((o) => ({
-          value: o.value.trim(),
-          label: o.label.trim(),
+          value: builderStrip(o.value),
+          label: builderStrip(o.label),
           archived: o.archived,
         })),
         multiple: d.multiple,
@@ -674,7 +898,7 @@ export function questionListIssues(
   const issues: Issue[] = [];
   if (questions.length > limits.max_questions)
     issues.push({ path: [], message: `At most ${String(limits.max_questions)} questions` });
-  for (const i of duplicates(questions.map((q) => q.key.trim())))
+  for (const i of duplicates(questions.map((q) => builderStrip(q.key))))
     issues.push({ path: [i, 'key'], message: 'Key already used by another question' });
   for (const i of duplicates(
     questions.map((q) => q.label),
@@ -699,13 +923,10 @@ export function makeQuestionsSchema(limits: Limits = FALLBACK_LIMITS) {
   });
 }
 
-/** Steps per version (backend `MAX_STEPS`, timers.md §5); `GET /limits` doesn't carry it. */
-export const MAX_STEPS = 30;
-
 /**
  * The steps' rules (timers.md §2.1, §5): a label (at most the label limit), a key matching the
- * key pattern, keys unique (labels may repeat, as on the server), at most {@link MAX_STEPS}. Paths are
- * relative to the steps list: `[i, 'label']`, `[i, 'key']`, or `[]` for the list.
+ * key pattern, keys unique (labels may repeat, as on the server), at most `max_steps`. Paths
+ * are relative to the steps list: `[i, 'label']`, `[i, 'key']`, or `[]` for the list.
  */
 export function stepIssues(
   steps: readonly Pick<DraftStep, 'key' | 'label'>[],
@@ -713,43 +934,228 @@ export function stepIssues(
 ): Issue[] {
   const issues: Issue[] = [];
   const keyRe = keyPattern(limits);
-  if (steps.length > MAX_STEPS)
-    issues.push({ path: [], message: `At most ${String(MAX_STEPS)} steps` });
+  if (steps.length > limits.max_steps)
+    issues.push({ path: [], message: `At most ${String(limits.max_steps)} steps` });
   steps.forEach((step, i) => {
-    const label = step.label.trim();
+    const label = builderStrip(step.label);
     if (!label) issues.push({ path: [i, 'label'], message: 'Required' });
     maxLength(issues, [i, 'label'], label, limits.max_label_length);
-    const key = step.key.trim();
+    const key = builderStrip(step.key);
     if (label && !key) issues.push({ path: [i, 'key'], message: 'Required' });
     else if (key && !keyRe.test(key)) issues.push({ path: [i, 'key'], message: KEY_MESSAGE });
   });
-  for (const i of duplicates(steps.map((x) => x.key.trim())))
+  for (const i of duplicates(steps.map((x) => builderStrip(x.key))))
     issues.push({ path: [i, 'key'], message: 'Another step has this key' });
   return issues;
 }
 
-/** The `timer` a draft publishes: null when not timed, else its steps trimmed, in order. */
-export function timerFromDraft(
-  draft: Pick<TopicDraft, 'timed' | 'steps'>,
-  limits: Limits = FALLBACK_LIMITS,
-): { ok: true; timer: Timer | null } | { ok: false; issues: Issue[] } {
-  if (!draft.timed) return { ok: true, timer: null };
-  const issues = stepIssues(draft.steps, limits);
-  if (issues.length > 0) return { ok: false, issues };
-  return { ok: true, timer: draftTimer(draft.steps) };
+const RESERVED_VAR_NAMES = new Set(['ms', 's', 'm', 'h']);
+
+function varNamePattern(limits: Limits): RegExp {
+  return new RegExp(`^[a-z][a-z0-9_]{0,${String(Math.max(0, limits.max_var_name_length - 1))}}$`);
 }
+
+/** One variable's rules (timers2.md §1.3): a name (lowercased; the pattern; not a unit) and a
+ * duration of at most 7 days. Paths relative to the variable: `['name']`, `['duration']`. */
+export function convertDraftVariable(
+  v: Pick<DraftVariable, 'name' | 'duration'>,
+  limits: Limits = FALLBACK_LIMITS,
+): { ok: true; variable: Variable } | { ok: false; issues: Issue[] } {
+  const issues: Issue[] = [];
+  const name = builderStrip(v.name).toLowerCase();
+  if (!name) issues.push({ path: ['name'], message: 'Required' });
+  else if (!varNamePattern(limits).test(name))
+    issues.push({
+      path: ['name'],
+      message: `Use a–z, 0–9, _ (start with a letter, max ${String(limits.max_var_name_length)})`,
+    });
+  else if (RESERVED_VAR_NAMES.has(name))
+    issues.push({
+      path: ['name'],
+      message: `'${name}' is a unit (ms, s, m, h) and can't be a variable name`,
+    });
+  const ms = parseDurationText(v.duration);
+  if (!v.duration.trim()) issues.push({ path: ['duration'], message: 'Required' });
+  else if (ms === null) issues.push({ path: ['duration'], message: 'Enter m:ss or h:mm:ss' });
+  else if (ms > MAX_EXPR_MS) issues.push({ path: ['duration'], message: 'At most 7 days' });
+  if (issues.length > 0 || ms === null) return { ok: false, issues };
+  return { ok: true, variable: { name, ms } };
+}
+
+/** The draft's variables an alert can use: the valid ones, the first of a repeated name. */
+function usableVariables(
+  variables: readonly Pick<DraftVariable, 'name' | 'duration'>[],
+  limits: Limits,
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const v of variables) {
+    const r = convertDraftVariable(v, limits);
+    if (r.ok && !out.has(r.variable.name)) out.set(r.variable.name, r.variable.ms);
+  }
+  return out;
+}
+
+/** The text an expression error shows: the server's 422 message as the PWA shows it
+ * (`cleanMessage`), so a field reads the same before and after submitting. */
+function exprMessage(message: string): string {
+  return cleanMessage(message);
+}
+
+export type AlertPreview =
+  { ok: true; ms: number; text: string } | { ok: false; message: string; pos: number };
+
+/** An alert's live evaluation (timers2.md §1.6): `fmtDuration(at_ms)`, or the error and the
+ * code-point offset it is reported at. */
+export function alertPreview(
+  at: string,
+  variables: readonly Pick<DraftVariable, 'name' | 'duration'>[],
+  limits: Limits = FALLBACK_LIMITS,
+): AlertPreview {
+  const r = tryEvaluate(at, usableVariables(variables, limits), {
+    maxLength: limits.max_expr_length,
+  });
+  if (r.ok) return { ok: true, ms: r.ms, text: fmtDuration(r.ms) };
+  return { ok: false, message: exprMessage(r.error.message), pos: r.error.pos };
+}
+
+interface TimerDraftFields {
+  timed: boolean;
+  steps: readonly (Pick<DraftStep, 'key' | 'label'> & { alerts: readonly DraftAlert[] })[];
+  laps: readonly (Pick<DraftLapType, 'key' | 'label'> & { alerts: readonly DraftAlert[] })[];
+  variables: readonly Pick<DraftVariable, 'name' | 'duration'>[];
+}
+
+/**
+ * The timer's rules (timers2.md §1.3), in the server's order, at draft paths: `['steps', i,
+ * 'key']`, `['laps', i, 'label']`, `['variables', i, 'name' | 'duration']`, `[owner, i,
+ * 'alerts', j, 'key' | 'label' | 'at']` (owner `steps` or `laps`), or a list (`['laps']`). The
+ * server reports the first; this reports them all. An expression's message is the server's.
+ */
+export function timerIssues(draft: TimerDraftFields, limits: Limits = FALLBACK_LIMITS): Issue[] {
+  const issues: Issue[] = [];
+  const at = (prefix: Path) => (i: Issue) => issues.push({ ...i, path: [...prefix, ...i.path] });
+  const keyRe = keyPattern(limits);
+  const { steps, laps, variables } = draft;
+
+  const stepList = stepIssues(steps, limits);
+  stepList.filter((i) => i.path.length === 0).forEach(at(['steps']));
+  if (laps.length > limits.max_lap_types)
+    issues.push({ path: ['laps'], message: `At most ${String(limits.max_lap_types)} lap types` });
+  if (variables.length > limits.max_variables)
+    issues.push({
+      path: ['variables'],
+      message: `At most ${String(limits.max_variables)} variables`,
+    });
+  stepList.filter((i) => i.path.length > 0).forEach(at(['steps']));
+
+  const stepKeys = new Set(steps.map((x) => builderStrip(x.key)).filter(Boolean));
+  laps.forEach((lap, i) => {
+    const label = builderStrip(lap.label);
+    const key = builderStrip(lap.key);
+    if (label && !key) issues.push({ path: ['laps', i, 'key'], message: 'Required' });
+    else if (key && !keyRe.test(key))
+      issues.push({ path: ['laps', i, 'key'], message: KEY_MESSAGE });
+    else if (key && stepKeys.has(key))
+      issues.push({ path: ['laps', i, 'key'], message: 'A step has this key' });
+    if (!label) issues.push({ path: ['laps', i, 'label'], message: 'Required' });
+    maxLength(issues, ['laps', i, 'label'], label, limits.max_short_label_length);
+  });
+  for (const i of duplicates(laps.map((x) => builderStrip(x.key))))
+    if (!stepKeys.has(builderStrip(laps[i]?.key ?? '')))
+      issues.push({ path: ['laps', i, 'key'], message: 'Another lap type has this key' });
+
+  variables.forEach((v, i) => {
+    const r = convertDraftVariable(v, limits);
+    if (!r.ok) r.issues.forEach(at(['variables', i]));
+  });
+  for (const i of duplicates(
+    variables.map((v) => v.name),
+    fold,
+  ))
+    issues.push({ path: ['variables', i, 'name'], message: 'Another variable has this name' });
+
+  const owners = [
+    ['steps', steps],
+    ['laps', laps],
+  ] as const;
+  for (const [owner, items] of owners)
+    items.forEach((item, i) => {
+      const alerts = item.alerts;
+      if (alerts.length > limits.max_alerts)
+        issues.push({
+          path: [owner, i, 'alerts'],
+          message: `At most ${String(limits.max_alerts)} alerts`,
+        });
+      alerts.forEach((a, j) => {
+        const path = [owner, i, 'alerts', j];
+        const label = builderStrip(a.label);
+        const key = builderStrip(a.key);
+        if (!label) issues.push({ path: [...path, 'label'], message: 'Required' });
+        maxLength(issues, [...path, 'label'], label, limits.max_short_label_length);
+        if (label && !key) issues.push({ path: [...path, 'key'], message: 'Required' });
+        else if (key && !keyRe.test(key))
+          issues.push({ path: [...path, 'key'], message: KEY_MESSAGE });
+      });
+      for (const j of duplicates(alerts.map((a) => builderStrip(a.key))))
+        issues.push({
+          path: [owner, i, 'alerts', j, 'key'],
+          message: 'Another alert here has this key',
+        });
+    });
+
+  const vars = usableVariables(variables, limits);
+  for (const [owner, items] of owners)
+    items.forEach((item, i) => {
+      item.alerts.forEach((a, j) => {
+        const r = tryEvaluate(a.at, vars, { maxLength: limits.max_expr_length });
+        if (!r.ok)
+          issues.push({
+            path: [owner, i, 'alerts', j, 'at'],
+            message: exprMessage(r.error.message),
+          });
+      });
+    });
+  return issues;
+}
+
+/** The `timer` a draft publishes: null when not timed, else the normalised v2 timer (every list
+ * present, labels trimmed, `at_ms` filled, variable names lowercase; timers2.md §1.4). Issue
+ * paths are the draft's ({@link timerIssues}). */
+export function timerFromDraft(
+  draft: TimerDraftFields,
+  limits: Limits = FALLBACK_LIMITS,
+): { ok: true; timer: TimerOutput | null } | { ok: false; issues: Issue[] } {
+  if (!draft.timed) return { ok: true, timer: null };
+  const issues = timerIssues(draft, limits);
+  if (issues.length > 0) return { ok: false, issues };
+  return { ok: true, timer: draftTimer(draft, limits) };
+}
+
+const draftAlertShape = z.object({
+  uid: z.string(),
+  key: z.string(),
+  label: z.string(),
+  at: z.string(),
+  locked: z.boolean(),
+});
 
 const draftStepShape = z.object({
   uid: z.string(),
   key: z.string(),
   label: z.string(),
   locked: z.boolean(),
+  alerts: z.array(draftAlertShape),
 });
 
-/**
- * The steps field: checked whatever `timed` says, so its errors show next to the questions'.
- * The builder empties it when Timed is switched off (and restores it when switched back on).
- */
+const draftLapTypeShape = draftStepShape;
+
+const draftVariableShape = z.object({
+  uid: z.string(),
+  name: z.string(),
+  duration: z.string(),
+});
+
+/** The steps field alone (timers.md §2.1); the whole timer is checked by the draft schemas. */
 export function makeStepsSchema(limits: Limits = FALLBACK_LIMITS) {
   return z.array(draftStepShape).superRefine((steps, ctx) => {
     for (const i of stepIssues(steps, limits))
@@ -757,33 +1163,122 @@ export function makeStepsSchema(limits: Limits = FALLBACK_LIMITS) {
   });
 }
 
-/** What changed in the timer between two versions, for the review sheet; [] when nothing. */
+const draftTimerShape = z.object({
+  steps: z.array(draftStepShape),
+  laps: z.array(draftLapTypeShape),
+  variables: z.array(draftVariableShape),
+});
+
+/**
+ * Adds the timer's issues ({@link timerIssues}) at the draft's paths, whatever `timed` says
+ * (the builder empties the timer fields when Timed is switched off), and even when other
+ * fields failed, so they show next to the questions'.
+ */
+function refineTimer(limits: Limits) {
+  return [
+    (
+      d: { steps: DraftStep[]; laps: DraftLapType[]; variables: DraftVariable[] },
+      ctx: z.RefinementCtx,
+    ) => {
+      for (const i of timerIssues({ timed: true, ...d }, limits))
+        ctx.addIssue({ code: 'custom', message: i.message, path: i.path });
+    },
+    {
+      // Zod skips an object's refinements once a field has failed; the timer's rules only need
+      // its own (shape-checked) fields.
+      when: (payload: { value: unknown }) => draftTimerShape.safeParse(payload.value).success,
+    },
+  ] as const;
+}
+
+/** What changed in the timer between two versions, for the review sheet; [] when nothing.
+ * Steps, then lap types, variables and alerts (timers2.md §1.6). */
 export function timerChanges(base: Timer | null, next: Timer | null): string[] {
   if (base === null && next === null) return [];
-  if (base === null) {
-    const n = next?.steps.length ?? 0;
-    return [n ? `Timed, with ${plural(n, 'step')}` : 'Timed, as a stopwatch (no steps)'];
-  }
   if (next === null) return ['No longer timed'];
   const out: string[] = [];
-  const before = new Map(base.steps.map((s) => [s.key, s]));
-  const after = new Map(next.steps.map((s) => [s.key, s]));
-  for (const s of next.steps) {
-    const old = before.get(s.key);
-    if (!old) out.push(`Step added: ${s.label}`);
-    else if (old.label !== s.label) out.push(`Step renamed: ${old.label} → ${s.label}`);
+  if (base === null) {
+    const n = next.steps.length;
+    out.push(n ? `Timed, with ${plural(n, 'step')}` : 'Timed, as a stopwatch (no steps)');
+  } else {
+    out.push(...listChanges(base.steps, next.steps, 'Step', 'Steps'));
   }
-  for (const s of base.steps) if (!after.has(s.key)) out.push(`Step removed: ${s.label}`);
-  const keptBefore = base.steps.filter((s) => after.has(s.key)).map((s) => s.key);
-  const keptAfter = next.steps.filter((s) => before.has(s.key)).map((s) => s.key);
-  if (keptBefore.join('\n') !== keptAfter.join('\n')) out.push('Steps reordered');
+  const was: Timer = base ?? { steps: [] };
+  out.push(...listChanges(was.laps ?? [], next.laps ?? [], 'Lap type', 'Lap types'));
+  out.push(...variableChanges(was.variables ?? [], next.variables ?? []));
+  out.push(...alertChanges(was, next));
+  return out;
+}
+
+/** Added / renamed / removed / reordered, by key. */
+function listChanges(
+  before: readonly { key: string; label: string }[],
+  after: readonly { key: string; label: string }[],
+  noun: string,
+  plural_: string,
+): string[] {
+  const out: string[] = [];
+  const old = new Map(before.map((s) => [s.key, s]));
+  const now = new Set(after.map((s) => s.key));
+  for (const s of after) {
+    const o = old.get(s.key);
+    if (!o) out.push(`${noun} added: ${s.label}`);
+    else if (o.label !== s.label) out.push(`${noun} renamed: ${o.label} → ${s.label}`);
+  }
+  for (const s of before) if (!now.has(s.key)) out.push(`${noun} removed: ${s.label}`);
+  const keptBefore = before.filter((s) => now.has(s.key)).map((s) => s.key);
+  const keptAfter = after.filter((s) => old.has(s.key)).map((s) => s.key);
+  if (keptBefore.join('\n') !== keptAfter.join('\n')) out.push(`${plural_} reordered`);
+  return out;
+}
+
+function variableChanges(before: readonly Variable[], after: readonly Variable[]): string[] {
+  const out: string[] = [];
+  const old = new Map(before.map((v) => [v.name, v]));
+  const now = new Set(after.map((v) => v.name));
+  for (const v of after) {
+    const o = old.get(v.name);
+    if (!o) out.push(`Variable added: ${v.name} = ${durationText(v.ms)}`);
+    else if (o.ms !== v.ms)
+      out.push(`Variable changed: ${v.name}, ${durationText(o.ms)} → ${durationText(v.ms)}`);
+  }
+  for (const v of before) if (!now.has(v.name)) out.push(`Variable removed: ${v.name}`);
+  return out;
+}
+
+/** Per owner in the new timer's order (steps, then lap types): added, renamed, changed, then
+ * removed alerts. A removed owner's alerts go with it; a new owner's are listed as added. */
+function alertChanges(base: Timer, next: Timer): string[] {
+  const out: string[] = [];
+  const owners = (t: Timer) => [
+    ...t.steps.map((s) => ['step', s] as const),
+    ...(t.laps ?? []).map((l) => ['lap', l] as const),
+  ];
+  const old = new Map(owners(base).map(([kind, o]) => [`${kind}:${o.key}`, o]));
+  for (const [kind, owner] of owners(next)) {
+    const before = old.get(`${kind}:${owner.key}`)?.alerts ?? [];
+    const after = owner.alerts ?? [];
+    const was = new Map(before.map((a) => [a.key, a]));
+    const now = new Set(after.map((a) => a.key));
+    const name = owner.label;
+    for (const a of after) {
+      const o = was.get(a.key);
+      if (!o) {
+        out.push(`Alert added: ${name} · ${a.label} at ${a.at}`);
+        continue;
+      }
+      if (o.label !== a.label) out.push(`Alert renamed: ${name} · ${o.label} → ${a.label}`);
+      if (o.at !== a.at) out.push(`Alert changed: ${name} · ${a.label}, ${o.at} → ${a.at}`);
+    }
+    for (const a of before) if (!now.has(a.key)) out.push(`Alert removed: ${name} · ${a.label}`);
+  }
   return out;
 }
 
 function nameSchema(limits: Limits) {
   return z
     .string()
-    .trim()
+    .overwrite(builderStrip)
     .min(1, 'Give the topic a name')
     .refine(
       (v) => charCount(v) <= limits.max_topic_name_length,
@@ -794,7 +1289,7 @@ function nameSchema(limits: Limits) {
 function descriptionSchema(limits: Limits) {
   return z
     .string()
-    .trim()
+    .overwrite(builderStrip)
     .refine(
       (v) => charCount(v) <= limits.max_description_length,
       `At most ${String(limits.max_description_length)} characters`,
@@ -820,30 +1315,59 @@ export function makeTopicDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       name: nameSchema(limits),
       slug: z
         .string()
-        .trim()
+        .overwrite(builderStrip)
         .refine((v) => v === '' || slugRe.test(v), SLUG_MESSAGE)
         .transform((v) => (v === '' ? null : v)),
       slugEdited: z.boolean(),
       description: descriptionSchema(limits),
       questions: makeQuestionsSchema(limits),
       timed: z.boolean(),
-      steps: makeStepsSchema(limits),
+      ...draftTimerShape.shape,
       change_note: z.string(),
       schedule: makeScheduleSchema(limits),
     })
-    .transform(({ name, slug, description, questions, schedule, timed, steps }) => ({
-      name,
-      slug,
-      description,
-      questions,
-      schedule,
-      timer: timed ? draftTimer(steps) : null,
-    }));
+    .superRefine(...refineTimer(limits))
+    .transform(
+      ({ name, slug, description, questions, schedule, timed, steps, laps, variables }) => ({
+        name,
+        slug,
+        description,
+        questions,
+        schedule,
+        timer: timed ? draftTimer({ steps, laps, variables }, limits) : null,
+      }),
+    );
 }
 
-/** Valid steps (the steps schema passed) as the API's timer. */
-function draftTimer(steps: readonly Pick<DraftStep, 'key' | 'label'>[]): Timer {
-  return { steps: steps.map((s) => ({ key: s.key.trim(), label: s.label.trim() })) };
+/** A valid timer draft ({@link timerIssues} passed) as the API's normalised timer. */
+function draftTimer(
+  d: Pick<TimerDraftFields, 'steps' | 'laps' | 'variables'>,
+  limits: Limits,
+): TimerOutput {
+  const vars = usableVariables(d.variables, limits);
+  const alerts = (list: readonly DraftAlert[]) =>
+    list.map((a) => {
+      const r = tryEvaluate(a.at, vars, { maxLength: limits.max_expr_length });
+      return {
+        key: builderStrip(a.key),
+        label: builderStrip(a.label),
+        at: a.at,
+        at_ms: r.ok ? r.ms : 0,
+      };
+    });
+  return {
+    steps: d.steps.map((s) => ({
+      key: builderStrip(s.key),
+      label: builderStrip(s.label),
+      alerts: alerts(s.alerts),
+    })),
+    laps: d.laps.map((l) => ({
+      key: builderStrip(l.key),
+      label: builderStrip(l.label),
+      alerts: alerts(l.alerts),
+    })),
+    variables: [...vars].map(([name, ms]) => ({ name, ms })),
+  };
 }
 
 export type TopicDraftOutput = z.output<ReturnType<typeof makeTopicDraftSchema>>;
@@ -858,10 +1382,10 @@ export function makeVersionDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       description: z.string(),
       questions: makeQuestionsSchema(limits),
       timed: z.boolean(),
-      steps: makeStepsSchema(limits),
+      ...draftTimerShape.shape,
       change_note: z
         .string()
-        .trim()
+        .overwrite(builderStrip)
         .refine(
           (v) => charCount(v) <= limits.max_change_note_length,
           `At most ${String(limits.max_change_note_length)} characters`,
@@ -869,10 +1393,11 @@ export function makeVersionDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       // Not part of a version (edited in topic settings); shape-checked only.
       schedule: scheduleDraftShape,
     })
-    .transform(({ questions, change_note, timed, steps }) => ({
+    .superRefine(...refineTimer(limits))
+    .transform(({ questions, change_note, timed, steps, laps, variables }) => ({
       questions,
       change_note,
-      timer: timed ? draftTimer(steps) : null,
+      timer: timed ? draftTimer({ steps, laps, variables }, limits) : null,
     }));
 }
 
@@ -883,7 +1408,7 @@ export function makeTopicMetaSchema(limits: Limits = FALLBACK_LIMITS) {
   const slugRe = slugPattern(limits);
   return z.object({
     name: nameSchema(limits),
-    slug: z.string().trim().min(1, 'Required').regex(slugRe, SLUG_MESSAGE),
+    slug: z.string().overwrite(builderStrip).min(1, 'Required').regex(slugRe, SLUG_MESSAGE),
     description: descriptionSchema(limits),
   });
 }
@@ -948,8 +1473,8 @@ export function previewQuestion(d: DraftQuestion, index: number): Question {
   const keyRe = keyPattern(FALLBACK_LIMITS);
   const filled: DraftQuestion = {
     ...d,
-    key: keyRe.test(d.key.trim()) ? d.key.trim() : `question_${String(index + 1)}`,
-    label: d.label.trim() || `Question ${String(index + 1)}`,
+    key: keyRe.test(builderStrip(d.key)) ? builderStrip(d.key) : `question_${String(index + 1)}`,
+    label: builderStrip(d.label) || `Question ${String(index + 1)}`,
   };
   const r = convertDraftQuestion(filled);
   if (r.ok) return toOutputShape(r.question);
@@ -967,7 +1492,7 @@ export function previewQuestion(d: DraftQuestion, index: number): Question {
     min_selected: bad.has('min_selected') || bad.has('max_selected') ? '' : filled.min_selected,
     max_selected: bad.has('min_selected') || bad.has('max_selected') ? '' : filled.max_selected,
     options: filled.options
-      .filter((o) => o.label.trim())
+      .filter((o) => builderStrip(o.label))
       .map((o, i) => ({
         ...o,
         value: keyRe.test(o.value) ? o.value : `option_${String(i + 1)}`,

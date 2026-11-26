@@ -1,0 +1,82 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "F629B124-9B6A-4176-BD6C-7AF7807469D8",
+      "deviceName" : "quickR iOS-26-0 t2-m1-gatefix-ios-fdf87d",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "name" : "Expectation failed: center.alertIds == [prefix + \"go\", prefix + \"half\"]\ncenter.alertIds → []\n[prefix + \"go\", prefix + \"half\"] → [\"quickr.alert.2cfe489c-b39e-4da4-964c-bb2c4e5d08a1.1.go\", \"quickr.alert.2cfe489c-b39e-4da4-964c-bb2c4e5d08a1.1.half\"]: Rest 1's alerts, scheduled by the tap",
+                      "nodeType" : "Failure Message",
+                      "sourceLocation" : {
+                        "filePath" : "/Users/richie/code/quickr-worktrees/t2-m1-gatefix-ios/ios/AppTests/RunAlertTapTests.swift",
+                        "lineNumber" : 85
+                      }
+                    }
+                  ],
+                  "duration" : "0.11s",
+                  "durationInSeconds" : 0.10643792152404785,
+                  "name" : "a Live Activity's Lap schedules the new lap's alerts, and its Pause cancels them, with no RootView",
+                  "nodeIdentifier" : "RunAlertTapTests/activityTapsReschedule()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertTapTests/activityTapsReschedule()",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Expectation failed: center.alertIds.count == 2\ncenter.alertIds.count → 0: Rest 1's alerts, scheduled by the intent: []",
+                      "nodeType" : "Failure Message",
+                      "sourceLocation" : {
+                        "filePath" : "/Users/richie/code/quickr-worktrees/t2-m1-gatefix-ios/ios/AppTests/RunAlertTapTests.swift",
+                        "lineNumber" : 110
+                      }
+                    }
+                  ],
+                  "duration" : "0.085s",
+                  "durationInSeconds" : 0.0846409797668457,
+                  "name" : "a run intent's start then lap schedules the lap's alerts, with no RootView",
+                  "nodeIdentifier" : "RunAlertTapTests/intentTapsReschedule()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertTapTests/intentTapsReschedule()",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                }
+              ],
+              "name" : "RunAlertTapTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertTapTests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            }
+          ],
+          "name" : "QuickRTests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests",
+          "nodeType" : "Unit test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "Unit",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

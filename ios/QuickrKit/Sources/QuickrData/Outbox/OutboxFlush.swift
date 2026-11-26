@@ -18,6 +18,13 @@ import QuickrCore
 ///   can't overtake a retrying stop and be merged into the run still open on the server (§4.5). A
 ///   failed one doesn't hold it (the server merges if it must), nor does one of a run whose own
 ///   start failed (that run never existed on the server).
+/// - A `reopen` or `remove` waits for the earlier active item its `target` names (timers2.md §5.5):
+///   a reopen for its stop, a remove for the pause or lap it removes. A failed one holds nothing
+///   (the server answers `no_target`). A reopen also waits for its run's earlier active `finish`
+///   (M1-REVIEW P2-1): sent first, it would open the run and the finish would fail on `run_open`
+///   with its answers stranded.
+/// - Every event of a run but its start waits for the run's earlier active `reopen` (A7), so a lap
+///   can't reach a run still stopped on the server and come back `after_stop`.
 ///
 /// Run ids are resolved through `run_alias` first: an event sent to a merged id is its target's.
 struct OutboxScope {
@@ -33,6 +40,13 @@ struct OutboxScope {
     /// By topic id: the active `stop`s and `discard`s that can hold another run's start, with
     /// their run ids, in `seq` order.
     private var activeEndsOfTopic: [String: [(run: String, item: OutboxItem)]] = [:]
+    /// By lowercase item id: the active `run.event` items, which a reopen's or remove's `target`
+    /// may name.
+    private var activeRunEvent: [String: OutboxItem] = [:]
+    /// By run id: the run's first active `reopen`.
+    private var activeReopenOfRun: [String: OutboxItem] = [:]
+    /// By run id: the run's first active `finish`, which holds a later reopen.
+    private var activeFinishOfRun: [String: OutboxItem] = [:]
 
     init(aliases: [String: String] = [:]) { self.aliases = aliases }
 
@@ -56,14 +70,19 @@ struct OutboxScope {
         case .run:
             let run = run(item)
             var blockers = [firstTopicItem[item.topicId], startOfRun[run]]
-            switch (try? item.runEventPayload())?.type {
+            let payload = try? item.runEventPayload()
+            switch payload?.type {
             case .finish:
                 blockers.append(activeStopOfRun[run])
             case .start:
                 blockers.append(activeEndsOfTopic[item.topicId]?.first { $0.run != run }?.item)
+            case .reopen, .remove:
+                blockers.append(payload?.event.target.flatMap { activeRunEvent[$0.lowercased()] })
+                if payload?.type == .reopen { blockers.append(activeFinishOfRun[run]) }
             default:
                 break
             }
+            if payload?.type != .start { blockers.append(activeReopenOfRun[run]) }
             return blockers.compactMap { $0 }.min { $0.seq < $1.seq }
         }
     }
@@ -76,7 +95,10 @@ struct OutboxScope {
         let run = run(item)
         if type == .start, item.id == item.entityId, startOfRun[run] == nil { startOfRun[run] = item }
         guard item.state.isActive else { return }
+        activeRunEvent[item.id.lowercased()] = item
+        if type == .reopen, activeReopenOfRun[run] == nil { activeReopenOfRun[run] = item }
         if type == .stop, activeStopOfRun[run] == nil { activeStopOfRun[run] = item }
+        if type == .finish, activeFinishOfRun[run] == nil { activeFinishOfRun[run] = item }
         if type == .stop || type == .discard, startOfRun[run]?.state != .failed {
             activeEndsOfTopic[item.topicId, default: []].append((run, item))
         }
@@ -266,7 +288,9 @@ enum OutboxFlush {
         var applied: OutboxApplied
         switch resolution {
         case .ack(let success):
-            switch try AtomicAck.ack(db, itemId: itemId, sender: sender, effect: ackEffect(item, success), at: now) {
+            switch try AtomicAck.ack(
+                db, itemId: itemId, sender: sender, effect: ackEffect(item, success), at: now, wall: wall)
+            {
             case .fenced(let failure): return .fenced(failure)
             case .acked: applied = .acked
             }

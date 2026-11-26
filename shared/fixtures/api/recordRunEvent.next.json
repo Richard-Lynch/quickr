@@ -23,6 +23,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -35,6 +36,7 @@
           "seg": null,
           "source": "widget",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -47,6 +49,7 @@
           "seg": 0,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "next"
         }
       ],

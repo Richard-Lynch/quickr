@@ -1,0 +1,61 @@
+{
+  "body": {
+    "complete_runs": 1,
+    "lap_types": [
+      {
+        "best_ms": 120000,
+        "key": "run",
+        "label": "Run",
+        "laps": 2,
+        "mean_ms": 135000,
+        "median_ms": 135000
+      },
+      {
+        "best_ms": 30000,
+        "key": "rest",
+        "label": "Rest",
+        "laps": 1,
+        "mean_ms": 30000,
+        "median_ms": 30000
+      }
+    ],
+    "laps": {
+      "mean_ms": 300000,
+      "median_ms": 300000,
+      "runs_with_laps": 1
+    },
+    "paused": {
+      "median_ms": null,
+      "runs_with_pauses": 0
+    },
+    "runs": 1,
+    "series": [
+      {
+        "active_ms": 300000,
+        "captured_at": "2026-03-04T11:55:00Z",
+        "complete": true,
+        "entry_id": "0a000000-0000-4000-8000-000000000006",
+        "lap_types": {
+          "rest": 30000,
+          "run": 270000
+        },
+        "paused_ms": 0,
+        "started_at": "2026-03-04T11:50:00Z",
+        "steps": {}
+      }
+    ],
+    "steps": [],
+    "total": {
+      "best_ms": 300000,
+      "mean_ms": 300000,
+      "median_ms": 300000
+    }
+  },
+  "operation_id": "getTopicTiming",
+  "request": {
+    "body": null,
+    "method": "GET",
+    "path": "/api/v1/topics/intervals/timing"
+  },
+  "status": 200
+}

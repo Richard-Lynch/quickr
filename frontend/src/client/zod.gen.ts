@@ -315,8 +315,9 @@ export const zEnumStats = z.object({
  * FeedDeletion
  *
  * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
- * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
- * discarded, or went with its topic.
+ * runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+ * was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+ * with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2).
  */
 export const zFeedDeletion = z.object({
     kind: z.enum([
@@ -328,7 +329,8 @@ export const zFeedDeletion = z.object({
     seq: z.int(),
     id: z.uuid(),
     topic_id: z.uuid(),
-    deleted_at: z.iso.datetime({ offset: true })
+    deleted_at: z.iso.datetime({ offset: true }),
+    revision: z.int().nullable()
 });
 
 /**
@@ -676,7 +678,11 @@ export const zRunEventEffect = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable()
 });
 
@@ -696,12 +702,15 @@ export const zRunEventIn = z.object({
         'resume',
         'stop',
         'finish',
-        'discard'
+        'discard',
+        'reopen',
+        'remove'
     ]),
     at: z.iso.datetime({ offset: true }),
     seg: z.int().gte(0).nullish(),
     step: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).nullish(),
     pause_id: z.uuid().nullish(),
+    target: z.uuid().nullish(),
     topic_id: z.uuid().nullish(),
     version: z.int().gte(1).nullish(),
     answers: z.record(z.string(), z.union([
@@ -729,12 +738,15 @@ export const zRunEventOut = z.object({
         'resume',
         'stop',
         'finish',
-        'discard'
+        'discard',
+        'reopen',
+        'remove'
     ]),
     at: z.iso.datetime({ offset: true }),
     seg: z.int().nullable(),
     step: z.string().nullable(),
     pause_id: z.uuid().nullable(),
+    target: z.uuid().nullable(),
     arrival: z.int(),
     effect: z.enum(['applied', 'void']),
     reason: z.enum([
@@ -748,7 +760,11 @@ export const zRunEventOut = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable(),
     source: z.string()
 });
@@ -770,7 +786,11 @@ export const zRunEventResultEvent = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable()
 });
 
@@ -1184,10 +1204,10 @@ export const zTopicTiming = z.object({
     complete_runs: z.int(),
     total: zTimingSummary,
     steps: z.array(zTimingStepStats),
+    lap_types: z.array(zTimingLapTypeStats),
     laps: zTimingLaps,
     paused: zTimingPaused,
-    series: z.array(zTimingSeriesPoint),
-    lap_types: z.array(zTimingLapTypeStats)
+    series: z.array(zTimingSeriesPoint)
 });
 
 /**
@@ -1348,7 +1368,6 @@ export const zTopicDetail = z.object({
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
     timer: zTimerOutput.nullable(),
-    last_entry: zEntryOut.nullable(),
     questions: z.array(z.union([
         zIntQuestionOutput,
         zDoubleQuestionOutput,
@@ -1361,7 +1380,7 @@ export const zTopicDetail = z.object({
  * FeedTopic
  *
  * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
- * ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries.
+ * ``due``) are not re-sent when entries change: clients recompute them from entries.
  */
 export const zFeedTopic = z.object({
     kind: z.literal('topic').default('topic'),
@@ -1392,8 +1411,7 @@ export const zTopicSummary = z.object({
     ]).nullable(),
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
-    timer: zTimerOutput.nullable(),
-    last_entry: zEntryOut.nullable()
+    timer: zTimerOutput.nullable()
 });
 
 /**

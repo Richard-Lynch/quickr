@@ -1,0 +1,49 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "45A3C7C5-4EB9-4F77-B85F-86FB876A836B",
+   "deviceName": "quickR iOS-26-0 t2-m1-ui-ios-8a9778",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "23A343",
+   "osVersion": "26.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "durationInSeconds": 119.95611596107483,
+         "name": "testTimerEditors()",
+         "nodeIdentifier": "T2M1MediaUITests/testTimerEditors()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "T2M1MediaUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      }
+     ],
+     "name": "QuickRUITests",
+     "nodeType": "UI test bundle",
+     "result": "Passed"
+    }
+   ],
+   "name": "Media",
+   "nodeType": "Test Plan",
+   "result": "Passed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}

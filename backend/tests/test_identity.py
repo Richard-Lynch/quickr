@@ -236,6 +236,40 @@ async def test_no_headers_no_check(client: httpx.AsyncClient, which: int) -> Non
     assert r.status_code < 300, r.text
 
 
+def test_reopen_and_remove_add_no_mutation() -> None:
+    """T33 (timers2.md §12.2): reopen and remove reuse ``recordRunEvent``, so they add no
+    operation: the mutating set and ``_mutations`` are as before timers v2."""
+    from app.main import app
+
+    mutating = {
+        op["operationId"]
+        for item in app.openapi()["paths"].values()
+        for method, op in item.items()
+        if method in {"post", "patch", "delete", "put"} and op["operationId"] != "checkTopicVersion"
+    }
+    assert mutating == {
+        "archiveTopic",
+        "createEntry",
+        "createPushSubscription",
+        "createTopic",
+        "deleteApnsDevice",
+        "deleteEntry",
+        "deleteLiveActivity",
+        "deletePushSubscription",
+        "deleteTopic",
+        "publishTopicVersion",
+        "recordRunEvent",
+        "registerApnsDevice",
+        "registerLiveActivity",
+        "sendApnsTestPush",
+        "sendTestPush",
+        "unarchiveTopic",
+        "updateEntry",
+        "updateTopic",
+    }
+    assert len(_mutations({"entry": "e", "timed": "t"})) == len(MUTATIONS) == 16
+
+
 async def test_every_mutating_operation_declares_the_preconditions() -> None:
     from app.main import app
 

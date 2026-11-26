@@ -88,6 +88,7 @@ vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notificatio
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/components/charts/stats.vectors.test.ts
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/schedule.vectors.test.ts
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/builderUi.vectors.test.ts
+	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/builder.vectors.test.ts
 
 # The database pytest and the migration check use: $QUICKR_TEST_DATABASE_URL if set, else
 # quickr_test, or quickr_test_<worktree>_<path hash> in a git worktree (backend/tools/test_database.py).
