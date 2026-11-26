@@ -532,7 +532,15 @@ function resumingRun(id: string, queued: readonly QueuedRunEvent[]): LocalRun | 
   const item = queued[at];
   const entry = item?.payload.entry;
   if (!item || !entry) return null;
-  const timing = timingFromWire(entry.timing);
+  // This device's removes of the entry queued before the reopen apply first (§5.3, R26):
+  // the server folds them before it, and the entry's timing at the tap doesn't have them.
+  const timing = queued
+    .slice(0, at)
+    .filter((i) => i.payload.event.type === 'remove' && i.payload.event.target != null)
+    .reduce(
+      (t, i) => removeFromTiming(t, lc(i.payload.event.target ?? ''), i.payload.laps ?? null),
+      timingFromWire(entry.timing),
+    );
   const closed: RunState = {
     status: 'stopped',
     started_at: timing.started_at,

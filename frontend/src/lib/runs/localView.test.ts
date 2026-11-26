@@ -569,7 +569,9 @@ describe('reopen and remove in the local view (timers2.md §5.3)', () => {
       // The second reopen queued here, on the server's reverted run.
       check(localRuns([serverRun('r1', [start, next, stop, o1, d1])], [q(o2)]));
       // All queued here.
-      check(localRuns([], [q(start), q(next), q(stop, { makes_entry: true }), q(o1), q(d1), q(o2)]));
+      check(
+        localRuns([], [q(start), q(next), q(stop, { makes_entry: true }), q(o1), q(d1), q(o2)]),
+      );
     });
 
     it('with the reopen still queued on a finishing server run: discarded too', () => {
@@ -722,6 +724,42 @@ describe('reopen and remove in the local view (timers2.md §5.3)', () => {
         TIKTOK,
       );
       expect(timing).toEqual(folded.timing);
+    });
+
+    it('remove → reopen offline: the resuming run has the queued remove applied (P2-5)', () => {
+      const events = [
+        start,
+        ev('p1', 'pause', T0 + 10 * S),
+        ev('u1', 'resume', T0 + 30 * S, { pause_id: 'p1' }),
+        next,
+        stop,
+      ];
+      const paused = entryOf('r1', events);
+      const remove = q(ev('x1', 'remove', T0 + 100 * S, { target: 'p1' }), {
+        entry: entryPayload(paused),
+      });
+      const reopenEv = ev('o1', 'reopen', T0 + 120 * S, { target: 's1' });
+      const reopen = q(reopenEv, { entry: entryPayload(paused) });
+      const [run] = localRuns([], [remove, reopen]);
+      expect(run).toMatchObject({ status: 'running', resuming: true });
+      // What the server's fold makes of the same events.
+      const folded = serverRun('r1', [
+        ...events,
+        ev('x1', 'remove', T0 + 100 * S, { target: 'p1' }),
+        reopenEv,
+      ]);
+      const want = folded.state;
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: 's1' }]);
+      expect(run?.state.segments.map((x) => [x.label, x.active_ms, x.paused_ms])).toEqual(
+        want.segments.map((x) => [x.label, x.active_ms, x.paused_ms]),
+      );
+      expect(run?.state.open?.started_at).toBe(T0 + 60 * S);
+      // A remove queued after the reopen (none is offered while resuming) isn't applied early.
+      const [later] = localRuns(
+        [],
+        [reopen, { ...remove, created_at: new Date(T0 + 200 * S).toISOString() }],
+      );
+      expect(later?.state.pauses).toHaveLength(2);
     });
 
     it('only pending removes of that entry count; a failed one shows no mark', () => {
