@@ -278,7 +278,7 @@ function TimedRecord({
         timer={timerOf(versions, open.version)}
         topic={topic.name}
         actions={actions}
-        onStopped={(run, _item, totalMs) => {
+        onStopped={(run, item, totalMs) => {
           // Questions not known yet: open the form, which waits for them (as the tile does).
           const questions = questionsOf(topic, versions, run.version);
           if (questions === null || questions.length > 0) {
@@ -291,7 +291,10 @@ function TimedRecord({
             ...(runCtx
               ? {
                   duration: REOPEN_WINDOW_MS,
-                  action: { label: 'Resume', onClick: reopenAfterStop(topic, run, runCtx) },
+                  action: {
+                    label: 'Resume',
+                    onClick: reopenAfterStop(topic, run, item.id, runCtx),
+                  },
                 }
               : {}),
           });

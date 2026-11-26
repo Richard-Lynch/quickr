@@ -182,6 +182,25 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
     expect(screen.getByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
   });
 
+  it('a re-stop still queued: the offer takes the newer stop’s time, not the server entry’s', async () => {
+    // The first stop ends its window in 3 s; the re-stop (queued, 503) is recent.
+    h = renderRunApp('/', lapTopic(), (s) => seedStopped(s, WINDOW_MS + 60_000, WINDOW_MS - 3_000));
+    const user = userEvent.setup();
+    let hold = false;
+    h.server.override = (body) =>
+      body.type === 'stop' && hold ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByTestId('run-reopen'));
+    const stop = await screen.findByTestId('card-stop');
+    await waitFor(() => expect(stop).toBeEnabled());
+    hold = true;
+    await user.click(stop);
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    // Past the first stop's window: still offered, from the queued re-stop.
+    await new Promise((r) => setTimeout(r, 4_000));
+    expect(screen.getByTestId('run-reopen')).toBeInTheDocument();
+    expect(server().entries[0]?.timing?.terminal_id).toBe(STOP_ID);
+  }, 10_000);
+
   it('a just-stopped run’s tile offers it from the optimistic entry, before the server’s', async () => {
     h = renderRunApp('/', lapTopic());
     const user = userEvent.setup();

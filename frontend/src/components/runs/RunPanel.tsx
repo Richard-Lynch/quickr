@@ -77,7 +77,8 @@ export function RunPanel({
   // A reopen queued from the entry, not acked yet (§1.2 row 11, timers2.md §5.3): the header
   // says "Resuming…" and there are no controls until the server answers.
   const resuming = run.resuming;
-  const list = resuming ? [] : withRevert(runActions(run.state, run.status, timer, now), run);
+  // A reopened run's destructive action is `revert` ("Undo resume…", row 10), from M1's model.
+  const list = resuming ? [] : runActions(run.state, run.status, timer, now);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmRevert, setConfirmRevert] = useState(false);
   const cooling = useRunCooldown(run.topic_id);
@@ -206,28 +207,6 @@ export function RunPanel({
         busy={actions.busy}
       />
     </>
-  );
-}
-
-/**
- * Whether the run is open again after a reopen of its stop (§1.2 row 10): a `reopen` the fold
- * applied, from the server or queued here.
- */
-function reopened(run: LocalRun): boolean {
-  return run.events.some(
-    (e) => e.type === 'reopen' && run.state.effects[e.id.toLowerCase()]?.effect === 'applied',
-  );
-}
-
-/**
- * §1.2 row 10, until M1's `actions` returns it: a reopened run offers `revert` ("Undo
- * resume…") **instead of** `discard`, in the same destructive slot. `actions` takes the state
- * alone, which doesn't say the run was reopened; the run's events do.
- */
-export function withRevert(list: readonly RunAction[], run: LocalRun): RunAction[] {
-  if (!reopened(run)) return [...list];
-  return list.map((a) =>
-    a.kind.type === 'discard' ? { ...a, kind: { type: 'revert' }, id: 'revert' } : a,
   );
 }
 

@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { outbox } from '../../lib/outbox/client';
 import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
+import type { FakeRunServer } from '../../test/fakeRunServer';
 import { renderRunApp, RUN_ID, type Harness } from '../../test/runUi';
 
 let h: Harness | null = null;
@@ -108,6 +109,119 @@ describe('the stop toast', () => {
     await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
     expect(reopens(server())[0]?.target).toBe(stop?.id);
     expect(server().entries[0]?.timing?.terminal_id).toBe(stop?.id);
+  });
+});
+
+describe('the stop toast, checked again at the tap', () => {
+  /** The fake server's `getEntry` (the toast fetches the entry when it isn't cached). */
+  const withGetEntry = (s: FakeRunServer) => {
+    const base = s.fetch;
+    s.fetch = (input, init) => {
+      const url = new URL(
+        input instanceof Request ? input.url : input instanceof URL ? input.href : input,
+        'https://q.test',
+      );
+      const m = /^\/api\/v1\/entries\/([^/]+)$/.exec(url.pathname);
+      const entry = m ? s.entries.find((e) => e.id === decodeURIComponent(m[1] ?? '')) : undefined;
+      if (entry) {
+        s.requests.push({ method: 'GET', path: url.pathname, body: undefined });
+        return Promise.resolve(
+          new Response(JSON.stringify(entry), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      return base(input, init);
+    };
+  };
+
+  /** No queued item and no fetch in flight. */
+  const settled = async () => {
+    await waitFor(async () => expect(await outbox.list()).toHaveLength(0));
+    await waitFor(() => expect(h?.qc.isFetching()).toBe(0));
+  };
+
+  it('with the latest entry not cached, fetches the run’s entry and reopens that stop', async () => {
+    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
+    await waitFor(() => expect(server().entries).toHaveLength(1));
+    const stop = server().events()[1];
+    const resume = await screen.findByRole('button', { name: 'Resume' });
+    // Settled: the stop is sent, and no refetch is in flight to refill the cache.
+    await settled();
+    // The latest-entry cache no longer has it (as after another entry, or a cache reset).
+    h.qc.setQueriesData<{ items: unknown[] }>({ queryKey: [{ _id: 'listEntries' }] }, (d) =>
+      d ? { ...d, items: [] } : d,
+    );
+    await user.click(resume);
+    await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
+    expect(reopens(server())[0]?.target).toBe(stop?.id);
+    expect(
+      server().requests.some((r) => r.method === 'GET' && /\/entries\/[^/]+$/.test(r.path)),
+    ).toBe(true);
+  });
+
+  it('an older toast whose stop was resumed and stopped again since does nothing, and says so', async () => {
+    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
+    await waitFor(() => expect(server().entries).toHaveLength(1));
+    const first = server().events()[1];
+    // On the topics page now: Resume from the tile, then Stop on the card (a second toast).
+    // Each tap waits for the sync to settle: the tile re-renders its offer and card as the
+    // acks and refetches land, and a click on a replaced button reaches nothing.
+    await settled();
+    await user.click(await screen.findByTestId('run-reopen'));
+    await waitFor(() => expect(reopens(server())).toHaveLength(1));
+    await settled();
+    await user.click(await screen.findByTestId('card-stop'));
+    await waitFor(() =>
+      expect(
+        server()
+          .events()
+          .filter((e) => e.type === 'stop'),
+      ).toHaveLength(2),
+    );
+    const second = server().events().at(-1);
+    await waitFor(() => expect(server().entries[0]?.timing?.terminal_id).toBe(second?.id));
+    const [older, newer] = await screen.findAllByRole('button', { name: 'Resume' });
+    if (!older || !newer) throw new Error('two stop toasts, each with its Resume');
+
+    await user.click(older);
+    expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
+    expect(reopens(server())).toHaveLength(1);
+    expect(reopens(server())[0]?.target).toBe(first?.id);
+
+    await user.click(newer);
+    await waitFor(() => expect(reopens(server())).toHaveLength(2), { timeout: 4000 });
+    expect(reopens(server())[1]?.target).toBe(second?.id);
+  });
+  it('an older toast whose stop was resumed and stopped again, the re-stop still queued, does nothing', async () => {
+    h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
+    await waitFor(() => expect(server().entries).toHaveLength(1));
+    const first = server().events()[1];
+    await settled();
+    await user.click(await screen.findByTestId('run-reopen'));
+    await waitFor(() => expect(reopens(server())).toHaveLength(1));
+    await settled();
+    // The re-stop doesn't reach the server: the entry still ends with the first stop.
+    server().override = (body) =>
+      body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByTestId('card-stop'));
+    const [older] = await screen.findAllByRole('button', { name: 'Resume' });
+    if (!older) throw new Error('the first stop’s toast');
+    expect(server().entries[0]?.timing?.terminal_id).toBe(first?.id);
+
+    await user.click(older);
+    expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
+    expect(reopens(server())).toHaveLength(1);
   });
 });
 

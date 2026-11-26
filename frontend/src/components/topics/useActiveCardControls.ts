@@ -68,7 +68,7 @@ export function useActiveCardControls(
           ...(runCtx
             ? {
                 duration: REOPEN_WINDOW_MS,
-                action: { label: 'Resume', onClick: reopenAfterStop(topic, run, runCtx) },
+                action: { label: 'Resume', onClick: reopenAfterStop(topic, run, item.id, runCtx) },
               }
             : {}),
         });
