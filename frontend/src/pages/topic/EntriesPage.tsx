@@ -73,8 +73,19 @@ interface RowText {
   timer: Timer | null;
 }
 
-/** The entry's summary line (§3.1): one line, truncated; nothing when it is empty. */
-function SummaryLine({ entry, text }: { entry: EntryOut; text: RowText }) {
+/**
+ * The entry's summary line (§3.1): one line, truncated; nothing when it is empty. On a card it
+ * sits under the captured-at line; in the table, small, under the captured-at cell's date.
+ */
+function SummaryLine({
+  entry,
+  text,
+  table = false,
+}: {
+  entry: EntryOut;
+  text: RowText;
+  table?: boolean;
+}) {
   const summary = entrySummary(
     entry.answers,
     entry.timing,
@@ -83,13 +94,17 @@ function SummaryLine({ entry, text }: { entry: EntryOut; text: RowText }) {
   );
   if (!summary) return null;
   return (
-    <p
-      className="mb-2 truncate text-[0.95rem] font-medium"
+    <span
+      className={
+        table
+          ? 'mt-0.5 block truncate text-xs text-ink-soft'
+          : 'mb-2 block truncate text-[0.95rem] font-medium'
+      }
       data-testid="entry-summary"
       title={summary}
     >
       {summary}
-    </p>
+    </span>
   );
 }
 
@@ -125,12 +140,15 @@ function display(col: Column, s: EntryOut): string | null {
   return a ? formatAnswer(col.question, a) : null;
 }
 
-/** Queued answers (`{key: value}`) as stored answers, typed by the topic's questions. */
+/**
+ * Queued answers (`{key: value}`) as stored answers, typed by the questions of the version
+ * they were recorded against.
+ */
 function answersOut(
-  topic: TopicDetail,
+  questions: readonly Question[],
   map: Readonly<Record<string, unknown>>,
 ): EntryOut['answers'] {
-  const types = new Map(topic.questions.map((q) => [q.key, q.type]));
+  const types = new Map(questions.map((q) => [q.key, q.type]));
   return Object.entries(map).flatMap(([key, value]) => {
     const type = types.get(key);
     if (!type || value === null) return [];
@@ -139,13 +157,18 @@ function answersOut(
 }
 
 /** A queued (not yet synced) entry, shaped like a stored one so it renders the same way. */
-function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail): EntryOut {
+function pendingAsEntry(
+  item: OutboxItem<EntryCreatePayload>,
+  topic: TopicDetail,
+  questionsOf: RowText['questionsOf'],
+): EntryOut {
   const b = item.payload.body;
-  const answers = answersOut(topic, b.answers);
+  const version = b.version ?? topic.current_version;
+  const answers = answersOut(questionsOf(version), b.answers);
   return {
     id: item.id,
     topic_id: topic.id,
-    version: b.version ?? topic.current_version,
+    version,
     revision: 0, // not on the server yet
     source: b.source ?? 'ui',
     channel: 'ui',
@@ -250,7 +273,7 @@ function PendingEntries({
         const entry: EntryOut = {
           ...pendingAsEntryShape(topic, e.id),
           version: e.version,
-          answers: answersOut(topic, e.answers),
+          answers: answersOut(text.questionsOf(e.version), e.answers),
           // The local fold's timing, in the server's wire shape.
           timing: { ...timingToWire(e.timing), skipped: [...e.timing.skipped] },
         };
@@ -273,7 +296,7 @@ function PendingEntries({
         );
       })}
       {mine.map((item) => {
-        const s = pendingAsEntry(item, topic);
+        const s = pendingAsEntry(item, topic, text.questionsOf);
         const failed = item.status === 'failed';
         return (
           <li key={item.id}>
@@ -483,7 +506,12 @@ export function EntriesPage() {
                     className="cursor-pointer transition-colors hover:bg-sunken/60"
                     onClick={() => open(s)}
                   >
-                    <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(s.captured_at)}</td>
+                    <td className="max-w-72 px-4 py-3">
+                      <span className="block whitespace-nowrap">
+                        {formatDateTime(s.captured_at)}
+                      </span>
+                      <SummaryLine entry={s} text={text} table />
+                    </td>
                     <td className="px-3 py-3 whitespace-nowrap">
                       {s.timing ? (
                         <TimingChip entry={s} timer={text.timer} />

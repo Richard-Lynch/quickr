@@ -71,7 +71,10 @@ const topic: TopicDetail = {
   questions: [reps],
 };
 
-/** Version 1 called the same question "Count": an entry of v1 reads its own label. */
+/**
+ * Version 1 called the same question "Count" and had a "Felt" text question v2 removed: an
+ * entry of v1 reads its own labels and keeps its removed question's answer.
+ */
 const versions: TopicVersionOut[] = [
   {
     version: 2,
@@ -83,7 +86,19 @@ const versions: TopicVersionOut[] = [
   },
   {
     version: 1,
-    questions: [{ ...reps, label: 'Count' }],
+    questions: [
+      { ...reps, label: 'Count' },
+      {
+        type: 'str',
+        key: 'felt',
+        label: 'Felt',
+        required: false,
+        help_text: null,
+        min_length: 0,
+        max_length: 200,
+        multiline: false,
+      },
+    ],
     timer: { steps: [] },
     change_note: '',
     created_at: '2026-10-01T00:00:00Z',
@@ -243,7 +258,14 @@ describe('EntriesPage rows', () => {
       HTMLElement,
       HTMLElement,
     ];
-    const [, timedTiming] = within(timedRow).getAllByRole('cell') as [HTMLElement, HTMLElement];
+    const [timedCaptured, timedTiming] = within(timedRow).getAllByRole('cell') as [
+      HTMLElement,
+      HTMLElement,
+    ];
+    // Every row shows its summary line, the table's under the captured-at date.
+    expect(within(timedCaptured).getByTestId('entry-summary').textContent).toBe(
+      '12:40 · 3 laps · Reps: 12',
+    );
     expect(within(timedTiming).getByTestId('entry-timing').textContent).toBe('12:40 · 3 laps');
     const [, untimedTiming] = within(untimedRow).getAllByRole('cell') as [HTMLElement, HTMLElement];
     expect(within(untimedTiming).queryByTestId('entry-timing')).toBeNull();
@@ -251,7 +273,8 @@ describe('EntriesPage rows', () => {
   });
 
   it('show the same chip and summary on a timed entry still waiting to sync', async () => {
-    // A run on this device: two steps of a minute, then a queued stop that makes the entry.
+    // A run on this device against v1: two steps of a minute, then a queued stop that makes
+    // the entry.
     const ofTopic = (item: OutboxItem): OutboxItem => {
       const run = item as ReturnType<typeof runItem>;
       return {
@@ -259,10 +282,10 @@ describe('EntriesPage rows', () => {
         payload: {
           ...run.payload,
           topic: { id: TOPIC_ID, slug: topic.slug, name: topic.name },
-          version: 2,
+          version: 1,
           event: {
             ...run.payload.event,
-            ...(run.payload.event.type === 'start' ? { topic_id: TOPIC_ID, version: 2 } : {}),
+            ...(run.payload.event.type === 'start' ? { topic_id: TOPIC_ID, version: 1 } : {}),
           },
         },
       };
@@ -275,15 +298,20 @@ describe('EntriesPage rows', () => {
         run: RUN,
         at: T0 + 120_000,
         makes_entry: true,
-        answers: { reps: 7 },
+        answers: { reps: 7, felt: 'strong' },
       }),
     ].map(ofTopic);
     stubServer([untimed]);
     renderPage();
-    const pending = await screen.findByRole('list', { name: 'Not yet synced' });
+    // Once the versions are in (the table's v1 column), so labels are v1's.
+    await screen.findByRole('columnheader', { name: 'Felt' });
+    const pending = screen.getByRole('list', { name: 'Not yet synced' });
     const chip = within(pending).getByTestId('entry-timing');
     expect(chip.textContent).toBe('2:00');
     expect(within(pending).getByRole('img', { name: '2 minutes, 2 steps' })).toBe(chip);
-    expect(within(pending).getByTestId('entry-summary').textContent).toBe('2:00 · Reps: 7');
+    // Recorded against v1: its labels, and the answer to the question v2 removed.
+    expect(within(pending).getByTestId('entry-summary').textContent).toBe(
+      '2:00 · Count: 7 · Felt: strong',
+    );
   });
 });
