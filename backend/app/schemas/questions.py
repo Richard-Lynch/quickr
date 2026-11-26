@@ -24,6 +24,7 @@ from pydantic import (
     StrictFloat,
     StrictInt,
     StrictStr,
+    StringConstraints,
     ValidationError,
     ValidationInfo,
     ValidatorFunctionWrapHandler,
@@ -254,13 +255,16 @@ class QuestionSet(StrictModel):
 
 
 ShortLabel = Annotated[str, Field(min_length=1, max_length=MAX_SHORT_LABEL_LENGTH)]
+# Not stripped, and its length is the evaluator's check: an error's `pos` is an offset into the
+# text as sent, and a long one is `too_long at 64` (timers2.md §1.3, §2.3).
 Expr = Annotated[
     str,
+    StringConstraints(strip_whitespace=False),
     Field(
-        min_length=1,
-        max_length=MAX_EXPR_LENGTH,
-        description="An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`.",
+        description="An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. "
+        f"1..{MAX_EXPR_LENGTH} characters.",
         examples=["t/2"],
+        json_schema_extra={"minLength": 1, "maxLength": MAX_EXPR_LENGTH},
     ),
 ]
 

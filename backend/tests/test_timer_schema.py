@@ -265,14 +265,28 @@ def test_alert_expression_is_evaluated_against_the_timers_variables(at: str, cod
 
 
 def test_alert_expression_length() -> None:
-    """``alert-expr-65-chars``: 1..64 characters (``max_expr_length``), then evaluated."""
+    """``alert-expr-65-chars``: 1..64 characters (``max_expr_length``), checked by the evaluator."""
     at_64 = "1s" + "+1s" * 20 + "*1"  # 21 seconds
     assert len(at_64) == 64
     out = normalised({"steps": [step(alerts=[alert(at_64)])]})
     assert out["steps"][0]["alerts"][0]["at_ms"] == 21_000
-    assert paths({"steps": [step(alerts=[alert(at_64 + "1")])]}) == ["steps.0.alerts.0.at"]
-    assert paths({"steps": [step(alerts=[alert("")])]}) == ["steps.0.alerts.0.at"]
-    assert paths({"steps": [step(alerts=[alert("   ")])]}) == ["steps.0.alerts.0.at"]
+
+    def message(at: str) -> str:
+        return errors({"steps": [step(alerts=[alert(at)])]})["steps.0.alerts.0.at"]
+
+    assert message(at_64 + "1") == "too_long at 64: longer than 64 characters"
+    assert message("1s" + " " * 63) == "too_long at 64: longer than 64 characters"  # spaces count
+    assert message("") == "syntax at 0: empty expression"
+
+
+def test_alert_expression_is_not_stripped() -> None:
+    """Positions are offsets into the text as sent, and the text is stored as sent."""
+    assert errors({"steps": [step(alerts=[alert("   x")])]}) == {
+        "steps.0.alerts.0.at": "unknown_variable at 3: unknown variable 'x'"
+    }
+    assert errors({"steps": [step(alerts=[alert("   ")])]})["steps.0.alerts.0.at"].startswith("syntax at 3: ")
+    out = normalised({"steps": [step(alerts=[alert(" 30s ")])]})
+    assert out["steps"][0]["alerts"][0] == {"key": "half", "label": "Half", "at": " 30s ", "at_ms": 30_000}
 
 
 def test_variables_are_matched_case_insensitively_in_expressions() -> None:

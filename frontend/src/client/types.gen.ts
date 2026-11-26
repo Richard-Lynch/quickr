@@ -23,7 +23,7 @@ export type AlertInput = {
     /**
      * At
      *
-     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`.
+     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. 1..64 characters.
      */
     at: string;
     /**
@@ -53,7 +53,7 @@ export type AlertOutput = {
     /**
      * At
      *
-     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`.
+     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. 1..64 characters.
      */
     at: string;
     /**

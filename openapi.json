@@ -4410,7 +4410,7 @@
             "maxLength": 64,
             "minLength": 1,
             "title": "At",
-            "description": "An alert time over the timer's variables (timers2.md \u00a72): `t/2`, `t+30s`, `1.5m`.",
+            "description": "An alert time over the timer's variables (timers2.md \u00a72): `t/2`, `t+30s`, `1.5m`. 1..64 characters.",
             "examples": [
               "t/2"
             ]
@@ -4454,7 +4454,7 @@
             "maxLength": 64,
             "minLength": 1,
             "title": "At",
-            "description": "An alert time over the timer's variables (timers2.md \u00a72): `t/2`, `t+30s`, `1.5m`.",
+            "description": "An alert time over the timer's variables (timers2.md \u00a72): `t/2`, `t+30s`, `1.5m`. 1..64 characters.",
             "examples": [
               "t/2"
             ]
