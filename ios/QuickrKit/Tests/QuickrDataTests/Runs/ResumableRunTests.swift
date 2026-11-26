@@ -78,6 +78,26 @@ extension RunLocalViewTests {
         #expect(try Self.latest(h)?.runId == second, "an untimed entry isn't a stop")
     }
 
+    @Test("Resume: the latest stop by its timing's end, not by captured_at")
+    func resumableByTheStopNotTheCapture() async throws {
+        let h = try OutboxHarness()
+        try h.timed(steps: [])
+        let (runId, latest) = try await Self.stoppedAndSynced(h, laps: [], stop: 30)
+        // An older run's entry (it ended a minute earlier) captured later than the latest stop.
+        var older = latest
+        older.id = UUID()
+        older.capturedAt = latest.capturedAt.addingTimeInterval(60)
+        var timing = try #require(latest.timing)
+        timing.endedAt -= 60_000
+        timing.startedAt -= 60_000
+        timing.terminalId = UUID().wireString
+        older.timing = timing
+        try h.write { db in _ = try ServerLayer.upsert(db, entry: older) }
+        #expect(try h.viewEntries().first?.entry.id == older.id, "first by captured_at")
+        #expect(try Self.latest(h)?.runId == runId, "the latest stop is still offered")
+        #expect(try await h.store.resumable(topicId: h.topic.id)?.runId == runId)
+    }
+
     @Test("Resume: observeResumable follows the store")
     func observeResumableFollowsTheStore() async throws {
         let h = try OutboxHarness()

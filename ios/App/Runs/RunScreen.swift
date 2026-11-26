@@ -83,8 +83,6 @@ struct RunPanel: View {
     @State private var confirmingRevert = false
     /// The topic's latest stop, while the store offers it "Resume" (`LocalStore.observeResumable`).
     @State private var resumable: ResumableRun?
-    /// The device clock the idle Resume's window is read on: moved when the window closes.
-    @State private var clock = Date()
     @State private var starts = 0
     @State private var advances = 0
     @State private var stops = 0
@@ -92,6 +90,13 @@ struct RunPanel: View {
     private var link: TopicLinkRef { TopicLinkRef(id: topic.id) }
 
     var body: some View {
+        // An idle Resume is re-read when its window closes; the schedule follows the run clock's
+        // offset (observed), so a sync that moves it reschedules (§2.4).
+        let closes = resumable.map { [$0.closes(offsetMs: environment.runTicker.offsetMs)] } ?? []
+        TimelineView(.explicit(closes)) { _ in panel }
+    }
+
+    @ViewBuilder private var panel: some View {
         let layout = RunControlsLayout(actions: actions)
         let busy = environment.runActions.isBusy(topic.id)
         let controls = RunControls(
@@ -131,13 +136,6 @@ struct RunPanel: View {
             Text("The run keeps its stop and its saved entry; the time since the resume isn’t saved.")
         }
         .task(id: ResumableKey(binding: environment.session?.binding, topicId: topic.id)) { await followResumable() }
-        // Re-reads the window when it closes, so an idle screen left open drops its Resume.
-        .task(id: resumable) {
-            guard let resumable else { return }
-            let left = resumable.endedAt + RunPresentation.reopenWindowMs - runNow + 1
-            guard left > 0, (try? await Task.sleep(for: .milliseconds(left))) != nil else { return }
-            clock = .now
-        }
         .qrHaptic(.logged, trigger: starts)
         .qrHaptic(.selection, trigger: advances)
         .qrHaptic(.logged, trigger: stops)
@@ -210,7 +208,7 @@ struct RunPanel: View {
     }
 
     /// Now on the run clock (the store's server offset), the clock a stop's `endedAt` is on.
-    private var runNow: Int { RunInstant.milliseconds(clock) + environment.runTicker.offsetMs }
+    private var runNow: Int { RunInstant.milliseconds(Date()) + environment.runTicker.offsetMs }
 
     private func perform(_ action: RunAction) {
         switch action.kind {
@@ -307,7 +305,6 @@ struct RunPanel: View {
         do {
             for try await latest in store.observeResumable(topicId: topic.id, refresh: session.refresh.stream()) {
                 resumable = latest
-                clock = .now
             }
         } catch {
             // the store closed: the next binding observes again

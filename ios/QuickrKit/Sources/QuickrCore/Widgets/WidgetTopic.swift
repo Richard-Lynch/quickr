@@ -26,6 +26,9 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// finishing one, as the Live Activity's content state (`steps_unknown` when the pinned
     /// version's steps aren't stored). Nil for none.
     public var run: RunActivityState?
+    /// Whether the open run's pinned timer has lap types (`RunWrites.autoTap` reads that one, not
+    /// the topic's current timer); nil without an open run.
+    public var runLapTyped: Bool?
     /// This build is too old for the store's server (client-versions.md §4.1): the widget shows a
     /// small "Update quickR" line, and its taps are kept on the iPhone until the update.
     public var updateRequired: Bool
@@ -35,7 +38,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     public init(
         topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
         scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false, run: RunActivityState? = nil,
-        updateRequired: Bool = false
+        runLapTyped: Bool? = nil, updateRequired: Bool = false
     ) {
         self.topic = topic
         self.quick = quick
@@ -46,6 +49,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
         self.skew = skew
         self.hasOpenRun = hasOpenRun
         self.run = run
+        self.runLapTyped = runLapTyped
         self.updateRequired = updateRequired
     }
 
@@ -119,11 +123,11 @@ extension WidgetTopic {
     /// The shown run's label, timers and buttons, as its Live Activity has them.
     public var runDisplay: RunActivityDisplay? { run.map { RunActivityDisplay(state: $0, topicName: topic.name) } }
 
-    /// The topic's timer declares lap types (active-surfaces.md §5.3, #222): its one-button Auto
-    /// is the on-screen primary, never Stop, as M1's `RunWrites.auto` presses it. Read from the
-    /// topic's current timer; `RunWrites.auto` reads the run's pinned one, which differs only for
-    /// a run started before an edit that added or removed every lap type.
-    public var isLapTyped: Bool { !(topic.timer?.laps.isEmpty ?? true) }
+    /// The timer declares lap types (active-surfaces.md §5.3, #222): its one-button Auto is the
+    /// on-screen primary, never Stop, as M1's `RunWrites.auto` presses it. An open run's pinned
+    /// timer decides (`runLapTyped`, what the press reads, even after an edit of the topic);
+    /// otherwise the topic's current one, which a Start pins.
+    public var isLapTyped: Bool { runLapTyped ?? !(topic.timer?.laps.isEmpty ?? true) }
 
     /// The buttons (timers.md §11.3, active-surfaces.md §5.1): idle, Start (none for an archived
     /// topic); open, the primary (Lap whenever a lap or the last step is open, else Next: §4.1,

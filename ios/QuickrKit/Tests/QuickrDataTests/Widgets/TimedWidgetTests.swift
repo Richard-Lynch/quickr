@@ -120,6 +120,28 @@ import Testing
         #expect(topic.runButtonTitle(.lap) == "Lap → Run")
     }
 
+    /// #222: an open run's pinned timer decides the one button, as `RunWrites.autoTap` presses it,
+    /// in both edit directions; without an open run the topic's current timer (a Start pins it).
+    @Test func theOpenRunsPinnedTimerDecidesTheAutoButton() throws {
+        let h = try OutboxHarness()
+        var topic = h.topic
+        topic.timer = TopicTimer(steps: [], laps: [TopicTimer.LapType(key: "run", label: "Run")])
+        let display = RunActivityDisplay(state: Self.state(label: "Lap 2", stepIndex: nil, next: nil), topicName: "T")
+        // Lap types added after the start: the run still takes v1's Auto, which stops it.
+        var added = WidgetTopic(topic: topic, quick: nil, lastAnswer: nil, runLapTyped: false)
+        #expect(!added.isLapTyped)
+        #expect(WidgetTopic.runButtons(of: display, compact: true, lapTyped: added.isLapTyped) == [.stop])
+        // Every lap type removed after the start: the run still laps.
+        topic.timer = TopicTimer(steps: [])
+        added.topic = topic
+        added.runLapTyped = true
+        #expect(added.isLapTyped)
+        #expect(WidgetTopic.runButtons(of: display, compact: true, lapTyped: added.isLapTyped) == [.lap])
+        // No open run: the current timer.
+        added.runLapTyped = nil
+        #expect(!added.isLapTyped)
+    }
+
     /// A typed lap names the lap it opens (§1.3): the display's `nextLabel` during a lap, as
     /// `RunActivityDisplay` has it once I2-LA lands the §4.1 primary (today's v1 rule reads a
     /// `next_label` as Next, so the display is built here as that WP leaves it).

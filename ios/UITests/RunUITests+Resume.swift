@@ -70,6 +70,51 @@ extension RunUITests {
         resumeSnap(app, "resume-entry-gap-pause")
     }
 
+    /// Undo resume… (§1.2 row 10): from the run screen's menu, after its confirmation, the reopen
+    /// is undone and the stop kept: the screen closes, the tile is idle and offers Resume again,
+    /// and the entry has no gap pause.
+    func testUndoResumeKeepsTheStop() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrSeedTikTok"]
+        app.launch()
+        let find = { (id: String) in app.descendants(matching: .any)[id].firstMatch }
+        let tileButton = find("tile.tiktok.run")
+        XCTAssertTrue(tileButton.waitForExistence(timeout: 20))
+        tileButton.tap()
+        let stop = find("tile.tiktok.stop")
+        XCTAssertTrue(stop.waitForExistence(timeout: 10))
+        resumeCooldown()
+        stop.tap()
+        let resume = app.buttons["toast.action"].firstMatch
+        XCTAssertTrue(resume.waitForExistence(timeout: 10))
+        resume.tap()
+        XCTAssertTrue(stop.waitForExistence(timeout: 15), "reopened: the card's controls")
+        resumeCooldown()
+        find("tile.tiktok").coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+        XCTAssertTrue(resumeWait(find("run.state"), containing: "Running", timeout: 15))
+
+        find("run.menu").tap()
+        let revert = app.buttons["run.revert"].firstMatch
+        XCTAssertTrue(revert.waitForExistence(timeout: 5), "Undo resume… in the menu")
+        XCTAssertFalse(app.buttons["run.discard"].exists, "revert instead of discard")
+        revert.tap()
+        let confirm = app.alerts.buttons["Undo resume"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "it confirms")
+        confirm.tap()
+
+        XCTAssertTrue(resumeWait(find("tile.tiktok.run"), containing: "Start", timeout: 15), "idle again")
+        XCTAssertTrue(find("tile.tiktok.reopen").waitForExistence(timeout: 10), "the stop is kept: Resume again")
+        find("tile.tiktok").coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
+        selectTopicTab("Entries", in: app)
+        let rows = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier MATCHES '^entry\\\\.[0-9a-f-]{36}$'"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertEqual(rows.count, 1)
+        rows.firstMatch.tap()
+        XCTAssertTrue(find("entry.timing").waitForExistence(timeout: 15))
+        XCTAssertFalse(find("entry.timing.pause.0").exists, "no gap pause: the resume was undone")
+    }
+
     // MARK: M2-RESUME helpers
 
     private func resumeWait(_ element: XCUIElement, containing text: String, timeout: TimeInterval = 10) -> Bool {

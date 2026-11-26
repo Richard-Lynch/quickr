@@ -75,10 +75,14 @@ struct TopicTile: View {
             }
         } quick: {
             // Interactive, so under the meta line in the quick slot (the meta passes taps through).
-            if state == .idle, topic.status != .archived, let resumable,
-                resumable.isOffered(at: RunInstant.milliseconds(now) + environment.runTicker.offsetMs)
-            {
-                reopenButton(resumable, slug: topic.slug)
+            if state == .idle, topic.status != .archived, let resumable {
+                let offset = environment.runTicker.offsetMs
+                // Re-read when the window closes; the schedule follows the offset (observed).
+                TimelineView(.explicit([resumable.closes(offsetMs: offset)])) { _ in
+                    if resumable.isOffered(at: RunInstant.milliseconds(Date()) + offset) {
+                        reopenButton(resumable, slug: topic.slug)
+                    }
+                }
             }
         }
         .accessibilityIdentifier("tile.\(topic.slug)")
@@ -87,7 +91,7 @@ struct TopicTile: View {
     /// An idle timed tile's "Resume · 1:44" (active-surfaces.md §3.3, §1.2 rows 2 and 13): the
     /// latest local entry's run reopened (its `timing.terminalId` names the stop), for OQ-1's 15
     /// minutes after the stop, on the run clock (the clock the stop was stamped on). The window
-    /// is read at home's 30 s tick and whenever the store's server offset moves.
+    /// is read again the moment it closes and whenever the store's server offset moves.
     private func reopenButton(_ resumable: ResumableRun, slug: String) -> some View {
         let action = resumable.action
         let actions = environment.runActions

@@ -126,9 +126,10 @@ struct RunAlertLine: View {
 }
 
 /// What Stop leads to, on any surface: the answers form, or "Saved X: 7:42" with **Resume**
-/// (active-surfaces.md §3.2, OQ-1): a reopen of `run`, the one just stopped, whose terminal is the
-/// stop this tap made. The toast's 6 s are well inside the 15-minute window, and nothing can edit
-/// the entry or stop a later run in that time.
+/// (active-surfaces.md §3.2, OQ-1): a reopen of `run`, the one just stopped. A run stopped this
+/// moment is resumable (its stop is the latest, unedited, seconds old), so the toast offers it
+/// at once; the tap re-checks the store (`LocalStore.resumable`), since the toast can outlive a
+/// later start, an edit of the entry or another device's stop, and then does nothing.
 @MainActor
 func showStopOutcome(
     _ outcome: RunActions.StopOutcome, run: LocalRun, ref: TopicLinkRef, in environment: AppEnvironment
@@ -138,9 +139,15 @@ func showStopOutcome(
         guard let id = UUID(uuidString: runId) else { return }
         environment.router.open(.runDetails(ref, runId: id))
     case .saved(let name, let total):
-        let (runId, topicId, actions) = (run.id, run.topicId, environment.runActions)
+        let (runId, topicId, actions, ticker) = (run.id, run.topicId, environment.runActions, environment.runTicker)
+        let store = environment.session?.store
         let resume = Toast.Action("Resume") {
-            Task { await actions.reopen(runId: runId, topicId: topicId) }
+            Task {
+                guard let latest = try? await store?.resumable(topicId: topicId), latest.runId == runId,
+                    latest.isOffered(at: RunInstant.milliseconds(Date()) + ticker.offsetMs)
+                else { return }
+                await actions.reopen(runId: runId, topicId: topicId)
+            }
         }
         environment.toasts.show(Toast("Saved \(name): \(DurationFormat.format(total))", action: resume))
     }

@@ -30,19 +30,32 @@ public struct ResumableRun: Sendable, Hashable {
     /// offset): OQ-1's 15 minutes after the stop (`RunPresentation.reopenWindowMs`), inclusive.
     public func isOffered(at now: Int) -> Bool { now - endedAt <= RunPresentation.reopenWindowMs }
 
+    /// The device instant the window closes, given the store's server offset (`RunTicker.offsetMs`):
+    /// a surface schedules its re-read there (a `TimelineView`), and again whenever the offset moves.
+    public func closes(offsetMs: Int) -> Date {
+        RunInstant.date(endedAt + RunPresentation.reopenWindowMs + 1 - offsetMs)
+    }
+
     /// The secondary `reopen(target: terminalId)` of §1.2 rows 2 and 13.
     public var action: RunAction { RunAction(kind: .reopen(target: terminalId), role: .secondary, enabled: true) }
 
-    /// The topic's latest timed entry when the store offers it Resume, the window aside:
-    /// `RunOverlay.resumable` (unedited, the topic's latest stop, no locally open run: A15) read at
-    /// the stop itself, so only the 15 minutes are left to `isOffered(at:)`, which the surface
-    /// reads on its own clock. Nil without a terminal id (a pre-v2 timing: §8.2 shows no Resume).
+    /// The topic's latest stop when the store offers it Resume, the window aside: the timed entry
+    /// with the latest `timing.endedAt` (then id, `RunOverlay.resumable`'s order, not
+    /// `captured_at`'s), under `RunOverlay.resumable` (unedited, the topic's latest stop, no
+    /// locally open run: A15) read at the stop itself, so only the 15 minutes are left to
+    /// `isOffered(at:)`, which the surface reads on its own clock. Nil without a terminal id (a
+    /// pre-v2 timing: §8.2 shows no Resume).
     public static func latest(_ db: Database, topicId: UUID) throws -> ResumableRun? {
+        let timed = try StoreView.entries(db, topicId: topicId.wireString).compactMap { view in
+            view.entry.timing.map { (entry: view.entry, timing: $0) }
+        }
         guard
-            let view = try StoreView.entries(db, topicId: topicId.wireString).first(where: { $0.entry.timing != nil }),
-            let timing = view.entry.timing, let terminal = timing.terminalId.flatMap(UUID.init(uuidString:))
+            let (entry, timing) = timed.max(by: { a, b in
+                (a.timing.endedAt, a.entry.id.wireString) < (b.timing.endedAt, b.entry.id.wireString)
+            }),
+            let terminal = timing.terminalId.flatMap(UUID.init(uuidString:))
         else { return nil }
-        let runId = view.entry.id.wireString
+        let runId = entry.id.wireString
         guard try RunOverlay.resumable(db, entryId: runId, now: RunInstant.date(timing.endedAt)) else { return nil }
         return ResumableRun(
             runId: runId, topicId: topicId, terminalId: terminal, endedAt: timing.endedAt, totalMs: timing.activeMs)
@@ -50,6 +63,12 @@ public struct ResumableRun: Sendable, Hashable {
 }
 
 extension LocalStore {
+    /// `ResumableRun.latest` for `topicId` now: what a Resume tap re-checks before it reopens (a
+    /// toast's offer can outlive a later start, an edit or another device's stop).
+    public func resumable(topicId: UUID) async throws -> ResumableRun? {
+        try await writer.read { db in try ResumableRun.latest(db, topicId: topicId) }
+    }
+
     /// `ResumableRun.latest` for `topicId`, kept current as the store changes (a stop, its ack, a
     /// reopen, an edit of the entry, another run).
     public func observeResumable(topicId: UUID, refresh: AsyncStream<Void>? = nil)
