@@ -872,6 +872,32 @@ describe('EntryEditPage entry actions: Remove', () => {
     expect(a.server.events()).toEqual([]);
   });
 
+  it('a remove queued while the editor is open stops its save', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    const section = await a.section();
+    await a.user.click(await within(section).findByRole('button', { name: 'Edit times' }));
+    const form = screen.getByRole('form', { name: 'Edit times' });
+    // Another tab of this device removes a lap meanwhile.
+    const e = stored(a.server);
+    await outbox.enqueue('run.event', {
+      topic: { id: topic.id, slug: 'intervals', name: 'Intervals' },
+      run_id: RUN,
+      version: 1,
+      steps: [],
+      requires_answers: false,
+      makes_entry: false,
+      event: { type: 'remove', at: formatInstant(Date.now()), target: evt(1) },
+      entry: { timing: e.timing, revision: e.revision },
+    } as never);
+    await refreshOutboxSnapshot();
+    await within(section).findByTestId('entry.timing.pending');
+    await a.user.click(within(form).getByRole('button', { name: /save/i }));
+    expect(await within(form).findByText(/a removal is waiting to sync/i)).toBeInTheDocument();
+    expect(a.server.requests.filter((r) => r.method === 'PATCH')).toEqual([]);
+  });
+
   it('offline: Edit times waits for the queued remove (an edit now would void it)', async () => {
     const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
       offline: true,
@@ -885,6 +911,25 @@ describe('EntryEditPage entry actions: Remove', () => {
 });
 
 describe('EntryEditPage entry actions: Resume run', () => {
+  it('waits for the open runs to load before it is offered', async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const a = renderActions(lapFixture(), (s) => {
+      seedStopped(s, LAPS_AND_PAUSE, 90);
+      const base = s.fetch;
+      s.fetch = async (input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (new URL(url, 'http://quickr.test').pathname === '/api/v1/runs') await held;
+        return base(input, init);
+      };
+    });
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.remove.2');
+    expect(within(section).queryByTestId('entry-resume')).toBeNull();
+    release();
+    expect(await within(section).findByTestId('entry-resume')).toBeEnabled();
+  });
+
   it('sends `reopen` naming timing.terminal_id and goes to the run panel', async () => {
     const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90));
     const terminal = stored(a.server).timing.terminal_id;

@@ -67,7 +67,7 @@ interface RemoveAsk {
  */
 export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.now }: Props) {
   const { items } = useOutbox();
-  const { runs, deps } = useRuns();
+  const { runs, deps, loaded: runsLoaded } = useRuns();
   const navigate = useNavigate();
   // A14: this device's queued removes of the run, applied to the entry's timing until the
   // ack replaces the entry (revision unchanged here, a pending mark meanwhile).
@@ -85,8 +85,13 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
   const topicBusy =
     ctx !== null &&
     runs.some((r) => r.topic_id === ctx.topic.id && (isOpen(r) || r.status === 'finishing'));
+  // Not before the open runs are known: an empty list then doesn't prove the topic is free.
   const canResume =
-    ctx !== null && !pending && !topicBusy && resumableFromDetail(entry.timing, now());
+    ctx !== null &&
+    runsLoaded &&
+    !pending &&
+    !topicBusy &&
+    resumableFromDetail(entry.timing, now());
   const update = useUpdateEntry();
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -128,6 +133,12 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
 
   const save = async (edit: TimingEdit) => {
     if (!opened) return;
+    if (pending) {
+      // A remove queued since the form opened (here or in another tab): saving now would
+      // mark the run edited and void it (timers2.md §3.6).
+      setServer({ errors: {}, message: 'A removal is waiting to sync. Save once it has.' });
+      return;
+    }
     try {
       await update.mutateAsync({
         path: { entry_id: entry.id },
