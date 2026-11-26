@@ -105,6 +105,19 @@ public struct RunVoid: Sendable, Hashable {
     }
 }
 
+/// The outbox as one read: the sheet's rows and the pill's summary from the same transaction,
+/// so no surface shows a pill that disagrees with its rows (issue #28). An observed one's summary
+/// has no `nextWake` (`LocalStore.observeOutbox`).
+public struct OutboxSnapshot: Sendable, Hashable {
+    public var items: [OutboxItem]
+    public var summary: OutboxSummary
+
+    public init(items: [OutboxItem], summary: OutboxSummary) {
+        self.items = items
+        self.summary = summary
+    }
+}
+
 /// The sync pill's inputs (outbox.md §11).
 public struct OutboxSummary: Sendable, Hashable {
     /// Held, pending, in-flight and uncertain items.
@@ -126,9 +139,14 @@ public struct OutboxSummary: Sendable, Hashable {
     public var isEmpty: Bool { queued == 0 && failed == 0 }
 
     static func read(_ db: Database, now: LeaseInstant) throws -> OutboxSummary {
+        try read(db, items: OutboxStorage.items(db), now: now)
+    }
+
+    /// The summary of `items`, read from `db` in the same transaction (the aliases).
+    static func read(_ db: Database, items: [OutboxItem], now: LeaseInstant) throws -> OutboxSummary {
         var summary = OutboxSummary()
         var scope = OutboxScope(aliases: try OutboxScope.aliases(db))
-        for item in try OutboxStorage.items(db) {
+        for item in items {
             defer { scope.add(item) }
             switch item.state {
             case .failed:

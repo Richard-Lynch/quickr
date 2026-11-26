@@ -14,7 +14,7 @@ import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
 import { useToast } from '../ui/Toast';
 import { contextFor, useRunContext, useTopicVersions } from './context';
-import { activeMs, expectOf, primaryAction, segmentMs, type PrimaryAction } from './model';
+import { activeMs, expectOf, primaryActionV1, segmentMs, type PrimaryAction } from './model';
 import { useServerNow } from './RunClock';
 import { useRunActions } from './useRunActions';
 
@@ -167,7 +167,7 @@ export function useRunPrimary(
   const runCtx = useRunContext(run, topic);
   if (!run || !isOpen(run)) return null;
   const steps = runCtx ? runCtx.steps : run.steps;
-  const primary = primaryAction(run, steps);
+  const primary = primaryActionV1(run, steps);
   const expect = expectOf(run, steps);
   return {
     ...primary,

@@ -35,6 +35,34 @@ export const FALLBACK_LIMITS: Limits = {
   schedule_max_times: 24,
   interval_min_minutes: 15,
   interval_max_minutes: 129_600,
+  // T2-M1: Timer v2 (timers2.md §1.2)
+  max_steps: 30,
+  max_lap_types: 8,
+  max_variables: 16,
+  max_alerts: 8,
+  max_expr_length: 64,
+  max_var_name_length: 16,
+  max_short_label_length: 64,
+  // end T2-M1
+  // T2-M3: topic appearance (appearance.md §1.3)
+  max_tags: 10,
+  max_tag_length: 24,
+  max_icon_length: 16,
+  color_names: [
+    'red',
+    'orange',
+    'amber',
+    'yellow',
+    'lime',
+    'green',
+    'teal',
+    'cyan',
+    'blue',
+    'indigo',
+    'violet',
+    'pink',
+  ],
+  // end T2-M3
 };
 
 const DAY = 24 * 60 * 60 * 1000;

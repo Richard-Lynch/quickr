@@ -50,6 +50,18 @@ from before CV and so level 0. CV ships with both minimums at 0, so it is still
 supported and checked. The first breaking change raises the minimums above it,
 which stops checking it.
 
+**Note, 2026-11-25: the first bump (timers v2, T2 M1).** `api_level 2`,
+`min_client_level.ios = .web = 2` ([timers2.md](../../specs/timers2.md) §11).
+Both listed builds, `20261028.170408` (level 1) and `20261026.143027` (level 0),
+are below the new minimum, so they are removed and `clients` is empty until the
+T2 release's TestFlight upload records a level-2 build.
+`LiveActivityVectorTests` joins `suites`, so that build's Live Activity payloads
+are covered (issue #111). The bump reaches users only with the T2 release tag,
+never from a milestone or WP branch. A listed build whose level is _above_ the
+checkout's `api_level` (a release candidate's build recorded on `main` before
+the bump merges there) is skipped too, like one below the minimum
+([client-versions.md](../../specs/client-versions.md) §7).
+
 ## 2. OpenAPI breaking changes (`openapi breaking`, ubuntu)
 
 `compat/openapi-breaking.sh` compares `openapi.json` with the one at the newest

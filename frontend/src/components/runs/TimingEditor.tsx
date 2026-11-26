@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { Step, Timing, TimingEdit } from '../../client';
+import type { StepInput as Step, Timing, TimingEdit } from '../../client';
 import { fmtDuration } from '../../lib/runs/format';
 import { Button, IconButton } from '../ui/Button';
 import { Banner } from '../ui/Card';

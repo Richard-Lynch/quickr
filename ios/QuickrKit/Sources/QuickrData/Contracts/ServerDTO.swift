@@ -42,6 +42,19 @@ public struct LimitsDTO: Codable, Sendable, Hashable, WireResponse {
     public var scheduleMaxTimes: Int
     public var intervalMinMinutes: Int
     public var intervalMaxMinutes: Int
+    public var maxSteps: Int
+    public var maxLapTypes: Int
+    public var maxVariables: Int
+    public var maxAlerts: Int
+    public var maxExprLength: Int
+    public var maxVarNameLength: Int
+    public var maxShortLabelLength: Int
+    // T2-M3: topic appearance (appearance.md §1.3)
+    public var maxTags: Int
+    public var maxTagLength: Int
+    public var maxIconLength: Int
+    public var colorNames: [String]
+    // end T2-M3
 
     enum CodingKeys: String, CodingKey {
         case keyPattern = "key_pattern"
@@ -67,10 +80,23 @@ public struct LimitsDTO: Codable, Sendable, Hashable, WireResponse {
         case scheduleMaxTimes = "schedule_max_times"
         case intervalMinMinutes = "interval_min_minutes"
         case intervalMaxMinutes = "interval_max_minutes"
+        case maxSteps = "max_steps"
+        case maxLapTypes = "max_lap_types"
+        case maxVariables = "max_variables"
+        case maxAlerts = "max_alerts"
+        case maxExprLength = "max_expr_length"
+        case maxVarNameLength = "max_var_name_length"
+        case maxShortLabelLength = "max_short_label_length"
+        // T2-M3
+        case maxTags = "max_tags"
+        case maxTagLength = "max_tag_length"
+        case maxIconLength = "max_icon_length"
+        case colorNames = "color_names"
+        // end T2-M3
     }
 
     public func toDomain() -> Limits {
-        Limits(
+        var limits = Limits(
             keyPattern: keyPattern, slugPattern: slugPattern, timePattern: timePattern, maxQuestions: maxQuestions,
             maxEnumOptions: maxEnumOptions, maxStrLength: maxStrLength, maxLabelLength: maxLabelLength,
             maxHelpTextLength: maxHelpTextLength, maxUnitLength: maxUnitLength, maxDecimals: maxDecimals,
@@ -80,6 +106,20 @@ public struct LimitsDTO: Codable, Sendable, Hashable, WireResponse {
             maxMetaValueLength: maxMetaValueLength, capturedAtMin: capturedAtMin,
             capturedAtMaxFutureHours: capturedAtMaxFutureHours, scheduleMaxTimes: scheduleMaxTimes,
             intervalMinMinutes: intervalMinMinutes, intervalMaxMinutes: intervalMaxMinutes)
+        limits.maxSteps = maxSteps
+        limits.maxLapTypes = maxLapTypes
+        limits.maxVariables = maxVariables
+        limits.maxAlerts = maxAlerts
+        limits.maxExprLength = maxExprLength
+        limits.maxVarNameLength = maxVarNameLength
+        limits.maxShortLabelLength = maxShortLabelLength
+        // T2-M3
+        limits.maxTags = maxTags
+        limits.maxTagLength = maxTagLength
+        limits.maxIconLength = maxIconLength
+        limits.colorNames = colorNames
+        // end T2-M3
+        return limits
     }
 }
 

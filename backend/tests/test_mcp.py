@@ -11,7 +11,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from app.mcp_server import mcp
-from tests.helpers import backdate_schedule, sleep_questions
+from tests.helpers import backdate_schedule, normal_timer, sleep_questions
 from tests.test_api_runs import frozen_clock
 
 
@@ -135,9 +135,31 @@ async def test_topic_outputs_carry_the_current_versions_timer(mcp_client: Client
     steps = {"steps": [{"key": "pour", "label": "Pour"}]}
     await call(mcp_client, "create_topic", name="Coffee", questions=[], timer=steps)
     await call(mcp_client, "create_topic", name="Plain", questions=[])
+    steps = normal_timer(steps)
     assert (await call(mcp_client, "get_topic", ref="coffee"))["timer"] == steps
     listed = await call(mcp_client, "list_topics", sort="name")
     assert [(t["slug"], t["timer"]) for t in listed["items"]] == [("coffee", steps), ("plain", None)]
+
+    # The v2 Timer (timers2.md §7.3, T28): lap types, variables and alerts, normalised.
+    v2 = {
+        "steps": [],
+        "laps": [{"key": "run", "label": "Run", "alerts": [{"key": "half", "label": "Half", "at": "T/2"}]}],
+        "variables": [{"name": "T", "ms": 60_000}],
+    }
+    created = await call(mcp_client, "create_topic", name="Intervals", questions=[], timer=v2)
+    assert created["timer"] == normal_timer(v2)
+    assert created["timer"]["laps"][0]["alerts"][0]["at_ms"] == 30_000
+    assert created["timer"]["variables"] == [{"name": "t", "ms": 60_000}]
+    with pytest.raises(ToolError, match="unknown_variable at 0"):
+        await mcp_client.call_tool(
+            "publish_topic_version",
+            {
+                "ref": "intervals",
+                "questions": [],
+                "base_version": 1,
+                "timer": {**v2, "variables": [{"name": "u", "ms": 1}]},
+            },
+        )
 
 
 async def test_record_entry_errors_include_field_details(mcp_client: Client[Any]) -> None:
@@ -317,6 +339,7 @@ async def test_publish_requires_timer(mcp_client: Client[Any]) -> None:
         mcp_client, "publish_topic_version", ref="dishwasher", questions=qs, base_version=2, timer=None
     )
     versions = (await mcp_client.call_tool("list_topic_versions", {"ref": "dishwasher"})).structured_content
+    timer = normal_timer(timer)
     assert [v["timer"] for v in versions["result"]] == [None, timer, timer]  # type: ignore[index]
 
 
@@ -525,3 +548,53 @@ async def test_run_action_stamps_after_the_latest_tap(
         "2026-05-01T12:00:00.002000Z",
     ]
     assert [e["effect"] for e in lap["run"]["events"]] == ["applied"] * 3
+
+
+# T2-M3: topic appearance through MCP (docs/specs/appearance.md §9)
+
+
+async def test_topic_appearance_params(mcp_client: Client[Any]) -> None:
+    t = await call(
+        mcp_client, "create_topic", name="Water", questions=[], color="teal", icon="💧", tags=[" Health "]
+    )
+    assert t["appearance"] == {"color": "teal", "icon": {"kind": "emoji", "value": "💧"}, "tags": ["Health"]}
+    plain = await call(mcp_client, "create_topic", name="Plain", questions=[])
+    assert plain["appearance"] == {"color": None, "icon": None, "tags": []}
+
+    # Omitted params leave the appearance alone; a change bumps the revision.
+    renamed = await call(mcp_client, "update_topic", ref="water", name="Water intake")
+    assert renamed["appearance"] == t["appearance"]
+    u = await call(mcp_client, "update_topic", ref="water", color="blue", icon="☺")
+    assert u["appearance"]["color"] == "blue"
+    assert u["appearance"]["icon"] == {"kind": "emoji", "value": "☺️"}
+    assert u["revision"] == renamed["revision"] + 1
+    u = await call(mcp_client, "update_topic", ref="water", clear_color=True, clear_icon=True, tags=[])
+    assert u["appearance"] == {"color": None, "icon": None, "tags": []}
+
+    await call(mcp_client, "update_topic", ref="plain", tags=["Health"])
+    listed = await call(mcp_client, "list_topics", tag="Health", sort="name")
+    assert [i["slug"] for i in listed["items"]] == ["plain"]
+    assert (await call(mcp_client, "list_topics", tag="health"))["items"] == []
+
+
+async def test_topic_appearance_errors_are_described(mcp_client: Client[Any]) -> None:
+    with pytest.raises(ToolError, match=r"appearance\.icon\.value: must be an emoji, not text"):
+        await mcp_client.call_tool("create_topic", {"name": "Water", "questions": [], "icon": "x"})
+    await call(mcp_client, "create_topic", name="Water", questions=[])
+    with pytest.raises(ToolError, match=r"appearance\.icon\.value: must be a single emoji"):
+        await mcp_client.call_tool("update_topic", {"ref": "water", "icon": "🚬🚬"})
+    with pytest.raises(ToolError, match=r"appearance\.tags\.1: duplicate tag 'GYM'"):
+        await mcp_client.call_tool("update_topic", {"ref": "water", "tags": ["gym", "GYM"]})
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool("update_topic", {"ref": "water", "color": "mauve"})
+    assert (await call(mcp_client, "get_topic", ref="water"))["revision"] == 1  # nothing was written
+
+
+async def test_instructions_name_the_colours() -> None:
+    assert mcp.instructions is not None
+    assert (
+        "red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink" in mcp.instructions
+    )
+
+
+# end T2-M3

@@ -25,6 +25,23 @@ public struct Limits: Sendable, Hashable {
     public var scheduleMaxTimes: Int
     public var intervalMinMinutes: Int
     public var intervalMaxMinutes: Int
+    // T2-M1: Timer v2 (timers2.md §1.2). Defaulted to the server's values, so every initialiser
+    // above (and `serverDefaults`) carries them.
+    public var maxSteps = 30
+    public var maxLapTypes = 8
+    public var maxVariables = 16
+    public var maxAlerts = 8
+    public var maxExprLength = 64
+    public var maxVarNameLength = 16
+    public var maxShortLabelLength = 64
+    // end T2-M1
+    // T2-M3: topic appearance (appearance.md §1.3), defaulted to the server's values like T2-M1's.
+    public var maxTags = 10
+    public var maxTagLength = 24
+    public var maxIconLength = 16
+    /// The palette's names, in palette order (`ColorName`'s raw values).
+    public var colorNames = ColorName.allCases.map(\.rawValue)
+    // end T2-M3
 
     public init(
         keyPattern: String, slugPattern: String, timePattern: String, maxQuestions: Int, maxEnumOptions: Int,

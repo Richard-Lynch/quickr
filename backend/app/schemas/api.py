@@ -15,6 +15,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    StringConstraints,
     WithJsonSchema,
     field_validator,
     model_validator,
@@ -32,14 +33,18 @@ from app.schemas.limits import (
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
     LIVE_ACTIVITY_TOKEN_PATTERN,
+    MAX_ALERTS,
     MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
     MAX_DESCRIPTION_LENGTH,
     MAX_DEVICE_NAME_LENGTH,
     MAX_ENUM_OPTIONS,
+    MAX_EXPR_LENGTH,
     MAX_HELP_TEXT_LENGTH,
+    MAX_ICON_LENGTH,
     MAX_LABEL_LENGTH,
+    MAX_LAP_TYPES,
     MAX_META_ENTRIES,
     MAX_META_KEY_LENGTH,
     MAX_META_VALUE_LENGTH,
@@ -48,18 +53,25 @@ from app.schemas.limits import (
     MAX_PUSH_KEY_LENGTH,
     MAX_QUESTIONS,
     MAX_RUN_EVENTS,
+    MAX_SHORT_LABEL_LENGTH,
     MAX_SOURCE_LENGTH,
     MAX_STEPS,
     MAX_STR_LENGTH,
+    MAX_TAG_LENGTH,
+    MAX_TAGS,
     MAX_TIMEZONE_LENGTH,
     MAX_TOPIC_NAME_LENGTH,
     MAX_UNIT_LENGTH,
     MAX_USER_AGENT_LENGTH,
+    MAX_VAR_NAME_LENGTH,
+    MAX_VARIABLES,
     SCHEDULE_MAX_TIMES,
     SLUG_PATTERN,
     TIME_PATTERN,
 )
 from app.schemas.questions import KEY_PATTERN, AnswerValue, Question, QuestionKey, QuestionList, Timer
+from app.services import appearance as appearance_svc
+from app.services.appearance import COLOR_NAMES, ColorName
 
 __all__ = ["FieldIssue", "Problem", "QuestionList"]
 
@@ -197,6 +209,89 @@ ExpectedRevision = Annotated[
 ]
 
 
+def _not_nullable(schema: dict[str, Any]) -> None:
+    """Drop ``null`` from an optional field's schema: absent is allowed, ``null`` is refused."""
+    schema.update(next(s for s in schema.pop("anyOf") if s.get("type") != "null"))
+
+
+# T2-M3: topic appearance (docs/specs/appearance.md §1.1, §1.3, §2; services/appearance.py)
+# ---------------------------------------------------------------------------
+# Appearance
+# ---------------------------------------------------------------------------
+
+
+def _check_icon(v: str) -> str:
+    try:
+        return appearance_svc.check_icon(v)
+    except appearance_svc.AppearanceError as exc:
+        raise field_error("", exc.message, "icon") from None
+
+
+def _check_tags(v: list[str]) -> list[str]:
+    try:
+        return appearance_svc.check_tags(v)
+    except appearance_svc.AppearanceError as exc:
+        raise field_error("" if exc.index is None else str(exc.index), exc.message, "tags") from None
+
+
+# Not stripped (unlike every other string): " 🚬" is refused, as both clients refuse it.
+IconValue = Annotated[
+    str,
+    StringConstraints(strip_whitespace=False),
+    AfterValidator(_check_icon),
+    Field(
+        examples=["🚬"],
+        description="One emoji (one grapheme cluster that starts as an emoji: a pictograph, a flag or a "
+        f"keycap), at most {MAX_ICON_LENGTH} code points. Stored NFC, with U+FE0F added after a "
+        "text-presentation pictograph.",
+    ),
+]
+Tags = Annotated[
+    list[str],
+    AfterValidator(_check_tags),
+    Field(
+        description=f"At most {MAX_TAGS} labels, each trimmed with inner whitespace collapsed, 1-"
+        f"{MAX_TAG_LENGTH} characters, no control characters, unique ignoring case; order kept.",
+    ),
+]
+
+
+class TopicIcon(StrictModel):
+    kind: Literal["emoji"] = Field(description="Only emoji for now; more kinds may be added.")
+    value: IconValue
+
+
+class TopicAppearance(StrictModel):
+    """A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, [])."""
+
+    color: ColorName | None = Field(
+        default=None, description=f"One of the palette's names: {', '.join(COLOR_NAMES)}."
+    )
+    icon: TopicIcon | None = None
+    tags: Tags = []
+
+
+class AppearanceUpdate(StrictModel):
+    """Partial appearance update: an omitted field is unchanged; ``color: null`` and ``icon: null``
+    clear; ``tags: []`` clears the tags."""
+
+    color: ColorName | None = Field(default=None, description="null clears the colour.")
+    icon: TopicIcon | None = Field(default=None, description="null clears the icon.")
+    tags: Tags | None = Field(
+        default=None, json_schema_extra=_not_nullable, description="Replaces the tags; [] clears them."
+    )
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags_not_null(cls, v: object) -> object:
+        if v is None:
+            raise PydanticCustomError("tags_null", "send [] to clear the tags")
+        return v
+
+
+# end T2-M3
+
+
 # ---------------------------------------------------------------------------
 # Topics
 # ---------------------------------------------------------------------------
@@ -211,6 +306,11 @@ class TopicCreate(StrictModel):
     timer: Timer | None = Field(
         default=None, description="Makes the topic timed (optional; null: not timed)."
     )
+    # T2-M3
+    appearance: TopicAppearance | None = Field(
+        default=None, description="Colour, emoji and tags (optional; null: none of them)."
+    )
+    # end T2-M3
 
 
 class TopicUpdate(StrictModel):
@@ -224,6 +324,23 @@ class TopicUpdate(StrictModel):
     description: Description | None = None
     schedule: Schedule | None = None
     expected_revision: ExpectedRevision = None
+    # T2-M3: optional but not nullable, like EntryUpdate.timing
+    appearance: AppearanceUpdate | None = Field(
+        default=None,
+        json_schema_extra=_not_nullable,
+        description="Changes the fields it holds; null is refused (clear fields individually).",
+    )
+
+    @field_validator("appearance", mode="before")
+    @classmethod
+    def _appearance_not_null(cls, v: object) -> object:
+        if v is None:
+            raise PydanticCustomError(
+                "appearance_null", "clear fields individually (color: null, icon: null, tags: [])"
+            )
+        return v
+
+    # end T2-M3
 
 
 class TopicSummary(StrictModel):
@@ -246,6 +363,9 @@ class TopicSummary(StrictModel):
     )
     due: DueStatus | None = Field(description="Null when the topic has no schedule.")
     timer: Timer | None = Field(description="The current version's timer; null when the topic is not timed.")
+    # T2-M3
+    appearance: TopicAppearance = Field(description="Colour, emoji and tags; every key always present.")
+    # end T2-M3
 
 
 class TopicDetail(TopicSummary):
@@ -482,11 +602,6 @@ class TimingEdit(StrictModel):
     pauses: Annotated[list[TimingEditPause], Field(max_length=MAX_RUN_EVENTS)] = Field(
         description="Sorted, not overlapping, within the run."
     )
-
-
-def _not_nullable(schema: dict[str, Any]) -> None:
-    """Drop ``null`` from an optional field's schema: absent is allowed, ``null`` is refused."""
-    schema.update(next(s for s in schema.pop("anyOf") if s.get("type") != "null"))
 
 
 class EntryUpdate(StrictModel):
@@ -789,6 +904,23 @@ class Limits(StrictModel):
     schedule_max_times: int = SCHEDULE_MAX_TIMES
     interval_min_minutes: int = INTERVAL_MIN_MINUTES
     interval_max_minutes: int = INTERVAL_MAX_MINUTES
+    # T2-M1: Timer v2 (docs/specs/timers2.md §1.2)
+    max_steps: int = MAX_STEPS
+    max_lap_types: int = MAX_LAP_TYPES
+    max_variables: int = MAX_VARIABLES
+    max_alerts: int = MAX_ALERTS
+    max_expr_length: int = MAX_EXPR_LENGTH
+    max_var_name_length: int = MAX_VAR_NAME_LENGTH
+    max_short_label_length: int = MAX_SHORT_LABEL_LENGTH
+    # end T2-M1
+    # T2-M3: topic appearance (docs/specs/appearance.md §1.3)
+    max_tags: int = MAX_TAGS
+    max_tag_length: int = MAX_TAG_LENGTH
+    max_icon_length: int = MAX_ICON_LENGTH
+    color_names: list[ColorName] = Field(
+        default_factory=lambda: list(COLOR_NAMES), description="The palette's names, in palette order."
+    )
+    # end T2-M3
 
 
 # ---------------------------------------------------------------------------

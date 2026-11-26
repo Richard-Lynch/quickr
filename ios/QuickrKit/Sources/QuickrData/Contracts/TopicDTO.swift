@@ -19,6 +19,55 @@ public struct DueStatusDTO: Codable, Sendable, Hashable, DomainConvertible {
     }
 }
 
+/// `Timer` as the server returns it (timers2.md §1.4): normalised, so every key is required on
+/// the wire. Wire validation only until the v2 `TopicTimer` lands (I1-CORE): the domain keeps
+/// the steps; lap types, variables and alerts are decoded and dropped.
+public struct TopicTimerDTO: Codable, Sendable, Hashable, DomainConvertible {
+    public var steps: [StepDTO]
+    public var laps: [LapTypeDTO]
+    public var variables: [VariableDTO]
+
+    public struct StepDTO: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var alerts: [AlertDTO]
+    }
+
+    public struct LapTypeDTO: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var alerts: [AlertDTO]
+    }
+
+    public struct VariableDTO: Codable, Sendable, Hashable {
+        public var name: String
+        public var ms: Int
+    }
+
+    public struct AlertDTO: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var at: String
+        public var atMs: Int
+
+        enum CodingKeys: String, CodingKey {
+            case key, label, at
+            case atMs = "at_ms"
+        }
+    }
+
+    /// The server's normalised form of a v1 timer (no lap types, variables or alerts).
+    public init(_ timer: TopicTimer) {
+        steps = timer.steps.map { StepDTO(key: $0.key, label: $0.label, alerts: []) }
+        laps = []
+        variables = []
+    }
+
+    public func toDomain() -> TopicTimer {
+        TopicTimer(steps: steps.map { TopicTimer.Step(key: $0.key, label: $0.label) })
+    }
+}
+
 /// `TopicDetail`: the response of getTopic, createTopic, updateTopic, archive, unarchive and
 /// publishTopicVersion, and the record in a feed `topic` item.
 public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
@@ -38,11 +87,17 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     @RequiredKey public var schedule: ScheduleDTO?
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
-    @RequiredKey public var timer: TopicTimer?
+    @RequiredKey public var timer: TopicTimerDTO?
+    // T2-M3
+    /// `TopicSummary.appearance` (appearance.md §1.1): optional until the store keeps it
+    /// (I3-STORE makes it a required key); not mapped to the domain yet.
+    public var appearance: TopicAppearance?
+    // end T2-M3
     public var questions: [QuestionDTO]
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer, questions
+        case appearance  // T2-M3
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -59,7 +114,7 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
             currentVersion: currentVersion, revision: revision, questionCount: questionCount, entryCount: entryCount,
             lastCapturedAt: lastCapturedAt, createdAt: createdAt, updatedAt: updatedAt, archivedAt: archivedAt,
             schedule: try schedule?.toDomain(), scheduleUpdatedAt: scheduleUpdatedAt, due: due?.toDomain(),
-            timer: timer, questions: try questions.toDomain())
+            timer: timer?.toDomain(), questions: try questions.toDomain())
     }
 }
 
@@ -81,10 +136,15 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     @RequiredKey public var schedule: ScheduleDTO?
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
-    @RequiredKey public var timer: TopicTimer?
+    @RequiredKey public var timer: TopicTimerDTO?
+    // T2-M3
+    /// See `TopicDetailDTO.appearance`.
+    public var appearance: TopicAppearance?
+    // end T2-M3
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer
+        case appearance  // T2-M3
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -101,7 +161,7 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
             currentVersion: currentVersion, revision: revision, questionCount: questionCount, entryCount: entryCount,
             lastCapturedAt: lastCapturedAt, createdAt: createdAt, updatedAt: updatedAt, archivedAt: archivedAt,
             schedule: try schedule?.toDomain(), scheduleUpdatedAt: scheduleUpdatedAt, due: due?.toDomain(),
-            timer: timer)
+            timer: timer?.toDomain())
     }
 }
 
@@ -122,7 +182,7 @@ where Item.Domain: Hashable {
 public struct TopicVersionDTO: Codable, Sendable, Hashable, DomainConvertible {
     public var version: Int
     public var questions: [QuestionDTO]
-    @RequiredKey public var timer: TopicTimer?
+    @RequiredKey public var timer: TopicTimerDTO?
     public var changeNote: String
     public var createdAt: Date
     public var entryCount: Int
@@ -136,7 +196,7 @@ public struct TopicVersionDTO: Codable, Sendable, Hashable, DomainConvertible {
 
     public func toDomain() throws -> TopicVersion {
         TopicVersion(
-            version: version, questions: try questions.toDomain(), timer: timer, changeNote: changeNote,
+            version: version, questions: try questions.toDomain(), timer: timer?.toDomain(), changeNote: changeNote,
             createdAt: createdAt, entryCount: entryCount)
     }
 }

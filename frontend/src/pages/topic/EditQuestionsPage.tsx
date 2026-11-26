@@ -20,7 +20,7 @@ import {
   listTopicVersionsOptions,
   publishTopicVersionMutation,
 } from '../../client/@tanstack/react-query.gen';
-import type { CompatibilityReport, Timer, TopicDetail } from '../../client';
+import type { CompatibilityReport, TimerInput as Timer, TopicDetail } from '../../client';
 import { Page, StickyActions, TopBar } from '../../components/AppShell';
 import { CompatReport } from '../../components/builder/CompatReport';
 import { builderFieldFor } from '../../components/builder/serverErrors';
