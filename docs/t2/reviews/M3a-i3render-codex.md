@@ -30,3 +30,12 @@ The header reads the stored `Topic.appearance`, and the amended §4.3 supports t
 
 The host tests cover the header content model; they do not verify the iOS layout, VoiceOver tree, or live observation. I did not run tests. The deferred Live Activity patch was outside this review.
 **Resolution:** no findings. The round 1/2 finding 1 is closed by the lead amending §4.3 (028d1546).
+
+## Round 4 (Codex, full diff origin/t2/m3a...HEAD after #211 merged)
+
+Findings: none.
+
+The earlier no-colour finding is resolved by the amended §4.3, and the header observation is now keyed by both the session binding and topic reference. The Live Activity attributes patch was excluded as the deliberate follow-on held on M1-LA-STATE.
+
+I did not run tests or verify the iOS layout and accessibility tree on a simulator.
+**Resolution:** no findings.
