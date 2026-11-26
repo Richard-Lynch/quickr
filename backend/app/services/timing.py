@@ -20,7 +20,7 @@ from app.schemas.api import (
     TopicTiming,
 )
 from app.services import run_fold, timing_stats
-from app.services.entries import apply_filters
+from app.services.entries import apply_filters, fold_timer
 from app.services.topics import parse_timer, resolve_topic
 
 
@@ -53,14 +53,7 @@ async def topic_timing(db: AsyncSession, ref: str, filters: EntryFilters) -> Top
             )
         ).all():
             timer = parse_timer(raw)
-            versions[number] = (
-                None
-                if timer is None
-                else run_fold.Timer(
-                    steps=tuple(run_fold.Step(s.key, s.label) for s in timer.steps),
-                    laps=tuple(run_fold.LapType(lap.key, lap.label) for lap in getattr(timer, "laps", ())),
-                )
-            )
+            versions[number] = None if timer is None else fold_timer(timer)
         return _out(timing_stats.timing_stats(entries, versions, topic.current_version))
     finally:
         await db.rollback()  # ends the snapshot

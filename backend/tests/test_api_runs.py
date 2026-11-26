@@ -36,11 +36,9 @@ VECTORS = json.loads((FIXTURES_DIR / "run-fold-vectors.json").read_text())
 
 
 def server_ready(case: dict[str, Any]) -> bool:
-    """Whether the endpoint can take the case today: a timer of steps only (lap types need the
-    stored ``Timer`` v2 schema, M1-DB) and no ``reopen`` or ``remove`` (their write path is
-    M1-RUNS). M1-RUNS widens this to every case (timers2.md T18)."""
-    timer = VECTORS["timer_sets"][case["timer"]]
-    return not timer["laps"] and all(e["type"] not in ("reopen", "remove") for e in case["events"])
+    """Whether the endpoint can take the case today: no ``reopen`` or ``remove`` (their write path
+    is M1-RUNS, which widens this to every case, timers2.md T18)."""
+    return all(e["type"] not in ("reopen", "remove") for e in case["events"])
 
 
 def frozen_clock(monkeypatch: pytest.MonkeyPatch, at: datetime) -> None:
@@ -145,7 +143,7 @@ async def test_fold_vectors_through_the_endpoint(
     start = run_fold.from_ms(run_fold.parse_instant(events[0]["at"]))
     # Late enough for every event (at most 24h ahead), early enough for the start (7 days old).
     frozen_clock(monkeypatch, start + timedelta(days=7) - timedelta(hours=1))
-    topic = await timed(client, steps=VECTORS["timer_sets"][case["timer"]]["steps"])
+    topic = await timed(client, timer=VECTORS["timer_sets"][case["timer"]])  # lap types included
     run_id = VECTORS["meta"]["run_id"]
     expected = case["expected"]
     effects = expected["state"]["effects"]

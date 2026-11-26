@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from app.schemas.questions import Timer as Timer_v2
 from app.services import run_fold, timing_stats
 from app.services.run_fold import LapType, Pause, Step, Timer
 from tests.spec_cases import timing_stats_v3_cases
@@ -76,21 +77,25 @@ def untimed(n: int) -> dict[str, Any]:
     return {"entry_id": entry_id(n), "captured_at": run_fold.format_instant(T0 + n * DAY), "timing": None}
 
 
-def timer_json(timer: Timer | None) -> dict[str, list[dict[str, str]]] | None:
-    """A version's timer as the vectors carry it: plain ``{steps, laps}`` until the stored
-    ``Timer`` v2 schema exists (M1-DB)."""
+def timer_json(timer: Timer | None) -> dict[str, Any] | None:
+    """A version's timer as a topic version serves it: the normalised ``Timer`` v2 output."""
     if timer is None:
         return None
-    return {
+    sent = {
         "steps": [{"key": s.key, "label": s.label} for s in timer.steps],
         "laps": [{"key": t.key, "label": t.label} for t in timer.laps],
     }
+    out: dict[str, Any] = Timer_v2.model_validate(sent).model_dump(mode="json")
+    return out
 
 
-def to_timer(d: dict[str, list[dict[str, str]]] | None) -> Timer | None:
+def to_timer(d: dict[str, Any] | None) -> Timer | None:
     if d is None:
         return None
-    return Timer(steps=[Step(**s) for s in d["steps"]], laps=[LapType(**t) for t in d["laps"]])
+    return Timer(
+        steps=[Step(s["key"], s["label"]) for s in d["steps"]],
+        laps=[LapType(t["key"], t["label"]) for t in d["laps"]],
+    )
 
 
 def steps_only(**versions: list[Step] | None) -> dict[int, Timer | None]:
@@ -341,7 +346,7 @@ def build() -> dict[str, Any]:
                 "median: the middle value of the sorted values, or floor((a + b) / 2) of the two middle "
                 "ones. mean: floor(sum / n).",
                 "versions keys are version numbers as strings: order them as numbers; each value is "
-                "that version's timer ({steps, laps}), or null when timing is off. "
+                "that version's timer (a normalised Timer v2), or null when timing is off. "
                 "steps: every key seen in range (a segment's step, or in skipped); the current version's "
                 "keys first in its step order, then the rest by key (code point order). done = runs with "
                 "a segment for the key, skipped = runs that skipped it; best, median and mean over the "

@@ -439,11 +439,12 @@ def _fold(run: Run, version: TopicVersion, events: Sequence[RunEvent]) -> run_fo
         [
             run_fold.Event(
                 id=str(e.id),
-                type=cast("run_fold.EventType", e.type.value),  # as above (M1-FOLD)
+                type=e.type.value,
                 at=run_fold.to_ms(e.at),
                 seg=e.seg,
                 step=e.step,
                 pause_id=None if e.pause_id is None else str(e.pause_id),
+                target=None if e.target_id is None else str(e.target_id),
             )
             for e in events
         ],

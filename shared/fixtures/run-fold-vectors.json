@@ -102,7 +102,7 @@
     "run_id": "0a000000-0000-4000-8000-000000000000",
     "semantics": [
       "docs/specs/timers.md §4 (the fold), §2.3 (timing), as changed by docs/specs/timers2.md §3 (fold v4; its §3.4 pseudocode is normative). Parse every `at` to integer epoch milliseconds, truncating sub-millisecond digits (never rounding, never through a float or a Date); all arithmetic is integer.",
-      "fold(run_id, timer, events, frozen): `timer` is timer_sets[case.timer] (its steps and lap types). Events are in server arrival order. Pass 1, arrival: skip an id already seen (ids compared lowercase; the first occurrence wins); `finish` gets no effect (the server decides it); with `frozen`, every event at arrival index >= frozen.after is void with frozen.reason and not folded; a `start` is applied if its id is run_id, else void `merged`; the first `stop`/`discard` is the terminal, later ones void `already_closed`; a `stop` before the start is void `before_start`, one more than max_run_ms after it void `too_long`, whenever it arrives (checked before `already_closed`), and neither closes the run. A stop ends the open reopen transaction.",
+      "fold(run_id, timer, events, frozen): `timer` is timer_sets[case.timer], a normalised Timer v2 (timers2.md §1); the fold reads its steps and lap types only. Events are in server arrival order. Pass 1, arrival: skip an id already seen (ids compared lowercase; the first occurrence wins); `finish` gets no effect (the server decides it); with `frozen`, every event at arrival index >= frozen.after is void with frozen.reason and not folded; a `start` is applied if its id is run_id, else void `merged`; the first `stop`/`discard` is the terminal, later ones void `already_closed`; a `stop` before the start is void `before_start`, one more than max_run_ms after it void `too_long`, whenever it arrives (checked before `already_closed`), and neither closes the run. A stop ends the open reopen transaction.",
       "Pass 1, reopen (target = a stop): `no_target` unless that stop was seen; `already_closed` when the terminal is a discard; `not_stopped` unless the target is the current terminal; `stale` if at <= the stop's at; `too_long` past max_run_ms; else applied: the terminal clears, (stop, reopen) is the open transaction and a role pair. A discard while a transaction is open reverts it: the reopen becomes void `reverted`, the stop is the terminal again (re-applied if it had been removed, that remove void `no_target`), the pair is no longer a role, and the discard is applied. remove: `no_target` unless the target was seen, isn't removed yet, at > target.at, and it is a pause, a lap, or a stop of a current role pair (that stop becomes void `deleted`; its reopen stays applied). No 7-day bound on remove. Effects are recomputed from scratch on every fold.",
       "Pass 2, by (at, rank, lowercase id) ascending: each role pair's stop is a gap pause (rank 0, id = the stop's; left out when the stop is removed) and its reopen a gap resume (rank 2, id = the reopen's); user events rank 1, where a resume with the same at as the pause its pause_id names sorts right after that pause (several such resumes by lowercase id). Roles outside [start, terminal.at] are skipped; they get no effect. A gap pause opens a pause if none is open and takes it over (pause id = the stop's); a gap resume ends whatever pause is open. User events: void `before_start` if at < start; `after_stop` if at > terminal.at; `too_long` if at > start + max_run_ms; a removed event is `deleted` (a removed lap whose seg matched becomes a ghost (lap.at, remove.at)); a resume naming a removed pause is `deleted`; next/lap/skip with seg != expected: `stale`, where expected = closed segments + ghosts with ghost.at < at < ghost.removed_at. next closes the open segment and opens the next pending step (a lap when none is left); lap closes it and opens a lap (pending unchanged). skip on a step segment must name that step (else `stale`): it joins `skipped` and the open segment is relabelled to the next pending step (or a lap); skip on a lap: `no_step` if nothing is pending, `stale` unless it names the head of pending, which joins `skipped`. pause: `already_paused` if paused. resume: `not_paused` if not paused, `stale` unless pause_id is the open pause's id; else the pause [paused_since, at) closes.",
       "Terminal stop: an open pause ends at the stop, the open segment closes at it, status `stopped` (the server says `finishing` while required answers are missing). Discard: status `discarded`, no open segment or pause. Otherwise `paused` or `running`.",
@@ -115,81 +115,99 @@
   "timer_sets": {
     "none": {
       "laps": [],
-      "steps": []
+      "steps": [],
+      "variables": []
     },
     "renamed": {
       "laps": [
         {
+          "alerts": [],
           "key": "cig",
           "label": "Cig"
         }
       ],
-      "steps": []
+      "steps": [],
+      "variables": []
     },
     "three": {
       "laps": [],
       "steps": [
         {
+          "alerts": [],
           "key": "shower",
           "label": "Shower"
         },
         {
+          "alerts": [],
           "key": "breakfast",
           "label": "Breakfast"
         },
         {
+          "alerts": [],
           "key": "dress",
           "label": "Get dressed"
         }
-      ]
+      ],
+      "variables": []
     },
     "three_types": {
       "laps": [
         {
+          "alerts": [],
           "key": "run",
           "label": "Run"
         },
         {
+          "alerts": [],
           "key": "rest",
           "label": "Rest"
         },
         {
+          "alerts": [],
           "key": "walk",
           "label": "Walk"
         }
       ],
       "steps": [
         {
+          "alerts": [],
           "key": "warmup",
           "label": "Warmup"
         }
-      ]
+      ],
+      "variables": []
     },
     "tiktok": {
       "laps": [
         {
+          "alerts": [],
           "key": "run",
           "label": "Run"
         },
         {
+          "alerts": [],
           "key": "rest",
           "label": "Rest"
         }
       ],
-      "steps": []
+      "steps": [],
+      "variables": []
     },
     "two": {
       "laps": [],
       "steps": [
         {
+          "alerts": [],
           "key": "shower",
           "label": "Shower"
         },
         {
+          "alerts": [],
           "key": "breakfast",
           "label": "Breakfast"
         }
-      ]
+      ],
+      "variables": []
     }
   },
   "timings": [

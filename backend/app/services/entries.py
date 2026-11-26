@@ -48,6 +48,7 @@ from app.schemas.api import (
     Timing,
     TimingEdit,
 )
+from app.schemas.questions import Timer as StoredTimer
 from app.services import run_fold
 from app.services.answers import TypedAnswer, validate_answers
 from app.services.feed import (
@@ -274,17 +275,20 @@ async def update_entry(db: AsyncSession, entry_id: UUID, body: EntryUpdate) -> E
     return await get_entry(db, s.id)
 
 
-def version_timer(version: TopicVersion) -> run_fold.Timer:
-    """What the fold needs of ``version``'s timer: its steps and lap types (timers2.md §3.1).
-    ``laps`` is read when the stored ``Timer`` schema carries it (M1-DB) and empty before."""
-    timer = parse_timer(version.timer)
+def fold_timer(timer: StoredTimer | None) -> run_fold.Timer:
+    """What the fold needs of a stored timer: its steps and lap types (timers2.md §3.1).
+    Variables and alerts are not fold inputs; no timer is an empty one."""
     if timer is None:
         return run_fold.Timer()
-    laps = getattr(timer, "laps", ())
     return run_fold.Timer(
         steps=tuple(run_fold.Step(s.key, s.label) for s in timer.steps),
-        laps=tuple(run_fold.LapType(lap.key, lap.label) for lap in laps),
+        laps=tuple(run_fold.LapType(lap.key, lap.label) for lap in timer.laps),
     )
+
+
+def version_timer(version: TopicVersion) -> run_fold.Timer:
+    """The fold's view of ``version``'s timer."""
+    return fold_timer(parse_timer(version.timer))
 
 
 def edited_timing(

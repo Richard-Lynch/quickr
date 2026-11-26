@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.schemas.questions import Timer as Timer_v2
 from app.services import run_fold
 from app.services.run_fold import Event, Frozen, FrozenReason, LapType, Step, Timer
 from tests.spec_cases import run_fold_v4_cases
@@ -27,10 +28,10 @@ GENERATOR_VERSION = 4
 RUN = "0a000000-0000-4000-8000-000000000000"
 T0 = run_fold.parse_instant("2026-10-23T08:00:00Z")
 
-# timers2.md §3.1. What the fold reads of a version's timer: its steps and lap types. Plain
-# dicts until the stored ``Timer`` v2 schema exists (M1-DB); then they become its normalised
-# output.
-TIMER_SETS: dict[str, dict[str, list[dict[str, str]]]] = {
+# timers2.md §3.1: the timers the cases run on, as sent. ``TIMER_SETS`` is each one's normalised
+# ``Timer`` v2 output (every list present, ``at_ms`` filled), what a topic version serves; the fold
+# reads its steps and lap types.
+TIMERS_IN: dict[str, dict[str, list[dict[str, str]]]] = {
     "none": {"steps": [], "laps": []},
     "two": {
         "steps": [{"key": "shower", "label": "Shower"}, {"key": "breakfast", "label": "Breakfast"}],
@@ -55,6 +56,14 @@ TIMER_SETS: dict[str, dict[str, list[dict[str, str]]]] = {
         ],
     },
 }
+
+
+def normalised(timer: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = Timer_v2.model_validate(timer).model_dump(mode="json")
+    return out
+
+
+TIMER_SETS: dict[str, dict[str, Any]] = {name: normalised(t) for name, t in TIMERS_IN.items()}
 
 
 def eid(n: int) -> str:
@@ -871,8 +880,13 @@ def to_event(d: dict[str, Any]) -> Event:
     )
 
 
-def to_timer(d: dict[str, list[dict[str, str]]]) -> Timer:
-    return Timer(steps=[Step(**s) for s in d["steps"]], laps=[LapType(**t) for t in d["laps"]])
+def to_timer(d: dict[str, Any]) -> Timer:
+    """The fold's view of a served timer: steps and lap types (alerts and variables aren't
+    fold inputs)."""
+    return Timer(
+        steps=[Step(s["key"], s["label"]) for s in d["steps"]],
+        laps=[LapType(t["key"], t["label"]) for t in d["laps"]],
+    )
 
 
 def timer_of(name: str) -> Timer:
@@ -919,8 +933,10 @@ def build() -> dict[str, Any]:
                 "§3 (fold v4; its §3.4 pseudocode is normative). Parse every `at` to integer epoch "
                 "milliseconds, truncating sub-millisecond digits (never rounding, never through a float "
                 "or a Date); all arithmetic is integer.",
-                "fold(run_id, timer, events, frozen): `timer` is timer_sets[case.timer] (its steps and "
-                "lap types). Events are in server arrival order. Pass 1, arrival: "
+                "fold(run_id, timer, events, frozen): `timer` is timer_sets[case.timer], a normalised "
+                "Timer v2 (timers2.md §1); the fold reads its steps and lap types only. "
+                "Events are in server arrival order. "
+                "Pass 1, arrival: "
                 "skip an id already seen (ids compared lowercase; the first occurrence wins); `finish` "
                 "gets no effect (the server decides it); with `frozen`, every event at arrival index >= "
                 "frozen.after is void with frozen.reason and not folded; a `start` is applied if its id is "

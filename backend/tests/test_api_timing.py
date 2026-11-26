@@ -20,21 +20,12 @@ from app.models import Channel, Entry, Topic, TopicVersion
 from app.services import run_fold
 from app.services.timing_stats import timing_stats
 from tests.helpers import make_topic, record
-from tests.spec_cases import timing_stats_v3_cases
 from tests.test_timing_stats_vectors import stats_json, to_entry, to_timer
 from tests.vectors import FIXTURES_DIR
 
 VECTORS = json.loads((FIXTURES_DIR / "timing-stats-vectors.json").read_text())["cases"]
 CASES = {c["name"]: c for c in VECTORS}
 SLUG = "routine"
-
-
-def storable(case: dict[str, Any]) -> bool:
-    """Whether a topic version can hold the case's timers. Until the stored ``Timer`` v2 schema
-    (M1-DB) a version has steps only, so the lap-type cases of timers2.md §7.4 are checked
-    against the pure function (``test_timing_stats_vectors.py``) and join this endpoint test
-    with M1-MCP, which also adds ``lap_types`` to the ``TopicTiming`` schema."""
-    return all(t is None or not t["laps"] for t in case["versions"].values())
 
 
 def served(stats: dict[str, Any]) -> dict[str, Any]:
@@ -98,15 +89,10 @@ def expected(case: dict[str, Any], indices: list[int]) -> dict[str, Any]:
     return served(stats_json(timing_stats(entries, versions, case["current_version"])))
 
 
-@pytest.mark.parametrize("name", [n for n, c in CASES.items() if storable(c)])
+@pytest.mark.parametrize("name", list(CASES))
 async def test_endpoint_matches_the_vectors(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
     await seed(db, CASES[name])
     assert await timing(client) == served(CASES[name]["expected"])
-
-
-def test_every_case_the_endpoint_skips_is_a_lap_type_case() -> None:
-    """The cases left out above are exactly timers2.md §7.4's, so nothing else drops out."""
-    assert sorted(n for n, c in CASES.items() if not storable(c)) == sorted(timing_stats_v3_cases())
 
 
 async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.AsyncClient) -> None:
