@@ -4,11 +4,13 @@ Generators build their output deterministically and call :func:`check_or_write`.
 With ``QUICKR_UPDATE_VECTORS=1`` (``make vectors``) the file is (re)written;
 otherwise the test fails if the committed file differs -- the same pattern as
 ``openapi.json``, so logic changes can't silently leave the Swift port's
-fixtures behind.
+fixtures behind. A mismatch prints a compact unified diff of the first changed lines
+(:func:`drift_diff`), so a drift that only CI sees names its case.
 """
 
 from __future__ import annotations
 
+import difflib
 import json
 import os
 from pathlib import Path
@@ -16,6 +18,9 @@ from typing import Any
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "shared" / "fixtures"
 UPDATE_ENV = "QUICKR_UPDATE_VECTORS"
+# The drift report: at most this many diff lines, each cut to about this many characters.
+DRIFT_MAX_LINES = 40
+DRIFT_WIDTH = 240
 
 
 def updating() -> bool:
@@ -32,7 +37,62 @@ def check_or_write(path: Path, content: str) -> None:
         path.write_text(content)
         return
     assert path.exists(), stale_message(path)
-    assert path.read_text() == content, stale_message(path)
+    committed = path.read_text()
+    assert committed == content, f"{stale_message(path)}\n{drift_diff(committed, content)}"
+
+
+def _first_difference(a: str, b: str) -> int:
+    return next((i for i, (x, y) in enumerate(zip(a, b, strict=False)) if x != y), min(len(a), len(b)))
+
+
+def _clip(line: str, at: int) -> str:
+    """``line`` cut to about ``DRIFT_WIDTH``: its head (the case's name, in ``dump_cases``
+    lines) and the window around column ``at``, where it differs from its counterpart."""
+    if len(line) <= DRIFT_WIDTH:
+        return line
+    head = DRIFT_WIDTH // 3
+    start = max(head, at - DRIFT_WIDTH // 3)
+    end = start + DRIFT_WIDTH - head
+    gap = "" if start == head else " … "
+    return line[:head] + gap + line[start:end] + (" …" if end < len(line) else "")
+
+
+def drift_diff(committed: str, generated: str) -> str:
+    """A compact unified diff (no context) of the committed file and the generated content:
+    the first ``DRIFT_MAX_LINES`` lines of it, a long line clipped around the column where it
+    differs from its counterpart (the n-th removed and the n-th added line of a hunk)."""
+    out: list[str] = []
+    removed: list[str] = []
+    added: list[str] = []
+
+    def flush() -> None:
+        for i, line in enumerate(removed):
+            other = added[i] if i < len(added) else line
+            out.append("-" + _clip(line, _first_difference(line, other)))
+        for i, line in enumerate(added):
+            other = removed[i] if i < len(removed) else line
+            out.append("+" + _clip(line, _first_difference(line, other)))
+        removed.clear()
+        added.clear()
+
+    diff = difflib.unified_diff(
+        committed.splitlines(), generated.splitlines(), "committed", "generated", n=0, lineterm=""
+    )
+    for line in diff:
+        if line.startswith(("---", "+++", "@@")):
+            flush()
+            out.append(line)
+        elif line.startswith("-"):
+            removed.append(line[1:])
+        elif line.startswith("+"):
+            added.append(line[1:])
+    flush()
+    if not out:
+        return "(no line differs: only the final newline does)"
+    shown = out[:DRIFT_MAX_LINES]
+    if len(out) > DRIFT_MAX_LINES:
+        shown.append(f"… and {len(out) - DRIFT_MAX_LINES} more changed lines")
+    return "\n".join(shown)
 
 
 def dump_json(value: Any) -> str:
