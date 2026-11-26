@@ -326,7 +326,13 @@ public final class EditModel: EntryDetailsEditing {
     /// "Save times": saved, the sheet closes and the entry shows its new times. Unsaved answer and
     /// notes edits stay on the form, now based on the saved revision.
     public func saveTiming() async {
-        guard !removeQueued, let editor = timingEditor, let saved = await editor.save() else { return }
+        // A remove queued meanwhile: Edit times waits for it, so the sheet closes unsaved.
+        if removeQueued { timingEditor = nil }
+        guard let editor = timingEditor else { return }
+        guard let saved = await editor.save() else {
+            if removeQueued { timingEditor = nil }
+            return
+        }
         timingEditor = nil
         adopt(times: saved)
         _ = toasts.center.show(Toast("Times updated"))

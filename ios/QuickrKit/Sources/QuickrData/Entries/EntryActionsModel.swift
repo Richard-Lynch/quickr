@@ -135,7 +135,8 @@ public final class EntryActionsModel {
                 await runActions.remove(runId: entry.entry.id.wireString, topicId: topicId, target: remove.target)
                 != nil
         }
-        if !sent { onRefused?(Self.removeRefused) }
+        // Held at once, not only when the outbox observation catches up.
+        if sent { removeQueued = true } else { onRefused?(Self.removeRefused) }
         return sent
     }
 

@@ -9,12 +9,15 @@ final class FakeTimingWriter: EntryTimingWriting {
     private(set) var saves: [(edit: TimingDraft.Edit, revision: Int)] = []
     private(set) var reloads = 0
     var saveResult: TopicWriteOutcome<Entry>?
+    /// Runs while a save is in flight (before it answers).
+    var duringSave: (@MainActor () -> Void)?
     var latest: Entry?
     /// The server's entry after a save: the edit's times at revision + 1.
     var steps: [TopicTimer.Step] = []
 
     func saveTiming(_ edit: TimingDraft.Edit, entryId: UUID, expectedRevision: Int) async -> TopicWriteOutcome<Entry> {
         saves.append((edit, expectedRevision))
+        duringSave?()
         if let saveResult { return saveResult }
         guard var entry = latest else { return .failed("no entry") }
         entry.timing = edit.timing(steps: steps)
@@ -324,6 +327,18 @@ private let utc = TimingEditClock(timeZone: TimeZone(identifier: "UTC")!)
         #expect(m.timingEditor == nil)
         await m.saveTiming()
         #expect(writer.saves.isEmpty)
+    }
+
+    /// Review R1 (Codex r2): a remove queued while a save is in flight, which then fails, closes
+    /// the sheet: it isn't left open with its saves refused.
+    @Test func aRemoveQueuedDuringAFailedSaveClosesTheSheet() async throws {
+        let m = editModel()
+        _ = try editor(m)
+        writer.saveResult = .failed("offline")
+        writer.duringSave = { m.removeQueued = true }
+        await m.saveTiming()
+        #expect(writer.saves.count == 1)
+        #expect(m.timingEditor == nil)
     }
 
     // MARK: - Lap types (content-display.md §3.2, timers2.md §3.2)

@@ -176,6 +176,7 @@ extension EntriesModelTests {
 
         let rows = EntryTimingModel.rows(try #require(model.entry.entry.timing))
         #expect(await model.remove(try #require(model.removeAction(rows[1]))))
+        #expect(model.removeQueued, "held at once, before the observation catches up")
         w.session.refresh.poke()
         try await eventually("the queued remove is seen") { await MainActor.run { model.removeQueued } }
         // A detail opened later reads it before it shows (no Edit times before the first
