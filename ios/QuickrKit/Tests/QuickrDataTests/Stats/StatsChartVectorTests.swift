@@ -500,7 +500,9 @@ import Testing
             today: expected.today, timeZone: zone)
         #expect(strip.firstDay == expected.firstDay)
         #expect(ActivityStrip.firstDay(today: expected.today) == expected.firstDay)
-        let cells = strip.cells.map { [JSONValue.string($0.day), .number(Double($0.count)), .number(Double($0.level))] }
+        let cells = strip.cells.map {
+            [JSONValue.string($0.day), .number(Double($0.count)), .number(Double($0.level))]
+        }
         #expect(cells == expected.cells)
         #expect(strip.max == expected.max)
         #expect(strip.total == expected.total)
@@ -531,16 +533,23 @@ import Testing
             capturedAt: expected.capturedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) },
             today: expected.today, timeZone: try Self.zone(expected.tz))
         let gb = Locale(identifier: "en_GB")
-        #expect(ActivityStrip.spokenWeek(.init(firstDay: "2026-11-02", count: 5), locale: gb) == "Week of 2 Nov: 5 entries")
-        #expect(ActivityStrip.spokenWeek(.init(firstDay: "2025-11-03", count: 1), locale: gb) == "Week of 3 Nov: 1 entry")
-        #expect(ActivityStrip.spokenWeek(.init(firstDay: "2026-11-02", count: 0), locale: Self.locale) == "Week of Nov 2: 0 entries")
+        #expect(
+            ActivityStrip.spokenWeek(.init(firstDay: "2026-11-02", count: 5), locale: gb) == "Week of 2 Nov: 5 entries")
+        #expect(
+            ActivityStrip.spokenWeek(.init(firstDay: "2025-11-03", count: 1), locale: gb) == "Week of 3 Nov: 1 entry")
+        #expect(
+            ActivityStrip.spokenWeek(.init(firstDay: "2026-11-02", count: 0), locale: Self.locale)
+                == "Week of Nov 2: 0 entries")
         #expect(strip.caption(locale: Self.locale) == "7 entries in the last 12 weeks")
-        #expect(ActivityStrip(capturedAt: [], today: "2026-11-25", timeZone: try Self.zone("UTC")).caption(locale: Self.locale) == "0 entries in the last 12 weeks")
+        #expect(
+            ActivityStrip(capturedAt: [], today: "2026-11-25", timeZone: try Self.zone("UTC")).caption(
+                locale: Self.locale) == "0 entries in the last 12 weeks")
     }
 
     /// JS `toISOString()`: UTC, milliseconds, `Z`.
     static func isoMilliseconds(_ date: Date) -> String {
-        date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true, timeZone: TimeZone(identifier: "UTC")!))
+        date.formatted(
+            Date.ISO8601FormatStyle(includingFractionalSeconds: true, timeZone: TimeZone(identifier: "UTC")!))
     }
 
     // MARK: - Sparklines (§4.3)

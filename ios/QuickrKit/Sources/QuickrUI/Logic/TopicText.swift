@@ -2,7 +2,8 @@ import Foundation
 import QuickrCore
 
 /// The tile's texts, ported from the PWA (`lib/dates.ts`, `lib/answerDisplay.ts`, `lib/format.ts`), in
-/// the device's calendar and locale like the PWA's `Intl` formats. Due texts are QuickrCore's `DueView`.
+/// the device's calendar and locale like the PWA's `Intl` formats; answers are the summary line's
+/// (`EntrySummary`), the same on every device. Due texts are QuickrCore's `DueView`.
 public struct TopicText: Sendable {
     public var calendar: Calendar
     public var locale: Locale
@@ -34,45 +35,16 @@ public struct TopicText: Sendable {
         return "just now"
     }
 
-    /// One answer as text, or nil when it can't be shown for this question (`formatAnswer`).
+    /// One answer as text, or nil when it can't be shown for this question: the summary line's
+    /// `EntrySummary.answerText` (content-display.md §1.1), so a row, a tile and a widget read an
+    /// answer the same way on every client: no thousands grouping, `.` decimal point rounded half
+    /// away from zero, text with its whitespace collapsed (nil when blank).
     public func answer(_ value: AnswerValue, for question: Question) -> String? {
-        switch question.kind {
-        case .int(let rules):
-            guard let n = value.number else { return nil }
-            return number(n, maxDecimals: 0) + (rules.unit.map { " \($0)" } ?? "")
-        case .double(let rules):
-            guard let n = value.number else { return nil }
-            return number(n, maxDecimals: rules.decimals ?? 3) + (rules.unit.map { " \($0)" } ?? "")
-        case .choice(let rules):
-            let label = { (value: String) in rules.options.first { $0.value == value }?.label ?? value }
-            switch value {
-            case .string(let v): return label(v)
-            case .strings(let vs): return vs.isEmpty ? nil : vs.map(label).joined(separator: ", ")
-            default: return nil
-            }
-        case .string:
-            if case .string(let s) = value { return s }
-            return nil
-        }
+        EntrySummary.answerText(value, for: question)
     }
 
     /// "1 entry", "1,234 entries" (`plural`).
     public func count(_ n: Int, _ one: String, _ many: String? = nil) -> String {
         "\(n.formatted(.number.locale(locale))) \(n == 1 ? one : many ?? one + "s")"
-    }
-
-    /// `toLocaleString(undefined, { maximumFractionDigits })`.
-    public func number(_ n: Double, maxDecimals: Int) -> String {
-        n.formatted(.number.precision(.fractionLength(0...max(0, maxDecimals))).locale(locale))
-    }
-}
-
-extension AnswerValue {
-    fileprivate var number: Double? {
-        switch self {
-        case .int(let n): Double(n)
-        case .double(let x): x
-        default: nil
-        }
     }
 }

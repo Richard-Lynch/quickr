@@ -18,9 +18,12 @@ final class EntriesTests: XCTestCase {
         return app
     }
 
+    /// The rows themselves (`entry.<uuid>`, `pending.<uuid>`), not their identified children
+    /// (`entry.<uuid>.summary`, `.timing`), which XCUITest lists under a combined row too.
     @MainActor
     private func rows(_ app: XCUIApplication, _ prefix: String) -> XCUIElementQuery {
-        app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", prefix))
+        let pattern = "^" + NSRegularExpression.escapedPattern(for: prefix) + "[0-9a-fA-F-]{36}$"
+        return app.descendants(matching: .any).matching(NSPredicate(format: "identifier MATCHES %@", pattern))
     }
 
     @MainActor

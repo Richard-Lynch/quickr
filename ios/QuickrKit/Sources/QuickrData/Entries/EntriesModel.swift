@@ -39,10 +39,19 @@ public final class EntriesModel {
     public struct Row: Identifiable, Hashable, Sendable {
         public let entry: ViewEntry
         public let binding: AppSession.Binding
+        /// The entry's summary line (content-display.md §3.1, `EntrySummary`): `""` when there's
+        /// nothing to say.
+        public let summary: String
+        /// The timing chip; nil for an untimed entry (an untimed entry of a timed topic too).
+        public let timing: EntryTimingModel.Chip?
 
-        public init(entry: ViewEntry, binding: AppSession.Binding) {
+        public init(
+            entry: ViewEntry, binding: AppSession.Binding, summary: String = "", timing: EntryTimingModel.Chip? = nil
+        ) {
             self.entry = entry
             self.binding = binding
+            self.summary = summary
+            self.timing = timing
         }
 
         public var id: UUID { entry.id }
@@ -186,8 +195,20 @@ public final class EntriesModel {
 
     private func relist() {
         let server = entries.filter { !$0.isLocalOnly }
-        // Each row carries the binding of the observation that read it.
-        let row = { [binding] (entry: ViewEntry) in binding.map { Row(entry: entry, binding: $0) } }
+        // Each row carries the binding of the observation that read it, and its summary in its
+        // own version's questions (the topic's current ones when the version isn't read yet).
+        let questions = [Int: [Question]](versions.map { ($0.version, $0.questions) }, uniquingKeysWith: { $1 })
+        let current = topic?.topic.questions ?? []
+        let timer = topic?.topic.timer
+        let row = { [binding] (entry: ViewEntry) in
+            binding.map {
+                Row(
+                    entry: entry, binding: $0,
+                    summary: EntrySummary.line(
+                        entry: entry.entry, questions: questions[entry.entry.version] ?? current, timer: timer),
+                    timing: EntryTimingModel.chip(entry.entry.timing, timer: timer))
+            }
+        }
         pinned = entries.filter(\.isLocalOnly).sorted { ($0.createSeq ?? 0) < ($1.createSeq ?? 0) }.compactMap(row)
         rows = EntryListing.list(
             server, entry: \.entry, capturedFrom: filters.range.start(now: now, calendar: calendar),
