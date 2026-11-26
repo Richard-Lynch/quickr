@@ -139,7 +139,15 @@ extension EntriesModelTests {
         let read = try await store.entries.entry(id: Self.entryId(31))
         let projected = try #require(read)
         #expect(projected.syncState == .pending && projected.entry.revision == 1)
+        // A form holding the entry as it was (fixing a refused edit ignores the store) still
+        // shows the projection: same revision, the store's times.
+        let formCopy = model.entry.entry
         model.entryChanged(projected)
+        #expect(model.timing(over: formCopy)?.segments.count == 2)
+        // A form copy newer than the store's (an Edit times save) shows its own.
+        var saved = formCopy
+        saved.revision = 2
+        #expect(model.timing(over: saved) == formCopy.timing)
         #expect(model.isPending)
         #expect(!model.offersResume(now: Self.now), "a pending entry offers no Resume")
 

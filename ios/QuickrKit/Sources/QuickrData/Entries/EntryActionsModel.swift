@@ -50,6 +50,15 @@ public final class EntryActionsModel {
         entry = latest
     }
 
+    /// The times to show beside a form's copy of the entry (`shown`): the store's, unless the
+    /// form's is newer (an Edit times save not yet back from the store). A queued remove's
+    /// projection keeps the revision, so it shows even while the form holds an older copy (fixing
+    /// a refused edit ignores the store's updates).
+    public func timing(over shown: Entry) -> Timing? {
+        guard shown.id == entry.entry.id, entry.entry.revision >= shown.revision else { return shown.timing }
+        return entry.entry.timing
+    }
+
     /// Remove on `row`, or nil (`EntryTimingModel.remove`).
     public func removeAction(_ row: EntryTimingModel.Row) -> EntryTimingModel.Remove? {
         entry.entry.timing.flatMap { EntryTimingModel.remove(row, in: $0) }

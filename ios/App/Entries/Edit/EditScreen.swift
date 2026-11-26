@@ -179,7 +179,8 @@ struct EditView: View {
             // The entry's own version's steps name its skipped ones (a later version may have
             // renamed or retired them); Edit times when the server has the run (timers.md §3.8).
             EntryTimingSection(
-                timing: model.entry.timing, stepLabels: stepLabels, lapTypes: model.timerLapTypes, onEdit: editTimes,
+                timing: actions.timing(over: model.entry), stepLabels: stepLabels, lapTypes: model.timerLapTypes,
+                onEdit: editTimes,
                 showsStatus: true, editUnavailable: model.timingEditUnavailable, actions: actions)
             ResumeRunButton(actions: actions)
             EntryDetailsSection(model: model, idPrefix: "edit")
