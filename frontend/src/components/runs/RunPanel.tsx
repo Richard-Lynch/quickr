@@ -33,7 +33,7 @@ import {
   type ChecklistRow,
   type RunAction,
 } from './model';
-import type { RunActions } from './useRunActions';
+import { useRunCooldown, type RunActions } from './useRunActions';
 
 export function RunPanel({
   run,
@@ -74,6 +74,7 @@ export function RunPanel({
   // §5.3): the header says so and there are no controls until the server answers.
   const resuming = list.length === 0;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const cooling = useRunCooldown(run.topic_id);
 
   // Captured at render: a second tap before the screen catches up targets what it saw.
   const expect = expectOf(run, steps);
@@ -156,7 +157,7 @@ export function RunPanel({
 
         <RunControls
           actions={list}
-          busy={ctx === null || actions.busy || actions.cooling}
+          busy={ctx === null || actions.busy || cooling}
           topic={topic}
           onAction={onAction}
         />

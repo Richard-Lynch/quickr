@@ -16,7 +16,6 @@ describe('RunDetailsForm', () => {
     const problem = { code: 'run_open', detail: 'The run is still open', errors: [] };
     const actions: RunActions = {
       busy: false,
-      cooling: false,
       start: vi.fn(),
       tap: vi.fn(),
       // The Problem body, as `useRunActions` throws it for the form.

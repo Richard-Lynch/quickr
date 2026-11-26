@@ -10,7 +10,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { getRunNotices, pushRunNotice } from '../../lib/runs/notices';
 
-import { HOW, renderRunApp, STEPS3, timedTopic, TOPIC_ID, type Harness } from '../../test/runUi';
+import {
+  HOW,
+  renderRunApp,
+  seedRun,
+  STEPS3,
+  timedTopic,
+  TOPIC_ID,
+  type Harness,
+} from '../../test/runUi';
 import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown } from './useRunActions';
 
 let h: Harness | null = null;
@@ -356,6 +364,27 @@ describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
     await userEvent.click(await within(t).findByRole('button', { name: 'Start Morning' }));
     await settle();
     expect(types(h)).toEqual(['start', 'stop']);
+  });
+});
+
+describe('the cooldown across surfaces', () => {
+  it('a tap on the running bar leaves the panel disabled until its cooldown ends', async () => {
+    h = renderRunApp('/t/morning', timedTopic(), (s) => seedRun(s));
+    // The bar is re-created as the topic page loads: look it up afresh.
+    const bar = () => screen.getByRole('region', { name: 'Running' });
+    await screen.findByText('Morning', { selector: '[aria-label="Running"] strong' });
+    const next = within(bar()).getByRole('button', { name: 'Next: Breakfast · Morning' });
+    await waitFor(() => expect(next).toBeEnabled());
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    fireEvent.click(next);
+    // Straight to the panel, inside the bar's cooldown: its controls say so.
+    fireEvent.click(within(bar()).getByRole('link'));
+    const primary = await screen.findByTestId('run-primary');
+    expect(primary).toBeDisabled();
+    await sent(h, 1);
+    await waitFor(() => expect(screen.getByTestId('run-primary')).toBeEnabled(), {
+      timeout: RUN_TAP_COOLDOWN_MS * 2,
+    });
   });
 });
 

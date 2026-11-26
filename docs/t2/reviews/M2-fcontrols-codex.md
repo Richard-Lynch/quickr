@@ -73,3 +73,18 @@ The prior review’s pending Resume and Undo resume integration seams are justif
    `busy || cooling` to `RunControls`. The flow test now asserts every control is disabled
    right after the Next, the tap is ignored, and the primary is enabled and accepted after the
    cooldown. `busy` itself is unchanged, so Start's spinner and the tiles keep their behaviour.
+
+---
+
+## Round 4 (output verbatim)
+
+1. **[P2] Cooldown state does not follow a run between surfaces** — [useRunActions.ts:197](/Users/richie/code/quickr-worktrees/t2-m2-fcontrols/frontend/src/components/runs/useRunActions.ts:197). The tap guard is shared by topic, but `cooling` is local to the hook instance that started it. If a user starts or taps a run from a tile or running bar and immediately opens its panel, the panel’s separate hook reports `cooling: false`: its controls appear enabled, but taps are silently ignored until the shared cooldown expires. The new flow test covers only taps initiated by the panel’s own hook; it should also cover entering the panel during another surface’s cooldown.
+## Resolutions (f2-controls, round 4)
+
+1. **Fixed.** The per-hook `cooling` flag is gone. The cooldown's module-level map now has a
+   tiny external store: `coolingDown` notifies when a topic's cooldown starts and again when it
+   ends, and `useRunCooldown(topicId)` reads it through `useSyncExternalStore`. The panel passes
+   `busy || useRunCooldown(run.topic_id)`, so a tap on any surface (tile, running bar, panel)
+   disables the panel's controls for the rest of that topic's cooldown. New test: "a tap on the
+   running bar leaves the panel disabled until its cooldown ends". Both cooldown tests fail when
+   the panel ignores the cooldown (mutation checked, then restored from a copy).

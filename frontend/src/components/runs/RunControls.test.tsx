@@ -189,7 +189,6 @@ describe('the run panel', () => {
   };
   const noTaps: RunActions = {
     busy: false,
-    cooling: false,
     start: () => Promise.resolve(null),
     tap: () => Promise.resolve(null),
     finish: () => Promise.resolve({ status: 'none' }),
