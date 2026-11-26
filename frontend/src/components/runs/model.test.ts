@@ -476,7 +476,8 @@ describe('resumable (timers2.md glossary "Resumable", OQ-1, A15; R18)', () => {
   /** A pre-v2 stored timing: no `terminal_id` key at all (A12). */
   const preV2 = (id: string): EntryOut => {
     const e = timed(id);
-    const { terminal_id: _dropped, ...timing } = e.timing!;
+    const timing: Partial<NonNullable<EntryOut['timing']>> = { ...e.timing };
+    delete timing.terminal_id;
     return { ...e, timing: timing as NonNullable<EntryOut['timing']> };
   };
 
