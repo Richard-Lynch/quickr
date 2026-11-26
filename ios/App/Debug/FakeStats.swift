@@ -60,12 +60,18 @@ enum FakeStats {
             Question(
                 key: "mood", label: "Mood", type: "enum", options: [("good", "Good"), ("ok", "OK"), ("bad", "Bad")])
         ],
+        // T2-M4: `-QuickrSeedTypedTopic`'s Intervals (`FakeLapTypes`)
+        FakeLapTypes.topicId: [Question(key: "effort", label: "Effort", type: "int")],
+        // end T2-M4
     ]
 
     static func topic(_ ref: String) -> (id: UUID, entries: [Entry])? {
         switch ref {
         case "workout", FakeServer.workoutId.wireString: (FakeServer.workoutId, workout)
         case "mood", FakeServer.moodId.wireString: (FakeServer.moodId, mood)
+        // T2-M4: `-QuickrSeedTypedTopic`'s Intervals (`FakeLapTypes`)
+        case FakeLapTypes.slug, FakeLapTypes.topicId.wireString: (FakeLapTypes.topicId, FakeLapTypes.statsEntries)
+        // end T2-M4
         default: nil
         }
     }

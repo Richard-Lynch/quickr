@@ -31,6 +31,27 @@ final class EntriesTests: XCTestCase {
         Int(app.staticTexts["entries.count"].label.split(separator: " ")[0].replacingOccurrences(of: ",", with: ""))!
     }
 
+    /// A timed row (content-display.md §3.1), one accessibility element: its summary line, then
+    /// its timing chip spoken with the lap count. Intervals' newest run (`-QuickrSeedTypedTopic`,
+    /// `FakeLapTypes`): 5:00 active in typed laps, a 20 s pause that the chip leaves out, Effort 7.
+    @MainActor
+    func testRowShowsSummaryAndTiming() {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrSeedTypedTopic", "-QuickrOpen",
+            "quickr://t/intervals/entries",
+        ]
+        app.launch()
+        let row = app.descendants(matching: .any)["entry.00000000-0000-4000-8000-0000000000f1"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        let label = row.label
+        let summary = label.range(of: "5:00 · Run 3 · Rest 2 · Effort: 7")
+        let chip = label.range(of: "5 minutes, 5 laps")
+        XCTAssertNotNil(summary, "the summary line in \(label)")
+        XCTAssertNotNil(chip, "the chip's spoken text in \(label)")
+        if let summary, let chip { XCTAssertLessThan(summary.upperBound, chip.lowerBound, "summary, then chip") }
+    }
+
     /// Device-only logs pin on top, in the order they were logged; the count says so.
     @MainActor
     func testUnsyncedEntriesPinAboveTheList() {
