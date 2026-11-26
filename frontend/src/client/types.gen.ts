@@ -5,6 +5,66 @@ export type ClientOptions = {
 };
 
 /**
+ * Alert
+ *
+ * A cue that fires when its segment's active time reaches ``at_ms``.
+ */
+export type AlertInput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * At
+     *
+     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. 1..64 characters.
+     */
+    at: string;
+    /**
+     * At Ms
+     *
+     * Output only: ``at`` evaluated over the timer's variables, in ms. A sent value is ignored.
+     */
+    at_ms?: number;
+};
+
+/**
+ * Alert
+ *
+ * A cue that fires when its segment's active time reaches ``at_ms``.
+ */
+export type AlertOutput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * At
+     *
+     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. 1..64 characters.
+     */
+    at: string;
+    /**
+     * At Ms
+     *
+     * Output only: ``at`` evaluated over the timer's variables, in ms. A sent value is ignored.
+     */
+    at_ms: number;
+};
+
+/**
  * ApnsDeviceIn
  *
  * An iOS app install's APNs registration, upserted by token (sent on every launch).
@@ -1187,6 +1247,52 @@ export type IntervalScheduleOutput = {
 };
 
 /**
+ * LapType
+ *
+ * A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two
+ * or more alternate). Its key is its identity across versions, as a step's is.
+ */
+export type LapTypeInput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Alerts
+     */
+    alerts?: Array<AlertInput>;
+};
+
+/**
+ * LapType
+ *
+ * A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two
+ * or more alternate). Its key is its identity across versions, as a step's is.
+ */
+export type LapTypeOutput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Alerts
+     */
+    alerts: Array<AlertOutput>;
+};
+
+/**
  * Limits
  *
  * Validation ceilings, so clients can mirror server-side validation without hard-coding.
@@ -1284,6 +1390,34 @@ export type Limits = {
      * Interval Max Minutes
      */
     interval_max_minutes: number;
+    /**
+     * Max Steps
+     */
+    max_steps: number;
+    /**
+     * Max Lap Types
+     */
+    max_lap_types: number;
+    /**
+     * Max Variables
+     */
+    max_variables: number;
+    /**
+     * Max Alerts
+     */
+    max_alerts: number;
+    /**
+     * Max Expr Length
+     */
+    max_expr_length: number;
+    /**
+     * Max Var Name Length
+     */
+    max_var_name_length: number;
+    /**
+     * Max Short Label Length
+     */
+    max_short_label_length: number;
 };
 
 /**
@@ -1999,9 +2133,10 @@ export type SeriesPoint = {
  * Step
  *
  * A named checkpoint of a timed topic. Its key is its identity across versions, in a
- * namespace of its own (a step and a question may share a key).
+ * namespace of its own (a step and a question may share a key) that it shares with the
+ * timer's lap types.
  */
-export type Step = {
+export type StepInput = {
     /**
      * Key
      *
@@ -2012,6 +2147,34 @@ export type Step = {
      * Label
      */
     label: string;
+    /**
+     * Alerts
+     */
+    alerts?: Array<AlertInput>;
+};
+
+/**
+ * Step
+ *
+ * A named checkpoint of a timed topic. Its key is its identity across versions, in a
+ * namespace of its own (a step and a question may share a key) that it shares with the
+ * timer's lap types.
+ */
+export type StepOutput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Alerts
+     */
+    alerts: Array<AlertOutput>;
 };
 
 /**
@@ -2153,13 +2316,53 @@ export type StrStats = {
 /**
  * Timer
  *
- * A version's timing: its steps, timed in this order. No steps makes a plain stopwatch.
+ * A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),
+ * its lap types, and the variables its alerts refer to (timers2.md §1).
+ *
+ * Output is normalised: every list is present and each alert's ``at_ms`` is filled. The v1
+ * shape ``{steps: [{key, label}]}`` is accepted, stored ones included.
  */
-export type Timer = {
+export type TimerInput = {
     /**
      * Steps
      */
-    steps: Array<Step>;
+    steps: Array<StepInput>;
+    /**
+     * Laps
+     *
+     * None: laps are untyped.
+     */
+    laps?: Array<LapTypeInput>;
+    /**
+     * Variables
+     */
+    variables?: Array<Variable>;
+};
+
+/**
+ * Timer
+ *
+ * A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),
+ * its lap types, and the variables its alerts refer to (timers2.md §1).
+ *
+ * Output is normalised: every list is present and each alert's ``at_ms`` is filled. The v1
+ * shape ``{steps: [{key, label}]}`` is accepted, stored ones included.
+ */
+export type TimerOutput = {
+    /**
+     * Steps
+     */
+    steps: Array<StepOutput>;
+    /**
+     * Laps
+     *
+     * None: laps are untyped.
+     */
+    laps: Array<LapTypeOutput>;
+    /**
+     * Variables
+     */
+    variables: Array<Variable>;
 };
 
 /**
@@ -2526,7 +2729,7 @@ export type TopicCreate = {
     /**
      * Makes the topic timed (optional; null: not timed).
      */
-    timer?: Timer | null;
+    timer?: TimerInput | null;
 };
 
 /**
@@ -2605,7 +2808,7 @@ export type TopicDetail = {
     /**
      * The current version's timer; null when the topic is not timed.
      */
-    timer: Timer | null;
+    timer: TimerOutput | null;
     /**
      * Questions
      */
@@ -2747,7 +2950,7 @@ export type TopicSummary = {
     /**
      * The current version's timer; null when the topic is not timed.
      */
-    timer: Timer | null;
+    timer: TimerOutput | null;
 };
 
 /**
@@ -2836,7 +3039,7 @@ export type TopicVersionOut = {
     /**
      * Null when this version is not timed.
      */
-    timer: Timer | null;
+    timer: TimerOutput | null;
     /**
      * Change Note
      */
@@ -2878,6 +3081,24 @@ export type ValueCount = {
 };
 
 /**
+ * Variable
+ *
+ * A named duration that alert expressions refer to (``t``, ``rest``).
+ */
+export type Variable = {
+    /**
+     * Name
+     *
+     * Case-insensitive on input, stored and returned lowercase; not a unit (ms, s, m, h).
+     */
+    name: string;
+    /**
+     * Ms
+     */
+    ms: number;
+};
+
+/**
  * VersionCreate
  */
 export type VersionCreate = {
@@ -2894,7 +3115,7 @@ export type VersionCreate = {
     /**
      * The new version's timer, or null for an untimed topic. Required, so leaving it out can't switch timing off: send the current version's timer to keep it.
      */
-    timer: Timer | null;
+    timer: TimerInput | null;
     /**
      * Change Note
      */
@@ -2918,7 +3139,7 @@ export type VersionDraft = {
     /**
      * Optional: the draft's timer (null for untimed). When given, a timer change with no question changes is a change, as publishing treats it; the report itself covers questions only.
      */
-    timer?: Timer | null;
+    timer?: TimerInput | null;
 };
 
 export type HealthData = {

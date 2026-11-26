@@ -23,7 +23,7 @@ import {
   checklist,
   expectOf,
   laps,
-  primaryAction,
+  primaryActionV1,
   segmentMs,
   skipTarget,
   type ChecklistRow,
@@ -51,7 +51,7 @@ export function RunPanel({
   const steps: readonly TimerStep[] | null = ctx ? ctx.steps : run.steps;
   const total = activeMs(run.state, now);
   const segment = segmentMs(run.state, now);
-  const primary = primaryAction(run, steps);
+  const primary = primaryActionV1(run, steps);
   const skip = skipTarget(run, steps);
   const open = run.state.open;
   const [confirmDiscard, setConfirmDiscard] = useState(false);

@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from tests.helpers import make_topic, record, sleep_questions
+from tests.helpers import make_topic, normal_timer, record, sleep_questions
 
 ANSWERS = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
 
@@ -179,6 +179,11 @@ async def test_check_with_stale_base_version_conflicts(client: httpx.AsyncClient
 STEPS = {"steps": [{"key": "load", "label": "Load"}, {"key": "rinse", "label": "Rinse"}]}
 
 
+def _out(*timers: dict[str, Any] | None) -> list[Any]:
+    """The timers as the server returns them (normalised, timers2.md §1.4)."""
+    return [None if t is None else normal_timer(t) for t in timers]
+
+
 async def _timers(client: httpx.AsyncClient, ref: str = "sleep-log") -> list[Any]:
     """Each version's timer, oldest first."""
     versions = (await client.get(f"/topics/{ref}/versions")).json()
@@ -189,9 +194,9 @@ async def test_create_topic_timer_is_optional(client: httpx.AsyncClient) -> None
     await make_topic(client)
     await make_topic(client, "Dishwasher", timer=STEPS)
     await make_topic(client, "Stopwatch", timer={"steps": []})
-    assert await _timers(client) == [None]
-    assert await _timers(client, "dishwasher") == [STEPS]
-    assert await _timers(client, "stopwatch") == [{"steps": []}]
+    assert await _timers(client) == _out(None)
+    assert await _timers(client, "dishwasher") == _out(STEPS)
+    assert await _timers(client, "stopwatch") == _out({"steps": []})
 
 
 async def test_publish_requires_timer(client: httpx.AsyncClient) -> None:
@@ -201,7 +206,7 @@ async def test_publish_requires_timer(client: httpx.AsyncClient) -> None:
     r = await client.post("/topics/sleep-log/versions", json={"questions": v2_questions(), "base_version": 1})
     assert r.status_code == 422
     assert r.json()["errors"] == [{"loc": ["body", "timer"], "message": "Field required"}]
-    assert await _timers(client) == [STEPS]
+    assert await _timers(client) == _out(STEPS)
 
     renamed = {"steps": [{"key": "rinse", "label": "Rinse first"}, {"key": "load", "label": "Load"}]}
     body = {"questions": v2_questions(), "base_version": 1, "timer": renamed}
@@ -209,7 +214,7 @@ async def test_publish_requires_timer(client: httpx.AsyncClient) -> None:
     body = {"questions": sleep_questions(), "base_version": 2, "timer": None}
     r = await client.post("/topics/sleep-log/versions", json=body)
     assert r.status_code == 201, r.text
-    assert await _timers(client) == [STEPS, renamed, None]
+    assert await _timers(client) == _out(STEPS, renamed, None)
 
 
 async def test_timer_change_alone_publishes(client: httpx.AsyncClient) -> None:
@@ -226,7 +231,7 @@ async def test_timer_change_alone_publishes(client: httpx.AsyncClient) -> None:
     assert (r.status_code, r.json()["detail"]) == (422, "no changes to publish")
     r = await client.post("/topics/sleep-log/versions", json={**same, "base_version": 2, "timer": None})
     assert r.status_code == 201, r.text
-    assert await _timers(client) == [None, STEPS, None]
+    assert await _timers(client) == _out(None, STEPS, None)
 
     # A blocking question error still blocks, whatever the timer does.
     retyped = sleep_questions()
@@ -267,7 +272,7 @@ async def test_step_validation_names_the_field(client: httpx.AsyncClient) -> Non
     timer = {"steps": [*_steps(29), {"key": "hours", "label": "x" * 200}]}
     r = await client.post("/topics/sleep-log/versions", json={**base, "timer": timer})
     assert r.status_code == 201, r.text
-    assert await _timers(client) == [None, timer]
+    assert await _timers(client) == _out(None, timer)
 
 
 async def test_check_with_a_timer_counts_a_timer_change(client: httpx.AsyncClient) -> None:

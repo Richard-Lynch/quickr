@@ -12,7 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_sessionmaker
 from app.models import Topic
+from app.schemas.questions import Timer
 from app.services.feed import FEED_LOCK_ID
+
+
+def normal_timer(timer: dict[str, Any]) -> dict[str, Any]:
+    """``timer`` as the server returns it: normalised (timers2.md §1.4)."""
+    out: dict[str, Any] = Timer.model_validate(timer).model_dump(mode="json")
+    return out
 
 
 def sleep_questions() -> list[dict[str, Any]]:

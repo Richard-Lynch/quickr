@@ -35,6 +35,15 @@ export const FALLBACK_LIMITS: Limits = {
   schedule_max_times: 24,
   interval_min_minutes: 15,
   interval_max_minutes: 129_600,
+  // T2-M1: Timer v2 (timers2.md §1.2)
+  max_steps: 30,
+  max_lap_types: 8,
+  max_variables: 16,
+  max_alerts: 8,
+  max_expr_length: 64,
+  max_var_name_length: 16,
+  max_short_label_length: 64,
+  // end T2-M1
 };
 
 const DAY = 24 * 60 * 60 * 1000;

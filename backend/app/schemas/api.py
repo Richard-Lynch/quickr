@@ -32,14 +32,17 @@ from app.schemas.limits import (
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
     LIVE_ACTIVITY_TOKEN_PATTERN,
+    MAX_ALERTS,
     MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
     MAX_DESCRIPTION_LENGTH,
     MAX_DEVICE_NAME_LENGTH,
     MAX_ENUM_OPTIONS,
+    MAX_EXPR_LENGTH,
     MAX_HELP_TEXT_LENGTH,
     MAX_LABEL_LENGTH,
+    MAX_LAP_TYPES,
     MAX_META_ENTRIES,
     MAX_META_KEY_LENGTH,
     MAX_META_VALUE_LENGTH,
@@ -48,6 +51,7 @@ from app.schemas.limits import (
     MAX_PUSH_KEY_LENGTH,
     MAX_QUESTIONS,
     MAX_RUN_EVENTS,
+    MAX_SHORT_LABEL_LENGTH,
     MAX_SOURCE_LENGTH,
     MAX_STEPS,
     MAX_STR_LENGTH,
@@ -55,6 +59,8 @@ from app.schemas.limits import (
     MAX_TOPIC_NAME_LENGTH,
     MAX_UNIT_LENGTH,
     MAX_USER_AGENT_LENGTH,
+    MAX_VAR_NAME_LENGTH,
+    MAX_VARIABLES,
     SCHEDULE_MAX_TIMES,
     SLUG_PATTERN,
     TIME_PATTERN,
@@ -789,6 +795,15 @@ class Limits(StrictModel):
     schedule_max_times: int = SCHEDULE_MAX_TIMES
     interval_min_minutes: int = INTERVAL_MIN_MINUTES
     interval_max_minutes: int = INTERVAL_MAX_MINUTES
+    # T2-M1: Timer v2 (docs/specs/timers2.md §1.2)
+    max_steps: int = MAX_STEPS
+    max_lap_types: int = MAX_LAP_TYPES
+    max_variables: int = MAX_VARIABLES
+    max_alerts: int = MAX_ALERTS
+    max_expr_length: int = MAX_EXPR_LENGTH
+    max_var_name_length: int = MAX_VAR_NAME_LENGTH
+    max_short_label_length: int = MAX_SHORT_LABEL_LENGTH
+    # end T2-M1
 
 
 # ---------------------------------------------------------------------------

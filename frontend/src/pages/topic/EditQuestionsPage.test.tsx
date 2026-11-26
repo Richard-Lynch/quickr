@@ -5,10 +5,11 @@ import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { TopicDetail, TopicVersionOut } from '../../client';
+import type { TimerInput, TopicDetail, TopicVersionOut } from '../../client';
 import { client } from '../../client/client.gen';
 import { ToastProvider } from '../../components/ui/Toast';
 import { EditQuestionsPage } from './EditQuestionsPage';
+import { normalTimer } from '../../test/timer';
 
 const question = { type: 'int' as const, key: 'loads', label: 'Loads', required: true };
 
@@ -37,11 +38,11 @@ const topic: TopicDetail = {
 
 const timer = { steps: [{ key: 'load', label: 'Load' }] };
 
-function version(n: number, t: TopicVersionOut['timer']): TopicVersionOut {
+function version(n: number, t: TimerInput | null): TopicVersionOut {
   return {
     version: n,
     questions: topic.questions,
-    timer: t,
+    timer: t && normalTimer(t),
     change_note: '',
     created_at: '2026-10-01T00:00:00Z',
     entry_count: 0,
