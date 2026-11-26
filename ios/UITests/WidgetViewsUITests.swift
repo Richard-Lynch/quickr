@@ -109,17 +109,18 @@ final class WidgetViewsUITests: XCTestCase {
             XCTAssertEqual(buttons(step, "Next: Breakfast"), 1, "\(mode.name): Next while a step remains")
             XCTAssertEqual(buttons(step, "Stop"), 0)
             snapWidget(step, "widgets-timed-\(mode.name)-step")
-            // The typed lap's headline with the pending alert beside the total (§5.1): every
-            // labelled part inside the widget, nothing cut off at its edge.
+            let paused = reveal(app, "widget.medium.timed.paused")
+            XCTAssertTrue(shows(paused, "Paused"), "\(mode.name): paused")
+            snapWidget(paused, "widgets-timed-\(mode.name)-paused")
+            // After paused (the gallery's order; `reveal` only scrolls down). The typed lap's
+            // headline with the pending alert beside the total (§5.1); no labelled element runs
+            // past the widget's edge (truncation inside a frame is checked on the screenshots).
             let alert = reveal(app, "widget.medium.timed.alert")
             XCTAssertTrue(shows(alert, "Go"), "\(mode.name): the alert's label")
             XCTAssertEqual(buttons(alert, "Lap"), 1, "\(mode.name): the alert widget's primary")
             XCTAssertEqual(buttons(alert, "Stop"), 1)
             assertInside(alert, mode.name)
             snapWidget(alert, "widgets-timed-\(mode.name)-alert")
-            let paused = reveal(app, "widget.medium.timed.paused")
-            XCTAssertTrue(shows(paused, "Paused"), "\(mode.name): paused")
-            snapWidget(paused, "widgets-timed-\(mode.name)-paused")
             snap(app, "widgets-timed-\(mode.name)")
             app.terminate()
         }
@@ -139,7 +140,9 @@ final class WidgetViewsUITests: XCTestCase {
         return element
     }
 
-    /// Every labelled element of the widget lies wholly inside its frame (not clipped at an edge).
+    /// Every labelled element of the widget lies wholly inside its frame: a guard against content
+    /// pushed past the edge. The widget combines its text into one element, so truncation inside it
+    /// is checked on the attached screenshots, not here.
     @MainActor
     private func assertInside(_ widget: XCUIElement, _ mode: String) {
         let bounds = widget.frame.insetBy(dx: -1, dy: -1)
