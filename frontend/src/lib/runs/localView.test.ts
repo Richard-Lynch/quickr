@@ -762,6 +762,40 @@ describe('reopen and remove in the local view (timers2.md §5.3)', () => {
       expect(later?.state.pauses).toHaveLength(2);
     });
 
+    it('a removed gap pause that absorbed a user pause keeps it, under the user pause id (P3-1)', () => {
+      // Vector reopen-while-paused-ends-pause: the gap s1 took over p1 (0:30–1:30); with s1
+      // removed, p1 runs on to the reopen under its own id.
+      const events = [
+        start,
+        ev('p1', 'pause', T0 + 30 * S),
+        ev('s1', 'stop', T0 + 60 * S),
+        ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+        ev('u1', 'resume', T0 + 100 * S, { pause_id: 'p1' }),
+        ev('s2', 'stop', T0 + 120 * S),
+      ];
+      const stopped = entryOf('r1', events);
+      expect(stopped.timing.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 90 * S, id: 's1' }]);
+      const removed = ev('x1', 'remove', T0 + 150 * S, { target: 's1' });
+      const want = entryOf('r1', [...events, removed]).timing;
+      expect(want.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 90 * S, id: 'p1' }]);
+      const remove = q(removed, { entry: entryPayload(stopped) });
+      remove.payload.gap = { absorbs: 'p1' };
+      expect(projectedEntryTiming(stopped, [remove])).toEqual({ timing: want, pending: true });
+      // A gap that absorbed nothing goes, its time active.
+      const plainEvents = [
+        start,
+        ev('s1', 'stop', T0 + 60 * S),
+        ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+        ev('s2', 'stop', T0 + 120 * S),
+      ];
+      const plain = entryOf('r1', plainEvents);
+      const plainRemove = q(removed, { entry: entryPayload(plain) });
+      plainRemove.payload.gap = { absorbs: null };
+      expect(projectedEntryTiming(plain, [plainRemove]).timing).toEqual(
+        entryOf('r1', [...plainEvents, removed]).timing,
+      );
+    });
+
     it('only pending removes of that entry count; a failed one shows no mark', () => {
       const other = q(ev('x1', 'remove', T0 + 120 * S, { target: 'p1' }), { run: 'r2' });
       const failed = q(ev('x2', 'remove', T0 + 120 * S, { target: 'n1' }), { status: 'failed' });

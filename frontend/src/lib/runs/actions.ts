@@ -344,6 +344,23 @@ function targetOf(run: LocalRun, type: TapType, opts: TapOptions): Partial<RunEv
   }
 }
 
+/**
+ * For a remove of a reopened stop of the run, its gap pause's take-over
+ * (`RunEventPayload.gap`): the user pause open at the stop, whose time the gap pause starts
+ * at (timers2.md §3.4, "the gap owns the open pause"). Null for any other target.
+ */
+function gapOf(run: LocalRun, target: string): RunEventPayload['gap'] | null {
+  const stop = run.events.find((e) => e.id === target && e.type === 'stop');
+  const pause = run.state.pauses.find((p) => p.id === target);
+  if (!stop || !pause) return null;
+  if (pause.start >= stop.at) return { absorbs: null };
+  const user = run.events.find(
+    (e) =>
+      e.type === 'pause' && e.at === pause.start && run.state.effects[e.id]?.effect === 'applied',
+  );
+  return user ? { absorbs: user.id } : null;
+}
+
 /** The ids a remove can name in an entry's timing (§3.3): laps' event ids and pause ids. */
 function entryIds(entry: EntryRef | undefined): Set<string> {
   if (!entry) return new Set();
@@ -464,6 +481,10 @@ export function tapRun(
       ...(body.meta != null ? { meta: body.meta } : {}),
     };
     const payload = payloadOf(ctx, run.id, makesEntry(run, ctx, type, body), event);
+    if (type === 'remove' && target.target != null) {
+      const gap = gapOf(run, target.target);
+      if (gap) payload.gap = gap;
+    }
     // A finish waits for a stop, and any tap for a reopen, queued under any id of its run
     // (`waitsFor`).
     if (run.aliases.length > 0) payload.run_aliases = [...run.aliases];

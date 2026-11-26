@@ -117,6 +117,14 @@ export interface RunEventPayload {
    */
   entry?: { timing: TimingWire; revision: number };
   /**
+   * A remove of a reopened stop (its gap pause, timers2.md §3.4), tapped where the run's
+   * events were known: `absorbs` is the user pause open at that stop, which the gap took
+   * over. With the gap gone that pause runs on to the reopen under its own id, so the
+   * projection keeps it; null when none was open (the gap's time becomes active). Absent when
+   * not known (a remove from an entry): the projection then drops the pause.
+   */
+  gap?: { absorbs: string | null };
+  /**
    * The server a reminder's Start came from (`X-QuickR-Expect-Server-Id`, as for
    * `entry.create`): another server refuses it with 409 `server_mismatch`.
    */

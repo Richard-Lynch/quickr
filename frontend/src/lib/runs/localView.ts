@@ -538,7 +538,13 @@ function resumingRun(id: string, queued: readonly QueuedRunEvent[]): LocalRun | 
     .slice(0, at)
     .filter((i) => i.payload.event.type === 'remove' && i.payload.event.target != null)
     .reduce(
-      (t, i) => removeFromTiming(t, lc(i.payload.event.target ?? ''), i.payload.laps ?? null),
+      (t, i) =>
+        removeFromTiming(
+          t,
+          lc(i.payload.event.target ?? ''),
+          i.payload.laps ?? null,
+          i.payload.gap,
+        ),
       timingFromWire(entry.timing),
     );
   const closed: RunState = {
@@ -736,13 +742,29 @@ export function projectedEntryTiming(
   let timing = entry.timing;
   for (const item of removes) {
     const laps = item.payload.laps ?? null;
-    timing = removeFromTiming(timing, lc(item.payload.event.target ?? ''), laps);
+    timing = removeFromTiming(timing, lc(item.payload.event.target ?? ''), laps, item.payload.gap);
   }
   return { timing, pending: removes.length > 0 };
 }
 
-function removeFromTiming(timing: Timing, target: string, laps: readonly LapType[] | null): Timing {
+/**
+ * `timing` with the remove of `target` applied, as the fold will have it. `gap`: the remove's
+ * gap-pause take-over ({@link RunEventPayload.gap}).
+ */
+function removeFromTiming(
+  timing: Timing,
+  target: string,
+  laps: readonly LapType[] | null,
+  gap?: RunEventPayload['gap'],
+): Timing {
   const pause = timing.pauses.find((p) => p.id !== null && lc(p.id) === target);
+  if (pause && gap?.absorbs != null) {
+    // The gap took over a user pause open at its stop: with the gap gone, the user pause
+    // runs on to the reopen (the gap resume ends whatever is open), so only its id changes
+    // (timers2.md §3.4; vector reopen-while-paused-ends-pause).
+    const id = lc(gap.absorbs);
+    return { ...timing, pauses: timing.pauses.map((p) => (p === pause ? { ...p, id } : p)) };
+  }
   if (pause) {
     const ms = pause.end - pause.start;
     const segments = timing.segments.map((x) => {
