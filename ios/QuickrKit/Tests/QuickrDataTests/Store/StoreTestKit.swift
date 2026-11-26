@@ -100,7 +100,7 @@ struct TestStore {
     }
 }
 
-/// A fresh temporary directory, removed by `cleanup()`.
+/// A fresh temporary directory, removed by `cleanup()` once nothing in it is open (`TestFiles`).
 struct TempDirectory {
     let url: URL
 
@@ -109,7 +109,7 @@ struct TempDirectory {
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
-    func cleanup() { try? FileManager.default.removeItem(at: url) }
+    func cleanup() { TestFiles.remove(url) }
 }
 
 /// Records posts and delivers them to `signals` subscribers in this process.

@@ -40,7 +40,7 @@ import Testing
             self.store = store
         }
 
-        func cleanup() { try? FileManager.default.removeItem(at: root) }
+        func cleanup() { TestFiles.remove(root) }
 
         /// A model observing the store, with the list read at least once.
         func model(debounce: Duration = .zero) async throws -> (HomeModel, Task<Void, Never>) {

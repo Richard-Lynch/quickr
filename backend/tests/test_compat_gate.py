@@ -153,6 +153,21 @@ def test_a_break_against_the_tag_needs_a_bump(
         assert "a breaking change must bump shared/api-level.json" in r.stderr
 
 
+def test_the_baseline_is_the_newest_tag_in_heads_own_history(repo: Repo) -> None:
+    """A release candidate tagged on an integration branch (v0.4.0-rc1 on feat/t2) is newer than
+    main's last release but not in main's history: main must keep comparing against its own tag."""
+    repo.commit(api_level=levels(1, 0), openapi=OPENAPI)
+    repo.git("tag", "v1")
+    repo.git("checkout", "-q", "-b", "feat")
+    repo.commit(api_level=levels(2, 2), openapi=BROKEN)
+    repo.git("tag", "v2-rc1")  # newer, but only on feat
+    repo.git("checkout", "-q", "main")
+    repo.commit()  # main moves on without the break
+    r = repo.breaking()
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "against v1 " in r.stdout, r.stdout
+
+
 def test_no_break_needs_no_bump(repo: Repo) -> None:
     repo.commit(api_level=levels(1, 0), openapi=OPENAPI)
     repo.git("tag", "v1")
