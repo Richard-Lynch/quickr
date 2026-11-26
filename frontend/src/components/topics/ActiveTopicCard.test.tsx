@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { LocalRun } from '../../lib/runs/localView';
 import type { OpenSegment } from '../../lib/runs/types';
-import { ActiveTopicCard, cardHeadline, cardTint, type CardControls } from './ActiveTopicCard';
+import { ActiveTopicCard, cardTint, type CardControls, type CardTopic } from './ActiveTopicCard';
 
 const topic = { id: '6f1c0000-0000-4000-8000-0000000000c1', slug: 'morning', name: 'Morning' };
 
@@ -72,10 +72,15 @@ function controlsOf(over: Partial<CardControls> = {}): CardControls & {
   };
 }
 
-function renderCard(run: LocalRun, controls: CardControls) {
+function renderCard(
+  run: LocalRun,
+  controls: CardControls,
+  of: CardTopic = topic,
+  resuming = false,
+) {
   render(
     <MemoryRouter>
-      <ActiveTopicCard topic={topic} run={run} controls={controls} />
+      <ActiveTopicCard topic={of} run={run} timer={null} controls={controls} resuming={resuming} />
     </MemoryRouter>,
   );
   return screen.getByRole('article', { name: 'Morning' });
@@ -120,6 +125,7 @@ describe('the active card', () => {
     const card = renderCard(runOf(), controls);
     const primary = within(card).getByTestId('card-primary');
     expect(primary).toHaveAccessibleName('Next: Breakfast · Morning');
+    expect(primary).toHaveClass('h-14');
     expect(primary).toHaveTextContent('Next: Breakfast');
     expect(within(card).getByTestId('card-stop')).toHaveAccessibleName('Stop · Morning');
     expect(within(card).getByTestId('card-pause')).toHaveAccessibleName('Pause · Morning');
@@ -168,20 +174,44 @@ describe('the active card', () => {
     expect(links[0]).toHaveAttribute('href', '/t/morning/record');
   });
 
-  it('is tinted with the accent until the topic theme lands (one seam)', () => {
+  it('is the brand accent for a topic without a colour, with its initial', () => {
     const card = renderCard(runOf(), controlsOf());
-    expect(card).toHaveClass('border-accent/45', 'bg-accent-soft');
+    expect(card).toHaveClass('border-topic-tint/45', 'bg-topic-tint-soft');
     expect(card.getAttribute('style')).toBeNull();
-    expect(card.querySelector('span[aria-hidden].bg-accent')).not.toBeNull();
-    expect(cardTint(topic)).toEqual({
-      style: undefined,
-      card: 'border-accent/45 bg-accent-soft',
-      bar: 'bg-accent',
-    });
+    expect(card.querySelector('span[aria-hidden].bg-topic-tint')).not.toBeNull();
+    expect(within(card).getByTestId('card-primary')).toHaveClass(
+      'bg-topic-tint',
+      'text-topic-on-tint',
+    );
+    // The glyph is decoration here: the name is the card's (and its link's) name.
+    expect(card.querySelector('[aria-hidden] [role="img"]')).toHaveTextContent('M');
+    expect(within(card).queryByRole('img')).toBeNull();
   });
 
-  it('headline: the open segment’s label until M1’s headline lands', () => {
-    expect(cardHeadline(runOf())).toBe('Shower');
-    expect(cardHeadline(runOf({ open: null }))).toBeNull();
+  it('is tinted with the topic’s colour and shows its emoji (appearance.md §4.2)', () => {
+    const themed: CardTopic = {
+      ...topic,
+      appearance: { color: 'green', icon: { kind: 'emoji', value: '🌅' }, tags: [] },
+    };
+    const card = renderCard(runOf(), controlsOf(), themed);
+    expect(card.style.getPropertyValue('--topic-tint')).toMatch(/^var\(--topic-green-tint, /);
+    expect(card.style.getPropertyValue('--topic-tint-soft')).toMatch(/^var\(--topic-green-soft, /);
+    expect(card).toHaveTextContent('🌅');
+    expect(cardTint(themed).card).toBe('border-topic-tint/45 bg-topic-tint-soft');
+  });
+
+  it('resuming (a queued reopen, not acked): "Resuming…" and no controls until the ack', () => {
+    const card = renderCard(runOf(), controlsOf(), topic, true);
+    expect(within(card).getByTestId('card-status')).toHaveTextContent(/^Resuming… · Shower$/);
+    expect(within(card).queryAllByRole('button')).toEqual([]);
+    // The clocks still run, and the card still opens the run panel.
+    expect(within(card).getByTestId('card-total')).toHaveTextContent(/1:0\d/);
+    expect(within(card).getByRole('link', { name: 'Morning' })).toBeInTheDocument();
+  });
+
+  it('reads M1’s headline: the open segment’s label, nothing extra with nothing open', () => {
+    expect(within(renderCard(runOf(), controlsOf())).getByTestId('card-status')).toHaveTextContent(
+      /^Running · Shower$/,
+    );
   });
 });

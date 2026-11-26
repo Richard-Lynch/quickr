@@ -20,7 +20,7 @@ import { RunStatus, RunTileAction } from '../runs/RunTile';
 import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
-import { ActiveTopicCard } from './ActiveTopicCard';
+import { ActiveTopicCard, isResuming } from './ActiveTopicCard';
 import { useActiveCardControls } from './useActiveCardControls';
 
 /** Topic details are prefetched per tile: they power quick-log and an instant record screen. */
@@ -220,8 +220,16 @@ export function TopicTile({
 
 /** A tile whose topic has an open run: the active card, with the run's controls. */
 function ActiveTile({ topic: t, run }: { topic: TopicSummary; run: LocalRun }) {
-  const controls = useActiveCardControls({ id: t.id, slug: t.slug, name: t.name }, run);
-  return <ActiveTopicCard topic={t} run={run} controls={controls} />;
+  const { controls, timer } = useActiveCardControls({ id: t.id, slug: t.slug, name: t.name }, run);
+  return (
+    <ActiveTopicCard
+      topic={t}
+      run={run}
+      timer={timer}
+      controls={controls}
+      resuming={isResuming(run)}
+    />
+  );
 }
 
 function QuickArea({

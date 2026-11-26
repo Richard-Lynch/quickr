@@ -116,11 +116,50 @@ describe('"Active now" on the topics page', () => {
     expect(active.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('on the last step the primary is Lap (Stop beside it), and a tap laps', async () => {
+    h = renderRunApp(
+      '/',
+      dueMorning(),
+      (s) =>
+        seedRun(s, [
+          { type: 'next', s: 10, seg: 0 },
+          { type: 'next', s: 20, seg: 1 },
+        ]),
+      [vitamins],
+    );
+    const active = await screen.findByRole('region', { name: /Active now/ });
+    const lap = within(active).getByTestId('card-primary');
+    expect(lap).toHaveAccessibleName('Lap');
+    expect(within(active).getByTestId('card-stop')).toHaveAccessibleName('Stop Morning');
+    expect(within(active).getByTestId('card-pause')).toHaveAccessibleName('Pause');
+    await waitFor(() => expect(lap).toBeEnabled());
+    await userEvent.click(lap);
+    await waitFor(() => expect(h?.server.events()).toHaveLength(1), { timeout: 4000 });
+    expect(h.server.events()[0]).toMatchObject({ type: 'lap', seg: 2 });
+  });
+
+  it('pauses and resumes from the title row', async () => {
+    h = renderRunApp('/', dueMorning(), (s) => seedRun(s), [vitamins]);
+    const active = await screen.findByRole('region', { name: /Active now/ });
+    const pause = within(active).getByTestId('card-pause');
+    await waitFor(() => expect(pause).toBeEnabled());
+    await userEvent.click(pause);
+    await waitFor(() => expect(h?.server.events()).toHaveLength(1), { timeout: 4000 });
+    expect(h.server.events()[0]).toMatchObject({ type: 'pause' });
+    const resume = await within(section('Active now')).findByTestId('card-resume');
+    expect(within(section('Active now')).getByTestId('card-status')).toHaveTextContent('Paused');
+    await waitFor(() => expect(resume).toBeEnabled());
+    await userEvent.click(resume);
+    await waitFor(() => expect(h?.server.events()).toHaveLength(2), { timeout: 4000 });
+    expect(h.server.events()[1]).toMatchObject({ type: 'resume' });
+  });
+
   it('goes when the run stops: the tile is idle again in its section', async () => {
     h = renderRunApp('/', dueMorning({ steps: [], questions: [] }), (s) => seedRun(s), [vitamins]);
     const active = await screen.findByRole('region', { name: /Active now/ });
-    const stop = within(active).getByTestId('card-primary');
-    expect(stop).toHaveAccessibleName('Stop · Morning');
+    // Stop is never the primary (timers2.md §10): it is the card's secondary.
+    const stop = within(active).getByTestId('card-stop');
+    expect(stop).toHaveAccessibleName('Stop Morning');
     await waitFor(() => expect(stop).toBeEnabled());
     await userEvent.click(stop);
     expect(await screen.findByText(/^Saved Morning: 1:0\d$/)).toBeInTheDocument();

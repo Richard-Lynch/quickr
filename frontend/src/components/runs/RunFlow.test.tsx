@@ -330,7 +330,7 @@ describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
     setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
     // The open run's tile is the active card (a new element in "Active now").
     const card = await screen.findByTestId('active-card');
-    await userEvent.click(within(card).getByRole('button', { name: 'Stop · Morning' }));
+    await userEvent.click(within(card).getByRole('button', { name: 'Stop Morning' }));
     await gap();
     // The run is saved at Stop: Start replaces it under the finger.
     await userEvent.click(await screen.findByRole('button', { name: 'Start Morning' }));

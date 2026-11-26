@@ -8,13 +8,23 @@ import type { CSSProperties } from 'react';
 import { Link } from 'react-router';
 
 import type { TopicSummary } from '../../client';
+import { topicStyle, type Appearance } from '../../lib/appearance';
 import type { LocalRun } from '../../lib/runs/localView';
-import { activeMs, segmentMs } from '../runs/model';
+import type { Timer } from '../../lib/runs/types';
+import { activeMs, alertLine, headline as runHeadline, segmentMs } from '../runs/model';
 import { Duration, useServerNow } from '../runs/RunClock';
-import { Button } from '../ui/Button';
 import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon, type IconName } from '../ui/Icon';
+import { TopicGlyph } from '../ui/TopicGlyph';
+
+/**
+ * The topic as the card reads it. `appearance` (appearance.md §1.1) is optional until the
+ * generated `TopicSummary` carries it; without it the card is the brand accent.
+ */
+export type CardTopic = Pick<TopicSummary, 'id' | 'slug' | 'name'> & {
+  appearance?: Appearance | null | undefined;
+};
 
 /** One of the card's buttons, as its controls source renders it (`useActiveCardControls`). */
 export interface CardButton {
@@ -37,56 +47,60 @@ export interface CardControls {
   pauseResume: (CardButton & { paused: boolean }) | null;
 }
 
-export interface CardTint {
-  style: CSSProperties | undefined;
+/**
+ * The card's theme (appearance.md §4.2): the topic's tint variables on the card, read by the
+ * one `topic-tint` utility set, which falls back to the accent for a topic without a colour.
+ */
+export function cardTint(topic: CardTopic): {
+  style: CSSProperties;
   card: string;
   bar: string;
-}
-/**
- * The card's tint: the one seam for M3's topic theme (appearance.md §4.2). Until
- * `topicStyle` and the `topic-tint` utilities land, the brand accent; then this returns
- * `style: topicStyle(topic.appearance)` and the `bg-topic-tint-soft border-topic-tint/45`
- * / `bg-topic-tint` classes, which default to the accent themselves.
- */
-export const cardTint: (topic: Pick<TopicSummary, 'id'>) => CardTint = () => ({
-  style: undefined,
-  card: 'border-accent/45 bg-accent-soft',
-  bar: 'bg-accent',
-});
-
-/**
- * The headline after "Running ·" (§1.1): the open segment's label. Seam: M1's
- * `headline(state, status, timer).text` ("Rest 2 · lap 4") replaces it; until then the
- * label is the fallback active-surfaces.md §8.2 names. Null when nothing is open.
- */
-export function cardHeadline(run: Pick<LocalRun, 'state'>): string | null {
-  return run.state.open?.label ?? null;
+} {
+  return {
+    style: topicStyle(topic.appearance),
+    card: 'border-topic-tint/45 bg-topic-tint-soft',
+    bar: 'bg-topic-tint',
+  };
 }
 
 /**
- * The next alert's line ("Half way · in 0:12"). Seam: M1's `alertLine(state, timer, now)`;
- * until it lands no run has alerts, so the row stays collapsed.
+ * Whether the run is a queued `reopen` the server hasn't acked (the "Resuming…" projection,
+ * timers2.md §5.3): the card shows "Resuming…" and no controls until the ack (§3.3, §6.3).
+ * Pending M1: the local view has no such projection yet, so no run is resuming.
  */
-export const cardAlertLine: (run: Pick<LocalRun, 'state'>, now: number) => string | null = () =>
-  null;
+export const isResuming: (run: LocalRun) => boolean = () => false;
+
+/** The controls row's buttons: 56 px, as `Button size="lg"`, tinted or semantic per §6.2. */
+const CONTROL =
+  'inline-flex h-14 select-none items-center justify-center gap-2 rounded-full text-base font-semibold whitespace-nowrap transition-[background-color,filter,transform] duration-150 active:scale-[0.97] motion-reduce:transform-none disabled:pointer-events-none disabled:opacity-50';
 
 export function ActiveTopicCard({
   topic,
   run,
+  timer,
   controls,
+  resuming = false,
 }: {
-  topic: Pick<TopicSummary, 'id' | 'slug' | 'name'>;
+  topic: CardTopic;
   /** The topic's open run (running or paused). */
   run: LocalRun;
+  /** The run's pinned version's timer; null while the steps aren't known. */
+  timer: Timer | null;
   controls: CardControls;
+  /** A queued, unacked reopen (`isResuming`): "Resuming…" and no controls until the ack. */
+  resuming?: boolean;
 }) {
   const paused = run.status === 'paused';
   const now = useServerNow(!paused);
   const tint = cardTint(topic);
-  const headline = cardHeadline(run);
-  const alert = cardAlertLine(run, now);
   const open = run.state.open;
-  const { primary, stop, pauseResume } = controls;
+  // With nothing open the headline is just "Running"/"Paused", which the badge already says.
+  const headline = open ? runHeadline(run.state, run.status, timer).text : null;
+  const alert = alertLine(run.state, timer, now);
+  // A resuming run has no controls until the ack.
+  const { primary, stop, pauseResume } = resuming
+    ? { primary: null, stop: null, pauseResume: null }
+    : controls;
 
   return (
     <article
@@ -101,7 +115,10 @@ export function ActiveTopicCard({
       <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tint.bar)} />
       <div className="flex min-w-0 flex-1 flex-col gap-3 py-3.5 pr-3 pl-5">
         <div className="flex min-w-0 items-start justify-between gap-2">
-          <h2 className="min-w-0 pt-1.5 font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
+          <h2 className="flex min-w-0 items-center gap-2 pt-1.5 font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
+            <span aria-hidden className="contents">
+              <TopicGlyph appearance={topic.appearance} name={topic.name} size={24} />
+            </span>
             {/* The whole card opens the run panel; its controls sit above this overlay. */}
             <Link
               to={`/t/${topic.slug}/record`}
@@ -146,7 +163,7 @@ export function ActiveTopicCard({
           <Badge tone={paused ? 'warn' : 'accent'} className="max-w-full">
             <Icon name={paused ? 'pause' : 'timer'} className="size-3.5" strokeWidth={2.4} />
             <span data-testid="card-status" className="truncate">
-              {paused ? 'Paused' : 'Running'}
+              {resuming ? 'Resuming…' : paused ? 'Paused' : 'Running'}
               {headline ? (
                 <>
                   {' · '}
@@ -166,35 +183,37 @@ export function ActiveTopicCard({
         {primary || stop ? (
           <div className="relative z-10 flex gap-2">
             {primary ? (
-              <Button
-                size="lg"
-                variant="primary"
+              <button
+                type="button"
                 data-testid="card-primary"
                 aria-label={primary.label}
                 disabled={primary.disabled}
                 onClick={primary.onTap}
-                icon={<Icon name={primary.icon} className="size-5" strokeWidth={2.6} />}
-                className="min-w-0 flex-1 px-4 motion-reduce:transform-none"
+                className={cn(
+                  CONTROL,
+                  'min-w-0 flex-1 bg-topic-tint px-4 text-topic-on-tint shadow-[0_1px_0_rgb(0_0_0/0.15),inset_0_1px_0_rgb(255_255_255/0.2)] hover:brightness-110',
+                )}
               >
+                <Icon name={primary.icon} className="size-5 shrink-0" strokeWidth={2.6} />
                 <span className="truncate">{primary.title}</span>
-              </Button>
+              </button>
             ) : null}
             {stop ? (
-              <Button
-                size="lg"
-                variant="secondary"
+              <button
+                type="button"
                 data-testid="card-stop"
                 aria-label={stop.label}
                 disabled={stop.disabled}
                 onClick={stop.onTap}
-                icon={<Icon name={stop.icon} className="size-4.5" strokeWidth={2.6} />}
                 className={cn(
-                  'w-[5.25rem] shrink-0 gap-1.5 px-2 text-danger motion-reduce:transform-none',
-                  !primary && 'flex-1',
+                  CONTROL,
+                  'gap-1.5 border border-line-strong bg-surface px-2 text-danger hover:border-ink/40 hover:bg-sunken',
+                  primary ? 'w-[5.25rem] shrink-0' : 'flex-1',
                 )}
               >
+                <Icon name={stop.icon} className="size-4.5 shrink-0" strokeWidth={2.6} />
                 {stop.title}
-              </Button>
+              </button>
             ) : null}
           </div>
         ) : null}

@@ -1,41 +1,84 @@
 /**
- * The active card's controls (`CardControls`) for an open run.
- *
- * Seam: this is today's tile buttons (timers.md §11.1: Next while a named step remains,
- * else Stop), with Stop beside a Next and Pause/Resume in the title row. Phase 2 of
- * F2-HOME replaces the body with M2-MODEL-ADOPT's tile layout over M1's
- * `actions(run.state, run.status, timer, now)` (active-surfaces.md §1, §6.2), which makes
- * Lap the primary; `ActiveTopicCard` does not change.
+ * The active card's controls (`CardControls`) for an open run: M1's
+ * `actions(state, status, timer, now)` placed by `tileControls` (active-surfaces.md §1, §6.2)
+ * — the primary (Lap or Next, never Stop) and Stop in the controls row, Pause or Resume in
+ * the title row — with the titles, icons and accessible names of §1.3.
  */
 import { useNavigate } from 'react-router';
 
-import type { RunContext } from '../../lib/runs/actions';
+import type { RunContext, TapType } from '../../lib/runs/actions';
 import { fmtDuration } from '../../lib/runs/format';
 import { parseInstant } from '../../lib/runs/instant';
 import type { LocalRun } from '../../lib/runs/localView';
-import { useRunContext, useTopicVersions } from '../runs/context';
-import { activeMs, expectOf, primaryAction } from '../runs/model';
+import type { Timer } from '../../lib/runs/types';
+import { timerOf, useRunContext, useTopicVersions } from '../runs/context';
+import { tileControls } from '../runs/controlsLayout';
+import { actions as runActions, activeMs, expectOf, type RunAction } from '../runs/model';
+import { useServerNow } from '../runs/RunClock';
 import { finishUrl, hasQuestions } from '../runs/RunTile';
 import { useRunActions } from '../runs/useRunActions';
+import type { IconName } from '../ui/Icon';
 import { useToast } from '../ui/Toast';
-import type { CardControls } from './ActiveTopicCard';
+import type { CardButton, CardControls } from './ActiveTopicCard';
 
-export function useActiveCardControls(topic: RunContext['topic'], run: LocalRun): CardControls {
-  const actions = useRunActions();
+/** §1.3's title, icon and accessible name of a card control's kind. */
+function present(
+  kind: RunAction['kind'],
+  topicName: string,
+): { title: string; label: string; icon: IconName } | null {
+  switch (kind.type) {
+    case 'next': {
+      // Steps unknown (§1.2 row 9): `next("Next")` is a plain "Next", not "Next: Next".
+      const title = kind.label === 'Next' ? 'Next' : `Next: ${kind.label}`;
+      return { title, label: title, icon: 'chevronRight' };
+    }
+    case 'lap':
+      return kind.nextTypeLabel === null
+        ? { title: 'Lap', label: 'Lap', icon: 'flag' }
+        : {
+            title: `Lap → ${kind.nextTypeLabel}`,
+            label: `Lap, then ${kind.nextTypeLabel}`,
+            icon: 'flag',
+          };
+    case 'stop':
+      return { title: 'Stop', label: `Stop ${topicName}`, icon: 'stop' };
+    case 'pause':
+      return { title: 'Pause', label: 'Pause', icon: 'pause' };
+    case 'resume':
+      return { title: 'Resume', label: 'Resume', icon: 'play' };
+    default:
+      // `tileControls` places only these kinds on the card.
+      return null;
+  }
+}
+
+/** The run's pinned version's timer; null (steps unknown, the v1 fallback) until it's known. */
+function timerFor(versions: Parameters<typeof timerOf>[0], run: LocalRun): Timer | null {
+  const known = timerOf(versions, run.version);
+  if (known !== undefined) return known;
+  return run.steps ? { steps: [...run.steps] } : null;
+}
+
+/** The card's controls, and the run's timer (for its headline and alert line). */
+export function useActiveCardControls(
+  topic: RunContext['topic'],
+  run: LocalRun,
+): { controls: CardControls; timer: Timer | null } {
+  const taps = useRunActions();
   const navigate = useNavigate();
   const { toast } = useToast();
   const versions = useTopicVersions(run.topic_id);
   const runCtx = useRunContext(run, topic);
-  const steps = runCtx ? runCtx.steps : run.steps;
-  const primary = primaryAction(run, steps);
+  const now = useServerNow(run.status === 'running');
+  const timer = timerFor(versions.data, run);
+  const layout = tileControls(runActions(run.state, run.status, timer, now));
   // Captured at render: a second tap before the card catches up targets what it showed.
-  const expect = expectOf(run, steps);
-  const disabled = runCtx === null || actions.busy;
-  const paused = run.status === 'paused';
+  const expect = expectOf(run, runCtx ? runCtx.steps : run.steps);
 
+  const tap = (type: TapType) =>
+    runCtx ? taps.tap(run.id, runCtx, type, {}, expect) : Promise.resolve(null);
   const stop = () => {
-    if (!runCtx) return;
-    void actions.tap(run.id, runCtx, 'stop', {}, expect).then((item) => {
+    void tap('stop').then((item) => {
       if (!item) return;
       // A version with questions opens the answers form; one without says it's saved.
       if (hasQuestions(versions.data, run.version) !== false) {
@@ -46,38 +89,28 @@ export function useActiveCardControls(topic: RunContext['topic'], run: LocalRun)
       }
     });
   };
-  const stopButton = {
-    title: 'Stop',
-    label: `Stop · ${topic.name}`,
-    icon: 'stop',
-    disabled,
-    onTap: stop,
-  } as const;
-
-  return {
-    primary:
-      primary.type === 'next'
-        ? {
-            title: primary.label,
-            label: `${primary.label} · ${topic.name}`,
-            icon: 'chevronRight',
-            disabled,
-            onTap: () => {
-              if (runCtx) void actions.tap(run.id, runCtx, 'next', {}, expect);
-            },
-          }
-        : stopButton,
-    // On the last step Stop is today's primary: never a second Stop beside it.
-    stop: primary.type === 'next' ? stopButton : null,
-    pauseResume: {
-      paused,
-      title: paused ? 'Resume' : 'Pause',
-      label: `${paused ? 'Resume' : 'Pause'} ${topic.name}`,
-      icon: paused ? 'play' : 'pause',
-      disabled,
+  const button = (a: RunAction | null): CardButton | null => {
+    const shown = a && present(a.kind, topic.name);
+    if (!a || !shown) return null;
+    const type = a.kind.type;
+    return {
+      ...shown,
+      disabled: runCtx === null || taps.busy || !a.enabled,
       onTap: () => {
-        if (runCtx) void actions.tap(run.id, runCtx, paused ? 'resume' : 'pause', {}, expect);
+        if (type === 'stop') stop();
+        else if (type === 'next' || type === 'lap' || type === 'pause' || type === 'resume')
+          void tap(type);
       },
+    };
+  };
+
+  const pauseResume = button(layout.pauseResume);
+  return {
+    controls: {
+      primary: button(layout.primary),
+      stop: button(layout.stop),
+      pauseResume: pauseResume && { ...pauseResume, paused: run.status === 'paused' },
     },
+    timer,
   };
 }

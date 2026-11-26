@@ -49,7 +49,7 @@ describe('the home tile of a timed topic', () => {
     const t = await card();
     expect(await within(t).findByTestId('card-status')).toHaveTextContent('Running · Shower');
     expect(within(t).getByTestId('card-total')).toHaveTextContent(/1:0\d/);
-    const next = within(t).getByRole('button', { name: 'Next: Breakfast · Morning' });
+    const next = within(t).getByRole('button', { name: 'Next: Breakfast' });
     await waitFor(() => expect(next).toBeEnabled());
     await userEvent.click(next);
     await sent(h, 1);
@@ -64,7 +64,7 @@ describe('the home tile of a timed topic', () => {
       ]),
     );
     const t = await card();
-    const stop = await within(t).findByRole('button', { name: 'Stop · Morning' });
+    const stop = await within(t).findByRole('button', { name: 'Stop Morning' });
     await waitFor(() => expect(stop).toBeEnabled());
     await userEvent.click(stop);
     await sent(h, 1);
@@ -80,7 +80,7 @@ describe('the home tile of a timed topic', () => {
   it('a version without questions saves at Stop, with its time', async () => {
     h = renderRunApp('/', timedTopic({ steps: [], questions: [] }), (s) => seedRun(s));
     const t = await card();
-    const stop = await within(t).findByRole('button', { name: 'Stop · Morning' });
+    const stop = await within(t).findByRole('button', { name: 'Stop Morning' });
     await waitFor(() => expect(stop).toBeEnabled());
     await userEvent.click(stop);
     expect(await screen.findByText(/^Saved Morning: 1:0\d$/)).toBeInTheDocument();
@@ -151,7 +151,7 @@ describe('a run whose steps aren’t known here (T-PUSH: a reminder’s Start, n
   it('the tile offers Next', async () => {
     h = renderRunApp('/', timedTopic(), unknownSteps);
     const t = await card();
-    const next = await within(t).findByRole('button', { name: 'Next · Morning' });
+    const next = await within(t).findByRole('button', { name: 'Next' });
     await waitFor(() => expect(next).toBeEnabled());
   });
 });
