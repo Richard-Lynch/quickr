@@ -55,7 +55,7 @@ struct EditQuestionsScreen: View {
                 load = .missing
                 return
             }
-            // The draft starts from the base version's timer, and new step keys avoid every
+            // The draft starts from the base version's timer, and new step and lap-type keys avoid every
             // version's: without the base version's row, its timer isn't known (timers.md §2.1).
             guard
                 let versions = try await TopicLookup.versions(
@@ -68,7 +68,7 @@ struct EditQuestionsScreen: View {
             }
             let router = environment.router
             let model = EditQuestionsModel(
-                topic: topic, timer: baseVersion.timer, stepHistory: StepKeys.history(versions),
+                topic: topic, timer: baseVersion.timer, history: TimerHistory(versions),
                 writer: SessionTopicWriter(session: session, binding: binding),
                 toasts: environment.toasts,
                 onPublished: { topic in

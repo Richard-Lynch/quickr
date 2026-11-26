@@ -15,6 +15,8 @@ final class FakeTopicWriter: TopicWriter {
     }
 
     var calls: [Call] = []
+    /// Every topic sent to `create`, in order.
+    var creations: [TopicDraft.Creation] = []
     var topicResult: TopicWriteOutcome<Topic>?
     var deleteResult: TopicWriteOutcome<Void> = .done(())
     var unsynced = 0
@@ -26,6 +28,7 @@ final class FakeTopicWriter: TopicWriter {
 
     func create(_ creation: TopicDraft.Creation, schedule: Schedule?) async -> TopicWriteOutcome<Topic> {
         calls.append(.create(name: creation.name, schedule: schedule))
+        creations.append(creation)
         return topicResult ?? .done(server)
     }
 

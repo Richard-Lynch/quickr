@@ -7,7 +7,7 @@ import { createMemoryRouter, Outlet, RouterProvider, useLocation } from 'react-r
 import { vi } from 'vitest';
 
 import { connectOutboxEffects } from '../api/outboxEffects';
-import { clearRunTombstones } from '../api/runs';
+import { clearRunMarkers } from '../api/runs';
 import { client } from '../client/client.gen';
 import type { RunEventIn, TopicDetail, TopicSummary, TopicVersionOut } from '../client';
 import { AppShell, TopBar } from '../components/AppShell';
@@ -208,7 +208,7 @@ export function renderRunApp(
       // The page's snapshots are module state: start the next test from empty ones.
       await refreshOutboxSnapshot();
       setAckedStore(memoryAckedStore());
-      clearRunTombstones();
+      clearRunMarkers();
       clearRunNotices();
       setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
       resetServerOffset();

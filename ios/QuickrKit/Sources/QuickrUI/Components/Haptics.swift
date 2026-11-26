@@ -15,6 +15,10 @@ public enum QuickrHaptic: Sendable {
     case undo
     /// Something was rejected (validation, a failed save).
     case failure
+    // T2-M1 (timers2.md §9.1)
+    /// A run alert arrived while the app is in the foreground (its banner and sound play too).
+    case alert
+    // end T2-M1
 
     public var feedback: SensoryFeedback {
         switch self {
@@ -24,6 +28,7 @@ public enum QuickrHaptic: Sendable {
         case .decrease: .decrease
         case .undo: .impact(weight: .light)
         case .failure: .error
+        case .alert: .warning  // T2-M1
         }
     }
 }

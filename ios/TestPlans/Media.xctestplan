@@ -27,7 +27,8 @@
         "name" : "QuickRUITests"
       },
       "selectedTests" : [
-        "MediaCaptureUITests"
+        "MediaCaptureUITests",
+        "T2M1MediaUITests"
       ]
     }
   ],

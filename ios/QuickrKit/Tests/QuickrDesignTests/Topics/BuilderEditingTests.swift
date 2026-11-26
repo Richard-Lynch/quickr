@@ -7,6 +7,53 @@ import Testing
 @MainActor @Suite struct BuilderEditingTests {
     static func questions(_ n: Int) -> [DraftQuestion] { (0..<n).map { _ in DraftQuestion(type: .int) } }
 
+    // MARK: Timer items (timers2.md §1.6)
+
+    /// A step or lap type row opens to show its alerts: by choice, when an alert is added, or
+    /// while one of its alerts shows an error; collapsed, it shows its alert count.
+    @Test func aTimerItemOpensForAnAddedAlertAndStaysOpenOnAnError() throws {
+        let model = NewTopicModel(writer: FakeTopicWriter(server: NewTopicModelTests.created), toasts: ToastCenter())
+        model.draft.timed = true
+        let run = try #require(model.addLapType())
+        #expect(!model.isOpen(.lapType(run)))
+        model.toggle(.lapType(run))
+        #expect(model.isOpen(.lapType(run)))
+        model.toggle(.lapType(run))
+        #expect(!model.isOpen(.lapType(run)))
+        let alert = try #require(model.addAlert(to: .lapType(run)))
+        #expect(model.isOpen(.lapType(run)), "adding an alert opens its owner")
+        #expect(model.draft.alertCount(.lapType(run)) == 1)
+        model.toggle(.lapType(run))
+        #expect(!model.isOpen(.lapType(run)))
+        #expect(model.draftErrors.hasError(inAlertsOf: .lap(0)) == false)
+        model.removeAlert(.lapType(run), alert)
+        #expect(model.draft.alertCount(.lapType(run)) == 0)
+    }
+
+    @Test func addingLapTypesVariablesAndAlertsStopsAtTheLimits() throws {
+        var limits = Limits.serverDefaults
+        limits.maxLapTypes = 1
+        limits.maxVariables = 1
+        limits.maxAlerts = 1
+        let model = NewTopicModel(
+            writer: FakeTopicWriter(server: NewTopicModelTests.created), toasts: ToastCenter(), limits: limits)
+        let lap = try #require(model.addLapType())
+        #expect(model.addLapType() == nil)
+        #expect(model.addVariable() != nil)
+        #expect(model.addVariable() == nil)
+        #expect(model.addAlert(to: .lapType(lap)) != nil)
+        #expect(model.addAlert(to: .lapType(lap)) == nil)
+    }
+
+    @Test func theAlertPreviewUsesTheDraftsVariables() throws {
+        let model = NewTopicModel(writer: FakeTopicWriter(server: NewTopicModelTests.created), toasts: ToastCenter())
+        let v = try #require(model.addVariable())
+        model.draft.setVariableName(v, "t")
+        model.draft.setVariableDuration(v, "2:00")
+        #expect(model.alertPreview("t/2") == .value(ms: 60_000, text: "1:00"))
+        #expect(model.alertPreview("") == .error(message: "Syntax at 0: empty expression", pos: 0))
+    }
+
     // MARK: Expansion
 
     @Test func creatingStartsOpenEditingClosed() {

@@ -1,6 +1,7 @@
 {
   "body": {
     "complete_runs": 0,
+    "lap_types": [],
     "laps": {
       "mean_ms": null,
       "median_ms": null,

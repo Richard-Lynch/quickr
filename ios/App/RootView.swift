@@ -131,6 +131,11 @@ struct RootView: View {
         }
         // The Live Activities are reconciled with the active store's runs (timers.md §10.3).
         .task(id: environment.session?.binding) { await environment.observeRunsForLiveActivities() }
+        // T2-M1: the run alerts are scheduled from them (timers2.md §9.1), and a foreground
+        // alert plays its haptic.
+        .task(id: environment.session?.binding) { await environment.observeRunsForAlerts() }
+        .qrHaptic(.alert, trigger: environment.runAlerts.presented)
+        // end T2-M1
         // The widgets follow the active store too.
         .task(id: environment.session?.binding) {
             if let session = environment.session, let store = session.store {
@@ -144,6 +149,11 @@ struct RootView: View {
                 UITestSyncControls().padding(.bottom, 24)
             }
         }
+        // T2-M1: over the navigation bar's title, clear of its buttons, the tiles and the run bar.
+        .overlay(alignment: .top) {
+            if UITestRunControls.isShown { UITestRunControls() }
+        }
+        // end T2-M1
         #endif
         #if DEBUG || QUICKR_PERF
         .overlay(alignment: .topTrailing) {

@@ -1,42 +1,62 @@
 import { useRef } from 'react';
-import { useFieldArray, useFormContext, useWatch } from 'react-hook-form';
+import { useFieldArray, useFormContext, useFormState, useWatch } from 'react-hook-form';
 
+import { FALLBACK_LIMITS } from '../../api/limits';
+import type { Limits } from '../../client';
 import {
-  MAX_STEPS,
   newDraftStep,
+  takenTimerKeys,
   withStepLabel,
+  type DraftLapType,
   type DraftStep,
-  type HistoricStep,
+  type DraftVariable,
+  type TimerHistory,
   type TopicDraft,
 } from '../../lib/builder';
-import { Button, IconButton } from '../ui/Button';
-import { Badge } from '../ui/Card';
-import { cn } from '../ui/cn';
-import { Input } from '../ui/Field';
-import { Icon } from '../ui/Icon';
+import { Button } from '../ui/Button';
 import { Switch } from '../ui/Switch';
 import { fieldError } from './fieldError';
+import { Icon } from '../ui/Icon';
+import { LapTypesEditor } from './LapTypesEditor';
+import { TimerItemRow } from './TimerItemRow';
+import { VariablesEditor } from './VariablesEditor';
+
+const NO_HISTORY: TimerHistory = { steps: [], laps: [] };
 
 /**
- * The Timed switch and the steps editor (timers.md §2.1, §11.5). A timed topic's entries are
- * runs: Start, then Next through the steps (none makes a plain stopwatch), then Stop.
+ * The Timed switch and the timer's editors (timers.md §2.1, §11.5; timers2.md §1.6). A timed
+ * topic's entries are runs: Start, then Next through the steps (none makes a plain stopwatch),
+ * then Stop. Below the steps: the lap types, the variables, and each step's and lap type's
+ * alerts.
  *
  * A published step keeps its key when renamed, so its stats join across versions; a new
- * step's key follows its label until it is published. Switching Timed off empties the steps
- * (so they don't block publishing) and switching it back on restores them.
+ * step's key follows its label until it is published, avoiding the lap types' keys (one
+ * namespace). Switching Timed off empties the timer's lists (so they don't block publishing)
+ * and switching it back on restores them.
  *
- * `history`: every step key the topic's versions have used. A new step named like a retired
- * one takes its key back; any other new step gets a key no version has used.
+ * `history`: every step and lap-type key the topic's versions have used. A new step named like
+ * a retired one takes its key back; any other new step gets a key no version has used.
  */
-export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[] }) {
-  const { control, setValue, getValues, register, formState } = useFormContext<TopicDraft>();
+export function TimerEditor({
+  history = NO_HISTORY,
+  limits = FALLBACK_LIMITS,
+}: {
+  history?: TimerHistory | undefined;
+  limits?: Limits | undefined;
+}) {
+  const { control, setValue, getValues, register } = useFormContext<TopicDraft>();
+  const { errors, isSubmitted } = useFormState({ control, name: 'steps' });
   const timed = useWatch({ control, name: 'timed' });
   const { fields, append, remove, move, replace } = useFieldArray({
     control,
     name: 'steps',
     keyName: 'fieldId',
   });
-  const parked = useRef<DraftStep[]>([]);
+  const parked = useRef<{ steps: DraftStep[]; laps: DraftLapType[]; variables: DraftVariable[] }>({
+    steps: [],
+    laps: [],
+    variables: [],
+  });
   const addButton = useRef<HTMLButtonElement>(null);
   const steps = useWatch({ control, name: 'steps' });
   /** "Wipe down (step 2)", or "step 2" while it has no name. */
@@ -44,14 +64,22 @@ export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[
     const label = steps[i]?.label.trim();
     return label ? `${label} (step ${String(i + 1)})` : `step ${String(i + 1)}`;
   };
-  const listError = fieldError(formState.errors, 'steps');
+  const listError = fieldError(errors, 'steps');
 
   const setTimed = (next: boolean) => {
     if (next) {
-      replace(parked.current);
+      replace(parked.current.steps);
+      setValue('laps', parked.current.laps);
+      setValue('variables', parked.current.variables);
     } else {
-      parked.current = getValues('steps');
+      parked.current = {
+        steps: getValues('steps'),
+        laps: getValues('laps'),
+        variables: getValues('variables'),
+      };
       replace([]);
+      setValue('laps', []);
+      setValue('variables', []);
     }
     setValue('timed', next, { shouldDirty: true });
   };
@@ -92,82 +120,41 @@ export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[
             </p>
           ) : null}
           <ol className="flex flex-col gap-2">
-            {fields.map((f, i) => {
-              const labelError = fieldError(formState.errors, `steps.${i}.label`);
-              const keyError = fieldError(formState.errors, `steps.${i}.key`);
-              const errorId = `step-${f.uid}-error`;
-              const reg = register(`steps.${i}.label`, {
-                onChange: (e: { target: { value: string } }) => {
-                  const all = getValues('steps');
-                  const cur = all[i];
-                  if (!cur) return;
-                  const taken = all.filter((_, j) => j !== i).map((s) => s.key);
-                  const next = withStepLabel(cur, e.target.value, taken, history);
-                  if (next.key !== cur.key)
-                    setValue(`steps.${i}.key`, next.key, { shouldValidate: formState.isSubmitted });
-                },
-              });
-              return (
-                <li
-                  key={f.fieldId}
-                  className={cn(
-                    'flex flex-col gap-1 rounded-card border bg-surface px-3 py-2 shadow-card',
-                    labelError || keyError ? 'border-danger/60' : 'border-line',
-                  )}
-                >
-                  <div className="flex items-center gap-1">
-                    <span className="w-5 shrink-0 font-mono text-xs text-muted">{i + 1}</span>
-                    <Input
-                      id={`step-${f.uid}`}
-                      aria-label={`Step ${String(i + 1)} name`}
-                      aria-invalid={labelError || keyError ? true : undefined}
-                      aria-describedby={labelError || keyError ? errorId : undefined}
-                      placeholder="Step name"
-                      className="h-11 flex-1"
-                      {...reg}
-                    />
-                    <IconButton
-                      label={`Move up: ${nameOf(i)}`}
-                      size="sm"
-                      disabled={i === 0}
-                      onClick={() => move(i, i - 1)}
-                    >
-                      <Icon name="up" className="size-4.5" />
-                    </IconButton>
-                    <IconButton
-                      label={`Move down: ${nameOf(i)}`}
-                      size="sm"
-                      disabled={i === fields.length - 1}
-                      onClick={() => move(i, i + 1)}
-                    >
-                      <Icon name="down" className="size-4.5" />
-                    </IconButton>
-                    <IconButton
-                      label={`Remove ${nameOf(i)}`}
-                      size="sm"
-                      onClick={() => {
-                        // Focus the step that takes its place, else the one before, else Add step.
-                        const next = fields[i + 1] ?? fields[i - 1];
-                        remove(i);
-                        window.setTimeout(() => {
-                          const el = next ? document.getElementById(`step-${next.uid}`) : null;
-                          (el ?? addButton.current)?.focus();
-                        }, 0);
-                      }}
-                      className="hover:bg-danger-soft hover:text-danger"
-                    >
-                      <Icon name="trash" className="size-4.5" />
-                    </IconButton>
-                  </div>
-                  <StepKey index={i} />
-                  {labelError || keyError ? (
-                    <p id={errorId} role="alert" className="pl-6 text-sm font-medium text-danger">
-                      {labelError ?? keyError}
-                    </p>
-                  ) : null}
-                </li>
-              );
-            })}
+            {fields.map((f, i) => (
+              <TimerItemRow
+                key={f.fieldId}
+                owner="steps"
+                index={i}
+                uid={`step-${f.uid}`}
+                count={fields.length}
+                name={nameOf(i)}
+                inputLabel={`Step ${String(i + 1)} name`}
+                placeholder="Step name"
+                keyTestId="step-key"
+                limits={limits}
+                registration={register(`steps.${i}.label`, {
+                  onChange: (e: { target: { value: string } }) => {
+                    const draft = getValues();
+                    const cur = draft.steps[i];
+                    if (!cur) return;
+                    const taken = takenTimerKeys(draft, 'step', i, history);
+                    const next = withStepLabel(cur, e.target.value, taken, history.steps);
+                    if (next.key !== cur.key)
+                      setValue(`steps.${i}.key`, next.key, { shouldValidate: isSubmitted });
+                  },
+                })}
+                onMove={(to) => move(i, to)}
+                onRemove={() => {
+                  // Focus the step that takes its place, else the one before, else Add step.
+                  const next = fields[i + 1] ?? fields[i - 1];
+                  remove(i);
+                  window.setTimeout(() => {
+                    const el = next ? document.getElementById(`step-${next.uid}`) : null;
+                    (el ?? addButton.current)?.focus();
+                  }, 0);
+                }}
+              />
+            ))}
           </ol>
           {listError ? (
             <p role="alert" className="text-sm font-medium text-danger">
@@ -180,26 +167,14 @@ export function TimerEditor({ history = [] }: { history?: readonly HistoricStep[
             onClick={add}
             className="border-dashed"
             icon={<Icon name="plus" />}
-            disabled={fields.length >= MAX_STEPS}
+            disabled={fields.length >= limits.max_steps}
           >
             Add step
           </Button>
+          <LapTypesEditor history={history} limits={limits} />
+          <VariablesEditor limits={limits} />
         </>
       ) : null}
     </section>
-  );
-}
-
-/** The step's key, and whether it is published (its key then never changes). */
-function StepKey({ index }: { index: number }) {
-  const { control } = useFormContext<TopicDraft>();
-  const step = useWatch({ control, name: `steps.${index}` });
-  return (
-    <p className="flex items-center gap-2 pl-6 text-xs text-muted">
-      <span className="font-mono" data-testid="step-key">
-        {step.key || '—'}
-      </span>
-      {step.locked ? <Badge>published</Badge> : <Badge tone="accent">new</Badge>}
-    </p>
   );
 }

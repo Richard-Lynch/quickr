@@ -40,7 +40,7 @@ import Testing
     /// Every key of every response object is required in `openapi.json` (nullable ones too), so
     /// a response missing any one of them must fail to decode, never default to nil (sync §2.2).
     /// Free-form maps (`meta`, `option_counts`, `json_schema`, a run's `effects`, a timing series
-    /// point's `steps`, `/health`) have no required keys.
+    /// point's `steps` and `lap_types`, `/health`) have no required keys.
     @Test(arguments: try Fixtures.apiNames().filter { $0 != "health" })
     func responseMissingAnyKeyFailsToDecode(name: String) throws {
         let fixture = try Fixtures.api(name)
@@ -71,6 +71,17 @@ import Testing
         let data = try JSONSerialization.data(withJSONObject: object)
         let topic = try Endpoints.getTopic.erased.decodeResponse(data) as? Topic
         #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil && topic?.timer == nil)
+    }
+
+    /// getTopicTiming of a topic with lap types (timers2.md §7.4): the rows and each point's sums.
+    @Test func timingCarriesLapTypes() throws {
+        let body = try #require(try Fixtures.api("getTopicTiming.lap_types").body)
+        let timing = try #require(try Endpoints.getTopicTiming.erased.decodeResponse(body) as? TopicTimingDTO)
+        #expect(timing.lapTypes.map(\.key) == ["run", "rest"])
+        #expect(timing.lapTypes.map(\.laps) == [2, 1])
+        #expect(timing.series.first?.lapTypes == ["run": 270_000, "rest": 30_000])
+        let untyped = try #require(try Fixtures.api("getTopicTiming").body)
+        #expect(try JSONDecoder().decode(TopicTimingDTO.self, from: untyped).lapTypes.isEmpty)
     }
 
     /// A summary carries its current version's timer (timers.md §2.1); null when untimed.
@@ -114,8 +125,10 @@ import Testing
                 var removed = object
                 removed[key] = nil
                 variants.append(("\(path)/\(key)", removed))
-                // A series point's `steps` is a map; a topic's `steps` is an array of objects.
-                guard !freeFormMaps.contains(key), !(key == "steps" && child is [String: Any]) else { continue }
+                // A series point's `steps` and `lap_types` are maps; a topic's `steps` and a
+                // timing's `lap_types` are arrays of objects.
+                guard !freeFormMaps.contains(key), !(["steps", "lap_types"].contains(key) && child is [String: Any])
+                else { continue }
                 for (childPath, childVariant) in withOneKeyRemoved(child, path: "\(path)/\(key)") {
                     var copy = object
                     copy[key] = childVariant

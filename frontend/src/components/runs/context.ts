@@ -1,6 +1,6 @@
 /**
  * The run context a surface needs to tap a run (`RunContext`): the topic, the run's pinned
- * version, that version's steps and whether it has a required question.
+ * version, that version's steps and lap types, and whether it has a required question.
  *
  * Topics don't carry their timer; versions do (`listTopicVersions`, timers.md §2.1). The
  * versions are read by topic id, so a run known only from the server (which names its
@@ -36,6 +36,7 @@ export function contextFor(
     topic,
     version,
     steps: v.timer.steps,
+    laps: v.timer.laps,
     requires_answers: v.questions.some((q) => q.required),
   };
 }
@@ -50,6 +51,7 @@ export function contextFromRun(run: LocalRun, topic: TopicRef): RunContext {
     topic,
     version: run.version,
     steps: run.steps ? [...run.steps] : null,
+    laps: run.laps ? [...run.laps] : null,
     requires_answers: run.requires_answers,
   };
 }
