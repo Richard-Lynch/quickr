@@ -1,0 +1,73 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "45A3C7C5-4EB9-4F77-B85F-86FB876A836B",
+   "deviceName": "quickR iOS-26-0 t2-m1-ui-ios-8a9778",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "23A343",
+   "osVersion": "26.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "durationInSeconds": 23.775908946990967,
+         "name": "testLapAlertInTheForeground()",
+         "nodeIdentifier": "T2M1MediaUITests/testLapAlertInTheForeground()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 135.63827002048492,
+         "name": "testTimerEditors()",
+         "nodeIdentifier": "T2M1MediaUITests/testTimerEditors()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "XCTAssertTrue failed",
+           "nodeType": "Failure Message",
+           "sourceLocation": {
+            "filePath": "/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/T2M1MediaUITests.swift",
+            "lineNumber": 76
+           }
+          }
+         ],
+         "durationInSeconds": 18.91697096824646,
+         "name": "testTimerEditorsAtTheLargestTextSize()",
+         "nodeIdentifier": "T2M1MediaUITests/testTimerEditorsAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Failed"
+        }
+       ],
+       "name": "T2M1MediaUITests",
+       "nodeType": "Test Suite",
+       "result": "Failed"
+      }
+     ],
+     "name": "QuickRUITests",
+     "nodeType": "UI test bundle",
+     "result": "Failed"
+    }
+   ],
+   "name": "Media",
+   "nodeType": "Test Plan",
+   "result": "Failed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}
