@@ -1,0 +1,5 @@
+- **Low — shared-file rule:** [UITestLaunch.swift](/Users/richie/code/quickr-worktrees/t2-m3a-i3store/ios/App/Debug/UITestLaunch.swift:429) changes the shared fake-server file in three places, with only the PATCH addition delimited. The programme plan requires one appended `// T2-M3` block per milestone in this file. The scattered changes make the intended merge boundary unclear and increase conflict risk with other milestones’ fake-server work.
+
+**Verdict:** The implementation otherwise looks sound against the requested scope. PATCH encoding preserves omitted, null, and value states; response keys are required; both store layers receive matching columns; and the rebuild test covers re-pulling an unchanged themed topic. The tests also cover the request golden and reminder title vectors. I treated the separately committed migration registration as the stated lead decision, not a finding.
+
+This was a static review; I did not run the test suites in the read-only environment.
