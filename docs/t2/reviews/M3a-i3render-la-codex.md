@@ -18,3 +18,9 @@ The optional Swift property uses synthesized `Codable` decoding, which accepts o
   - `test_budget_bound_holds_with_the_largest_appearance` now asserts the appearance is unchanged after every step.
   - New `test_budget_vectors_rerun_with_the_largest_appearance[payload_budget_truncation|payload_budget_terminal]` rebuilds each budget vector's start with the largest appearance, at the vector's limit plus the appearance's bytes. It asserts the same steps, the fit, the appearance carried whole, and the rest of the attributes and content state identical to the vector.
 - The P1 justification held (#226).
+
+## Round 3 (Codex)
+
+**No new findings.** The round 2 fix re-runs both budget vectors with the largest appearance, checks the expected truncation steps and fitted size, and verifies that the appearance survives unchanged. The separate terminal-step test also checks it after every step.
+
+I did not run the test suites.
