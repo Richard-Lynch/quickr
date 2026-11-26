@@ -53,13 +53,15 @@ import Testing
         try await eventually("one waiting") {
             environment.sync.pill(status: session.syncStatus) == .offline(waiting: 1)
         }
-        // The sheet's items and network state arrive on their own observations, after the pill's
-        // status (issue #28, open for one snapshot of items and summary): wait for them too.
-        try await eventually("the sheet lists it, offline") {
-            let sheet = environment.sync.sheet(lastSyncAt: nil)
-            let titles: [String] = sheet.rows.map(\.title)
-            return titles == ["Entry · Mood"] && !sheet.online
+        // The rows come with the pill's summary (one snapshot, issue #28). The network path has
+        // its own stream (the pill can say offline from an unreachable server before it lands),
+        // and the topic names that title the rows are read after the snapshot: wait for those two.
+        #expect(environment.sync.sheet(lastSyncAt: nil).rows.count == 1)
+        try await eventually("the path is offline") { !environment.sync.online }
+        try await eventually("the row is titled") {
+            environment.sync.sheet(lastSyncAt: nil).rows.map(\.title) == ["Entry · Mood"]
         }
+        #expect(!environment.sync.sheet(lastSyncAt: nil).online)
 
         // Back online: the regained path asks for a forced flush, and the entry goes.
         let scheduler = try #require(session.scheduler)
@@ -70,8 +72,7 @@ import Testing
             await scheduler.started.dropFirst(flushes).contains(OutboxFlushReason.networkAvailable.policy)
         }
         try await eventually("sent") { environment.sync.pill(status: session.syncStatus) == .hidden }
-        // As above (issue #28): the items come on their own observation, which can lag the pill.
-        try await eventually("the sheet is empty") { environment.sync.items.isEmpty }
+        #expect(environment.sync.items.isEmpty)  // the same snapshot as the pill's (issue #28)
         await session.shutdown()
     }
 
