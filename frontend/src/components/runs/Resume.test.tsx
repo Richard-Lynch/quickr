@@ -11,7 +11,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { runsQueryKey } from '../../api/runs';
 import { outbox } from '../../lib/outbox/client';
 import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
+import type { FakeRunServer } from '../../test/fakeRunServer';
 import { renderRunApp, RUN_ID, type Harness } from '../../test/runUi';
+import { RUN_TAP_COOLDOWN_MS } from './useRunActions';
 
 let h: Harness | null = null;
 /** The harness's fake server (the test has rendered the app). */
@@ -227,6 +229,85 @@ describe('the stop toast, checked again at the tap', () => {
     await user.click(older);
     expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
     expect(await outbox.list()).toHaveLength(0);
+  });
+
+  /** Hold the next `listEntries` request (the toast's refresh) until `release`, or forever. */
+  const holdable = () => {
+    const ctl: { next: boolean; release: () => void } = {
+      next: false,
+      release: () => {
+        throw new Error('nothing held');
+      },
+    };
+    const setup = (s: FakeRunServer) => {
+      const base = s.fetch;
+      s.fetch = (input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (!ctl.next || !new URL(url, 'https://q.test').pathname.endsWith('/entries'))
+          return base(input, init);
+        ctl.next = false;
+        return new Promise((resolve) => {
+          ctl.release = () => {
+            resolve(base(input, init));
+          };
+        });
+      };
+    };
+    return { ctl, setup };
+  };
+
+  it('a refresh that never answers: after the tap timeout, the cached entry decides', async () => {
+    const { ctl, setup } = holdable();
+    h = renderRunApp('/t/morning/record', lapTopic(), setup);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
+    await waitFor(() => expect(server().entries).toHaveLength(1));
+    const stop = server().events()[1];
+    const resume = await screen.findByRole('button', { name: 'Resume' });
+    await settled();
+    ctl.next = true;
+    await user.click(resume);
+    await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 5000 });
+    expect(reopens(server())[0]?.target).toBe(stop?.id);
+  }, 10_000);
+
+  it('a slow refresh, and the run resumed and stopped again meanwhile: the toast does nothing', async () => {
+    const { ctl, setup } = holdable();
+    h = renderRunApp('/t/morning/record', lapTopic(), setup);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await user.click(await screen.findByRole('button', { name: 'Stop Morning' }));
+    await waitFor(() => expect(server().entries).toHaveLength(1));
+    const older = await screen.findByRole('button', { name: 'Resume' });
+    await settled();
+    // The toast's refresh is held; meanwhile the tile resumes and the card stops again (the
+    // re-stop stays queued).
+    ctl.next = true;
+    await user.click(older);
+    await user.click(await screen.findByTestId('run-reopen'));
+    await waitFor(() => expect(reopens(server())).toHaveLength(1));
+    await settled();
+    server().override = (body) =>
+      body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByTestId('card-stop'));
+    await waitFor(async () =>
+      expect(
+        (await outbox.list()).filter(
+          (i) => (i.payload as { event: { type: string } }).event.type === 'stop',
+        ),
+      ).toHaveLength(1),
+    );
+    // Past the card's tap cooldown, so only the toast's own check can refuse.
+    await new Promise((r) => setTimeout(r, RUN_TAP_COOLDOWN_MS + 50));
+    ctl.release();
+    expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
+    expect(reopens(server())).toHaveLength(1);
+    expect(
+      (await outbox.list()).filter(
+        (i) => (i.payload as { event: { type: string } }).event.type === 'reopen',
+      ),
+    ).toHaveLength(0);
   });
 
   it('a toast whose run is no longer the topic’s latest stop does nothing', async () => {

@@ -9,8 +9,9 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
 import { lastEntryOptions } from '../../api/entries';
-import { runTapDeps } from '../../api/runs';
+import { runTapDeps, TAP_REFRESH_TIMEOUT_MS } from '../../api/runs';
 import type { EntryOut, TopicVersionOut } from '../../client';
+import { isOnline } from '../../lib/outbox/client';
 import { isRunEvent } from '../../lib/outbox/kinds';
 import type { EntryRef, RunContext } from '../../lib/runs/actions';
 import { projectTiming, timingFromWire, timingToWire } from '../../lib/runs/fold';
@@ -145,16 +146,25 @@ export function useReopenOffer(
 }
 
 /**
- * The topic's latest entry, fetched now (`lastEntryOptions`, which refreshes the cache): the
- * cached one may predate a re-stop, an edit or a later run, here or elsewhere. Offline, the
- * cached one, if any.
+ * Refresh the topic's latest entry (`lastEntryOptions`) for a tap: the cached one may predate
+ * a re-stop, an edit or a later run, here or elsewhere. Bounded like `tapRun`'s refresh
+ * (`TAP_REFRESH_TIMEOUT_MS`); offline, failed or slow, the cache stays as it was.
  */
-async function latestEntryNow(qc: QueryClient, slug: string): Promise<EntryOut | undefined> {
-  try {
-    return (await qc.query({ ...lastEntryOptions(slug), staleTime: 0, retry: false })).items[0];
-  } catch {
-    return qc.getQueryData(lastEntryOptions(slug).queryKey)?.items[0];
-  }
+function refreshLatestEntry(qc: QueryClient, slug: string): Promise<void> {
+  if (!isOnline()) return Promise.resolve();
+  const fetched = qc
+    .query({ ...lastEntryOptions(slug), staleTime: 0, retry: false, networkMode: 'always' })
+    .then(
+      () => undefined,
+      () => undefined,
+    );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, TAP_REFRESH_TIMEOUT_MS);
+  });
+  return Promise.race([fetched, timeout]).finally(() => {
+    clearTimeout(timer);
+  });
 }
 
 /**
@@ -186,7 +196,7 @@ async function viewAtTap(
  * Send the reopen of the stop `stopId` of `run`, or nothing (null) when it is no longer that
  * stop's to make, as the view is at the tap: another stop of the run is queued here (a
  * re-stop since), or the run row ends otherwise; the stop sent, the topic's latest entry
- * (fetched now) isn't the run's ending with that stop (§6.3 keys Resume on the last entry);
+ * (refreshed first) isn't the run's ending with that stop (§6.3 keys Resume on the last entry);
  * or `resumableInView` says no (edited, past the window, a later stop of the topic, an open
  * run: OQ-1, A15).
  */
@@ -198,6 +208,8 @@ async function reopenStop(
   stopId: string,
   ctx: RunContext,
 ): Promise<unknown> {
+  // Sent, the server's entry is refreshed first; the view is read after that wait.
+  if (!(await viewAtTap(qc, runId)).stops.includes(stopId)) await refreshLatestEntry(qc, slug);
   const { runs, stops } = await viewAtTap(qc, runId);
   if (stops.some((id) => id !== stopId)) return null;
   const row = runById(runs, runId);
@@ -205,10 +217,7 @@ async function reopenStop(
   if (row && row.state.terminal_id?.toLowerCase() !== stopId) return null;
   const queued = row !== undefined && stops.includes(stopId);
   const optimistic = candidatesOf(ctx.topic.id, undefined, runs);
-  // Queued, the stop's entry is local: the cache will do. Sent, the server's is fetched.
-  const latest = queued
-    ? qc.getQueryData(lastEntryOptions(slug).queryKey)?.items[0]
-    : await latestEntryNow(qc, slug);
+  const latest = qc.getQueryData(lastEntryOptions(slug).queryKey)?.items[0];
   const ours = latest?.id.toLowerCase() === runId.toLowerCase() ? latest : undefined;
   // Queued, its entry is the optimistic one, or (a re-stop of a reopened run, which updates
   // its entry) the server's with the row's stop. Sent, the topic's latest entry is the run's.
