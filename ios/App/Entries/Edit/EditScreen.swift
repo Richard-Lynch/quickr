@@ -14,7 +14,7 @@ struct EditScreen: View {
 
     private enum Load {
         case loading
-        case ready(EditModel, EntriesModel.Row, LocalStore)
+        case ready(EditModel, EntriesModel.Row, LocalStore, EntryActionsModel)
         /// A create the server refused: it is fixed on the record screen.
         case refused
         case gone
@@ -34,10 +34,18 @@ struct EditScreen: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .qrPaperBackground()
                 .navigationTitle("Edit entry")
-        case .ready(let model, let row, let store):
-            EditView(model: model, row: row)
+        case .ready(let model, let row, let store, let actions):
+            EditView(model: model, row: row, actions: actions)
+                // The topic's local runs: Resume run's A15 rule, and OQ-14 (content-display.md
+                // §3.2): an entry whose run is open or finishing here isn't shown as an entry, so
+                // the route goes to the run (a Resume tapped here lands there too, "Resuming…").
+                .task { await actions.observe() }
+                .onChange(of: actions.isOpenHere, initial: true) { _, open in
+                    if open { environment.router.replaceTop(with: .run(ref)) }
+                }
                 // The entry as the store shows it, as it changes: a timed entry's times (and an
-                // open Edit times sheet's staleness), or answers changed elsewhere.
+                // open Edit times sheet's staleness), a queued remove's re-projection (A14), or
+                // answers changed elsewhere.
                 .task {
                     guard let session = environment.session else { return }
                     let entryId = entryId
@@ -47,6 +55,7 @@ struct EditScreen: View {
                         {
                             if let latest = entries.first(where: { $0.entry.id == entryId }) {
                                 model.entryChanged(latest.entry)
+                                actions.entryChanged(latest)
                             }
                         }
                     } catch {}
@@ -128,16 +137,19 @@ struct EditScreen: View {
                     problem = viewEntry.lastError?.message ?? "The last change didn’t sync."
                 }
             }
-            // A timed entry's run version's steps (labels, and Edit times' choices).
-            let steps =
-                stored?.timer?.steps
-                ?? (viewEntry.entry.version == topic.topic.currentVersion ? topic.topic.timer?.steps : nil) ?? []
+            // A timed entry's run version's steps and lap types (labels, badges, and Edit times'
+            // choices).
+            let timer =
+                stored?.timer ?? (viewEntry.entry.version == topic.topic.currentVersion ? topic.topic.timer : nil)
+            let steps = timer?.steps ?? []
             let model = EditModel(
                 topic: topic.topic, entry: shown, questions: questions,
                 localOnly: viewEntry.isLocalOnly, syncProblem: problem, fix: fix, writer: environment.entryWriter,
                 toasts: environment.entryToasts, scope: binding.scope, timerSteps: steps,
-                timingWriter: SessionTopicWriter(session: session, binding: binding))
-            load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding), store)
+                timerLapTypes: timer?.laps ?? [], timingWriter: SessionTopicWriter(session: session, binding: binding))
+            let actions = EntryActionsModel(
+                entry: viewEntry, store: store, refresh: session.refresh, runActions: environment.runActions)
+            load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding), store, actions)
         } catch {
             load = .failed(String(describing: error))
         }
@@ -150,6 +162,7 @@ struct EditScreen: View {
 struct EditView: View {
     @Bindable var model: EditModel
     let row: EntriesModel.Row
+    let actions: EntryActionsModel
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingLeave = false
@@ -159,8 +172,9 @@ struct EditView: View {
             // The entry's own version's steps name its skipped ones (a later version may have
             // renamed or retired them); Edit times when the server has the run (timers.md §3.8).
             EntryTimingSection(
-                timing: model.entry.timing, stepLabels: stepLabels, onEdit: editTimes, showsStatus: true,
-                editUnavailable: model.timingEditUnavailable)
+                timing: model.entry.timing, stepLabels: stepLabels, lapTypes: model.timerLapTypes, onEdit: editTimes,
+                showsStatus: true, editUnavailable: model.timingEditUnavailable, actions: actions)
+            ResumeRunButton(actions: actions)
             EntryDetailsSection(model: model, idPrefix: "edit")
             deleteSection
         }
@@ -315,6 +329,37 @@ struct EditView: View {
     /// Back: straight away when nothing changed, else asks first.
     private func leave() {
         if model.hasUnsavedChanges { confirmingLeave = true } else { dismiss() }
+    }
+}
+
+/// Resume run (`entry.resume`, content-display.md §3.2): a reopen of the entry's run from its
+/// timing, offered while `EntryActionsModel.offersResume` holds (checked each minute, for the
+/// 7-day window). Once it is queued the store projects the run "resuming" and the screen goes to
+/// it (OQ-14).
+private struct ResumeRunButton: View {
+    let actions: EntryActionsModel
+    @State private var sending = false
+
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            if actions.offersResume(now: context.date) {
+                Button {
+                    guard !sending else { return }
+                    sending = true
+                    Task {
+                        await actions.resume(now: Date())
+                        sending = false
+                    }
+                } label: {
+                    Label("Resume run", systemImage: "play")
+                }
+                .buttonStyle(.qr(.secondary, size: .small))
+                .disabled(sending)
+                .padding(.horizontal, 4)
+                .accessibilityHint("Reopens this run where it stopped.")
+                .accessibilityIdentifier("entry.resume")
+            }
+        }
     }
 }
 

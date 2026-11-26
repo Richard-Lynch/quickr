@@ -110,4 +110,99 @@ import Testing
     @Test func noChipWithoutTiming() {
         #expect(EntryTimingModel.chip(nil, timer: TopicTimer(steps: [])) == nil)
     }
+
+    // MARK: - Remove, Resume run, lap-type badges (content-display.md §3.2)
+
+    static let typed: Timing = {
+        func lap(_ label: String, _ a: Int, _ b: Int, _ type: String?, _ event: String?, _ by: RunOpenedBy?)
+            -> RunSegment
+        {
+            RunSegment(
+                kind: .lap, step: nil, label: label, startedAt: a, endedAt: b, activeMs: b - a, pausedMs: 0,
+                lapType: type, eventId: event, openedBy: by)
+        }
+        var t = timing(
+            [
+                RunSegment(
+                    kind: .step, step: "warm", label: "Warm up", startedAt: 0, endedAt: 60_000, activeMs: 60_000,
+                    pausedMs: 0, eventId: nil, openedBy: .start),
+                lap("Run 1", 60_000, 120_000, "run", "e-next", .next),
+                lap("Rest 1", 120_000, 180_000, "rest", "e-lap", .lap),
+                lap("Lap 3", 180_000, 240_000, nil, nil, nil),
+            ],
+            pauses: [RunPause(start: 130_000, end: 140_000, id: "p-1"), RunPause(start: 200_000, end: 210_000)])
+        t.terminalId = "t-1"
+        return t
+    }()
+
+    /// Lap rows (not the first, not a step) and pause rows with an id have Remove; a lap a `next`
+    /// opened has it disabled; a null id (pre-v2, A12) has none.
+    @Test func removeIsOfferedOnLapsAndPausesWithIds() {
+        let rows = EntryTimingModel.rows(Self.typed)
+        #expect(Self.labels(rows) == ["s0", "s1", "s2", "p0", "s3", "p1"])
+        let removes = rows.map { EntryTimingModel.remove($0, in: Self.typed) }
+        #expect(removes[0] == nil, "a step, and the first segment")
+        #expect(
+            removes[1]
+                == EntryTimingModel.Remove(
+                    target: "e-next", enabled: false, title: "Remove this lap?",
+                    message: "Its time joins the previous segment.", identifier: "entry.timing.remove.1"))
+        #expect(removes[2]?.target == "e-lap" && removes[2]?.enabled == true)
+        #expect(
+            removes[3]
+                == EntryTimingModel.Remove(
+                    target: "p-1", enabled: true, title: "Remove this pause?", message: "Its time becomes active.",
+                    identifier: "entry.timing.pause.remove.0"))
+        #expect(removes[4] == nil, "a lap without an event id")
+        #expect(removes[5] == nil, "a pause without an id")
+    }
+
+    @Test func theFirstSegmentNeverHasRemoveEvenAsALap() {
+        let t = Self.timing([
+            RunSegment(
+                kind: .lap, step: nil, label: "Lap 1", startedAt: 0, endedAt: 1_000, activeMs: 1_000, pausedMs: 0,
+                eventId: "e-0", openedBy: .lap)
+        ])
+        #expect(EntryTimingModel.rows(t).compactMap { EntryTimingModel.remove($0, in: t) }.isEmpty)
+    }
+
+    @Test func anEditedTimingHasNoRemove() {
+        var t = Self.typed
+        t.edited = true
+        #expect(EntryTimingModel.rows(t).compactMap { EntryTimingModel.remove($0, in: t) }.isEmpty)
+    }
+
+    /// Resume run: within 7 days of the start, unedited, not pending, no local run on the topic.
+    @Test func resumeRunsRules() {
+        let start = Date(timeIntervalSince1970: 1_792_497_600)
+        var timing = Self.typed
+        timing.startedAt = RunInstant.milliseconds(start)
+        timing.endedAt = timing.startedAt + 240_000
+        let entry = Entry(
+            id: UUID(), topicId: UUID(), version: 1, revision: 1, source: "ios", channel: .ios, capturedAt: start,
+            createdAt: start, updatedAt: start, answers: [:], timing: timing)
+        let soon = start.addingTimeInterval(3_600)
+        #expect(EntryTimingModel.offersResume(entry, pending: false, topicHasLocalRun: false, now: soon))
+        #expect(!EntryTimingModel.offersResume(entry, pending: true, topicHasLocalRun: false, now: soon))
+        #expect(!EntryTimingModel.offersResume(entry, pending: false, topicHasLocalRun: true, now: soon))
+        let week = start.addingTimeInterval(7 * 86_400)
+        #expect(EntryTimingModel.offersResume(entry, pending: false, topicHasLocalRun: false, now: week))
+        #expect(
+            !EntryTimingModel.offersResume(
+                entry, pending: false, topicHasLocalRun: false, now: week.addingTimeInterval(1)))
+        var edited = entry
+        edited.timing?.edited = true
+        #expect(!EntryTimingModel.offersResume(edited, pending: false, topicHasLocalRun: false, now: soon))
+        var untimed = entry
+        untimed.timing = nil
+        #expect(!EntryTimingModel.offersResume(untimed, pending: false, topicHasLocalRun: false, now: soon))
+    }
+
+    /// A typed lap's badge is its type's label in the version, else its key; none on a step or an
+    /// untyped lap.
+    @Test func lapTypeBadges() {
+        let laps: [TopicTimer.LapType] = [.init(key: "run", label: "Run")]
+        let badges = Self.typed.segments.map { EntryTimingModel.lapTypeBadge($0, lapTypes: laps) }
+        #expect(badges == [nil, "Run", "rest", nil])
+    }
 }
