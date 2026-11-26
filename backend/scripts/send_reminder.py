@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_engine, get_sessionmaker
 from app.errors import NotFound
 from app.services import push as push_svc
+from app.services.appearance import reminder_title
 from app.services.feed import feed_identity, writer_once
 from app.services.notification import action_entry_id, actions, canonical_instant, category_id
 from app.services.push import apns, web
@@ -71,7 +72,7 @@ async def build(db: AsyncSession, ref: str, due_since: datetime, now: datetime) 
         server_id=server_id,
         topic_id=topic.id,
         slug=topic.slug,
-        name=topic.name,
+        title=reminder_title(topic.name, topic.icon),
         version=topic.current_version,
         due_since=due_since,
         message=due_message(schedule, due_since, now) if schedule else "Time to log",

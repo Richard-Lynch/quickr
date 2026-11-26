@@ -273,6 +273,16 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
             domain.maxVarNameLength, domain.maxShortLabelLength,
         ]
         #expect(mapped == [1, 2, 3, 4, 5, 6, 7])
+        // T2-M3: the appearance rows (appearance.md §1.3)
+        let appearanceRows: [Int] = [limits.maxTags, limits.maxTagLength, limits.maxIconLength]
+        #expect(appearanceRows == [10, 24, 16])
+        #expect(limits.colorNames == ColorName.allCases.map(\.rawValue))
+        (tight.maxTags, tight.maxTagLength, tight.maxIconLength, tight.colorNames) = (8, 9, 10, ["red"])
+        let themed = tight.toDomain()
+        let themedRows: [Int] = [themed.maxTags, themed.maxTagLength, themed.maxIconLength]
+        #expect(themedRows == [8, 9, 10])
+        #expect(themed.colorNames == ["red"])
+        // end T2-M3
         let types = try decode([QuestionTypeInfoDTO].self, "listQuestionTypes")
         #expect(types.map(\.type) == [.int, .double, .str, .enum])
         #expect(types.first?.jsonSchema["title"] == .string("IntQuestion"))

@@ -667,3 +667,50 @@ async def test_t12_a_finishing_run_doesnt_hold_the_reminder(
     by_slug = {s.payload["topic_slug"]: s.payload["quick_log"] for s in outbox}
     assert by_slug["workout"] == {"type": "timed"}
     assert by_slug["water"]["type"] == "int"
+
+
+# T2-M3: the reminder title carries the topic's emoji (docs/specs/appearance.md §6.7)
+
+
+async def test_reminder_title_carries_the_emoji_on_both_channels(
+    client: httpx.AsyncClient, outbox: list[Sent], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent: list[base.Notification] = []
+    real_deliver = push_svc.deliver
+
+    async def capture(
+        db: AsyncSession, pairs: Any, n: base.Notification, ttl: int, *, deadline: float | None = None
+    ) -> push_svc.Delivery:
+        sent.append(n)
+        return await real_deliver(db, pairs, n, ttl, deadline=deadline)
+
+    monkeypatch.setattr(push_svc, "deliver", capture)
+    await client.post("/push/subscriptions", json=sub(1))
+    schedule = {"kind": "interval", "every_minutes": 60, "timezone": "UTC"}
+    icon = {"kind": "emoji", "value": "💧"}
+    await make_topic(client, "Water", QUESTIONS, schedule=schedule, appearance={"icon": icon})
+    long_name = "Stretch " * 25  # 200 characters
+    long = await make_topic(
+        client, long_name.strip(), QUESTIONS, schedule=schedule, appearance={"icon": icon}
+    )
+    await make_topic(client, "Plain", QUESTIONS, schedule=schedule, appearance={"color": "red"})
+    for slug in ("water", long["slug"], "plain"):
+        await backdate_schedule(slug, datetime.now(UTC) - timedelta(days=1))
+    assert await _tick(datetime.now(UTC)) == 3
+
+    titles = {n.topic_slug: n.title for n in sent}
+    assert titles["water"] == "💧 Water"
+    assert titles["plain"] == "Plain"  # a colour alone adds nothing
+    assert {s.payload["title"] for s in outbox} == set(titles.values())  # Web Push: as composed
+    for n in sent:  # APNs: cut to 120 scalars from the end, so the emoji stays
+        title = apns.render(n)["aps"]["alert"]["title"]
+        assert len(title) <= apns.MAX_TITLE_LENGTH
+        assert title.startswith("💧 ") or n.topic_slug == "plain"
+        assert web_push.render(n).title == n.title
+    longest = next(n for n in sent if n.topic_slug == long["slug"])
+    assert (
+        apns.render(longest)["aps"]["alert"]["title"] == "💧 " + long_name.strip()[:117] + "…"
+    )  # 2 + 117 + 1 = 120
+
+
+# end T2-M3

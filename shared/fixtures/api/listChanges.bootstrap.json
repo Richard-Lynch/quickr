@@ -9,6 +9,11 @@
         "kind": "topic",
         "seq": 3,
         "topic": {
+          "appearance": {
+            "color": null,
+            "icon": null,
+            "tags": []
+          },
           "archived_at": null,
           "created_at": "2026-06-01T12:00:00.123456Z",
           "current_version": 1,
@@ -54,6 +59,16 @@
         "kind": "topic",
         "seq": 9,
         "topic": {
+          "appearance": {
+            "color": "teal",
+            "icon": {
+              "kind": "emoji",
+              "value": "🧪"
+            },
+            "tags": [
+              "Health"
+            ]
+          },
           "archived_at": null,
           "created_at": "2026-06-01T12:00:00.123456Z",
           "current_version": 2,
@@ -201,6 +216,14 @@
         "kind": "topic",
         "seq": 15,
         "topic": {
+          "appearance": {
+            "color": "amber",
+            "icon": null,
+            "tags": [
+              "Habit",
+              "health"
+            ]
+          },
           "archived_at": "2026-06-01T12:00:00.123456Z",
           "created_at": "2026-06-01T12:00:00.123456Z",
           "current_version": 1,

@@ -149,6 +149,31 @@ export type ApnsDeviceRef = {
 };
 
 /**
+ * AppearanceUpdate
+ *
+ * Partial appearance update: an omitted field is unchanged; ``color: null`` and ``icon: null``
+ * clear; ``tags: []`` clears the tags.
+ */
+export type AppearanceUpdate = {
+    /**
+     * Color
+     *
+     * null clears the colour.
+     */
+    color?: 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink' | null;
+    /**
+     * null clears the icon.
+     */
+    icon?: TopicIcon | null;
+    /**
+     * Tags
+     *
+     * At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.
+     */
+    tags?: Array<string>;
+};
+
+/**
  * ChangesPage
  *
  * One page of the change feed, read from a single consistent snapshot.
@@ -1418,6 +1443,24 @@ export type Limits = {
      * Max Short Label Length
      */
     max_short_label_length: number;
+    /**
+     * Max Tags
+     */
+    max_tags: number;
+    /**
+     * Max Tag Length
+     */
+    max_tag_length: number;
+    /**
+     * Max Icon Length
+     */
+    max_icon_length: number;
+    /**
+     * Color Names
+     *
+     * The palette's names, in palette order.
+     */
+    color_names: Array<'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink'>;
 };
 
 /**
@@ -2695,6 +2738,48 @@ export type TimingSummary = {
 };
 
 /**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export type TopicAppearanceInput = {
+    /**
+     * Color
+     *
+     * One of the palette's names: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink.
+     */
+    color?: 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink' | null;
+    icon?: TopicIcon | null;
+    /**
+     * Tags
+     *
+     * At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.
+     */
+    tags?: Array<string>;
+};
+
+/**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export type TopicAppearanceOutput = {
+    /**
+     * Color
+     *
+     * One of the palette's names: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink.
+     */
+    color: 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink' | null;
+    icon: TopicIcon | null;
+    /**
+     * Tags
+     *
+     * At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.
+     */
+    tags: Array<string>;
+};
+
+/**
  * TopicCreate
  */
 export type TopicCreate = {
@@ -2730,6 +2815,10 @@ export type TopicCreate = {
      * Makes the topic timed (optional; null: not timed).
      */
     timer?: TimerInput | null;
+    /**
+     * Colour, emoji and tags (optional; null: none of them).
+     */
+    appearance?: TopicAppearanceInput | null;
 };
 
 /**
@@ -2810,9 +2899,31 @@ export type TopicDetail = {
      */
     timer: TimerOutput | null;
     /**
+     * Colour, emoji and tags; every key always present.
+     */
+    appearance: TopicAppearanceOutput;
+    /**
      * Questions
      */
     questions: Array<IntQuestionOutput | DoubleQuestionOutput | StrQuestionOutput | EnumQuestionOutput>;
+};
+
+/**
+ * TopicIcon
+ */
+export type TopicIcon = {
+    /**
+     * Kind
+     *
+     * Only emoji for now; more kinds may be added.
+     */
+    kind: 'emoji';
+    /**
+     * Value
+     *
+     * One emoji (one grapheme cluster that starts as an emoji: a pictograph, a flag or a keycap), at most 16 code points. Stored NFC, with U+FE0F added after a text-presentation pictograph.
+     */
+    value: string;
 };
 
 /**
@@ -2951,6 +3062,10 @@ export type TopicSummary = {
      * The current version's timer; null when the topic is not timed.
      */
     timer: TimerOutput | null;
+    /**
+     * Colour, emoji and tags; every key always present.
+     */
+    appearance: TopicAppearanceOutput;
 };
 
 /**
@@ -3022,6 +3137,10 @@ export type TopicUpdate = {
      * Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision.
      */
     expected_revision?: number | null;
+    /**
+     * Changes the fields it holds; null is refused (clear fields individually).
+     */
+    appearance?: AppearanceUpdate;
 };
 
 /**
@@ -3330,6 +3449,12 @@ export type ListTopicsData = {
          * Only topics that are due now.
          */
         due_only?: boolean;
+        /**
+         * Tag
+         *
+         * Only topics with this tag, spelled exactly as stored (tags are unique ignoring case, so the stored spelling is the one the topic shows).
+         */
+        tag?: string | null;
         /**
          * Limit
          */

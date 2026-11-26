@@ -49,6 +49,12 @@ public struct LimitsDTO: Codable, Sendable, Hashable, WireResponse {
     public var maxExprLength: Int
     public var maxVarNameLength: Int
     public var maxShortLabelLength: Int
+    // T2-M3: topic appearance (appearance.md §1.3)
+    public var maxTags: Int
+    public var maxTagLength: Int
+    public var maxIconLength: Int
+    public var colorNames: [String]
+    // end T2-M3
 
     enum CodingKeys: String, CodingKey {
         case keyPattern = "key_pattern"
@@ -81,6 +87,12 @@ public struct LimitsDTO: Codable, Sendable, Hashable, WireResponse {
         case maxExprLength = "max_expr_length"
         case maxVarNameLength = "max_var_name_length"
         case maxShortLabelLength = "max_short_label_length"
+        // T2-M3
+        case maxTags = "max_tags"
+        case maxTagLength = "max_tag_length"
+        case maxIconLength = "max_icon_length"
+        case colorNames = "color_names"
+        // end T2-M3
     }
 
     public func toDomain() -> Limits {
@@ -101,6 +113,12 @@ public struct LimitsDTO: Codable, Sendable, Hashable, WireResponse {
         limits.maxExprLength = maxExprLength
         limits.maxVarNameLength = maxVarNameLength
         limits.maxShortLabelLength = maxShortLabelLength
+        // T2-M3
+        limits.maxTags = maxTags
+        limits.maxTagLength = maxTagLength
+        limits.maxIconLength = maxIconLength
+        limits.colorNames = colorNames
+        // end T2-M3
         return limits
     }
 }
