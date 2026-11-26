@@ -249,21 +249,30 @@ extension RunOverlay {
 
     /// Whether the entry's run is offered "Resume run" on tiles, toasts and the run screen
     /// (timers2.md glossary, OQ-1, A15): `RunPresentation.resumable` (an unedited timed entry
-    /// within 15 minutes of its stop), the entry is the topic's latest stop (its latest timed
-    /// entry), and the topic has no locally open run (a reopen would be refused with 409
-    /// `conflict`), the entry's own run included (already reopened here).
+    /// within 15 minutes of its stop), the entry is the topic's latest stop (no later timed entry,
+    /// and no later stop of a run still here: a finishing run has no entry yet), and the topic
+    /// has no locally open run (a reopen would be refused with 409 `conflict`), the entry's own
+    /// run included (already reopened here).
     public static func resumable(_ db: Database, entryId: String, now: Date) throws -> Bool {
         guard let viewEntry = try StoreView.entry(db, id: entryId.lowercased()),
-            RunPresentation.resumable(viewEntry.entry, now: now)
+            let end = viewEntry.entry.timing?.endedAt, RunPresentation.resumable(viewEntry.entry, now: now)
         else { return false }
+        let id = viewEntry.entry.id
         let topicId = viewEntry.entry.topicId.wireString
         let runs = try localRuns(db, topicId: topicId)
         if runs.contains(where: { $0.isOpen || ($0.answers(to: entryId) && $0.status == .finishing) }) {
             return false
         }
-        let latest = try StoreView.entries(db, topicId: topicId)
-            .compactMap { view in view.entry.timing.map { (id: view.entry.id, end: $0.endedAt) } }
-            .max { ($0.end, $0.id.wireString) < ($1.end, $1.id.wireString) }
-        return latest?.id == viewEntry.entry.id
+        func later(_ otherId: String, _ otherEnd: Int) -> Bool {
+            (otherEnd, otherId) > (end, id.wireString)
+        }
+        if runs.contains(where: { run in
+            !run.answers(to: entryId) && run.status != .discarded && run.state.endedAt.map { later(run.id, $0) } == true
+        }) {
+            return false
+        }
+        return try !StoreView.entries(db, topicId: topicId).contains { view in
+            view.entry.id != id && view.entry.timing.map { later(view.entry.id.wireString, $0.endedAt) } == true
+        }
     }
 }
