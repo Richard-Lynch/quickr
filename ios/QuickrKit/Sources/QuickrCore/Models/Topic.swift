@@ -138,10 +138,8 @@ public struct TopicVersion: Sendable, Hashable {
 /// `timer_json`): missing `laps`, `variables` and `alerts` default to `[]`, and a missing `at_ms`
 /// to nil (a draft's alert; the server fills it, §1.1).
 ///
-/// Encoding writes `laps`, `variables` and each `alerts` only when non-empty, so a v1-shaped
-/// timer stays v1 on the wire while the server on this branch still refuses unknown keys
-/// (T2-M1: the stack merge with M1-DB's v2 `Timer` flips this to always-present, the normalised
-/// output of §1.4, and regenerates the request goldens).
+/// Encoding always writes `laps`, `variables` and each `alerts` (the normalised shape of §1.4),
+/// so what a client sends is what the server serves back.
 public struct TopicTimer: Codable, Sendable, Hashable {
     public var steps: [Step]
     public var laps: [LapType]
@@ -165,8 +163,8 @@ public struct TopicTimer: Codable, Sendable, Hashable {
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(steps, forKey: .steps)
-        if !laps.isEmpty { try c.encode(laps, forKey: .laps) }
-        if !variables.isEmpty { try c.encode(variables, forKey: .variables) }
+        try c.encode(laps, forKey: .laps)
+        try c.encode(variables, forKey: .variables)
     }
 
     /// The step or lap type keyed `key` (one namespace per timer, §1.1): its alerts.
@@ -201,7 +199,7 @@ public struct TopicTimer: Codable, Sendable, Hashable {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(key, forKey: .key)
             try c.encode(label, forKey: .label)
-            if !alerts.isEmpty { try c.encode(alerts, forKey: .alerts) }
+            try c.encode(alerts, forKey: .alerts)
         }
     }
 
@@ -231,7 +229,7 @@ public struct TopicTimer: Codable, Sendable, Hashable {
             var c = encoder.container(keyedBy: CodingKeys.self)
             try c.encode(key, forKey: .key)
             try c.encode(label, forKey: .label)
-            if !alerts.isEmpty { try c.encode(alerts, forKey: .alerts) }
+            try c.encode(alerts, forKey: .alerts)
         }
     }
 

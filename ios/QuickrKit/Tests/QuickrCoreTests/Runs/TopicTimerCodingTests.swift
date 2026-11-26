@@ -48,7 +48,7 @@ import Testing
         #expect(timer.steps[0].alerts[0].atMs == nil)
     }
 
-    @Test func roundTripsAndKeepsAV1TimerV1OnTheWire() throws {
+    @Test func roundTripsAndEncodesTheNormalisedShape() throws {
         let v2 = TopicTimer(
             steps: [.init(key: "a", label: "A", alerts: [.init(key: "x", label: "X", at: "t", atMs: 1000)])],
             laps: [.init(key: "run", label: "Run")], variables: [.init(name: "t", ms: 1000)])
@@ -60,11 +60,11 @@ import Testing
         let alert = try #require((step["alerts"] as? [[String: Any]])?.first)
         #expect(alert["at_ms"] as? Int == 1000)
 
-        // A v1-shaped timer encodes as v1 until the server takes v2 input (see Topic.swift).
+        // A v1-shaped timer encodes normalised (§1.4): every list present, empty ones included.
         let v1 = TopicTimer(steps: [.init(key: "pour", label: "Pour")])
         let plain = try #require(
             try JSONSerialization.jsonObject(with: JSONEncoder().encode(v1)) as? [String: Any])
-        #expect(Set(plain.keys) == ["steps"])
-        #expect(Set(((plain["steps"] as? [[String: Any]])?.first ?? [:]).keys) == ["key", "label"])
+        #expect(Set(plain.keys) == ["steps", "laps", "variables"])
+        #expect(Set(((plain["steps"] as? [[String: Any]])?.first ?? [:]).keys) == ["key", "label", "alerts"])
     }
 }
