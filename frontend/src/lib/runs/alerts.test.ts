@@ -57,6 +57,29 @@ describe('planAlerts', () => {
     expect(plan[0]?.id).toBe('r1.1.half');
   });
 
+  it('never plans an alert at the segment start (at_ms <= 0), as iOS never schedules it (P3-8)', () => {
+    const zero: AlertTimer = {
+      steps: [],
+      laps: [
+        { key: 'run', label: 'Run', alerts: [] },
+        {
+          key: 'rest',
+          label: 'Rest',
+          alerts: [
+            { key: 'now', label: 'Now', at: '0s', at_ms: 0 },
+            { key: 'tt', label: 'T minus t', at: 't-t', at_ms: 0 },
+            { key: 'half', label: 'Half way', at: 't/2', at_ms: 30 * S },
+          ],
+        },
+      ],
+    };
+    const r = run([start, lap], zero);
+    // Neither at the instant the segment opens nor within the 30 s late window after it.
+    expect(planAlerts(r, zero, REST_AT - 1).map((a) => a.key)).toEqual(['half']);
+    expect(planAlerts(r, zero, REST_AT + S, LATE_DROP_MS + 1).map((a) => a.key)).toEqual(['half']);
+    expect(alertSchedule([{ run: r, timer: zero }], REST_AT, new Set()).due).toEqual([]);
+  });
+
   it('plans nothing for a lap type with no alerts', () => {
     expect(planAlerts(run([start]), TIMER, T0 + S)).toEqual([]);
   });
