@@ -1,24 +1,20 @@
 /**
- * A timed topic's home tile parts (timers.md §11.1, §11.5): idle shows Start; running shows
- * "Running · 4:12", the segment label and the run's primary (Next or Lap, active-surfaces.md
- * §1.2); finishing shows "Add details".
+ * A timed topic's home tile parts (timers.md §11.1, §11.5): idle shows Start; finishing shows
+ * "Add details". `RunStatus` is the "Running · 4:12" badge with the segment label.
  * `TopicTile` lays them out like its Log action.
  */
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 
 import type { TopicVersionOut } from '../../client';
 import type { RunContext } from '../../lib/runs/actions';
 import { fmtDuration } from '../../lib/runs/format';
-import { isOpen, type LocalRun } from '../../lib/runs/localView';
+import type { LocalRun } from '../../lib/runs/localView';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
-import { contextFor, runTimer, timerOf, useRunContext, useTopicVersions } from './context';
-import { controlsLayout } from './controlsLayout';
-import { actions as runActions, activeMs, expectOf, segmentMs, type RunAction } from './model';
-import { useRunControlsOnScreen } from './onScreen';
+import { contextFor } from './context';
+import { activeMs, segmentMs } from './model';
 import { useServerNow } from './RunClock';
-import { actionIcon, actionLabel, actionTitle } from './RunControls';
-import { useRunActions, useRunCooldown } from './useRunActions';
+import { useRunActions } from './useRunActions';
 
 type TopicRef = RunContext['topic'];
 
@@ -75,8 +71,8 @@ const ACTION =
   'relative z-10 flex w-[5.25rem] shrink-0 flex-col items-center justify-center gap-1 border-l px-1 text-[0.95rem] font-semibold transition-[background-color,transform] select-none active:scale-[0.97] disabled:cursor-wait disabled:opacity-60';
 
 /**
- * The tile's action: Start when idle, the run's primary (Next or Lap) while running, and
- * "Add details" for a finishing run.
+ * The tile's action: Start when idle and "Add details" for a finishing run. A topic with an
+ * open run isn't this tile: `TopicTile` renders the active card (active-surfaces.md §6.2, §6.3).
  */
 export function RunTileAction({
   topic,
@@ -94,9 +90,6 @@ export function RunTileAction({
   loud: boolean;
 }) {
   const actions = useRunActions();
-  const primary = useOpenRunPrimary(topic, run);
-  // The tile shows this run's primary: the running bar leaves the run out.
-  useRunControlsOnScreen(primary ? topic.id : null);
 
   if (run?.status === 'finishing') {
     return (
@@ -108,29 +101,6 @@ export function RunTileAction({
         <Icon name="edit" className="size-6" strokeWidth={2.4} />
         <span className="text-center text-[0.8rem] leading-tight">Add details</span>
       </Link>
-    );
-  }
-
-  // An open run shows its primary, or nothing while it has none (a queued reopen, §1.2 row
-  // 11): never Start.
-  if (run && isOpen(run)) {
-    if (!primary) return null;
-    return (
-      <button
-        type="button"
-        aria-label={`${actionLabel(primary.action.kind, topic.name)} · ${topic.name}`}
-        disabled={primary.disabled}
-        onClick={primary.onTap}
-        className={cn(
-          ACTION,
-          'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong',
-        )}
-      >
-        <Icon name={actionIcon(primary.action.kind)} className="size-6" strokeWidth={2.6} />
-        <span className="text-center text-[0.8rem] leading-tight break-words">
-          {actionTitle(primary.action.kind)}
-        </span>
-      </button>
     );
   }
 
@@ -154,42 +124,4 @@ export function RunTileAction({
       Start
     </button>
   );
-}
-
-/**
- * An open run's primary (active-surfaces.md §1.2, §6.3): the layout model's, as on the run
- * panel, so Lap (with the next lap type) or Next, never Stop; the bar links to the panel for
- * Stop. Off as the panel's is: while the run's context isn't known, a tap is being enqueued,
- * the topic's tap cooldown runs, or the action itself is off. Null when the run isn't open.
- */
-export function useOpenRunPrimary(
-  topic: TopicRef,
-  run: LocalRun | undefined,
-): { action: RunAction; disabled: boolean; onTap: () => void } | null {
-  const taps = useRunActions();
-  const navigate = useNavigate();
-  const versions = useTopicVersions(run?.topic_id ?? '', Boolean(run));
-  const runCtx = useRunContext(run, topic);
-  const cooling = useRunCooldown(run?.topic_id ?? '');
-  const now = useServerNow(run?.status === 'running');
-  if (!run || !isOpen(run)) return null;
-  const steps = runCtx ? runCtx.steps : run.steps;
-  const timer = runTimer(timerOf(versions.data, run.version), steps);
-  const action = controlsLayout(runActions(run.state, run.status, timer, now)).primary;
-  // None: a queued reopen before its ack (§1.2 row 11) has no controls anywhere.
-  if (!action) return null;
-  // Captured at render: a second tap before the bar catches up targets what it showed.
-  const expect = expectOf(run, steps);
-  const kind = action.kind;
-  return {
-    action,
-    disabled: runCtx === null || taps.busy || cooling || !action.enabled,
-    onTap: () => {
-      // An open run's primary is Next or Lap (§1.2). Placement is by role, so a primary of
-      // another kind still shows; the run panel, which handles every kind, takes its tap.
-      if (kind.type === 'next' || kind.type === 'lap') {
-        if (runCtx) void taps.tap(run.id, runCtx, kind.type, {}, expect);
-      } else void navigate(`/t/${topic.slug}/record`);
-    },
-  };
 }

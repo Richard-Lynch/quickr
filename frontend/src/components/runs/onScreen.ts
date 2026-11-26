@@ -1,9 +1,9 @@
 /**
  * Which topics' run controls are on screen now, outside the running bar: the bar leaves those
  * topics' runs out, so no primary shows twice (active-surfaces.md §6.3, the user's "no
- * duplicated controls"). A surface that renders an open run's primary registers its topic while
- * it is mounted; the topics page's "Active now" cards do (§6.2). The run panel is left out by
- * the bar's own route check (`RunningBar`).
+ * duplicated controls"). A surface that shows an open run with its controls registers the run's
+ * topic while it is mounted: the topics page's "Active now" cards (`ActiveTopicCard`, §6.2). The
+ * run panel is left out by the bar's own route check (`RunningBar`).
  *
  * A running topic the topics page doesn't list (a search, a status filter, a later page) has no
  * card, so it keeps its bar row.

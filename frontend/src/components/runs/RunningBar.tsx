@@ -6,19 +6,22 @@
  * card (`onScreen.ts`).
  */
 import { useQuery } from '@tanstack/react-query';
-import { Link, useMatch, useSearchParams } from 'react-router';
+import { Link, useMatch, useNavigate, useSearchParams } from 'react-router';
 
 import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
+import type { RunContext } from '../../lib/runs/actions';
 import { fmtDuration } from '../../lib/runs/format';
 import { isOpen, type LocalRun } from '../../lib/runs/localView';
 import { useRuns } from '../../lib/runs/useRuns';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
-import { activeMs } from './model';
+import { runTimer, timerOf, useRunContext, useTopicVersions } from './context';
+import { controlsLayout } from './controlsLayout';
+import { actions as runActions, activeMs, expectOf, type RunAction } from './model';
 import { useTopicsWithControlsOnScreen } from './onScreen';
 import { useServerNow } from './RunClock';
 import { actionIcon, actionLabel, actionTitle } from './RunControls';
-import { useOpenRunPrimary } from './RunTile';
+import { useRunActions, useRunCooldown } from './useRunActions';
 
 export function RunningBar() {
   const { runs } = useRuns();
@@ -112,4 +115,42 @@ function RunningItem({ run }: { run: LocalRun }) {
       ) : null}
     </li>
   );
+}
+
+/**
+ * An open run's primary (active-surfaces.md §1.2, §6.3): the layout model's, as on the run
+ * panel, so Lap (with the next lap type) or Next, never Stop; the bar links to the panel for
+ * Stop. Off as the panel's is: while the run's context isn't known, a tap is being enqueued,
+ * the topic's tap cooldown runs, or the action itself is off. Null when the run isn't open.
+ */
+function useOpenRunPrimary(
+  topic: RunContext['topic'],
+  run: LocalRun | undefined,
+): { action: RunAction; disabled: boolean; onTap: () => void } | null {
+  const taps = useRunActions();
+  const navigate = useNavigate();
+  const versions = useTopicVersions(run?.topic_id ?? '', Boolean(run));
+  const runCtx = useRunContext(run, topic);
+  const cooling = useRunCooldown(run?.topic_id ?? '');
+  const now = useServerNow(run?.status === 'running');
+  if (!run || !isOpen(run)) return null;
+  const steps = runCtx ? runCtx.steps : run.steps;
+  const timer = runTimer(timerOf(versions.data, run.version), steps);
+  const action = controlsLayout(runActions(run.state, run.status, timer, now)).primary;
+  // None: a queued reopen before its ack (§1.2 row 11) has no controls anywhere.
+  if (!action) return null;
+  // Captured at render: a second tap before the bar catches up targets what it showed.
+  const expect = expectOf(run, steps);
+  const kind = action.kind;
+  return {
+    action,
+    disabled: runCtx === null || taps.busy || cooling || !action.enabled,
+    onTap: () => {
+      // An open run's primary is Next or Lap (§1.2). Placement is by role, so a primary of
+      // another kind still shows; the run panel, which handles every kind, takes its tap.
+      if (kind.type === 'next' || kind.type === 'lap') {
+        if (runCtx) void taps.tap(run.id, runCtx, kind.type, {}, expect);
+      } else void navigate(`/t/${topic.slug}/record`);
+    },
+  };
 }
