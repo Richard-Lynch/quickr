@@ -312,9 +312,30 @@ describe('OverviewPage activity strip', () => {
     );
     expect(cells[0]?.dataset.day).toBe(expected.firstDay);
     // The grid always has 84 slots; today is the last cell and is outlined.
-    expect(within(region).getByRole('img').children).toHaveLength(84);
+    expect(within(region).getByTestId('activity-grid').children).toHaveLength(84);
     expect(cells.at(-1)?.dataset.day).toBe(today);
     expect(cells.at(-1)?.className).toContain('outline-ink');
+
+    // Screen readers read a week column at a time, as iOS does: "Week of 3 Nov: 5 entries".
+    const weeks = within(region).getByRole('list', { name: '3 entries in the last 12 weeks' });
+    const spoken = within(weeks)
+      .getAllByRole('listitem')
+      .map((w) => w.textContent);
+    const monday = (day: string) =>
+      new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, {
+        day: 'numeric',
+        month: 'short',
+        timeZone: 'UTC',
+      });
+    expect(spoken).toEqual(
+      Array.from({ length: 12 }, (_, w) => {
+        const week = expected.cells.slice(w * 7, w * 7 + 7);
+        const n = week.reduce((sum, c) => sum + c.count, 0);
+        return `Week of ${monday(week[0]?.day ?? '')}: ${String(n)} ${n === 1 ? 'entry' : 'entries'}`;
+      }),
+    );
+    // The cells are drawn for the eye only.
+    expect(within(region).getByTestId('activity-grid')).toHaveAttribute('aria-hidden', 'true');
 
     // One query from the first cell's local midnight, newest first, 500 at most.
     const list = requests.filter((u) => u.pathname.endsWith('/topics/routine/entries'));

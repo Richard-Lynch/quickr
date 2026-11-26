@@ -766,7 +766,14 @@ describe('EntryEditPage entry actions: rows', () => {
     expect(within(section).queryByTestId('entry.timing.remove.0')).toBeNull(); // the step
     // The lap after the last step was opened by a `next`: removing it would be no_target.
     expect(within(section).getByTestId('entry.timing.remove.1')).toBeDisabled();
+    // A disabled button shows no tooltip: a muted note says why, and describes the button.
+    const why = 'A lap that starts at a step boundary can’t be removed: change it with Edit times.';
+    expect(within(section).getByTestId('entry.timing.remove.why')).toHaveTextContent(why);
+    expect(within(section).getByTestId('entry.timing.remove.1')).toHaveAccessibleDescription(why);
     expect(within(section).getByTestId('entry.timing.remove.2')).toBeEnabled();
+    expect(within(section).getByTestId('entry.timing.remove.2')).not.toHaveAccessibleDescription(
+      why,
+    );
     expect(within(section).getByTestId('entry.timing.pause.remove.0')).toBeEnabled();
   });
 
@@ -789,6 +796,8 @@ describe('EntryEditPage entry actions: rows', () => {
     await within(section).findByTestId('entry.timing.segment.1');
     expect(within(section).queryByTestId('entry.timing.remove.0')).toBeNull();
     expect(within(section).queryByTestId('entry.timing.remove.1')).toBeNull();
+    // No disabled Remove, so no note about one.
+    expect(within(section).queryByTestId('entry.timing.remove.why')).toBeNull();
   });
 });
 
