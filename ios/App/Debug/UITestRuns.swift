@@ -3,12 +3,16 @@ import Foundation
 import QuickrCore
 import QuickrData
 
-/// The UI-test fake server's runs (timers.md §3–§4), like `services/runs.py` and QuickrDataTests'
-/// `FakeServer+Runs`: each run's events in arrival order, folded with the real `RunFold` after
-/// every event. A stop makes the entry unless the version has a required question and the stop
-/// carried no answers (the run is then `finishing`); `finish` and a finishing run's discard are
-/// decided outside the fold (§3.6, §3.7). A start for a topic with an open run is merged into it
-/// (§4.5). An event already recorded answers its stored result again.
+/// The UI-test fake server's runs (timers.md §3–§4, timers2.md §3–§4), like `services/runs.py` and
+/// QuickrDataTests' `FakeServer+Runs`: each run's events in arrival order, folded with the real
+/// `RunFold` (v4, the version's lap types included) after every event. A stop makes the entry
+/// unless the version has a required question and the stop carried no answers (the run is then
+/// `finishing`); `finish` and a finishing run's discard are decided outside the fold (§3.6, §3.7).
+/// A start for a topic with an open run is merged into it (§4.5). A reopen while the topic has
+/// another open run is 409 `conflict`; a re-stop updates the entry (revision + 1); a discard that
+/// reverts the reopen of a run with no entry discards it (timers2.md §4.1). An event already
+/// recorded answers its stored result again. Another device's reopen or remove can be scripted
+/// (`FakeServerState.reopenElsewhere`, `removeElsewhere`, UITestLaunch.swift).
 enum FakeRuns {
     /// `POST /api/v1/runs/{run_id}/events`.
     static func record(_ pathId: String, _ request: HTTPRequest, state: FakeServerState, headers: HTTPHeaders)
@@ -29,7 +33,7 @@ enum FakeRuns {
         let topic = type == .start ? body.topicId.flatMap(state.topic) : nil
         let event = RunEvent(
             id: body.id.lowercased(), type: type, at: at, seg: body.seg, step: body.step,
-            pauseId: body.pauseId?.lowercased())
+            pauseId: body.pauseId?.lowercased(), target: body.target?.lowercased())
         let outcome = state.recordRun { book in
             book.record(event, body: body, answers: answers, path: pathId.lowercased(), topic: topic)
         }
@@ -74,6 +78,13 @@ struct FakeRunBook: Sendable {
             guard event.type != .start else {
                 return FakeRunOutcome(
                     result: .problem(status: 409, code: "event_conflict", detail: "a start of another run"))
+            }
+            if event.type == .reopen,
+                runs.values.contains(where: { $0.id != run.id && $0.topicId == run.topicId && $0.status.isOpen })
+            {
+                // timers2.md §4.2 (A15): nothing stored.
+                return FakeRunOutcome(
+                    result: .problem(status: 409, code: "conflict", detail: "the topic has another open run"))
             }
             let before = run.entry
             switch (event.type, run.status) {
@@ -132,7 +143,7 @@ struct FakeRunBook: Sendable {
             return FakeRunOutcome(result: .problem(status: 409, code: "topic_archived", detail: "topic is archived"))
         }
         // The topic's current version's timer and questions (the fake server keeps no older ones).
-        guard let version = body.version, let steps = Self.steps(topic["timer"]) else {
+        guard let version = body.version, let timer = Self.timer(topic["timer"]) else {
             return FakeRunOutcome(result: .problem(status: 409, code: "topic_not_timed", detail: "not timed"))
         }
         if let openId = runs.values.first(where: { $0.topicId == topicId && $0.status.isOpen })?.id,
@@ -150,7 +161,7 @@ struct FakeRunBook: Sendable {
             .filter { $0["required"] as? Bool ?? true }
             .compactMap { $0["key"] as? String }
         var run = FakeServerRun(
-            id: path, topicId: topicId, version: version, steps: steps, required: required,
+            id: path, topicId: topicId, version: version, timer: timer, required: required,
             state: RunState(
                 status: .running, startedAt: event.at, endedAt: nil, open: nil, nextStep: nil, pausedSince: nil,
                 segments: [], skipped: [], pauses: [], effects: [:]),
@@ -161,12 +172,33 @@ struct FakeRunBook: Sendable {
         return run.outcome(event.id, status: 201, entryChanged: false)
     }
 
-    /// A `timer` as the topic JSON holds it; nil when untimed.
-    static func steps(_ timer: Any?) -> [TopicTimer.Step]? {
-        guard let timer = timer as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: timer),
-            let decoded = try? JSONDecoder().decode(TopicTimer.self, from: data)
+    /// A `timer` as the topic JSON holds it (steps and lap types); nil when untimed.
+    static func timer(_ timer: Any?) -> TopicTimer? {
+        guard let timer = timer as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: timer)
         else { return nil }
-        return decoded.steps
+        return try? JSONDecoder().decode(TopicTimer.self, from: data)
+    }
+
+    /// Another device's reopen (of the run's terminal stop) or remove (of `target`) of the run
+    /// `runId` routes to, at the server's now (timers2.md §6.2, §6.6). Nil when the run isn't
+    /// here. With the run as the feed's item while it is open (the outcome's `feedEntry` holds an
+    /// entry the event changed).
+    mutating func elsewhere(_ type: RunEventType, runId: String, target: String? = nil) -> (
+        outcome: FakeRunOutcome, openRun: [String: Any]?
+    )? {
+        let path = runId.lowercased()
+        guard let run = runs[aliases[path] ?? path] else { return nil }
+        let id = UUID().wireString
+        let at = max(RunInstant.milliseconds(Date()), (run.events.map(\.event.at).max() ?? 0) + 1)
+        let named = type == .reopen ? (target ?? run.state.terminalId) : target
+        let body = RunEventInDTO(id: id, type: type.rawValue, at: RunInstant.format(at), target: named)
+        let event = RunEvent(id: id, type: type, at: at, target: named?.lowercased())
+        let outcome = record(event, body: body, answers: nil, path: path, topic: nil)
+        guard let after = runs[aliases[path] ?? path], after.status.isOpen || after.status == .finishing else {
+            return (outcome, nil)
+        }
+        let json = (try? JSONSerialization.jsonObject(with: WireCoding.encoder().encode(RunDTO(after.domain))))
+        return (outcome, json as? [String: Any])
     }
 }
 
@@ -195,7 +227,9 @@ struct FakeServerRun: Sendable {
     var id: String
     var topicId: UUID
     var version: Int
-    var steps: [TopicTimer.Step]
+    /// The version's timer: its steps and lap types (timers2.md §1.1).
+    var timer: TopicTimer
+    var steps: [TopicTimer.Step] { timer.steps }
     /// The version's required question keys.
     var required: [String]
     var events: [Run.StoredEvent] = []
@@ -215,13 +249,13 @@ struct FakeServerRun: Sendable {
     var entry: FakeRunEntry?
 
     init(
-        id: String, topicId: UUID, version: Int, steps: [TopicTimer.Step], required: [String], state: RunState,
+        id: String, topicId: UUID, version: Int, timer: TopicTimer, required: [String], state: RunState,
         status: RunStatus, source: String
     ) {
         self.id = id
         self.topicId = topicId
         self.version = version
-        self.steps = steps
+        self.timer = timer
         self.required = required
         self.state = state
         self.status = status
@@ -241,7 +275,9 @@ struct FakeServerRun: Sendable {
             state: RunState(
                 status: status, startedAt: state.startedAt, endedAt: state.endedAt, open: state.open,
                 nextStep: state.nextStep, pausedSince: state.pausedSince, segments: state.segments,
-                skipped: state.skipped, pauses: state.pauses, effects: effects),
+                skipped: state.skipped, pauses: state.pauses, effects: effects,
+                terminalId: status == .discarded ? nil : state.terminalId, nextLapType: state.nextLapType,
+                lapCount: state.lapCount, reopenId: state.reopenId),
             aliases: aliases)
     }
 
@@ -252,14 +288,22 @@ struct FakeServerRun: Sendable {
         revision += 1
     }
 
-    /// The fold of every event, then the server's status (§3.5), and the entry once stopped.
+    /// The fold of every event, then the server's status (§3.5), and the entry once stopped. A
+    /// reopen clears a decided status; a discard reverting the reopen of a run with no entry
+    /// discards it (timers2.md §4.1).
     mutating func refold() {
-        guard let folded = try? RunFold.fold(runId: id, steps: steps, events: events.map(\.event)) else { return }
+        guard let folded = try? RunFold.fold(runId: id, timer: timer, events: events.map(\.event)) else { return }
+        let reverted = events.contains { $0.event.type == .reopen && folded.effects[$0.event.id] == .void(.reverted) }
+        if folded.status.isOpen {
+            decidedStatus = nil
+        } else if reverted, folded.status == .stopped, entry == nil, decidedStatus == nil {
+            decidedStatus = .discarded
+        }
         state = folded
         if let decidedStatus {
             status = decidedStatus
         } else if folded.status == .stopped {
-            let stop = events.first { $0.event.type == .stop && folded.effects[$0.event.id] == .applied }
+            let stop = events.first { $0.event.id == folded.terminalId }
             let stopAnswers = stop.flatMap { answers[$0.event.id] }
             status = entry != nil || stopAnswers != nil || required.isEmpty ? .stopped : .finishing
         } else {

@@ -2,16 +2,17 @@ import Foundation
 import GRDB
 import QuickrCore
 
-/// A tap on a run (every event but `start`, timers.md §3.2).
+/// A tap on a run (every event but `start`, timers.md §3.2; `reopen` and `remove` name a
+/// `target`, timers2.md §3).
 public enum RunTapType: String, Sendable, Hashable, CaseIterable {
-    case next, lap, skip, pause, resume, stop, finish, discard
+    case next, lap, skip, pause, resume, stop, finish, discard, reopen, remove
 }
 
 /// What the user saw when they tapped: the open segment, the step a Skip names, and whether the
 /// run was paused (and by which pause). A tap whose target has moved since (a double tap read
 /// after the first was queued) is dropped, as the fold would void it (`stale`, `already_paused`,
-/// `not_paused`, §4.2). Stop, discard and finish don't use it: their repeats are void
-/// (`already_closed`) or idempotent.
+/// `not_paused`, §4.2). Stop, discard, finish, reopen and remove don't use it: their repeats are
+/// void (`already_closed`, `not_stopped`, `no_target`) or idempotent.
 public struct RunTapExpect: Sendable, Hashable {
     public var seg: Int?
     public var step: String?
@@ -46,6 +47,10 @@ public enum RunTapTarget: Sendable, Hashable {
     /// content state, timers.md §10.3): sent as is, and a stale one is void on the server and in
     /// the fold. A nil field falls back to the local view.
     case shown(seg: Int?, step: String?, pauseId: String?)
+    /// A remove's `target` (timers2.md §3.4): the id of the pause, lap or reopened stop to remove,
+    /// from the run's events or its entry's timing (`TimingPause.id`, `TimingSegment.event_id`).
+    /// Any other tap ignores it (`.current`).
+    case event(String)
 }
 
 /// What a start did.
@@ -61,7 +66,9 @@ public struct RunStartResult: Sendable, Hashable {
     public var started: Bool { item != nil }
 }
 
-/// What Auto did (timers.md §11.1): idle → Start; a named step remains → Next; otherwise → Stop.
+/// What Auto did (timers2.md §10, the Auto rule): idle → Start; then, when the timer has lap
+/// types, the on-screen primary (Next while a named step remains and a step is open, else Lap);
+/// without lap types v1's (Next while a named step remains, otherwise Stop).
 public enum RunAutoResult: Sendable, Hashable {
     case started(RunStartResult)
     /// The tap on the open run, and what it enqueued (nil: nothing).
@@ -84,7 +91,14 @@ public enum RunAutoResult: Sendable, Hashable {
 ///   already knows (an item, a run or alias, a tombstone, or an entry with that id) enqueues
 ///   nothing either.
 /// - **Targets.** `seg`, `step` and `pause_id` come from the local view, which includes every
-///   earlier queued tap (`RunTapTarget`).
+///   earlier queued tap (`RunTapTarget`). A reopen's `target` is the run's terminal stop; a
+///   remove's is the event `RunTapTarget.event` names (timers2.md §3.4). A run not in the view
+///   (it stopped and its marker closed it here, after a relaunch, or it ran on another device)
+///   is reopened or removed from its entry's timing ids (§5.3; `target: null` from a pre-v2
+///   timing, A12).
+/// - **One open run per topic (A15).** A reopen while the topic has another open run here
+///   enqueues nothing (the server would answer 409 `conflict`, terminal, and the intent would be
+///   lost without a notice).
 /// - **`device`** (§3.2, §10.3) is stamped on every event.
 ///
 /// Errors: `StoreError.retired` if the store was reset; GRDB's.
@@ -130,11 +144,14 @@ public struct RunWrites: Sendable {
     // MARK: - Taps
 
     /// One tap on the run `runId` routes to (its id or an alias). Nil when nothing was enqueued:
-    /// the run isn't in the local view (except for a finish, below), its state has no target for
-    /// the tap (no open segment, no step to skip, no pause to resume, a finish of a run that hasn't
-    /// stopped), or with `.expect` the target moved. A finish of a run that left the view (it
-    /// stopped, so its entry exists) is still enqueued: the server applies or voids it (§3.6). A
-    /// discard of a run the server never saw drops the run's items instead (K6, `.cancelled`).
+    /// the run isn't in the local view (except for a finish, a reopen and a remove, below), its
+    /// state has no target for the tap (no open segment, no step to skip, no pause to resume, a
+    /// finish of a run that hasn't stopped, a reopen of a run that isn't stopped or finishing, a
+    /// remove whose target isn't the run's), or with `.expect` the target moved. A finish of a run
+    /// that left the view (it stopped, so its entry exists) is still enqueued: the server applies
+    /// or voids it (§3.6); a reopen or remove of one goes by its entry (timers2.md §5.3). A
+    /// discard of a run the server never saw drops the run's items instead (K6, `.cancelled`),
+    /// unless a reopen is queued (A8).
     @discardableResult
     public func tap(
         _ type: RunTapType, runId: String, target: RunTapTarget = .current, answers: [String: AnswerValue]? = nil,
@@ -145,16 +162,42 @@ public struct RunWrites: Sendable {
         let origin = origin
         let body = Body(answers: answers, notes: notes, meta: meta)
         return try await write { db, now, wall in
-            guard let run = try RunOverlay.localRun(db, id: runId) else {
-                guard type == .finish else { return nil }
-                return try Self.finishClosed(
-                    db, runId: runId.lowercased(), body: body, tapAt: tapAt, device: device, origin: origin, now: now,
-                    wall: wall)
+            let runs = try RunOverlay.localRuns(db)
+            guard let run = runs.first(where: { $0.answers(to: runId) }) else {
+                switch type {
+                case .finish:
+                    return try Self.finishClosed(
+                        db, runId: runId.lowercased(), body: body, tapAt: tapAt, device: device, origin: origin,
+                        now: now, wall: wall)
+                case .reopen, .remove:
+                    return try Self.fromEntry(
+                        db, type, runId: runId.lowercased(), target: target, runs: runs, tapAt: tapAt, device: device,
+                        origin: origin, now: now, wall: wall)
+                default:
+                    return nil
+                }
+            }
+            if type == .reopen, runs.contains(where: { $0.topicId == run.topicId && $0.isOpen && $0.id != run.id }) {
+                return nil
             }
             return try Self.tap(
                 db, type, run: run, target: target, body: body, tapAt: tapAt, device: device, origin: origin,
                 now: now, wall: wall)
         }
+    }
+
+    /// Reopens the run `runId` routes to (timers2.md §3.4): its terminal stop is the target. From
+    /// its entry when the run isn't in the view (§5.3).
+    @discardableResult
+    public func reopen(runId: String) async throws -> OutboxEnqueueResult? {
+        try await tap(.reopen, runId: runId)
+    }
+
+    /// Removes a pause, a lap boundary or a reopened stop (`target`, an event id) of the run
+    /// `runId` routes to, or of its entry's timing (timers2.md §3.4, §5.3).
+    @discardableResult
+    public func remove(runId: String, target: String) async throws -> OutboxEnqueueResult? {
+        try await tap(.remove, runId: runId, target: .event(target))
     }
 
     @discardableResult
@@ -204,10 +247,9 @@ public struct RunWrites: Sendable {
         try await tap(.discard, runId: runId)
     }
 
-    /// Auto (§11.1), in one transaction: no open run → Start; a named step remains after the open
-    /// segment, or the pinned version's steps aren't known here (a step may remain: the primary
-    /// button is a plain Next then) → Next; otherwise → Stop. A finishing run isn't open, so Auto
-    /// starts a new run then (the finishing one keeps waiting for its answers).
+    /// Auto (timers2.md §10, active-surfaces.md §5.3), in one transaction: no open run → Start;
+    /// otherwise `autoTap`. A finishing run isn't open, so Auto starts a new run then (the
+    /// finishing one keeps waiting for its answers).
     @discardableResult
     public func auto(topic: TopicRef, version: Int) async throws -> RunAutoResult {
         let tapAt = now()
@@ -228,10 +270,18 @@ public struct RunWrites: Sendable {
         }
     }
 
-    /// Auto's tap on an open run: Next while a named step remains or the steps aren't known, else
-    /// Stop.
+    /// Auto's tap on an open run (timers2.md §10, the Auto rule; C9). The pinned version's steps
+    /// aren't known here → Next (a step may remain: the primary button is a plain Next then).
+    /// `timer.laps` non-empty → the on-screen primary: Lap when the open segment is a lap or no
+    /// named step remains, else Next; Stop is never Auto. `timer.laps` empty → v1's Auto (§11.1):
+    /// Next while a named step remains, otherwise Stop, so a stepless Control still stops the
+    /// dishwasher.
     static func autoTap(_ run: LocalRun) -> RunTapType {
-        run.steps == nil || run.state.nextStep != nil ? .next : .stop
+        guard run.steps != nil else { return .next }
+        if let laps = run.timer?.laps, !laps.isEmpty {
+            return run.state.open?.kind == .lap || run.state.nextStep == nil ? .lap : .next
+        }
+        return run.state.nextStep != nil ? .next : .stop
     }
 
     // MARK: - Transactions
@@ -270,8 +320,9 @@ public struct RunWrites: Sendable {
         return RunStartResult(runId: runId, item: queued)
     }
 
-    /// The id is already used: an item with it (any state), a run or alias, a run tombstone, or an
-    /// entry (or entry tombstone) with it. Runs and entries share one id space (§3.3).
+    /// The id is already used: an item with it (any state), a run or alias, a closed run's marker
+    /// or a run tombstone, or an entry (or entry tombstone) with it. Runs and entries share one id
+    /// space (§3.3).
     static func isKnown(_ db: Database, runId: String) throws -> Bool {
         try Bool.fetchOne(
             db,
@@ -281,8 +332,9 @@ public struct RunWrites: Sendable {
                     OR EXISTS (SELECT 1 FROM run_alias WHERE id = ?)
                     OR EXISTS (SELECT 1 FROM entry WHERE id = ?)
                     OR EXISTS (SELECT 1 FROM tombstone WHERE kind IN ('run', 'entry') AND id = ?)
+                    OR EXISTS (SELECT 1 FROM run_closed WHERE id = ?)
                 """,
-            arguments: [runId, runId, runId, runId, runId]) ?? false
+            arguments: [runId, runId, runId, runId, runId, runId]) ?? false
     }
 
     static func tap(
@@ -290,9 +342,9 @@ public struct RunWrites: Sendable {
         device: RunEventInDTO.Device?, origin: OutboxOrigin, now: LeaseInstant, wall: Date
     ) throws -> OutboxEnqueueResult? {
         if try StoreFence.isRetired(db) { throw StoreError.retired }
-        guard var fields = Self.target(run, type) else { return nil }
+        guard var fields = Self.target(run, type, target) else { return nil }
         switch target {
-        case .current:
+        case .current, .event:
             break
         case .expect(let expect):
             if moved(run, type, fields, expect) { return nil }
@@ -307,7 +359,8 @@ public struct RunWrites: Sendable {
         let event = RunEventInDTO(
             id: UUID().wireString, type: type.rawValue,
             at: RunInstant.format(try stamp(db, tapAt, ats: try ats(db, run))), seg: fields.seg, step: fields.step,
-            pauseId: fields.pauseId, answers: carries ? body.answers?.mapValues { WireAnswer($0) } : nil,
+            pauseId: fields.pauseId, target: fields.target,
+            answers: carries ? body.answers?.mapValues { WireAnswer($0) } : nil,
             notes: carries ? body.notes : nil, meta: body.meta, device: device)
         return try enqueue(db, event, topic: topic, runId: run.id, origin: origin, now: now, wall: wall)
     }
@@ -329,6 +382,45 @@ public struct RunWrites: Sendable {
             at: RunInstant.format(try stamp(db, tapAt, ats: [])), answers: body.answers?.mapValues { WireAnswer($0) },
             notes: body.notes, meta: body.meta, device: device)
         return try enqueue(db, event, topic: topic, runId: runId, origin: origin, now: now, wall: wall)
+    }
+
+    /// A reopen or remove of a run that isn't in the view, from its entry (timers2.md §5.3): the
+    /// targets are the timing's ids (a reopen's `terminal_id`, null on a pre-v2 timing, which the
+    /// server resolves, A12; a remove's must be a lap's `event_id` or a pause's `id`). Its `at` is
+    /// clamped after the entry's end. Nil when the entry (or its topic) isn't here, it isn't timed,
+    /// the topic has an open run (a reopen, A15), or a remove names nothing of the timing.
+    private static func fromEntry(
+        _ db: Database, _ type: RunTapType, runId: String, target: RunTapTarget, runs: [LocalRun], tapAt: Int,
+        device: RunEventInDTO.Device?, origin: OutboxOrigin, now: LeaseInstant, wall: Date
+    ) throws -> OutboxEnqueueResult? {
+        if try StoreFence.isRetired(db) { throw StoreError.retired }
+        guard let stored = try RunOverlay.storedEntry(db, id: runId), let timing = stored.timing,
+            let topic = try topicRef(db, stored.topicId)
+        else { return nil }
+        let named: String?
+        switch type {
+        case .reopen:
+            guard !runs.contains(where: { $0.topicId.wireString == topic.id.lowercased() && $0.isOpen }) else {
+                return nil
+            }
+            named = timing.terminalId?.lowercased()
+        case .remove:
+            guard case .event(let id) = target, entryTargets(timing).contains(id.lowercased()) else { return nil }
+            named = id.lowercased()
+        default:
+            return nil
+        }
+        let event = RunEventInDTO(
+            id: UUID().wireString, type: type.rawValue,
+            at: RunInstant.format(try stamp(db, tapAt, ats: [timing.endedAt])), target: named, device: device)
+        return try enqueue(db, event, topic: topic, runId: runId, origin: origin, now: now, wall: wall)
+    }
+
+    /// The ids a remove can name in an entry's timing (timers2.md §3.3): the laps' `event_id`s and
+    /// the pauses' `id`s (a reopened stop's gap pause carries the stop's).
+    static func entryTargets(_ timing: Timing) -> Set<String> {
+        let laps = timing.segments.filter { $0.openedBy == .lap }.compactMap(\.eventId)
+        return Set((laps + timing.pauses.compactMap(\.id)).map { $0.lowercased() })
     }
 
     private static func enqueue(
@@ -377,10 +469,15 @@ public struct RunWrites: Sendable {
         var seg: Int?
         var step: String?
         var pauseId: String?
+        /// A reopen's or remove's (timers2.md §3.4).
+        var target: String?
     }
 
-    static func target(_ run: LocalRun, _ type: RunTapType) -> Fields? {
+    /// `target`: a remove's event (`RunTapTarget.event`); ignored by the other taps. A run
+    /// "resuming" from its entry (timers2.md §5.3) takes only a discard (its revert) until the ack.
+    static func target(_ run: LocalRun, _ type: RunTapType, _ target: RunTapTarget = .current) -> Fields? {
         let open = run.state.open
+        if run.resuming, type != .discard { return nil }
         switch type {
         case .next, .lap:
             return open.map { Fields(seg: $0.index) }
@@ -397,6 +494,15 @@ public struct RunWrites: Sendable {
             return run.isOpen || run.status == .finishing ? Fields() : nil
         case .finish:
             return run.status == .finishing || run.status == .stopped ? Fields() : nil
+        case .reopen:
+            // The stop that closed it (the ordering rule keys on it, §5.5).
+            return run.status == .stopped || run.status == .finishing ? Fields(target: run.state.terminalId) : nil
+        case .remove:
+            guard case .event(let event) = target else { return nil }
+            let id = event.lowercased()
+            let named = run.events.contains { $0.id.lowercased() == id && ($0.type == .pause || $0.type == .lap) }
+            let gap = run.state.pauses.contains { $0.id?.lowercased() == id }
+            return named || gap ? Fields(target: id) : nil
         }
     }
 
@@ -407,7 +513,7 @@ public struct RunWrites: Sendable {
         case .skip: fields.seg != expect.seg || fields.step != expect.step
         case .pause: expect.paused || run.state.pausedSince != nil
         case .resume: !expect.paused || fields.pauseId != expect.pauseId?.lowercased()
-        case .stop, .finish, .discard: false
+        case .stop, .finish, .discard, .reopen, .remove: false
         }
     }
 }

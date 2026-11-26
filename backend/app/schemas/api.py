@@ -734,6 +734,19 @@ class TimingStepStats(StrictModel):
     mean_ms: int | None
 
 
+# T2-M1: timers2.md §7.4
+class TimingLapTypeStats(StrictModel):
+    key: str
+    label: str = Field(description="The latest version's label for the lap type.")
+    laps: int = Field(description="Lap segments of this type, over every timed run.")
+    best_ms: int | None = Field(description="Over those segments' active_ms.")
+    median_ms: int | None
+    mean_ms: int | None
+
+
+# end T2-M1
+
+
 class TimingLaps(StrictModel):
     runs_with_laps: int
     median_ms: int | None = Field(description="Of each such run's summed lap time.")
@@ -753,6 +766,9 @@ class TimingSeriesPoint(StrictModel):
     paused_ms: int
     complete: bool
     steps: dict[str, int] = Field(description="Each step segment's key and its active_ms.")
+    lap_types: dict[str, int] = Field(
+        description="Each lap type and its lap segments' summed active_ms; untyped laps are left out."
+    )  # T2-M1: timers2.md §7.4
 
 
 class TopicTiming(StrictModel):
@@ -766,6 +782,10 @@ class TopicTiming(StrictModel):
         description="Every step key seen in range: the current version's steps in step order, "
         "then the rest by key."
     )
+    lap_types: list[TimingLapTypeStats] = Field(
+        description="Every lap type with a lap segment in range: the current version's lap types in order, "
+        "then the rest by key. Keyed apart from steps; untyped laps count only toward laps."
+    )  # T2-M1: timers2.md §7.4
     laps: TimingLaps
     paused: TimingPaused
     series: list[TimingSeriesPoint] = Field(
@@ -1093,7 +1113,20 @@ class ClientOutdatedProblem(Problem):
 # Runs (docs/specs/timers.md §3)
 # ---------------------------------------------------------------------------
 
-RunEventKind = Literal["start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+RunEventKind = Literal[
+    "start",
+    "next",
+    "lap",
+    "skip",
+    "pause",
+    "resume",
+    "stop",
+    "finish",
+    "discard",
+    # T2-M1: timers2.md §7.1
+    "reopen",
+    "remove",
+]
 RunStatusName = Literal["running", "paused", "finishing", "stopped", "discarded"]
 VoidReason = Literal[
     "merged",
@@ -1107,6 +1140,11 @@ VoidReason = Literal[
     "no_step",
     "already_paused",
     "not_paused",
+    # T2-M1: timers2.md §3.3
+    "reverted",
+    "not_stopped",
+    "deleted",
+    "no_target",
 ]
 RunListStatus = Literal["open", "finishing"]
 
@@ -1117,7 +1155,9 @@ _REQUIRED_FOR: dict[str, tuple[str, ...]] = {
     "lap": ("seg",),
     "skip": ("seg", "step"),
     "resume": ("pause_id",),
+    "remove": ("target",),  # T2-M1: a reopen's target may be null (timers2.md §4.2)
 }
+_TARGETED = frozenset({"reopen", "remove"})
 
 
 class RunDevice(StrictModel):
@@ -1148,6 +1188,13 @@ class RunEventIn(StrictModel):
         default=None, description="skip (required): the step the device saw as being skipped."
     )
     pause_id: UUID | None = Field(default=None, description="resume (required): the pause event it ends.")
+    # T2-M1: timers2.md §4.2, §7.1
+    target: UUID | None = Field(
+        default=None,
+        description="reopen and remove only: the event acted on. remove (required): a pause, a lap, or a "
+        "reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server "
+        "resolves and stores.",
+    )
     topic_id: UUID | None = Field(default=None, description="start (required): the timed topic.")
     version: Annotated[StrictInt, Field(ge=1)] | None = Field(
         default=None, description="start (required): the topic version the run is pinned to."
@@ -1167,6 +1214,8 @@ class RunEventIn(StrictModel):
             for name in ("answers", "notes"):
                 if getattr(self, name) is not None:
                     raise field_error(name, "only a stop or a finish carries answers and notes")
+        if self.type not in _TARGETED and self.target is not None:
+            raise field_error("target", "only a reopen or a remove names a target")
         return self
 
 
@@ -1177,6 +1226,10 @@ class RunEventOut(StrictModel):
     seg: int | None
     step: str | None
     pause_id: UUID | None
+    target: UUID | None = Field(
+        description="A reopen's or remove's target as stored: a reopen sent without one carries the stop "
+        "the server resolved it to (timers2.md §4.2); null for other types."
+    )  # T2-M1
     arrival: int = Field(description="Server arrival order.")
     effect: Literal["applied", "void"]
     reason: VoidReason | None
@@ -1301,14 +1354,20 @@ DeletionKind = Literal["entry", "topic", "version", "run"]
 
 class FeedDeletion(StrictModel):
     """A permanently deleted id. A topic deletion also deletes all of its versions, entries and
-    runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
-    discarded, or went with its topic."""
+    runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+    was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+    with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2)."""
 
     kind: DeletionKind
     seq: int
     id: UUID
     topic_id: UUID
     deleted_at: datetime
+    revision: int | None = Field(
+        description="A run deletion: the run's revision in the page's snapshot, which bounds every "
+        "earlier state of the run. Null for a run that went with its topic and for other kinds "
+        "(timers2.md §5.2)."
+    )  # T2-M1
 
 
 class ChangesPage(StrictModel):

@@ -177,9 +177,10 @@ describe('steps not known here (null)', () => {
 });
 
 describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ยง1.2)', () => {
-  // Rows 1โ€“3 (idle: an idle topic has no RunState), 10 (after a reopen), 11 (queued reopen) and
-  // 14 (busy) need v2 state and are not expressible yet (T2-M1: I1-CORE / F1-OUTBOX / F1-CORE);
-  // row 13 is pinned as today's model yields it (`resumable` is false until then: `[]`).
+  // Rows 1โ€“3 (idle) are the topic's last run seen closed: `start`, plus row 13's `reopen`
+  // (secondary) within OQ-1's window when the run is stopped with a terminal (a topic with no
+  // run doesn't call `actions`). Rows 10 (after a reopen: no `reopen_id` in RunState yet),
+  // 11 (queued reopen) and 14 (busy) are not expressible yet (T2-M1: F1-CORE / F1-OUTBOX).
   const TIMER: Timer = { steps: STEPS };
   const LAPS_ONLY: Timer = { steps: [] };
   const a = (kind: RunActionKind, role: RunActionRole): RunAction => ({
@@ -200,6 +201,12 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
   const discard = a({ type: 'discard' }, 'destructive');
   const lap = a({ type: 'lap', nextTypeLabel: null }, 'primary');
   const next = (label: string) => a({ type: 'next', label }, 'primary');
+  const startA = a({ type: 'start' }, 'primary');
+  const reopen = (target: string) => a({ type: 'reopen', target }, 'secondary');
+  const WINDOW = 15 * 60 * 1000;
+  // The fold lowercases ids; the stop's is the terminal.
+  const STOP_ID = '0e000000-0000-4000-8000-000000000001';
+  const stopEv = ev(STOP_ID, 'stop', s(5));
   const skip = (label: string) => a({ type: 'skip', label }, 'overflow');
 
   interface Row {
@@ -208,6 +215,8 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
     steps?: TimerStep[];
     status?: RunStatus;
     timer: Timer | null;
+    /** `now`; defaults to T0. */
+    now?: number;
     expected: RunAction[];
   }
   const rows: Row[] = [
@@ -271,13 +280,13 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
       row: '9 timer null, running',
       events: [],
       timer: null,
-      expected: [next('Next'), stop, pause, discard],
+      expected: [next(''), stop, pause, discard],
     },
     {
       row: '9 timer null, paused',
       events: [p],
       timer: null,
-      expected: [next('Next'), stop, resume, discard],
+      expected: [next(''), stop, resume, discard],
     },
     {
       row: '12 finishing',
@@ -287,13 +296,55 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
       expected: [a({ type: 'addDetails' }, 'primary'), discard],
     },
     {
-      row: '13 stopped, not resumable today (stub half)',
-      events: [x],
+      row: '1โ€“3, 13 stopped, within the window: start, reopen(terminal_id) secondary',
+      events: [stopEv],
+      timer: TIMER,
+      now: s(5) + WINDOW,
+      expected: [startA, reopen(STOP_ID)],
+    },
+    {
+      row: '1, 13 stopped, timer null: start, reopen still offered',
+      events: [stopEv],
+      timer: null,
+      now: s(5),
+      expected: [startA, reopen(STOP_ID)],
+    },
+    {
+      row: '3, 13 stopped, laps only: start, reopen',
+      events: [stopEv],
+      steps: [],
+      timer: LAPS_ONLY,
+      now: s(6),
+      expected: [startA, reopen(STOP_ID)],
+    },
+    {
+      row: '2, 13 stopped, past the window: start only',
+      events: [stopEv],
+      timer: TIMER,
+      now: s(5) + WINDOW + 1,
+      expected: [startA],
+    },
+    {
+      row: '2 stopped without a terminal: start only',
+      events: [],
       status: 'stopped',
       timer: TIMER,
-      expected: [],
+      expected: [startA],
     },
-    { row: '13 discarded', events: [x], status: 'discarded', timer: TIMER, expected: [] },
+    {
+      row: '2 discarded: start only',
+      events: [ev('d', 'discard', s(5))],
+      timer: TIMER,
+      expected: [startA],
+    },
+    {
+      row: '2 discarded with a terminal still set: start only (only a stopped run reopens)',
+      events: [stopEv],
+      status: 'discarded',
+      timer: TIMER,
+      now: s(5),
+      expected: [startA],
+    },
   ];
   const of = (r: Row) => {
     const state = fold('r1', { steps: r.steps ?? STEPS }, [start, ...r.events]);
@@ -302,12 +353,12 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
 
   it.each(rows)('$row', (r) => {
     const { state, status } = of(r);
-    const got = actions(state, status, r.timer, T0);
+    const got = actions(state, status, r.timer, r.now ?? T0);
     expect(got).toEqual(r.expected);
     expect(got.every((x) => x.enabled)).toBe(true);
   });
 
-  it('has exactly one primary while open or finishing, never Stop, in display order', () => {
+  it('has exactly one primary in every state, never Stop, in display order', () => {
     const rank: Record<RunActionRole, number> = {
       primary: 0,
       secondary: 1,
@@ -315,9 +366,8 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
       destructive: 3,
     };
     for (const r of rows) {
-      if (r.status === 'stopped' || r.status === 'discarded') continue;
       const { state, status } = of(r);
-      const got = actions(state, status, r.timer, T0);
+      const got = actions(state, status, r.timer, r.now ?? T0);
       expect(
         got.filter((x) => x.role === 'primary'),
         r.row,
@@ -336,19 +386,30 @@ describe('actions (timers2.md ยง10, R18 stub half; fixture: active-surfaces.md ย
       const { state, status } = of(r);
       const want =
         status === 'running' || status === 'paused'
-          ? (actions(state, status, r.timer, T0).find((x) => x.role === 'primary') ?? null)
+          ? (actions(state, status, r.timer, r.now ?? T0).find((x) => x.role === 'primary') ?? null)
           : null;
-      expect(primaryAction(state, status, r.timer, T0), r.row).toEqual(want);
+      expect(primaryAction(state, status, r.timer, r.now ?? T0), r.row).toEqual(want);
     }
   });
 
-  it('never returns start, reopen or revert today (no idle state, no reopen event yet)', () => {
+  it('start only for a closed run (its primary); reopen secondary; never revert today', () => {
     for (const r of rows) {
       const { state, status } = of(r);
-      const kinds = actions(state, status, r.timer, T0).map((x) => x.kind.type);
-      expect(kinds, r.row).not.toContain('start');
-      expect(kinds, r.row).not.toContain('reopen');
-      expect(kinds, r.row).not.toContain('revert');
+      const got = actions(state, status, r.timer, r.now ?? T0);
+      const closed = status === 'stopped' || status === 'discarded';
+      expect(
+        got.some((x) => x.kind.type === 'start'),
+        r.row,
+      ).toBe(closed);
+      if (closed) expect(got[0]?.kind.type, r.row).toBe('start');
+      expect(
+        got.filter((x) => x.kind.type === 'reopen').every((x) => x.role === 'secondary'),
+        r.row,
+      ).toBe(true);
+      expect(
+        got.map((x) => x.kind.type),
+        r.row,
+      ).not.toContain('revert');
     }
   });
 

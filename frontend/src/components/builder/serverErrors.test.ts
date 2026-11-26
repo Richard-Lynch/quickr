@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { emptyTopicDraft, newDraftQuestion, newDraftStep } from '../../lib/builder';
+import { draftFromTimer, emptyTopicDraft, newDraftQuestion, newDraftStep } from '../../lib/builder';
 import { builderFieldFor } from './serverErrors';
 
 describe('builderFieldFor', () => {
@@ -33,5 +33,34 @@ describe('builderFieldFor', () => {
     expect(builderFieldFor('timer.steps.5.key', timed)).toBe('steps');
     expect(builderFieldFor('timer.steps', timed)).toBe('steps');
     expect(builderFieldFor('timer', draft)).toBeNull();
+  });
+
+  it('maps lap type, variable and alert paths (timers2.md §1.3)', () => {
+    const timed = {
+      ...draft,
+      ...draftFromTimer({
+        steps: [{ key: 'warm', label: 'Warm', alerts: [{ key: 'go', label: 'Go', at: '1m' }] }],
+        laps: [{ key: 'run', label: 'Run', alerts: [{ key: 'half', label: 'Half', at: 't/2' }] }],
+        variables: [{ name: 't', ms: 60_000 }],
+      }),
+    };
+    expect(builderFieldFor('timer.laps', timed)).toBe('laps');
+    expect(builderFieldFor('timer.laps.0.key', timed)).toBe('laps.0.key');
+    expect(builderFieldFor('timer.laps.0.label', timed)).toBe('laps.0.label');
+    expect(builderFieldFor('timer.laps.0', timed)).toBe('laps.0.label');
+    expect(builderFieldFor('timer.laps.3.key', timed)).toBe('laps');
+    expect(builderFieldFor('timer.variables', timed)).toBe('variables');
+    expect(builderFieldFor('timer.variables.0.name', timed)).toBe('variables.0.name');
+    expect(builderFieldFor('timer.variables.0.ms', timed)).toBe('variables.0.duration');
+    expect(builderFieldFor('timer.variables.0', timed)).toBe('variables.0.name');
+    expect(builderFieldFor('timer.variables.2.ms', timed)).toBe('variables');
+    expect(builderFieldFor('timer.laps.0.alerts.0.at', timed)).toBe('laps.0.alerts.0.at');
+    expect(builderFieldFor('timer.steps.0.alerts.0.key', timed)).toBe('steps.0.alerts.0.key');
+    expect(builderFieldFor('timer.steps.0.alerts.0.label', timed)).toBe('steps.0.alerts.0.label');
+    expect(builderFieldFor('timer.steps.0.alerts.0', timed)).toBe('steps.0.alerts.0.label');
+    expect(builderFieldFor('timer.steps.0.alerts', timed)).toBe('steps.0.alerts');
+    expect(builderFieldFor('timer.steps.0.alerts.4.at', timed)).toBe('steps.0.alerts');
+    // Not timed: the form has no timer fields, so the banner shows it.
+    expect(builderFieldFor('timer.laps.0.alerts.0.at', draft)).toBeNull();
   });
 });

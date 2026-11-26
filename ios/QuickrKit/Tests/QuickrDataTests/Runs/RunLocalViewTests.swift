@@ -280,6 +280,44 @@ import Testing
         }
     }
 
+    @Test(
+        "#206 · the local run carries the pinned v2 timer: its lap types and their alerts; nil exactly when steps are")
+    func pinnedTimer() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        let go = TopicTimer.Alert(key: "go", label: "Go", at: "10m", atMs: 600_000)
+        let v2 = TopicTimer(
+            steps: [TopicTimer.Step(key: "warmup", label: "Warmup")],
+            laps: [
+                TopicTimer.LapType(key: "run", label: "Run", alerts: [go]),
+                TopicTimer.LapType(key: "rest", label: "Rest"),
+            ])
+        let topicId = h.topic.id
+        try h.write { db in
+            _ = try ServerLayer.insert(
+                db, version: TopicVersion(version: 2, questions: [], timer: v2, createdAt: Make.t0), id: UUID(),
+                topicId: topicId)
+            _ = try ServerLayer.insert(
+                db, version: TopicVersion(version: 3, questions: [], timer: nil, createdAt: Make.t0), id: UUID(),
+                topicId: topicId)
+        }
+        let typed = try #require(try h.localRun(try await h.runs().start(topic: h.ref, version: 2).runId))
+        #expect(typed.timer == v2)
+        #expect(typed.timer?.laps.first?.alerts == [go])
+        #expect(typed.steps == v2.steps)
+        _ = try await h.runs().discard(runId: typed.id)
+
+        let untimed = try #require(try h.localRun(try await h.runs().start(topic: h.ref, version: 3).runId))
+        let untimedSteps: [TopicTimer.Step]? = untimed.steps
+        #expect(untimedSteps == [])
+        #expect(untimed.timer == TopicTimer(steps: []), "a stored untimed version: steps [], so a timer")
+        _ = try await h.runs().discard(runId: untimed.id)
+
+        let unknown = try #require(try h.localRun(try await h.runs().start(topic: h.ref, version: 7).runId))
+        #expect(unknown.steps == nil)
+        #expect(unknown.timer == nil, "nil exactly when steps is")
+    }
+
     @Test("R4 · the local view folds the run's pinned version's steps, never the topic's current ones")
     func pinnedVersion() async throws {
         let h = try OutboxHarness()

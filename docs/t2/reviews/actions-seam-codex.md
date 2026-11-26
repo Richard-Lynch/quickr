@@ -1,0 +1,5 @@
+- **P2 — Reopen is offered before the stop time.** Both [model.ts](/Users/richie/code/quickr-worktrees/t2-m1-actions-seam/frontend/src/components/runs/model.ts:131) and [RunPresentation.swift](/Users/richie/code/quickr-worktrees/t2-m1-actions-seam/ios/QuickrKit/Sources/QuickrCore/Runs/RunPresentation.swift:120) check only that `now - end` is at most 15 minutes. A future-dated stop therefore remains reopenable even if it is days ahead of `now`. Require `0 <= now - end <= window` on both platforms, and add tests for a time just before the stop.
+
+- **P3 — The acceptance table still specifies Reopen as overflow.** [timers2.md](/Users/richie/code/quickr-worktrees/t2-m1-actions-seam/docs/specs/timers2.md:1584) R18 contradicts the updated §10 and the secondary-role decision. Update R18 to say Reopen is secondary and Discard is destructive.
+
+The tests cover the requested upper boundary on both platforms: exactly 15 minutes is included and one millisecond later is excluded. They also cover closed and discarded runs, the empty Next label, and Reopen’s secondary role. I found no broken existing callers of the changed action model in the repository.

@@ -6,10 +6,11 @@
  */
 import { queryOptions, type QueryClient } from '@tanstack/react-query';
 
-import { listRuns, type RunOut } from '../client';
+import { listRuns, type FeedDeletion, type RunOut } from '../client';
 import { listRunsQueryKey } from '../client/@tanstack/react-query.gen';
 import { getOutboxSnapshot, isOnline, outbox } from '../lib/outbox/client';
 import { isCachedResponse } from '../lib/runs/serverClock';
+import type { RunEventPayload } from '../lib/outbox/kinds';
 import type { RunTapDeps } from '../lib/runs/actions';
 import { ackedItems, getAckedSnapshot, pruneAcked } from '../lib/runs/acked';
 import { localRuns, openRunTopics, type LocalRun } from '../lib/runs/localView';
@@ -25,24 +26,44 @@ const same = (a: RunOut, b: RunOut) => a.id.toLowerCase() === b.id.toLowerCase()
 /** When each run was last put in the cache from a response (device ms), by lowercase id. */
 const upsertedAt = new Map<string, number>();
 
-/**
- * Runs known closed, by lowercase id: the revision a response closed them at, or Infinity
- * for an id merged into another run (an alias is never a run of its own). A listed row at
- * or below it is stale: it would reopen the run.
- */
-const tombstones = new Map<string, number>();
+/** A marker is forgotten this long after its last write (timers2.md §5.2). */
+export const RUN_MARKER_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
 
-const tombstone = (id: string, revision: number) => {
+/**
+ * `run_closed(id, revision)` markers (timers2.md §5.2), by lowercase id: the revision a run
+ * closed at, or Infinity for a run deleted with its topic or an id merged into another run
+ * (an alias is never a run of its own). Not tombstones: a run upsert with a higher revision
+ * (a reopen) beats one. In memory for the session, like the cache they guard; the bound of
+ * §5.2 (revision is monotonic per run) is what makes that enough.
+ */
+const markers = new Map<string, { revision: number; at: number }>();
+
+/** Every marker write is `max(existing, new)`: a marker is only ever raised. */
+const mark = (id: string, revision: number) => {
   const key = id.toLowerCase();
-  tombstones.set(key, Math.max(tombstones.get(key) ?? -Infinity, revision));
+  const now = Date.now();
+  markers.set(key, { revision: Math.max(markerOf(key) ?? -Infinity, revision), at: now });
 };
 
-/** Tests: forget the tombstones (module state, like the cache they guard). */
-export function clearRunTombstones(): void {
-  tombstones.clear();
+/** The run's marker revision, if it has one (pruned after 30 days). */
+function markerOf(id: string): number | undefined {
+  const key = id.toLowerCase();
+  const m = markers.get(key);
+  if (!m) return undefined;
+  if (Date.now() - m.at > RUN_MARKER_MAX_AGE_MS) {
+    markers.delete(key);
+    return undefined;
+  }
+  return m.revision;
 }
 
-const buried = (r: RunOut) => (tombstones.get(r.id.toLowerCase()) ?? -Infinity) >= r.revision;
+/** Tests: forget the markers (module state, like the cache they guard). */
+export function clearRunMarkers(): void {
+  markers.clear();
+}
+
+/** A listed (feed) upsert at or below the run's marker is stale: it would reopen the run. */
+const buried = (r: RunOut) => (markerOf(r.id) ?? -Infinity) >= r.revision;
 
 export function cachedServerRuns(qc: QueryClient): RunOut[] {
   return qc.getQueryData<RunOut[]>(runsQueryKey()) ?? [];
@@ -51,8 +72,8 @@ export function cachedServerRuns(qc: QueryClient): RunOut[] {
 /**
  * A `listRuns` answer merged into the cache it lands on: a cached copy with a higher
  * revision wins, a run a response put in the cache after the fetch began stays even if
- * the (older) list lacks it, and a row of a run a response closed (its tombstone) is
- * dropped.
+ * the (older) list lacks it, and a row at or below its run's marker is dropped. A row
+ * above it is a reopen (here or elsewhere): it applies, and clears the marker (§5.2).
  */
 export function mergeListed(
   cached: readonly RunOut[],
@@ -62,6 +83,7 @@ export function mergeListed(
   const out = fetched
     .filter((f) => !buried(f))
     .map((f) => {
+      markers.delete(f.id.toLowerCase());
       const c = cached.find((r) => same(r, f));
       return c && c.revision > f.revision ? c : f;
     });
@@ -103,23 +125,78 @@ export function runsQueryOptions(qc: QueryClient) {
   });
 }
 
+/** The acked event behind a `run.event` response: its type, and whether it applied. */
+export interface RunAck {
+  type: RunEventPayload['event']['type'];
+  applied: boolean;
+}
+
 /**
  * Put a run from a `run.event` response into the cache, synchronously (§7.3: "it uses the
- * response directly"): replace the cached copy unless that one is newer, drop it once it
- * closed, and drop runs merged into it (`aliases`). A list fetched earlier that lands
- * later can't undo it ({@link mergeListed}): a closed run and its aliases are tombstoned.
+ * response directly"), under timers2.md §5.2's revision rules, and drop runs merged into it
+ * (`aliases`, fenced for good). Let `local` be the cached row, or the run's marker:
+ * - an open or finishing run applies iff its revision is above the row's (equal replaces
+ *   it: the same state); against a marker, iff above it **and** `ack` is an applied
+ *   reopen (a delayed ack of an older tap never reopens a run). Applying clears the marker;
+ * - a closed one (`stopped`, `discarded`) against a row applies iff its revision is above
+ *   the row's (else the row is newer, a reopen: a no-op), deleting the row and writing the
+ *   marker; with no row it raises the marker.
+ * A list fetched earlier that lands later can't undo it ({@link mergeListed}).
  */
-export function upsertServerRun(qc: QueryClient, run: RunOut, now: number = Date.now()): void {
-  upsertedAt.set(run.id.toLowerCase(), now);
-  for (const alias of run.aliases) tombstone(alias, Infinity);
-  if (!LISTED.has(run.status)) tombstone(run.id, run.revision);
-  qc.setQueryData<RunOut[]>(runsQueryKey(), (old = []) => {
-    const merged = new Set(run.aliases.map((a) => a.toLowerCase()));
-    const cached = old.find((r) => same(r, run));
-    if (cached && cached.revision > run.revision) return old;
-    const rest = old.filter((r) => !same(r, run) && !merged.has(r.id.toLowerCase()));
-    return LISTED.has(run.status) ? [...rest, run] : rest;
-  });
+export function upsertServerRun(
+  qc: QueryClient,
+  run: RunOut,
+  opts: { ack?: RunAck; now?: number } = {},
+): void {
+  const key = run.id.toLowerCase();
+  for (const alias of run.aliases) mark(alias, Infinity);
+  const old = cachedServerRuns(qc);
+  const cached = old.find((r) => same(r, run));
+  const merged = new Set(run.aliases.map((a) => a.toLowerCase()));
+  const rest = old.filter((r) => !same(r, run) && !merged.has(r.id.toLowerCase()));
+  const put = (runs: RunOut[]) => {
+    qc.setQueryData<RunOut[]>(runsQueryKey(), runs);
+  };
+  if (!LISTED.has(run.status)) {
+    if (cached && cached.revision >= run.revision) return;
+    mark(run.id, run.revision);
+    put(rest);
+    return;
+  }
+  if (cached) {
+    if (cached.revision > run.revision) return;
+  } else {
+    const marker = markerOf(key);
+    const reopen = opts.ack === undefined || (opts.ack.type === 'reopen' && opts.ack.applied);
+    if (marker !== undefined && !(run.revision > marker && reopen)) return;
+  }
+  markers.delete(key);
+  upsertedAt.set(key, opts.now ?? Date.now());
+  put([...rest, run]);
+}
+
+/**
+ * A `run` deletion (`FeedDeletion`, timers2.md §5.1: the run closed, or was deleted with its
+ * topic) under §5.2's rules: against a cached row it applies iff its revision is above the
+ * row's, deleting the row (and fencing its aliases for good); it writes, or raises, the
+ * marker. A null `revision` (a topic cascade) fences for good. The PWA has no feed today: its closes come from its own responses
+ * ({@link upsertServerRun}); this is the same rule for a deletion it learns of.
+ */
+export function applyRunDeletion(
+  qc: QueryClient,
+  deletion: Pick<FeedDeletion, 'id' | 'revision'>,
+): void {
+  const revision = deletion.revision ?? Infinity;
+  const old = cachedServerRuns(qc);
+  const cached = old.find((r) => r.id.toLowerCase() === deletion.id.toLowerCase());
+  if (cached && cached.revision >= revision) return;
+  mark(deletion.id, revision);
+  if (!cached) return;
+  for (const alias of cached.aliases) mark(alias, Infinity);
+  qc.setQueryData<RunOut[]>(
+    runsQueryKey(),
+    old.filter((r) => r !== cached),
+  );
 }
 
 /** The local view from the cache, the outbox and the acked record, outside React. */

@@ -188,7 +188,7 @@ public struct QuestionSeriesDTO: Codable, Sendable, Hashable, WireResponse {
     }
 }
 
-/// `TopicTiming` (getTopicTiming, timers.md §9.2). Durations are integer milliseconds; the
+/// `TopicTiming` (getTopicTiming, timers.md §9.2, timers2.md §7.4). Durations are integer milliseconds; the
 /// timing chart models (I-CORE) read it as it is.
 public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
     /// `TimingSummary`, and the median and mean of `TimingLaps`.
@@ -217,6 +217,23 @@ public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
 
         enum CodingKeys: String, CodingKey {
             case key, label, current, done, skipped
+            case bestMs = "best_ms"
+            case medianMs = "median_ms"
+            case meanMs = "mean_ms"
+        }
+    }
+
+    /// `TimingLapTypeStats` (timers2.md §7.4).
+    public struct LapTypeStats: Codable, Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var laps: Int
+        @RequiredKey public var bestMs: Int?
+        @RequiredKey public var medianMs: Int?
+        @RequiredKey public var meanMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case key, label, laps
             case bestMs = "best_ms"
             case medianMs = "median_ms"
             case meanMs = "mean_ms"
@@ -256,9 +273,12 @@ public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
         public var pausedMs: Int
         public var complete: Bool
         public var steps: [String: Int]
+        /// Each lap type and its lap segments' summed `active_ms` (untyped laps left out).
+        public var lapTypes: [String: Int]
 
         enum CodingKeys: String, CodingKey {
             case complete, steps
+            case lapTypes = "lap_types"
             case entryId = "entry_id"
             case capturedAt = "captured_at"
             case startedAt = "started_at"
@@ -271,6 +291,7 @@ public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
     public var completeRuns: Int
     public var total: Summary
     public var steps: [StepStats]
+    public var lapTypes: [LapTypeStats]
     public var laps: Laps
     public var paused: Paused
     public var series: [Point]
@@ -278,6 +299,7 @@ public struct TopicTimingDTO: Codable, Sendable, Hashable, WireResponse {
     enum CodingKeys: String, CodingKey {
         case runs, total, steps, laps, paused, series
         case completeRuns = "complete_runs"
+        case lapTypes = "lap_types"
     }
 
     public func toDomain() -> TopicTimingDTO { self }

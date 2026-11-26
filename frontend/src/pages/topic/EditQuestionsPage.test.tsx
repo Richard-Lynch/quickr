@@ -1,6 +1,6 @@
 /** Publishing from the question editor sends the edited timer (timers.md §2.1, §11.5). */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -53,7 +53,7 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 /** The server: the version list given, a check that passes, and a publish that succeeds. */
-function stubServer(versions: TopicVersionOut[]) {
+function stubServer(versions: TopicVersionOut[], check?: () => Response) {
   const requests: { method: string; path: string; body: unknown }[] = [];
   vi.stubGlobal(
     'fetch',
@@ -62,6 +62,7 @@ function stubServer(versions: TopicVersionOut[]) {
       const text = await input.text();
       requests.push({ method: input.method, path, body: text ? JSON.parse(text) : undefined });
       if (path.endsWith('/versions/check')) {
+        if (check) return check();
         return json(200, { ok: true, next_version: 3, issues: [], changes: [] });
       }
       if (path.endsWith('/versions') && input.method === 'GET') return json(200, versions);
@@ -246,5 +247,114 @@ describe('EditQuestionsPage publish', () => {
       expect(input).toHaveAttribute('aria-invalid', 'true');
     });
     expect(input).toHaveAccessibleDescription('Required');
+  });
+});
+
+describe('EditQuestionsPage timer v2 (timers2.md §1)', () => {
+  const v2: TimerInput = {
+    steps: [{ key: 'load', label: 'Load' }],
+    laps: [
+      {
+        key: 'run',
+        label: 'Run',
+        alerts: [{ key: 'half', label: 'Half', at: 't/2', at_ms: 30_000 }],
+      },
+      { key: 'rest', label: 'Rest' },
+    ],
+    variables: [{ name: 't', ms: 60_000 }],
+  };
+
+  it('publishes a normalised v2 timer; a renamed lap type keeps its key', async () => {
+    const requests = stubServer([version(2, v2)]);
+    const user = renderPage();
+    const name = await screen.findByLabelText('Lap type 1 name');
+    await user.clear(name);
+    await user.type(name, 'Jog');
+    await user.click(screen.getByRole('button', { name: 'Add variable' }));
+    await user.type(screen.getByLabelText('Variable 2 name'), 'Rest');
+    await user.type(screen.getByLabelText('Variable 2 duration'), '0:30');
+    await user.click(screen.getByRole('button', { name: 'Alerts: Rest (lap type 2)' }));
+    const group = screen.getByRole('group', { name: 'Alerts for Rest (lap type 2)' });
+    await user.click(within(group).getByRole('button', { name: 'Add alert' }));
+    await user.type(within(group).getByLabelText('Alert 1 name'), 'Go');
+    await user.type(within(group).getByLabelText('Alert 1 time'), 'rest');
+    await user.click(screen.getByRole('button', { name: /review changes/i }));
+    // The review sheet's Timing section lists the timer's changes.
+    const timing = await screen.findByRole('region', { name: 'Timing changes' });
+    expect(
+      within(timing)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent),
+    ).toEqual([
+      'Lap type renamed: Run → Jog',
+      'Variable added: rest = 0:30',
+      'Alert added: Rest · Go at rest',
+    ]);
+    await user.click(screen.getByRole('button', { name: /publish v3/i }));
+    await screen.findByText('versions page');
+    expect(publishes(requests)[0]?.body).toEqual(
+      expect.objectContaining({
+        timer: {
+          steps: [{ key: 'load', label: 'Load', alerts: [] }],
+          laps: [
+            {
+              key: 'run',
+              label: 'Jog',
+              alerts: [{ key: 'half', label: 'Half', at: 't/2', at_ms: 30_000 }],
+            },
+            {
+              key: 'rest',
+              label: 'Rest',
+              alerts: [{ key: 'go', label: 'Go', at: 'rest', at_ms: 30_000 }],
+            },
+          ],
+          variables: [
+            { name: 't', ms: 60_000 },
+            { name: 'rest', ms: 30_000 },
+          ],
+        },
+      }),
+    );
+  });
+
+  it('a server error on an alert expression lands on that field, opened', async () => {
+    const message = "unknown_variable at 0: unknown variable 'x'";
+    stubServer([version(2, v2)], () =>
+      json(422, {
+        code: 'invalid_request',
+        detail: 'request validation failed',
+        errors: [{ loc: ['body', 'timer', 'laps', 0, 'alerts', 0, 'at'], message }],
+      }),
+    );
+    const user = renderPage();
+    await user.click(await screen.findByRole('button', { name: /review changes/i }));
+    const group = await screen.findByRole('group', { name: 'Alerts for Run (lap type 1)' });
+    const at = within(group).getByLabelText('Alert 1 time');
+    await waitFor(() => {
+      expect(at).toHaveAttribute('aria-invalid', 'true');
+    });
+    expect(at).toHaveAccessibleDescription("Unknown_variable at 0: unknown variable 'x'");
+  });
+
+  it('a server error on a variable’s ms lands on its duration', async () => {
+    stubServer([version(2, v2)], () =>
+      json(422, {
+        code: 'invalid_request',
+        detail: 'request validation failed',
+        errors: [
+          {
+            loc: ['body', 'timer', 'variables', 0, 'ms'],
+            message: 'Input should be less than or equal to 604800000',
+          },
+        ],
+      }),
+    );
+    const user = renderPage();
+    await user.click(await screen.findByRole('button', { name: /review changes/i }));
+    const input = screen.getByLabelText('Variable 1 duration');
+    await waitFor(() => {
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+    });
+    expect(input).toHaveAccessibleDescription('Input should be less than or equal to 604800000');
   });
 });

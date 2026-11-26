@@ -16,15 +16,19 @@ extension OutboxHarness {
     /// Makes `version` of the topic timed with `steps`, on the server and in the local server layer.
     /// `requiresAnswers`: the version keeps the required "mood" question, so a stop without answers
     /// leaves the run finishing.
-    func timed(version: Int = 1, steps: [TopicTimer.Step] = steps, requiresAnswers: Bool = false) throws {
-        server.time(topic.id, version: version, FakeTimer(steps: steps, requiresAnswers: requiresAnswers))
+    /// `laps`: the version's lap types (timers2.md §1.1).
+    func timed(
+        version: Int = 1, steps: [TopicTimer.Step] = steps, requiresAnswers: Bool = false,
+        laps: [TopicTimer.LapType] = []
+    ) throws {
+        server.time(topic.id, version: version, FakeTimer(steps: steps, requiresAnswers: requiresAnswers, laps: laps))
         let questions = Make.questions.map { question in
             var question = question
             if !requiresAnswers { question.required = false }
             return question
         }
         let row = TopicVersion(
-            version: version, questions: questions, timer: TopicTimer(steps: steps), createdAt: Make.t0)
+            version: version, questions: questions, timer: TopicTimer(steps: steps, laps: laps), createdAt: Make.t0)
         let topicId = topic.id
         try write { db in _ = try ServerLayer.insert(db, version: row, id: UUID(), topicId: topicId) }
     }

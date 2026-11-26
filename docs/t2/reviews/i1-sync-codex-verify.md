@@ -1,0 +1,5 @@
+1. **Resolved:** A stale closing ack no longer inserts `sentTo` as an alias; the close’s revision guard returns before changing markers or aliases. See [ServerLayer.swift:158](/Users/richie/code/quickr-worktrees/t2-m1-sync-ios/ios/QuickrKit/Sources/QuickrData/Store/ServerLayer.swift:158) and [ServerLayer.swift:267](/Users/richie/code/quickr-worktrees/t2-m1-sync-ios/ios/QuickrKit/Sources/QuickrData/Store/ServerLayer.swift:267).
+
+2. **Resolved:** The new test applies separate staged close, reopen and re-stop pages, checks the marker and row after each, and verifies the swapped live state. See [RunSyncTests.swift:517](/Users/richie/code/quickr-worktrees/t2-m1-sync-ios/ios/QuickrKit/Tests/QuickrDataTests/Sync/RunSyncTests.swift:517).
+
+I found no new concrete defect introduced by the fix in the requested diff. I did not run the tests.
