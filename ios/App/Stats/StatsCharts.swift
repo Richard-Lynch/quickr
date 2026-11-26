@@ -160,10 +160,15 @@ struct MeanLineChart: View {
 // MARK: - Stacked bars (enum)
 
 /// Counts per option per bucket, stacked, with a legend and a per-bucket tooltip (`StackedBars`).
+/// The lap-type chart stacks milliseconds instead: `format` writes a value (a count when nil),
+/// `measure` names it.
 struct OptionStackChart: View {
     let series: QuestionSeries
     let options: [EnumOption]
     let label: String
+    var measure = "answers"
+    var format: (@Sendable (Int) -> String)?
+    var identifier = "chart.stacked"
     @State private var selected: String?
     private let textScale = ChartTextScale()
 
@@ -185,7 +190,7 @@ struct OptionStackChart: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("chart.stacked")
+        .accessibilityIdentifier(identifier)
     }
 
     private func id(_ point: QuestionSeries.Point) -> String { point.start.ISO8601Format() }
@@ -202,7 +207,7 @@ struct OptionStackChart: View {
                         .opacity(shown == nil || shown?.start == point.start ? 1 : 0.55)
                         // The bucket's date and the option, not the x value's ISO string (ST2).
                         .accessibilityLabel(spokenBucket(point.start, series.bucket))
-                        .accessibilityValue("\(legendLabel(segment.value, model)) \(segment.count)")
+                        .accessibilityValue("\(legendLabel(segment.value, model)) \(text(segment.count))")
                 }
             }
         }
@@ -223,11 +228,14 @@ struct OptionStackChart: View {
         .chartOverlay { _ in
             if let shown { tooltip(shown, model) }
         }
-        .accessibilityLabel("\(label): answers per \(series.bucket.rawValue)")
+        .accessibilityLabel("\(label): \(measure) per \(series.bucket.rawValue)")
         .accessibilityChartDescriptor(
             OptionStackDescriptor(
-                title: "\(label): answers per \(series.bucket.rawValue)", model: model, bucket: series.bucket))
+                title: "\(label): \(measure) per \(series.bucket.rawValue)", model: model, bucket: series.bucket,
+                measure: measure, format: format ?? { ChartFormat.count($0) }))
     }
+
+    private func text(_ value: Int) -> String { format?(value) ?? "\(value)" }
 
     private func legendLabel(_ value: String, _ model: StackedBarsModel) -> String {
         model.legend.first { $0.value == value }?.label ?? value
@@ -241,7 +249,7 @@ struct OptionStackChart: View {
                     Circle().fill(optionColor(segment.value, in: options)).frame(width: 8, height: 8)
                     Text(legendLabel(segment.value, model)).font(.qr(.caption)).lineLimit(1)
                     Spacer(minLength: 8)
-                    Text("\(segment.count)").font(.qr(.monoCaption))
+                    Text(text(segment.count)).font(.qr(.monoCaption))
                 }
             }
         }
