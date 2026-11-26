@@ -306,9 +306,9 @@ struct RunControls: View {
   unknown the row still shows Stop and Pause.
 - **Overflow**: the toolbar `Menu` (`run.menu`, kept at
   `RunScreen.swift:103-115`) lists, in order, Skip (`run.skip`, disabled when M1
-  gives none), Resume run (`run.reopen`, idle screen only, §2.4), Undo resume…
-  (`run.revert`), Discard run… (`run.discard`). Destructive items use
-  `role: .destructive`; both confirm with the existing alert text.
+  gives none), Undo resume… (`run.revert`), Discard run… (`run.discard`).
+  Destructive items use `role: .destructive`; both confirm with the existing
+  alert text.
 - Every button is disabled while `busy` (the 450 ms cooldown, timers.md §11.1)
   or when `action.enabled` is false; the layout never changes under the finger
   (the cooldown exists for that).
@@ -672,7 +672,9 @@ markup when `running` (`TopicTile.tsx:102`).
   `ios/scripts/lint-motion.sh` fails the gate on a bare `withAnimation`. The
   "Active now" pulse and the card's primary press scale are off under Reduce
   Motion; the PWA uses `motion-reduce:hidden` on the pulse
-  (`TopicsPage.tsx:322`) and `motion-reduce:transform-none`.
+  (`TopicsPage.tsx:322`) and resets the press scale with
+  `motion-reduce:active:scale-none` (Tailwind 4 compiles `scale-*` to the CSS
+  `scale` property, which `transform-none` does not cancel).
 - **Dynamic Type.** At accessibility sizes: secondaries stack (§2.3), the active
   card stacks its controls (§3.2), the home list is a plain `VStack`
   (`HomeView.swift:185-192`). Widgets cap at `xxLarge`
