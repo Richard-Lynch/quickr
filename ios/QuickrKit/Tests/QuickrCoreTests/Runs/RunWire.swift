@@ -90,7 +90,7 @@ enum RunWire {
         var eventId: String?
         var openedBy: String?
 
-        enum CodingKeys: String, CodingKey {
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case kind, step, label
             case startedAt = "started_at"
             case endedAt = "ended_at"
@@ -134,7 +134,7 @@ enum RunWire {
         var startedAt: String
         var lapType: String?
 
-        enum CodingKeys: String, CodingKey {
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case index, kind, step, label
             case startedAt = "started_at"
             case lapType = "lap_type"
@@ -165,7 +165,7 @@ enum RunWire {
         var nextLapType: String?
         var lapCount: Int
 
-        enum CodingKeys: String, CodingKey {
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case status, open, segments, skipped, pauses, effects
             case startedAt = "started_at"
             case endedAt = "ended_at"
@@ -205,7 +205,7 @@ enum RunWire {
         var pauses: [Pause]
         var terminalId: String?
 
-        enum CodingKeys: String, CodingKey {
+        enum CodingKeys: String, CodingKey, CaseIterable {
             case complete, edited, segments, skipped, pauses
             case terminalId = "terminal_id"
             case startedAt = "started_at"
