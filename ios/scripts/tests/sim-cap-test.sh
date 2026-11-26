@@ -2,7 +2,8 @@
 # Tests for simulator admission (common.sh booted_clones/sim_boot) and the make targets' default
 # device (target_sim_udid) against a fake `xcrun simctl`: `list [-j] devices [available]` serves
 # a JSON file (or its text form), `bootstatus <udid> -b` marks the device booted after
-# FAKE_BOOT_SECS (default 1), like a real boot taking a while, and `clone` adds a device.
+# FAKE_BOOT_SECS (default 1), like a real boot taking a while, `clone` adds a device, and `spawn`
+# is logged (FAKE_SPAWN_FAIL=1 fails it).
 set -uo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 fake="$(mktemp -d "${TMPDIR:-/tmp}/quickr-simcap.XXXXXX")"
@@ -51,6 +52,10 @@ json.dump(data, open(tmp, "w"))
 os.replace(tmp, path)
 PY
   ;;
+"simctl spawn "*)
+  echo "${*:3}" >>"$FAKE_DEVICES.spawns"
+  [[ "${FAKE_SPAWN_FAIL:-0}" == 1 ]] && exit 1
+  exit 0 ;;
 "simctl bootstatus "*" -b")
   sleep "${FAKE_BOOT_SECS:-1}"
   exec python3 - "$FAKE_DEVICES" "$3" <<'PY'
@@ -113,6 +118,14 @@ C="quickR iOS-26-0 ios-m1-data-123abc"; D="quickR iOS-26-0 ios-m1-sync-456def"
 devices "a:Booted:$A" "b:Shutdown:$B" "c:Shutdown:$C" "x:Booted:iPhone 17"
 boot c; expect "one clone booted: a slot is free (non-quickR devices don't count), and it boots" 0
 [[ "$(state c)" == Booted ]] || fail "the admitted clone was not booted"
+[[ ! -s "$FAKE_DEVICES.spawns" ]] && echo "ok   and leaves its Password AutoFill alone (sim-run, shots)" \
+  || fail "sim_boot changed the device's settings: $(cat "$FAKE_DEVICES.spawns")"
+out="$(bash -c 'source "$1/../common.sh"; sim_autofill_off c' _ "$here" 2>&1)"; status=$?
+expect "sim_autofill_off (test.sh's UI plans, sim-clone.sh) succeeds" 0
+grep -qxF "c defaults write com.apple.WebUI AutoFillPasswords -bool NO" "$FAKE_DEVICES.spawns" \
+  && echo "ok   and turns Password AutoFill off on the device" || fail "spawned: $(cat "$FAKE_DEVICES.spawns")"
+out="$(FAKE_SPAWN_FAIL=1 bash -c 'source "$1/../common.sh"; sim_autofill_off c' _ "$here" 2>&1)"; status=$?
+expect "a failed AutoFill write is reported (test.sh dies on it for UI plans)" 1
 
 # The shared base device counts like a clone (a plain `make ios-test` used to boot it uncapped).
 devices "m:Booted:quickR iOS-26-0" "c:Shutdown:$C"

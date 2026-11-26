@@ -17,6 +17,7 @@ import {
   fold,
   lapTyping,
   MAX_RUN_MS,
+  openReopen,
   overlap,
   projectTiming,
   stateFromWire,
@@ -131,6 +132,13 @@ function serverEvent(e: RunOut['events'][number]): RunEvent {
 
 const applied = (state: RunState, id: string) => state.effects[lc(id)]?.effect === 'applied';
 
+/** The server's state, with the open reopen its events show (`RunState.reopen_id`). */
+function serverState(server: RunOut): RunState {
+  const state = stateFromWire(server.state);
+  const reopenId = openReopen(server.events.map(serverEvent), state.effects, state.status);
+  return reopenId === null ? state : { ...state, reopen_id: reopenId };
+}
+
 /** The run's events of `type` that the state applied. */
 const appliedOf = (state: RunState, events: readonly RunEvent[], type: RunEvent['type']) =>
   events.filter((e) => e.type === type && applied(state, e.id));
@@ -202,6 +210,10 @@ function statusOf(
   requiresAnswers: boolean,
   entry: boolean,
 ): RunStatus {
+  // An open run is open, whatever came before: a reopen reverted by a discard stays void
+  // `reverted` after a later reopen opens the run again (vector
+  // reopen-revert-then-reopen-again).
+  if (state.status === 'running' || state.status === 'paused') return state.status;
   if (reverted(state, events) || (state.status === 'discarded' && reopened(state, events))) {
     // A revert (timers2.md §4.1): the fold restores the stop, but a reopened finishing run
     // (no entry) is thrown away by the server (§5.3, A15).
@@ -254,6 +266,7 @@ function reopenState(
       ? lapTyping(lapCount + (last.kind === 'lap' ? 1 : 0) + 1, laps)[0]
       : null,
     lap_count: lapCount,
+    reopen_id: reopen.id,
   };
 }
 
@@ -387,8 +400,15 @@ function overlay(
   }
   const rest = taps.filter((e) => e.type === 'pause' || e.type === 'resume' || e.type === 'lap');
   rest.sort(timeOrder(rest));
-  for (const e of rest)
-    decide(e, terminal !== null && e.at > terminal.at ? 'after_stop' : apply(e));
+  // The fold's range checks first (iOS `RunFold.overlay` `inRange`): before the start, after
+  // the terminal, more than 7 days after the start.
+  const inRange = (e: RunEvent): VoidReason | null => {
+    if (e.at < base.started_at) return 'before_start';
+    if (terminal !== null && e.at > terminal.at) return 'after_stop';
+    if (e.at > base.started_at + MAX_RUN_MS) return 'too_long';
+    return null;
+  };
+  for (const e of rest) decide(e, inRange(e) ?? apply(e));
   if (terminal !== null && open !== null) {
     if (terminal.type === 'stop') {
       if (pausedSince !== null) pauses.push({ start: pausedSince, end: terminal.at, id: pauseId });
@@ -417,6 +437,8 @@ function overlay(
     terminal_id: terminalId,
     next_lap_type: nextLapType,
     lap_count: segments.filter((x) => x.kind === 'lap').length,
+    // A close here (stop or discard) ends the reopen transaction.
+    reopen_id: open === null ? null : (base.reopen_id ?? null),
   };
 }
 
@@ -440,7 +462,7 @@ function buildRun(
   const timer = { steps: steps ?? [], laps: laps ?? [] };
   let state: RunState;
   if (mine.length === 0 && server) {
-    state = stateFromWire(server.state);
+    state = serverState(server);
   } else if (steps) {
     try {
       state = fold(id, timer, events);
@@ -448,12 +470,12 @@ function buildRun(
       // Not foldable (no start yet, say): the server's state, if there is one.
       if (!server) return null;
       console.error('[runs] could not fold the local view', err);
-      state = stateFromWire(server.state);
+      state = serverState(server);
     }
   } else if (server) {
     // The pinned version's steps aren't known here: the server's labels, with this
     // device's step-independent taps on top.
-    state = overlay(server, stateFromWire(server.state), mine, laps);
+    state = overlay(server, serverState(server), mine, laps);
   } else if (mine.some((i) => i.payload.event.type === 'start')) {
     // This device's start that didn't know the steps (a reminder's, nothing cached, §10.2):
     // fold over none, so the run shows its clock and can be stopped offline. `steps` stays
@@ -528,7 +550,21 @@ function resumingRun(id: string, queued: readonly QueuedRunEvent[]): LocalRun | 
   const item = queued[at];
   const entry = item?.payload.entry;
   if (!item || !entry) return null;
-  const timing = timingFromWire(entry.timing);
+  // This device's removes of the entry queued before the reopen apply first (§5.3, R26):
+  // the server folds them before it, and the entry's timing at the tap doesn't have them.
+  const timing = queued
+    .slice(0, at)
+    .filter((i) => i.payload.event.type === 'remove' && i.payload.event.target != null)
+    .reduce(
+      (t, i) =>
+        removeFromTiming(
+          t,
+          lc(i.payload.event.target ?? ''),
+          i.payload.laps ?? null,
+          i.payload.gap,
+        ),
+      timingFromWire(entry.timing),
+    );
   const closed: RunState = {
     status: 'stopped',
     started_at: timing.started_at,
@@ -724,13 +760,29 @@ export function projectedEntryTiming(
   let timing = entry.timing;
   for (const item of removes) {
     const laps = item.payload.laps ?? null;
-    timing = removeFromTiming(timing, lc(item.payload.event.target ?? ''), laps);
+    timing = removeFromTiming(timing, lc(item.payload.event.target ?? ''), laps, item.payload.gap);
   }
   return { timing, pending: removes.length > 0 };
 }
 
-function removeFromTiming(timing: Timing, target: string, laps: readonly LapType[] | null): Timing {
+/**
+ * `timing` with the remove of `target` applied, as the fold will have it. `gap`: the remove's
+ * gap-pause take-over ({@link RunEventPayload.gap}).
+ */
+function removeFromTiming(
+  timing: Timing,
+  target: string,
+  laps: readonly LapType[] | null,
+  gap?: RunEventPayload['gap'],
+): Timing {
   const pause = timing.pauses.find((p) => p.id !== null && lc(p.id) === target);
+  if (pause && gap?.absorbs != null) {
+    // The gap took over a user pause open at its stop: with the gap gone, the user pause
+    // runs on to the reopen (the gap resume ends whatever is open), so only its id changes
+    // (timers2.md §3.4; vector reopen-while-paused-ends-pause).
+    const id = lc(gap.absorbs);
+    return { ...timing, pauses: timing.pauses.map((p) => (p === pause ? { ...p, id } : p)) };
+  }
   if (pause) {
     const ms = pause.end - pause.start;
     const segments = timing.segments.map((x) => {

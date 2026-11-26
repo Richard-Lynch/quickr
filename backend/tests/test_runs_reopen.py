@@ -641,3 +641,18 @@ async def test_a_null_target_resolves_on_a_state_stored_before_fold_v4(client: h
     result = await run.tap("reopen", 110, id=reopen)
     assert result["event"]["effect"] == "applied"
     assert await stored_target(reopen) == UUID(stop)
+
+
+async def test_lap_count_falls_back_to_the_lap_segments_on_a_state_stored_before_fold_v4(
+    client: httpx.AsyncClient,
+) -> None:
+    """M1-REVIEW P3-4: a state stored before fold v4 has no ``lap_count``. ``RunOut`` counts its
+    closed lap segments instead of reporting 0 until the next event re-folds."""
+    run, _ = await stopped_run(client)
+    async with get_sessionmaker()() as db:
+        row = await db.get_one(Run, UUID(run.id))
+        assert row.state["lap_count"] == 2
+        row.state = {k: v for k, v in row.state.items() if k != "lap_count"}
+        await db.commit()
+    out = await run.get()
+    assert out["state"]["lap_count"] == 2

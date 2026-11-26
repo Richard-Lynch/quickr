@@ -36,41 +36,55 @@ export interface AlertSource {
   topic: { name: string; slug: string } | null;
 }
 
-// ---- alerts fired already (this tab's session) ------------------------------------------
+// ---- alerts fired already (every tab of this origin) -----------------------------------
 
-const FIRED_KEY = 'quickr.firedAlerts';
+/**
+ * The fired alerts' keys ({@link alertKeys}), in `localStorage` so that two open tabs don't
+ * both fire one: each re-reads it before firing, and records what it fires. This tab's own
+ * record in memory backs it when storage throws (a private window, blocked site data).
+ */
+export const FIRED_ALERTS_KEY = 'quickr.firedAlerts';
 const MAX_FIRED = 200;
-let fired: Set<string> | null = null;
+let mine: string[] = [];
 
-function firedSet(): Set<string> {
-  if (fired) return fired;
-  fired = new Set();
+function stored(): string[] {
   try {
-    const raw: unknown = JSON.parse(sessionStorage.getItem(FIRED_KEY) ?? '[]');
-    if (Array.isArray(raw)) for (const k of raw) if (typeof k === 'string') fired.add(k);
+    const raw: unknown = JSON.parse(localStorage.getItem(FIRED_ALERTS_KEY) ?? '[]');
+    return Array.isArray(raw) ? raw.filter((k): k is string => typeof k === 'string') : [];
   } catch {
-    // nothing readable: a reload may refire an alert under 30 s late
+    return [];
   }
-  return fired;
 }
 
-function markFired(alert: PlannedAlert): void {
-  const set = firedSet();
-  for (const k of alertKeys(alert)) set.add(k);
-  const keep = [...set].slice(-MAX_FIRED);
-  fired = new Set(keep);
+/** Every tab's fired alerts, read afresh. */
+function firedSet(): Set<string> {
+  return new Set([...stored(), ...mine]);
+}
+
+/**
+ * Record `alert` as fired, unless another tab has since: false then, and it isn't fired here.
+ * Read and write in one synchronous step; {@link exclusive} makes that step a cross-tab
+ * critical section where the Web Locks API exists.
+ */
+function claim(alert: PlannedAlert): boolean {
+  const keys = alertKeys(alert);
+  const now = firedSet();
+  if (keys.some((k) => now.has(k))) return false;
+  const keep = [...now, ...keys].slice(-MAX_FIRED);
+  mine = [...mine, ...keys].slice(-MAX_FIRED);
   try {
-    sessionStorage.setItem(FIRED_KEY, JSON.stringify(keep));
+    localStorage.setItem(FIRED_ALERTS_KEY, JSON.stringify(keep));
   } catch {
     // memory only
   }
+  return true;
 }
 
 /** Tests: forget the fired alerts. */
 export function resetFiredAlerts(): void {
-  fired = null;
+  mine = [];
   try {
-    sessionStorage.removeItem(FIRED_KEY);
+    localStorage.removeItem(FIRED_ALERTS_KEY);
   } catch {
     // nothing stored
   }
@@ -116,8 +130,37 @@ async function notify(alert: PlannedAlert, src: AlertSource): Promise<void> {
   });
 }
 
+/**
+ * Run `fn` holding the fired-alerts lock (Web Locks, shared by every tab of the origin), so two
+ * tabs' claims never interleave; at once where the API is missing (the claim's read and write
+ * are then one synchronous step, a tiny window).
+ */
+function exclusive(fn: () => void): void {
+  let locks: LockManager | undefined;
+  try {
+    locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  } catch {
+    locks = undefined;
+  }
+  if (!locks) {
+    fn();
+    return;
+  }
+  locks
+    .request(FIRED_ALERTS_KEY, () => fn())
+    .catch((err: unknown) => {
+      console.warn('[runs] alert lock failed', err);
+      fn();
+    });
+}
+
 function fire(alert: PlannedAlert, src: AlertSource, toast: (t: ToastInput) => void): void {
-  markFired(alert);
+  exclusive(() => {
+    if (claim(alert)) sound(alert, src, toast);
+  });
+}
+
+function sound(alert: PlannedAlert, src: AlertSource, toast: (t: ToastInput) => void): void {
   const muted = alertsMuted();
   toast({ title: `${alert.label} · ${alert.segment}`, tone: 'info', duration: 8000 });
   // Muted: the toast only (device checklist, "Mute toggle"); a notification would sound.

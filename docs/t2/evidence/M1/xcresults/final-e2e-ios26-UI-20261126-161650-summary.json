@@ -1,0 +1,64 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "C8A570D6-187A-4D47-A28E-39805608364B",
+        "deviceName" : "quickR iOS-26-0 t2-m1-final-85cd14",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 14,
+      "skippedTests" : 3,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1795710034.52,
+  "passedTests" : 14,
+  "result" : "Passed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 3,
+  "startTime" : 1795709839.18,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 17
+}

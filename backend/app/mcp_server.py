@@ -437,10 +437,10 @@ async def run_action(
             pause_id = _open_pause(run)
             if pause_id is None:
                 raise InvalidRequest("the run isn't paused")
-        if action == "reopen" and target is None:  # timers2.md §7.3
-            target = run.state.terminal_id
-            if target is None:
-                raise InvalidRequest(f"the run isn't stopped: it is {run.status}")
+        # timers2.md §7.3: without a target the server resolves the terminal stop, as REST's
+        # (`_terminal_stop`, which covers a state stored before fold v4 with no terminal_id).
+        if action == "reopen" and target is None and run.status not in ("stopped", "finishing"):
+            raise InvalidRequest(f"the run isn't stopped: it is {run.status}")
         if at is None:  # monotonic, as every client stamps its taps (timers.md §5.1)
             latest = max(e.at for e in run.events)
             at = max(run_svc.now(), latest + timedelta(milliseconds=1))
