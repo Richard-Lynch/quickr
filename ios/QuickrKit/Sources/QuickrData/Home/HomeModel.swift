@@ -67,7 +67,9 @@ public final class HomeModel {
     /// The topics with an open run (running or paused): left out of "Due now" and the badge. A
     /// finishing run isn't open, so its topic keeps its due state.
     public private(set) var openRuns: TopicListing.OpenRunTopics = TopicListing.noOpenRuns
-    /// Topics read from the store at least once since the last bind.
+    /// Topics and runs read from the store at least once since the last bind. Until the runs
+    /// are, a topic's tile can't tell an idle topic from one with an open or finishing run, so
+    /// it would offer Start where the run's card or "Add details" belongs (#239).
     public private(set) var loaded = false
     /// The latest observation failure, cleared by a successful read.
     public private(set) var loadError: String?
@@ -80,6 +82,12 @@ public final class HomeModel {
     /// Tests: replaces the store's sync-state observation, to hold it back while the topics load.
     @_spi(Testing) @ObservationIgnored public var syncStatesForTesting:
         (@MainActor (LocalStore) -> AsyncThrowingStream<SyncState?, any Error>)?
+    /// Tests: replaces the store's local-run observation, to hold it back while the topics load.
+    @_spi(Testing) @ObservationIgnored public var localRunsForTesting:
+        (@MainActor (LocalStore) -> AsyncThrowingStream<[LocalRun], any Error>)?
+    /// This observation's first topics and first runs have been read (`loaded` is both).
+    @ObservationIgnored private var topicsRead = false
+    @ObservationIgnored private var runsRead = false
 
     public init(session: AppSession, now: Date = Date(), debounce: Duration = .milliseconds(250)) {
         self.session = session
@@ -139,6 +147,8 @@ public final class HomeModel {
         bootstrapped = false
         clock = .device
         loaded = false
+        topicsRead = false
+        runsRead = false
         loadError = nil
         relist()
         guard let store = session.store else { return }
@@ -164,7 +174,8 @@ public final class HomeModel {
             for try await topics in store.observeTopics(refresh: session.refresh.stream()) {
                 guard isCurrent(observation) else { return }
                 self.topics = topics
-                loaded = true
+                topicsRead = true
+                loaded = runsRead
                 loadError = nil
                 relist()
             }
@@ -176,8 +187,13 @@ public final class HomeModel {
 
     private func observeRuns(_ store: LocalStore, _ observation: Int) async {
         do {
-            for try await runs in store.observeLocalRuns(refresh: session.refresh.stream()) {
+            let states = localRunsForTesting?(store) ?? store.observeLocalRuns(refresh: session.refresh.stream())
+            for try await runs in states {
                 guard isCurrent(observation) else { return }
+                if !runsRead {
+                    runsRead = true
+                    loaded = topicsRead
+                }
                 let shown = Self.shownRuns(runs)
                 let open = RunOverlay.openRunTopics(runs)
                 guard shown != self.runs || open != openRuns else { continue }
@@ -186,7 +202,12 @@ public final class HomeModel {
                 relist()
             }
         } catch {
-            // As above: the topics' observation reports store failures.
+            // As above: the topics' observation reports store failures. The list shows without
+            // runs rather than waiting for them forever.
+            if isCurrent(observation), !runsRead {
+                runsRead = true
+                loaded = topicsRead
+            }
         }
     }
 

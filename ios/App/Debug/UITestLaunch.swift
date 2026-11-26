@@ -149,7 +149,7 @@ final class FakeServerState: Sendable {
         var levels: FakeServerLevels?
         var rejectNext = false
         var holdFeed = false
-        /// `holdLaterFeed()`: `holdFeed` turns on once the next feed request has been answered.
+        /// `holdLaterFeed()`: the next feed request is admitted and turns `holdFeed` on.
         var holdAfterNextFeed = false
         var requests = 0
         /// "METHOD /path" of each request, in order.
@@ -207,17 +207,8 @@ final class FakeServerState: Sendable {
         }
     }
 
-    /// Answers the next feed request, then holds every later one (`holdFeed`).
+    /// Admits the next feed request, then holds every later one (`holdFeed`).
     func holdLaterFeed() { state.withLock { $0.holdAfterNextFeed = true } }
-
-    /// A feed request is answered: `holdLaterFeed()` starts holding the ones after it.
-    fileprivate func feedAnswered() {
-        state.withLock { state in
-            guard state.holdAfterNextFeed else { return }
-            state.holdAfterNextFeed = false
-            state.holdFeed = true
-        }
-    }
 
     /// Holds feed requests until `releaseFeed()` (a cancelled one stops waiting, as URLSession's does).
     func holdFeed() { state.withLock { $0.holdFeed = true } }
@@ -356,6 +347,12 @@ final class FakeServerState: Sendable {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let proceed = state.withLock { state -> Bool in
+                    // `holdLaterFeed()`: this one goes, and turns the hold on in the same lock.
+                    if state.holdAfterNextFeed, !state.holdFeed {
+                        state.holdAfterNextFeed = false
+                        state.holdFeed = true
+                        return true
+                    }
                     guard state.holdFeed, !Task.isCancelled else { return true }
                     state.held[id] = continuation
                     return false
@@ -589,7 +586,6 @@ private struct FakeServerTransport: Transport {
         }
         if request.method == .get, path == "/api/v1/changes" {
             try await state.waitIfFeedHeld()
-            defer { state.feedAnswered() }
             let after =
                 URLComponents(url: request.url, resolvingAgainstBaseURL: false)?.queryItems?
                 .first { $0.name == "after" }?.value.flatMap(Int.init) ?? 0

@@ -545,7 +545,7 @@ private let otherServerURL = URL(string: "https://other.example")!
     /// #239: home's tiles can show once a first bind has published the store (the registry's
     /// change, mid-connect) while the connect's own forced rebind is still to come. A Start tapped
     /// while that rebind is held mid-swap is enqueued at once, on the store both binds share, and
-    /// goes out once the new scheduler is bound: never dropped by the swap.
+    /// is sent (by the old scheduler or the new one's first flush): the swap never drops it.
     @Test func aStartDuringTheLaunchRebindIsKept() async throws {
         let w = try World()
         defer { w.env.cleanup() }
