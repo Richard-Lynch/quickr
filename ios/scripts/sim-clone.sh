@@ -12,6 +12,8 @@
 # naming them) while IOS_SIM_CAP (default 2) other clones are booted, unless this clone is
 # booted already; --wait (or IOS_SIM_WAIT=1) polls until a slot frees. --no-boot only prints
 # the UDID. test.sh and sim-run.sh boot through the same admission.
+# The clone is a test device: booting it also turns Password AutoFill off (common.sh
+# sim_autofill_off), so iOS never offers "Save Password?" over a UI test.
 #
 # A shut-down source is cloned with `simctl clone`; a booted one (in use elsewhere) is never
 # touched: the clone is created fresh from the same device type and runtime instead.
@@ -94,5 +96,9 @@ mkdir -p "$SIM_OWNERS" && printf '%s\n' "$root_real" >"$SIM_OWNERS/$udid"
 
 # Booting (and waiting for a slot) must not hold this lock: other worktrees' lookups need it.
 exec 9>&-
-(( boot )) && sim_boot "$udid"
+if (( boot )); then
+  sim_boot "$udid"
+  # A test device: no "Save Password?" offer over UI tests run on it directly (common.sh).
+  sim_autofill_off "$udid" || warn "could not turn Password AutoFill off on $udid; UI tests typing a token may fail"
+fi
 echo "$udid"
