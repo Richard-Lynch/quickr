@@ -339,19 +339,14 @@ describe('SettingsPage appearance PATCH', () => {
     await waitFor(() => expect(screen.getByRole('radio', { name: 'Green' })).toBeChecked());
   });
 
-  it('keeps a dirty form’s base: only its own edits, with the revision it started from', async () => {
+  it('keeps a dirty form’s base when a newer topic changed the field being edited', async () => {
     const patches = stubServer(() =>
       json(409, { code: 'stale_revision', detail: 'Changed', errors: [] }),
     );
     const user = renderSettings();
     await user.click(await screen.findByRole('radio', { name: 'Blue' }));
     act(() =>
-      refetch.set({
-        ...topic,
-        revision: 8,
-        name: 'Lifting',
-        appearance: { ...appearance, tags: [] },
-      }),
+      refetch.set({ ...topic, revision: 8, appearance: { ...appearance, color: 'green' } }),
     );
     expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Save details' }));
@@ -504,14 +499,51 @@ describe('SettingsPage saves on one topic', () => {
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 8 }]);
   });
 
-  it('refuses a details save over a concurrent change to the details from elsewhere', async () => {
+  it('refuses a details save over a concurrent change to the same field from elsewhere', async () => {
     const server = fakeServer();
     const { user, qc } = renderSettings();
     await user.click(await screen.findByRole('radio', { name: 'Blue' }));
-    // Another device renames the topic; a refetch brings it in while the form is dirty.
-    server.external({ name: 'Lifting' });
+    // Another device sets the colour too; a refetch brings it in while the form is dirty.
+    server.external({ appearance: { ...appearance, color: 'green' } });
     await act(() => qc.refetchQueries());
     expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
+  });
+
+  it('takes another device’s rename into the form and keeps the colour edit', async () => {
+    const server = fakeServer();
+    const { user, qc } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' });
+    await act(() => qc.refetchQueries());
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Lifting'));
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 8 }]);
+  });
+
+  it('retries once on the newer revision when an unseen change left the edits alone', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' }); // not fetched: the form still has revision 7
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+    expect(screen.queryByText('Changed elsewhere')).toBeNull();
+  });
+
+  it('shows the conflict when an unseen change touched the edited field', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ appearance: { ...appearance, color: 'green' } });
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
