@@ -83,6 +83,14 @@ public struct WidgetReader: Sendable {
             ?? RunActivitySnapshot.stateWithoutSteps(run)
     }
 
+    /// Whether the topic's open run takes the lap-typed Auto (§5.3), as `RunWrites.autoTap` decides
+    /// it: from the run's pinned timer, so a timer edited mid-run doesn't change what the one
+    /// button says it will do. Nil without an open run (Auto starts one on the current timer).
+    static func openRunLapTyped(_ topicId: UUID, in runs: Runs) -> Bool? {
+        guard let run = runs.all.first(where: { $0.topicId == topicId && $0.isOpen }) else { return nil }
+        return run.steps != nil && !(run.timer?.laps.isEmpty ?? true)
+    }
+
     private func widgetTopic(
         _ topic: Topic, state: (skew: TimeInterval, updateRequired: Bool), runs: Runs, now: Date
     ) async throws -> WidgetTopic {
@@ -107,6 +115,7 @@ public struct WidgetReader: Sendable {
         return WidgetTopic(
             topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope,
             skew: state.skew, hasOpenRun: RunOverlay.openRunTopics(runs.all).contains(topic.id),
-            run: Self.shownRun(topic.id, in: runs, now: now), updateRequired: state.updateRequired)
+            run: Self.shownRun(topic.id, in: runs, now: now), runLapTyped: Self.openRunLapTyped(topic.id, in: runs),
+            updateRequired: state.updateRequired)
     }
 }

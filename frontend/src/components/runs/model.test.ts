@@ -5,7 +5,7 @@ import { T0, ev, runItem, serverRun } from '../../test/runs';
 import { fold } from '../../lib/runs/fold';
 import { localRuns } from '../../lib/runs/localView';
 import type { EntryOut } from '../../client';
-import type { RunEvent, RunStatus, Timer, TimerStep } from '../../lib/runs/types';
+import type { LapType, RunEvent, RunStatus, Timer, TimerStep } from '../../lib/runs/types';
 import {
   actions,
   activeMs,
@@ -180,13 +180,19 @@ describe('steps not known here (null)', () => {
   });
 });
 
-describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md §1.2)', () => {
+describe('actions (timers2.md §10, R18; fixture: active-surfaces.md §1.2)', () => {
   // Rows 1–3 (idle) are the topic's last run seen closed: `start`, plus row 13's `reopen`
   // (secondary) within OQ-1's window when the run is stopped with a terminal (a topic with no
-  // run doesn't call `actions`). Rows 10 (after a reopen: no `reopen_id` in RunState yet),
-  // 11 (queued reopen) and 14 (busy) are not expressible yet (T2-M1: F1-CORE / F1-OUTBOX).
+  // run doesn't call `actions`). Row 10 (after a reopen) reads `RunState.reopen_id`, as iOS's
+  // `reopenId`. Rows 11 (queued reopen: the surface shows no controls while `resuming`) and
+  // 14 (busy) are not expressible through `actions(state, status, timer, now)`.
   const TIMER: Timer = { steps: STEPS };
   const LAPS_ONLY: Timer = { steps: [] };
+  const LAP_TYPES: LapType[] = [
+    { key: 'run', label: 'Run' },
+    { key: 'rest', label: 'Rest' },
+  ];
+  const TYPED: Timer = { steps: [], laps: LAP_TYPES };
   const a = (kind: RunActionKind, role: RunActionRole): RunAction => ({
     kind,
     role,
@@ -204,6 +210,9 @@ describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md �
   const resume = a({ type: 'resume' }, 'secondary');
   const discard = a({ type: 'discard' }, 'destructive');
   const lap = a({ type: 'lap', nextTypeLabel: null }, 'primary');
+  const lapTo = (label: string) => a({ type: 'lap', nextTypeLabel: label }, 'primary');
+  const revert = a({ type: 'revert' }, 'destructive');
+  const o1 = ev('o1', 'reopen', s(6), { target: '0e000000-0000-4000-8000-000000000001' });
   const next = (label: string) => a({ type: 'next', label }, 'primary');
   const startA = a({ type: 'start' }, 'primary');
   const reopen = (target: string) => a({ type: 'reopen', target }, 'secondary');
@@ -217,6 +226,8 @@ describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md �
     row: string;
     events: RunEvent[];
     steps?: TimerStep[];
+    /** The fold's lap types (`timer.laps` when it has them). */
+    laps?: LapType[];
     status?: RunStatus;
     timer: Timer | null;
     /** `now`; defaults to T0. */
@@ -293,6 +304,54 @@ describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md �
       expected: [next(''), stop, resume, discard],
     },
     {
+      row: '5 typed lap open: Lap labelled with the lap it opens',
+      events: [],
+      steps: [],
+      laps: LAP_TYPES,
+      timer: TYPED,
+      expected: [lapTo('Rest'), stop, pause, discard],
+    },
+    {
+      row: '5 typed lap open, after a lap: the cycle goes on',
+      events: [l1],
+      steps: [],
+      laps: LAP_TYPES,
+      timer: TYPED,
+      expected: [lapTo('Run'), stop, pause, discard],
+    },
+    {
+      row: '6 last step open, typed laps next',
+      events: [n1, n2],
+      laps: LAP_TYPES,
+      timer: { steps: STEPS, laps: LAP_TYPES },
+      expected: [lapTo('Run'), stop, pause, skip('Teeth'), discard],
+    },
+    {
+      row: '10 open after a reopen: revert instead of discard',
+      events: [stopEv, o1],
+      timer: TIMER,
+      expected: [next('Breakfast'), stop, pause, skip('Shower'), revert],
+    },
+    {
+      row: '10 paused after a reopen',
+      events: [stopEv, o1, ev('p2', 'pause', s(7))],
+      timer: TIMER,
+      expected: [next('Breakfast'), stop, resume, skip('Shower'), revert],
+    },
+    {
+      row: '10 after a reopen, timer null',
+      events: [stopEv, o1],
+      timer: null,
+      expected: [next(''), stop, pause, revert],
+    },
+    {
+      row: '1–3, 13 a reopen reverted: stopped again, start and reopen',
+      events: [stopEv, o1, ev('d1', 'discard', s(7))],
+      timer: TIMER,
+      now: s(8),
+      expected: [startA, reopen(STOP_ID)],
+    },
+    {
       row: '12 finishing',
       events: [x],
       status: 'finishing',
@@ -351,7 +410,7 @@ describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md �
     },
   ];
   const of = (r: Row) => {
-    const state = fold('r1', { steps: r.steps ?? STEPS }, [start, ...r.events]);
+    const state = fold('r1', { steps: r.steps ?? STEPS, laps: r.laps ?? [] }, [start, ...r.events]);
     return { state, status: r.status ?? state.status };
   };
 
@@ -396,7 +455,7 @@ describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md �
     }
   });
 
-  it('start only for a closed run (its primary); reopen secondary; never revert today', () => {
+  it('start only for a closed run (its primary); reopen secondary; revert only after a reopen', () => {
     for (const r of rows) {
       const { state, status } = of(r);
       const got = actions(state, status, r.timer, r.now ?? T0);
@@ -410,29 +469,143 @@ describe('actions (timers2.md §10, R18 stub half; fixture: active-surfaces.md �
         got.filter((x) => x.kind.type === 'reopen').every((x) => x.role === 'secondary'),
         r.row,
       ).toBe(true);
-      expect(
-        got.map((x) => x.kind.type),
-        r.row,
-      ).not.toContain('revert');
+      const reverts = got.some((x) => x.kind.type === 'revert');
+      expect(reverts, r.row).toBe(r.row.startsWith('10 '));
+      if (reverts)
+        expect(
+          got.some((x) => x.kind.type === 'discard'),
+          r.row,
+        ).toBe(false);
     }
   });
 
-  it('headline: the open segment’s label today; Running/Paused when nothing is open; no counter', () => {
-    expect(headline(fold('r1', { steps: STEPS }, [start]), 'running', TIMER)).toEqual({
-      text: 'Shower',
-      counter: null,
+  it('revert from the local view: a reopen done elsewhere, or queued here', () => {
+    const events = [start, stopEv, o1];
+    // Another device reopened it: the server's state, nothing queued here.
+    const [elsewhere] = localRuns([serverRun('r1', events, { timer: { steps: STEPS } })], []);
+    expect(elsewhere?.state.reopen_id).toBe('o1');
+    expect(
+      actions(elsewhere?.state ?? fold('r1', TIMER, [start]), 'running', TIMER, s(7)).at(-1),
+    ).toEqual(revert);
+    // Queued here over the server's stopped run (steps unknown: the overlay).
+    const blind = runItem('reopen', {
+      id: 'o1',
+      run: 'r1',
+      at: s(6),
+      target: STOP_ID,
+      steps: null,
     });
-    expect(headline(fold('r1', { steps: STEPS }, [start, l1]), 'running', null)).toEqual({
-      text: 'Lap 1',
-      counter: null,
-    });
-    const stopped = fold('r1', { steps: STEPS }, [start, x]);
-    expect(headline(stopped, 'finishing', TIMER)).toEqual({ text: 'Running', counter: null });
-    expect(headline(stopped, 'paused', TIMER)).toEqual({ text: 'Paused', counter: null });
+    const [queued] = localRuns(
+      [serverRun('r1', [start, stopEv], { status: 'finishing' })],
+      [blind],
+    );
+    expect(queued?.status).toBe('running');
+    expect(queued?.state.reopen_id).toBe('o1');
+    // A run never reopened, or reopened and stopped again, has none.
+    expect(localRuns([serverRun('r1', [start])], [])[0]?.state.reopen_id ?? null).toBeNull();
+    const restopped = serverRun('r1', [...events, ev('s2', 'stop', s(8))]);
+    expect(localRuns([restopped], [])[0]?.state.reopen_id ?? null).toBeNull();
   });
 
-  it('alertLine is null until I1-CORE fills it', () => {
-    expect(alertLine(fold('r1', { steps: STEPS }, [start]), TIMER, T0)).toBeNull();
+  describe('headline (active-surfaces.md §1.1)', () => {
+    it('a step: "{label} · {position} of {count}"; the bare label without the timer', () => {
+      const state = fold('r1', TIMER, [start, n1]);
+      expect(headline(state, 'running', TIMER)).toEqual({
+        text: 'Breakfast · 2 of 3',
+        counter: null,
+      });
+      expect(headline(state, 'running', null)).toEqual({ text: 'Breakfast', counter: null });
+      // A timer that lacks the step: the bare label.
+      expect(headline(state, 'running', { steps: STEPS.slice(0, 1) })).toEqual({
+        text: 'Breakfast',
+        counter: null,
+      });
+    });
+
+    it('an untyped lap: its label, counter "L{n}"', () => {
+      const state = fold('r1', TIMER, [start, l1, ev('l2', 'lap', s(2), { seg: 1 })]);
+      expect(state.open?.label).toBe('Lap 2');
+      expect(headline(state, 'running', TIMER)).toEqual({ text: 'Lap 2', counter: 'L2' });
+    });
+
+    it('a typed lap: "{label} · lap {n}", n its number in the run ("Rest 2 · lap 4")', () => {
+      const state = fold('r1', TYPED, [
+        start,
+        l1,
+        ev('l2', 'lap', s(2), { seg: 1 }),
+        ev('l3', 'lap', s(3), { seg: 2 }),
+      ]);
+      expect(headline(state, 'running', TYPED)).toEqual({ text: 'Rest 2 · lap 4', counter: 'L4' });
+      expect(headline(state, 'paused', null)).toEqual({ text: 'Rest 2 · lap 4', counter: 'L4' });
+    });
+
+    it('nothing open: Running, or Paused while paused', () => {
+      const stopped = fold('r1', TIMER, [start, x]);
+      expect(headline(stopped, 'finishing', TIMER)).toEqual({ text: 'Running', counter: null });
+      expect(headline(stopped, 'paused', TIMER)).toEqual({ text: 'Paused', counter: null });
+    });
+  });
+
+  describe('alertLine (active-surfaces.md §1.1)', () => {
+    const ALERTS: Timer = {
+      steps: [
+        {
+          key: 'shower',
+          label: 'Shower',
+          alerts: [{ key: 'go', label: 'Go', at: '1m', at_ms: 60_000 }],
+        },
+      ],
+      laps: [
+        { key: 'run', label: 'Run' },
+        {
+          key: 'rest',
+          label: 'Rest',
+          alerts: [
+            { key: 'done', label: 'Done', at: 't', at_ms: 60_000 },
+            { key: 'half', label: 'Half way', at: 't/2', at_ms: 30_000 },
+            { key: 'also', label: 'Also half', at: '30s', at_ms: 30_000 },
+            { key: 'raw', label: 'Not evaluated', at: 't' },
+          ],
+        },
+      ],
+    };
+    // Rest 1 opens at 5 s.
+    const rest = fold('r1', { steps: [], laps: ALERTS.laps ?? [] }, [
+      start,
+      ev('l1', 'lap', s(5), { seg: 0 }),
+    ]);
+
+    it('the next alert of the open segment and its countdown: "Half way · in 0:12"', () => {
+      expect(alertLine(rest, ALERTS, s(5 + 18))).toBe('Half way · in 0:12');
+      // Equal at_ms: the timer's order. Truncated to the second.
+      expect(alertLine(rest, ALERTS, s(5) + 29_500)).toBe('Half way · in 0:00');
+      expect(alertLine(rest, ALERTS, s(5 + 30))).toBe('Done · in 0:30');
+      // None left.
+      expect(alertLine(rest, ALERTS, s(5 + 60))).toBeNull();
+    });
+
+    it('a step’s alerts; paused time doesn’t count', () => {
+      const paused = fold('r1', ALERTS, [
+        start,
+        ev('p1', 'pause', s(10)),
+        ev('u1', 'resume', s(30), { pause_id: 'p1' }),
+      ]);
+      // 40 s wall, 20 s paused: 20 s active, Go at 1:00.
+      expect(alertLine(paused, ALERTS, s(40))).toBe('Go · in 0:40');
+    });
+
+    it('null while paused, with nothing open, or without the timer', () => {
+      const paused = fold('r1', { steps: [], laps: ALERTS.laps ?? [] }, [
+        start,
+        ev('l1', 'lap', s(5), { seg: 0 }),
+        ev('p1', 'pause', s(6)),
+      ]);
+      expect(alertLine(paused, ALERTS, s(7))).toBeNull();
+      expect(alertLine(fold('r1', TIMER, [start, x]), ALERTS, s(6))).toBeNull();
+      expect(alertLine(rest, null, s(6))).toBeNull();
+      // An untyped lap has no alerts.
+      expect(alertLine(fold('r1', TIMER, [start, l1]), ALERTS, s(2))).toBeNull();
+    });
   });
 });
 

@@ -127,8 +127,7 @@ import Testing
 
     /// The detail says what the one press does (§5.2, §1.3): Start; "Next: Breakfast" while a step
     /// follows; Stop on the last step and on a lap, the §5.3 carve-out of a timer without lap
-    /// types. The "Lap → Rest" detail needs a lap-typed timer (`WidgetTopic.isLapTyped`, T2-M1):
-    /// M2-RESUME drives it once I1-WRITES has merged.
+    /// types. A lap-typed timer's branch is `theTimerControlOfALapTypedTimerLaps`.
     @Test func theTimerControlRunsAutoAndSaysWhatAPressDoes() {
         let idle = TimerControlValue(Self.timed())
         #expect(idle.title == "Timer: Morning")
@@ -163,6 +162,28 @@ import Testing
         #expect(untimed.detail == "Not timed")
         let noStore = TimerControlValue(Self.shown([Self.mood], last: nil, scope: nil))
         #expect(noStore.title == "Choose a topic")
+    }
+
+    /// §5.2, §5.3 on a lap-typed timer (#222): Auto is the on-screen primary, so on a lap the one
+    /// press laps and the detail names the lap it opens ("Lap → Rest", icon flag), never Stop. The
+    /// open run's pinned timer decides, as `RunWrites.auto` presses it (the topic's current timer
+    /// without lap types here: an edit after the start changes nothing).
+    @Test func theTimerControlOfALapTypedTimerLaps() {
+        var typed = Self.timed(status: "running", next: "Rest", stepIndex: nil)
+        typed.runLapTyped = true
+        #expect(typed.isLapTyped)
+        let lap = TimerControlValue(typed)
+        #expect(lap.detail == "Lap → Rest")
+        #expect(lap.icon == "flag")
+        let action: String? = lap.intent.action
+        #expect(action == "auto")
+        typed.run?.nextLabel = nil
+        #expect(TimerControlValue(typed).detail == "Lap", "a lap type without a next label: plain Lap")
+
+        // The same run on a timer without lap types: v1's Auto stops it (the carve-out).
+        typed.runLapTyped = false
+        #expect(TimerControlValue(typed).detail == "Stop")
+        #expect(TimerControlValue(typed).icon == "stop")
     }
 
     @Test func aTimedWidgetsButtonsCarryTheRunAndSegmentShown() throws {

@@ -1,0 +1,117 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "45A3C7C5-4EB9-4F77-B85F-86FB876A836B",
+   "deviceName": "quickR iOS-26-0 t2-m1-ui-ios-8a9778",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "23A343",
+   "osVersion": "26.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "XCTAssertTrue failed - no lap types yet",
+           "nodeType": "Failure Message",
+           "sourceLocation": {
+            "filePath": "/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/BuilderUITests+T2M1.swift",
+            "lineNumber": 23
+           }
+          }
+         ],
+         "durationInSeconds": 10.290271997451782,
+         "name": "testPublishingATimerV2Topic()",
+         "nodeIdentifier": "BuilderUITests/testPublishingATimerV2Topic()",
+         "nodeType": "Test Case",
+         "result": "Failed"
+        }
+       ],
+       "name": "BuilderUITests",
+       "nodeType": "Test Suite",
+       "result": "Failed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "XCTAssertTrue failed",
+           "nodeType": "Failure Message",
+           "sourceLocation": {
+            "filePath": "/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/RunUITests+T2M1.swift",
+            "lineNumber": 139
+           }
+          }
+         ],
+         "durationInSeconds": 20.753448009490967,
+         "name": "testRemoteRemoveRenumbersLaps()",
+         "nodeIdentifier": "RunUITests/testRemoteRemoveRenumbersLaps()",
+         "nodeType": "Test Case",
+         "result": "Failed"
+        },
+        {
+         "children": [
+          {
+           "name": "XCTAssertTrue failed",
+           "nodeType": "Failure Message",
+           "sourceLocation": {
+            "filePath": "/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/RunUITests+T2M1.swift",
+            "lineNumber": 139
+           }
+          }
+         ],
+         "durationInSeconds": 20.76532208919525,
+         "name": "testRunComesBackAfterRemoteReopen()",
+         "nodeIdentifier": "RunUITests/testRunComesBackAfterRemoteReopen()",
+         "nodeType": "Test Case",
+         "result": "Failed"
+        },
+        {
+         "children": [
+          {
+           "name": "XCTAssertTrue failed",
+           "nodeType": "Failure Message",
+           "sourceLocation": {
+            "filePath": "/Users/richie/code/quickr-worktrees/t2-m1-ui-ios/ios/UITests/RunUITests+T2M1.swift",
+            "lineNumber": 139
+           }
+          }
+         ],
+         "durationInSeconds": 20.72993803024292,
+         "name": "testTikTokLapLabels()",
+         "nodeIdentifier": "RunUITests/testTikTokLapLabels()",
+         "nodeType": "Test Case",
+         "result": "Failed"
+        }
+       ],
+       "name": "RunUITests",
+       "nodeType": "Test Suite",
+       "result": "Failed"
+      }
+     ],
+     "name": "QuickRUITests",
+     "nodeType": "UI test bundle",
+     "result": "Failed"
+    }
+   ],
+   "name": "UI",
+   "nodeType": "Test Plan",
+   "result": "Failed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}

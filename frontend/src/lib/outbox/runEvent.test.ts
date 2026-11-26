@@ -815,6 +815,31 @@ describe('reopen and remove ordering (timers2.md §5.5)', () => {
     expect(kind?.waitsFor?.(finish, [reopen, restop, finish])).toEqual(['r1', 's2', 'o1']);
   });
 
+  it('reopen-waits-for-pending-finish: a reopen behind a retrying finish goes only after it acks', async () => {
+    // A version with a required question: stop (finishing), finish with answers (5xx), Resume.
+    // Sent first, the reopen would open the run, and the finish would fail with run_open.
+    const finish = runItem('finish', { id: 'f1', run: 'r1', at: T0 + 2500, answers: { q: 'a' } });
+    const { state, respond } = down('f1');
+    const { outbox, sent, queue, ids } = setup(respond);
+    await queue(stop, finish, reopen);
+    await outbox.flush();
+    expect(sent).toEqual(['s1', 'f1']);
+    expect(await ids()).toEqual(['f1:pending', 'o1:pending']);
+    state.up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['s1', 'f1', 'f1', 'o1']);
+
+    const kind = OUTBOX_KINDS[RUN_EVENT];
+    expect(kind?.waitsFor?.(reopen, [finish, reopen])).toEqual(['r1', 'f1']);
+    // A failed finish holds nothing; neither does a finish enqueued after the reopen, nor
+    // another run's.
+    expect(kind?.waitsFor?.(reopen, [{ ...finish, status: 'failed' }, reopen])).toEqual(['r1']);
+    const later = runItem('finish', { id: 'f2', run: 'r1', at: T0 + 9000, answers: {} });
+    expect(kind?.waitsFor?.(reopen, [reopen, later])).toEqual(['r1']);
+    const other = runItem('finish', { id: 'f9', run: 'r9', at: T0 + 2500, answers: {} });
+    expect(kind?.waitsFor?.(reopen, [other, reopen])).toEqual(['r1']);
+  });
+
   it('k6-not-on-revert: a discard after a queued reopen is appended, never coalesced', async () => {
     const discard = runItem('discard', { id: 'd1', run: 'r1', at: T0 + 5000 });
     const { outbox, queue, ids } = setup(() => new Error('offline'));

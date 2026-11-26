@@ -80,6 +80,11 @@ struct RunPanel: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDiscard = false
+    @State private var confirmingRevert = false
+    /// The topic's latest stop, while the store offers it "Resume" (`LocalStore.observeResumable`).
+    @State private var resumable: ResumableRun?
+    /// Moved when the Resume window closes, so the idle screen re-reads it then.
+    @State private var windowClosed = Date.distantPast
     @State private var starts = 0
     @State private var advances = 0
     @State private var stops = 0
@@ -89,7 +94,8 @@ struct RunPanel: View {
     var body: some View {
         let layout = RunControlsLayout(actions: actions)
         let busy = environment.runActions.isBusy(topic.id)
-        let controls = RunControls(layout: layout, topic: topic.name, busy: busy, perform: perform)
+        let controls = RunControls(
+            layout: layout, topic: topic.name, busy: busy, reopenTotalMs: resumable?.totalMs, perform: perform)
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let run, run.isOpen {
@@ -118,6 +124,15 @@ struct RunPanel: View {
         } message: {
             Text("Its times won’t be saved. This can’t be undone.")
         }
+        .alert("Undo the resume?", isPresented: $confirmingRevert) {
+            Button("Undo resume", role: .destructive) { revert() }
+            Button("Keep timing", role: .cancel) {}
+        } message: {
+            Text("The run keeps its stop and its saved entry; the time since the resume isn’t saved.")
+        }
+        .task(id: ResumableKey(binding: environment.session?.binding, topicId: topic.id)) { await followResumable() }
+        // An idle Resume is re-read when its window closes, rescheduled when the offset moves (§2.4).
+        .onResumeWindowClose(resumable, offsetMs: environment.runTicker.offsetMs) { windowClosed = .now }
         .qrHaptic(.logged, trigger: starts)
         .qrHaptic(.selection, trigger: advances)
         .qrHaptic(.logged, trigger: stops)
@@ -172,17 +187,26 @@ struct RunPanel: View {
 
     // MARK: - Controls
 
-    /// The screen's actions in display order (§2.2): M1's `RunPresentation.actions` for an open or
-    /// finishing run; idle, Start (the screen decides it: `actions` is `[]` for a closed run), none
-    /// for an archived topic, whose start the server would refuse.
+    /// The screen's actions in display order (§2.2): M1's actions for an open or finishing run
+    /// (`RunActions.actions(for:)`: none while "Resuming…", §1.2 row 11; disabled while busy, row
+    /// 14). Idle (rows 1–3, 13), Start, and "Resume · 1:44" (`reopen`, secondary) while the
+    /// topic's latest stop is resumable (§2.4); none for an archived topic, whose start or
+    /// reopen the server would refuse.
     private var actions: [RunAction] {
         if let run, run.isOpen || run.status == .finishing {
             // `now` only bounds the reopen window: the wall clock, so the panel doesn't follow the
             // ticker (OpenRunView does).
-            return RunPresentation.actions(run.state, status: run.status, timer: run.timer, now: .now)
+            return environment.runActions.actions(for: run, timer: run.timer, now: .now)
         }
         guard topic.status != .archived else { return [] }
-        return [RunAction(kind: .start, role: .primary, enabled: true)]
+        let start = RunAction(kind: .start, role: .primary, enabled: true)
+        guard let resumable, resumable.isOffered(at: runNow) else { return [start] }
+        return [start, resumable.action]
+    }
+
+    /// Now on the run clock (the store's server offset), the clock a stop's `endedAt` is on.
+    private var runNow: Int {
+        RunInstant.milliseconds(max(Date(), windowClosed)) + environment.runTicker.offsetMs
     }
 
     private func perform(_ action: RunAction) {
@@ -192,10 +216,8 @@ struct RunPanel: View {
             guard let run, let runId = UUID(uuidString: run.id) else { return }
             environment.router.open(.runDetails(link, runId: runId))
         case .discard: confirmingDiscard = true
-        case .reopen, .revert:
-            // M1 returns neither until its reopen event and write land (I1-WRITES); there is no
-            // write to send yet.
-            break
+        case .reopen: reopen()
+        case .revert: confirmingRevert = true
         case .next: advance(.next)
         case .lap: advance(.lap)
         case .skip: tap(.skip)
@@ -245,7 +267,7 @@ struct RunPanel: View {
                 guard let id = UUID(uuidString: runId) else { return }
                 environment.router.replaceTop(with: .runDetails(link, runId: id))
             case .saved:
-                showStopOutcome(outcome, ref: link, in: environment)
+                showStopOutcome(outcome, run: run, ref: link, in: environment)
                 dismiss()
             }
         }
@@ -256,6 +278,41 @@ struct RunPanel: View {
         Task {
             if await environment.runActions.discard(run: run) { dismiss() }
         }
+    }
+
+    /// Resume run (§2.4): reopens the latest stop by its entry (`timing.terminalId` names the
+    /// stop); the screen then shows the open run, "Resuming…" until the ack when it came from the
+    /// entry.
+    private func reopen() {
+        guard let resumable else { return }
+        let actions = environment.runActions
+        Task { await actions.reopen(runId: resumable.runId, topicId: resumable.topicId) }
+    }
+
+    /// Undo resume… (§1.2 row 10), after its confirmation: the reopen is undone and the stop kept,
+    /// so the run is back in its entry. The screen stays: idle, with that stop's "Resume · 1:44"
+    /// again while its window lasts (§2.4).
+    private func revert() {
+        guard let run else { return }
+        let actions = environment.runActions
+        Task { await actions.revert(run: run) }
+    }
+
+    /// The topic's latest stop while the store offers it "Resume" (M2's `observeResumable`).
+    private func followResumable() async {
+        guard let session = environment.session, let store = session.store else { return }
+        do {
+            for try await latest in store.observeResumable(topicId: topic.id, refresh: session.refresh.stream()) {
+                resumable = latest
+            }
+        } catch {
+            // the store closed: the next binding observes again
+        }
+    }
+
+    private struct ResumableKey: Hashable {
+        var binding: AppSession.Binding?
+        var topicId: UUID
     }
 }
 
@@ -273,8 +330,10 @@ private struct OpenRunView<Controls: View>: View {
         let segment = RunPresentation.segmentMs(run.state, now: now)
         VStack(alignment: .leading, spacing: 20) {
             HStack {
+                // "Resuming…" while a reopen from the entry waits for its ack (§2.4: no controls).
                 QuickrBadge(
-                    paused ? "Paused" : "Running", icon: paused ? .pause : .timer, tone: paused ? .warn : .accent
+                    RunHeaderText.state(resuming: run.resuming, paused: paused), icon: paused ? .pause : .timer,
+                    tone: paused ? .warn : .accent
                 )
                 .accessibilityIdentifier("run.state")
                 Spacer()
@@ -296,12 +355,14 @@ private struct OpenRunView<Controls: View>: View {
                     .accessibilityIdentifier("run.segment")
                 }
                 RunAlertLine(
-                    text: RunPresentation.alertLine(
-                        run.state, timer: run.timer, now: Date(timeIntervalSince1970: Double(now) / 1000)))
+                    fired: environment.runAlerts.label(runId: run.id),
+                    next: RunPresentation.alertLine(run.state, timer: run.timer, now: RunInstant.date(now)))
             }
             .frame(maxWidth: .infinity)
             controls
-            StepList(rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: segment)
+            StepList(
+                rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: segment,
+                lapTypes: RunHeaderText.lapTypeBadges(run.state, timer: run.timer))
         }
         .runTicking(!paused)
     }
@@ -313,13 +374,15 @@ private struct StepList: View {
     let rows: [RunPresentation.Row]
     /// The open segment's time, for the current row.
     let liveMs: Int
+    /// The typed lap rows' type labels, by row id (§2.1's lap-type badge).
+    var lapTypes: [String: String] = [:]
 
     var body: some View {
         if !rows.isEmpty {
             VStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     if index > 0 { Divider() }
-                    StepRow(row: row, ms: row.status == .current ? liveMs : row.ms)
+                    StepRow(row: row, ms: row.status == .current ? liveMs : row.ms, lapType: lapTypes[row.id])
                 }
             }
             .qrCard()
@@ -330,6 +393,8 @@ private struct StepList: View {
 private struct StepRow: View {
     let row: RunPresentation.Row
     let ms: Int?
+    /// A typed lap's type label ("Rest"), shown as a neutral badge.
+    var lapType: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -338,7 +403,8 @@ private struct StepRow: View {
                 .font(.qr(row.status == .current ? .callout : .body))
                 .foregroundStyle(row.status == .skipped ? Color.qr.muted : .qr.ink)
                 .strikethrough(row.status == .skipped)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let lapType { QuickrBadge(lapType, tone: .neutral) }
+            Spacer(minLength: 0)
             if let ms {
                 RunDuration(ms: ms, font: .qr(.monoCaption))
                     .foregroundStyle(row.status == .current ? Color.qr.ink : .qr.muted)

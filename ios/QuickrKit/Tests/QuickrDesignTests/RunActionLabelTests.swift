@@ -13,7 +13,9 @@ import Testing
     static let table: [(RunAction.Kind, String, String, String)] = [
         (.start, "Start", "play", "Start Morning"),
         (.next(label: "Shower"), "Next: Shower", "chevron.right", "Next: Shower"),
-        (.next(label: "Next"), "Next", "chevron.right", "Next"),
+        (.next(label: ""), "Next", "chevron.right", "Next"),
+        // A step labelled "Next" is a step like any other (§1.3: only the empty label is plain).
+        (.next(label: "Next"), "Next: Next", "chevron.right", "Next: Next"),
         (.lap(nextTypeLabel: nil), "Lap", "flag", "Lap"),
         (.lap(nextTypeLabel: "Rest"), "Lap → Rest", "flag", "Lap, then Rest"),
         (.skip(label: "Breakfast"), "Skip Breakfast", "forward.end", "Skip Breakfast"),

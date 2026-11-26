@@ -142,6 +142,37 @@ import Testing
         #expect(updates == 0)
     }
 
+    /// M2-RESUME: this device's own tap updates its activity through `reconcile(after:)` (R20, the
+    /// app's tap writer) with the pinned timer's fields, so a local update never blanks what the
+    /// server pushed: the lap type and count, the next lap type and the alert.
+    @Test("A local tap's update keeps the lap and alert fields (reconcile(after:), the timer:now: state)")
+    func aLocalTapsUpdateKeepsTheLapAndAlertFields() async throws {
+        let rig = try await Rig.make()
+        try rig.h.lapTyped()
+        let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let started = try #require(await rig.center.all().first).state
+        let startedType: String? = started.lapType
+        #expect(startedType == "run")
+        rig.h.wall.advance(by: 60)
+        let result = try await rig.h.runs().lap(runId: runId)
+        await rig.activities.reconcile(after: result)
+        let updates = await rig.center.updates
+        #expect(updates == 1, "the tap updated the activity it had")
+        let state = try #require(await rig.center.all().first).state
+        #expect(state.label == "Rest 1")
+        let lapType: String? = state.lapType
+        #expect(lapType == "rest")
+        let lapCount: Int? = state.lapCount
+        #expect(lapCount == 1)
+        let nextLabel: String? = state.nextLabel
+        #expect(nextLabel == "Run")
+        let alertAt: Double? = state.alertAt
+        #expect(alertAt == Make.t0.timeIntervalSince1970 + 960, "Rest from 60 s, Go 15 minutes in")
+        let alertLabel: String? = state.alertLabel
+        #expect(alertLabel == "Go")
+    }
+
     @Test("I2-LA-FIELDS · a pause drops the alert from the activity, and a resume brings it back")
     func pauseDropsTheAlert() async throws {
         let rig = try await Rig.make()

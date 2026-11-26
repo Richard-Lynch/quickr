@@ -22,7 +22,7 @@ export function actionTitle(kind: RunActionKind): string {
     case 'start':
       return 'Start';
     case 'next':
-      // Steps unknown (§1.2 row 9): `next("")` has no step to name, a plain "Next" (§1.3).
+      // Steps unknown (§1.2 row 9): the model's `next("")` reads a plain "Next" (§1.3).
       return kind.label === '' ? 'Next' : `Next: ${kind.label}`;
     case 'lap':
       return kind.nextTypeLabel === null ? 'Lap' : `Lap → ${kind.nextTypeLabel}`;

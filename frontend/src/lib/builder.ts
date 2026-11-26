@@ -30,7 +30,8 @@ import {
 import { plural } from './format';
 import { fmtDuration } from './runs/format';
 import { MAX_EXPR_MS, tryEvaluate } from './runs/timerExpr';
-import { charCount } from './text';
+import { casefold } from './caseFold';
+import { builderStrip, charCount } from './text';
 
 export interface DraftOption {
   uid: string;
@@ -388,7 +389,7 @@ export function stepKeyFor(
   taken: Iterable<string>,
   history: readonly HistoricStep[] = [],
 ): string {
-  if (!label.trim()) return '';
+  if (!builderStrip(label)) return '';
   const used = new Set(taken);
   const same = history.find((h) => !used.has(h.key) && fold(h.label) === fold(label));
   if (same) return same.key;
@@ -475,7 +476,7 @@ export function lapTypeKeyFor(
   taken: Iterable<string>,
   history: TimerHistory = { steps: [], laps: [] },
 ): string {
-  if (!label.trim()) return '';
+  if (!builderStrip(label)) return '';
   const used = new Set(taken);
   const same = history.laps.find((h) => !used.has(h.key) && fold(h.label) === fold(label));
   if (same) return same.key;
@@ -515,7 +516,7 @@ export function withLapTypeLabel(
 /** An alert's key from its label, unique among `taken` (its owner's other alerts); `alert` for a
  * label with no letters, '' for a blank one. */
 export function alertKeyFor(label: string, taken: Iterable<string>): string {
-  if (!label.trim()) return '';
+  if (!builderStrip(label)) return '';
   return uniqueKey(toSnakeKey(label) || 'alert', taken);
 }
 
@@ -571,7 +572,7 @@ export function withLabel(
   takenKeys: Iterable<string>,
 ): DraftQuestion {
   if (q.keyEdited || q.locked) return { ...q, label };
-  return { ...q, label, key: label.trim() ? uniqueKey(toSnakeKey(label), takenKeys) : '' };
+  return { ...q, label, key: builderStrip(label) ? uniqueKey(toSnakeKey(label), takenKeys) : '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -652,7 +653,8 @@ function duplicates(items: readonly string[], norm: (s: string) => string = (x) 
   return out;
 }
 
-const fold = (v: string) => v.trim().toLocaleLowerCase();
+/** What the server compares labels and names by: stripped, then Python's `str.casefold()`. */
+const fold = (v: string) => casefold(builderStrip(v));
 
 const GENERATED = {
   int: zIntQuestionInput,
@@ -670,9 +672,9 @@ export function convertDraftQuestion(
   limits: Limits = FALLBACK_LIMITS,
 ): { ok: true; question: QuestionInput } | { ok: false; issues: Issue[] } {
   const issues: Issue[] = [];
-  const key = d.key.trim();
-  const label = d.label.trim();
-  const helpText = d.help_text.trim();
+  const key = builderStrip(d.key);
+  const label = builderStrip(d.label);
+  const helpText = builderStrip(d.help_text);
   const keyRe = keyPattern(limits);
   if (!label) issues.push({ path: ['label'], message: 'Required' });
   maxLength(issues, ['label'], label, limits.max_label_length);
@@ -692,7 +694,7 @@ export function convertDraftQuestion(
       if (typeof min === 'number' && typeof max === 'number' && min > max) {
         issues.push({ path: ['max'], message: 'Max must be ≥ min' });
       }
-      const unit = d.unit.trim();
+      const unit = builderStrip(d.unit);
       maxLength(issues, ['unit'], unit, limits.max_unit_length);
       candidate = {
         ...common,
@@ -738,15 +740,15 @@ export function convertDraftQuestion(
     }
     case 'enum': {
       d.options.forEach((o, i) => {
-        const value = o.value.trim();
-        const optLabel = o.label.trim();
+        const value = builderStrip(o.value);
+        const optLabel = builderStrip(o.label);
         if (!optLabel) issues.push({ path: ['options', i, 'label'], message: 'Required' });
         maxLength(issues, ['options', i, 'label'], optLabel, limits.max_label_length);
         if (!value) issues.push({ path: ['options', i, 'value'], message: 'Required' });
         else if (!keyRe.test(value))
           issues.push({ path: ['options', i, 'value'], message: KEY_MESSAGE });
       });
-      for (const i of duplicates(d.options.map((o) => o.value.trim())))
+      for (const i of duplicates(d.options.map((o) => builderStrip(o.value))))
         issues.push({ path: ['options', i, 'value'], message: 'Another option has this value' });
       for (const i of duplicates(
         d.options.map((o) => o.label),
@@ -804,8 +806,8 @@ export function convertDraftQuestion(
         ...common,
         type: 'enum',
         options: d.options.map((o) => ({
-          value: o.value.trim(),
-          label: o.label.trim(),
+          value: builderStrip(o.value),
+          label: builderStrip(o.label),
           archived: o.archived,
         })),
         multiple: d.multiple,
@@ -896,7 +898,7 @@ export function questionListIssues(
   const issues: Issue[] = [];
   if (questions.length > limits.max_questions)
     issues.push({ path: [], message: `At most ${String(limits.max_questions)} questions` });
-  for (const i of duplicates(questions.map((q) => q.key.trim())))
+  for (const i of duplicates(questions.map((q) => builderStrip(q.key))))
     issues.push({ path: [i, 'key'], message: 'Key already used by another question' });
   for (const i of duplicates(
     questions.map((q) => q.label),
@@ -935,14 +937,14 @@ export function stepIssues(
   if (steps.length > limits.max_steps)
     issues.push({ path: [], message: `At most ${String(limits.max_steps)} steps` });
   steps.forEach((step, i) => {
-    const label = step.label.trim();
+    const label = builderStrip(step.label);
     if (!label) issues.push({ path: [i, 'label'], message: 'Required' });
     maxLength(issues, [i, 'label'], label, limits.max_label_length);
-    const key = step.key.trim();
+    const key = builderStrip(step.key);
     if (label && !key) issues.push({ path: [i, 'key'], message: 'Required' });
     else if (key && !keyRe.test(key)) issues.push({ path: [i, 'key'], message: KEY_MESSAGE });
   });
-  for (const i of duplicates(steps.map((x) => x.key.trim())))
+  for (const i of duplicates(steps.map((x) => builderStrip(x.key))))
     issues.push({ path: [i, 'key'], message: 'Another step has this key' });
   return issues;
 }
@@ -960,7 +962,7 @@ export function convertDraftVariable(
   limits: Limits = FALLBACK_LIMITS,
 ): { ok: true; variable: Variable } | { ok: false; issues: Issue[] } {
   const issues: Issue[] = [];
-  const name = v.name.trim().toLowerCase();
+  const name = builderStrip(v.name).toLowerCase();
   if (!name) issues.push({ path: ['name'], message: 'Required' });
   else if (!varNamePattern(limits).test(name))
     issues.push({
@@ -1046,10 +1048,10 @@ export function timerIssues(draft: TimerDraftFields, limits: Limits = FALLBACK_L
     });
   stepList.filter((i) => i.path.length > 0).forEach(at(['steps']));
 
-  const stepKeys = new Set(steps.map((x) => x.key.trim()).filter(Boolean));
+  const stepKeys = new Set(steps.map((x) => builderStrip(x.key)).filter(Boolean));
   laps.forEach((lap, i) => {
-    const label = lap.label.trim();
-    const key = lap.key.trim();
+    const label = builderStrip(lap.label);
+    const key = builderStrip(lap.key);
     if (label && !key) issues.push({ path: ['laps', i, 'key'], message: 'Required' });
     else if (key && !keyRe.test(key))
       issues.push({ path: ['laps', i, 'key'], message: KEY_MESSAGE });
@@ -1058,8 +1060,8 @@ export function timerIssues(draft: TimerDraftFields, limits: Limits = FALLBACK_L
     if (!label) issues.push({ path: ['laps', i, 'label'], message: 'Required' });
     maxLength(issues, ['laps', i, 'label'], label, limits.max_short_label_length);
   });
-  for (const i of duplicates(laps.map((x) => x.key.trim())))
-    if (!stepKeys.has(laps[i]?.key.trim() ?? ''))
+  for (const i of duplicates(laps.map((x) => builderStrip(x.key))))
+    if (!stepKeys.has(builderStrip(laps[i]?.key ?? '')))
       issues.push({ path: ['laps', i, 'key'], message: 'Another lap type has this key' });
 
   variables.forEach((v, i) => {
@@ -1086,15 +1088,15 @@ export function timerIssues(draft: TimerDraftFields, limits: Limits = FALLBACK_L
         });
       alerts.forEach((a, j) => {
         const path = [owner, i, 'alerts', j];
-        const label = a.label.trim();
-        const key = a.key.trim();
+        const label = builderStrip(a.label);
+        const key = builderStrip(a.key);
         if (!label) issues.push({ path: [...path, 'label'], message: 'Required' });
         maxLength(issues, [...path, 'label'], label, limits.max_short_label_length);
         if (label && !key) issues.push({ path: [...path, 'key'], message: 'Required' });
         else if (key && !keyRe.test(key))
           issues.push({ path: [...path, 'key'], message: KEY_MESSAGE });
       });
-      for (const j of duplicates(alerts.map((a) => a.key.trim())))
+      for (const j of duplicates(alerts.map((a) => builderStrip(a.key))))
         issues.push({
           path: [owner, i, 'alerts', j, 'key'],
           message: 'Another alert here has this key',
@@ -1276,7 +1278,7 @@ function alertChanges(base: Timer, next: Timer): string[] {
 function nameSchema(limits: Limits) {
   return z
     .string()
-    .trim()
+    .overwrite(builderStrip)
     .min(1, 'Give the topic a name')
     .refine(
       (v) => charCount(v) <= limits.max_topic_name_length,
@@ -1287,7 +1289,7 @@ function nameSchema(limits: Limits) {
 function descriptionSchema(limits: Limits) {
   return z
     .string()
-    .trim()
+    .overwrite(builderStrip)
     .refine(
       (v) => charCount(v) <= limits.max_description_length,
       `At most ${String(limits.max_description_length)} characters`,
@@ -1313,7 +1315,7 @@ export function makeTopicDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       name: nameSchema(limits),
       slug: z
         .string()
-        .trim()
+        .overwrite(builderStrip)
         .refine((v) => v === '' || slugRe.test(v), SLUG_MESSAGE)
         .transform((v) => (v === '' ? null : v)),
       slugEdited: z.boolean(),
@@ -1346,17 +1348,22 @@ function draftTimer(
   const alerts = (list: readonly DraftAlert[]) =>
     list.map((a) => {
       const r = tryEvaluate(a.at, vars, { maxLength: limits.max_expr_length });
-      return { key: a.key.trim(), label: a.label.trim(), at: a.at, at_ms: r.ok ? r.ms : 0 };
+      return {
+        key: builderStrip(a.key),
+        label: builderStrip(a.label),
+        at: a.at,
+        at_ms: r.ok ? r.ms : 0,
+      };
     });
   return {
     steps: d.steps.map((s) => ({
-      key: s.key.trim(),
-      label: s.label.trim(),
+      key: builderStrip(s.key),
+      label: builderStrip(s.label),
       alerts: alerts(s.alerts),
     })),
     laps: d.laps.map((l) => ({
-      key: l.key.trim(),
-      label: l.label.trim(),
+      key: builderStrip(l.key),
+      label: builderStrip(l.label),
       alerts: alerts(l.alerts),
     })),
     variables: [...vars].map(([name, ms]) => ({ name, ms })),
@@ -1378,7 +1385,7 @@ export function makeVersionDraftSchema(limits: Limits = FALLBACK_LIMITS) {
       ...draftTimerShape.shape,
       change_note: z
         .string()
-        .trim()
+        .overwrite(builderStrip)
         .refine(
           (v) => charCount(v) <= limits.max_change_note_length,
           `At most ${String(limits.max_change_note_length)} characters`,
@@ -1401,7 +1408,7 @@ export function makeTopicMetaSchema(limits: Limits = FALLBACK_LIMITS) {
   const slugRe = slugPattern(limits);
   return z.object({
     name: nameSchema(limits),
-    slug: z.string().trim().min(1, 'Required').regex(slugRe, SLUG_MESSAGE),
+    slug: z.string().overwrite(builderStrip).min(1, 'Required').regex(slugRe, SLUG_MESSAGE),
     description: descriptionSchema(limits),
   });
 }
@@ -1466,8 +1473,8 @@ export function previewQuestion(d: DraftQuestion, index: number): Question {
   const keyRe = keyPattern(FALLBACK_LIMITS);
   const filled: DraftQuestion = {
     ...d,
-    key: keyRe.test(d.key.trim()) ? d.key.trim() : `question_${String(index + 1)}`,
-    label: d.label.trim() || `Question ${String(index + 1)}`,
+    key: keyRe.test(builderStrip(d.key)) ? builderStrip(d.key) : `question_${String(index + 1)}`,
+    label: builderStrip(d.label) || `Question ${String(index + 1)}`,
   };
   const r = convertDraftQuestion(filled);
   if (r.ok) return toOutputShape(r.question);
@@ -1485,7 +1492,7 @@ export function previewQuestion(d: DraftQuestion, index: number): Question {
     min_selected: bad.has('min_selected') || bad.has('max_selected') ? '' : filled.min_selected,
     max_selected: bad.has('min_selected') || bad.has('max_selected') ? '' : filled.max_selected,
     options: filled.options
-      .filter((o) => o.label.trim())
+      .filter((o) => builderStrip(o.label))
       .map((o, i) => ({
         ...o,
         value: keyRe.test(o.value) ? o.value : `option_${String(i + 1)}`,
