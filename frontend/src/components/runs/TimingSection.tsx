@@ -205,9 +205,15 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
   const lapTypeLabel = (key: string) => laps.find((l) => l.key === key)?.label ?? key;
 
   /** The row's Remove button, if it has one (content-display.md §3.2). */
+  const rows = timingRows(timing);
+  const controlOf = (row: TimingRow) =>
+    ctx ? removeControl(row, timing) : ({ kind: 'none' } as const);
+  // Every row keeps the Remove column when any row has one, so the durations line up.
+  const removeColumn = rows.some((r) => controlOf(r).kind !== 'none');
   const removeButton = (row: TimingRow, name: string) => {
-    const control = ctx ? removeControl(row, timing) : { kind: 'none' as const };
-    if (control.kind === 'none') return null;
+    const control = controlOf(row);
+    if (control.kind === 'none')
+      return removeColumn ? <span className="w-9 shrink-0" aria-hidden /> : null;
     const testId =
       row.kind === 'pause'
         ? `entry.timing.pause.remove.${String(row.index)}`
@@ -262,7 +268,7 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
         ) : null}
       </div>
       <ol className="flex flex-col divide-y divide-dashed divide-line" aria-label="Segments">
-        {timingRows(timing).map((row) =>
+        {rows.map((row) =>
           row.kind === 'pause' ? (
             <li
               key={`pause-${String(row.index)}`}
@@ -285,20 +291,20 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
               data-testid={`entry.timing.segment.${String(row.index)}`}
             >
               <span className="w-5 shrink-0 font-mono text-xs text-muted">{row.index + 1}</span>
-              <span
-                className={row.segment.kind === 'lap' ? 'flex-1 text-ink-soft italic' : 'flex-1'}
-              >
-                {row.segment.kind === 'step' && row.segment.step
-                  ? label(row.segment.step)
-                  : row.segment.label}
+              <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                <span className={row.segment.kind === 'lap' ? 'text-ink-soft italic' : undefined}>
+                  {row.segment.kind === 'step' && row.segment.step
+                    ? label(row.segment.step)
+                    : row.segment.label}
+                </span>
+                {row.segment.kind === 'lap' && row.segment.lap_type !== null ? (
+                  <Badge className="self-center">
+                    <span data-testid={`entry.timing.laptype.${String(row.index)}`}>
+                      {lapTypeLabel(row.segment.lap_type)}
+                    </span>
+                  </Badge>
+                ) : null}
               </span>
-              {row.segment.kind === 'lap' && row.segment.lap_type !== null ? (
-                <Badge className="self-center">
-                  <span data-testid={`entry.timing.laptype.${String(row.index)}`}>
-                    {lapTypeLabel(row.segment.lap_type)}
-                  </span>
-                </Badge>
-              ) : null}
               {row.segment.paused_ms > 0 ? (
                 <span className="text-xs text-muted">
                   {fmtDuration(row.segment.paused_ms)} paused
