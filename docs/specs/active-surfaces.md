@@ -208,7 +208,7 @@ enabled. `timer` is the run's pinned version's timer; "laps only" = `steps: []`.
 | 6   | open, last step open (`nextStep == nil`), running      | `lap(nextTypeLabel)` (primary ✓), `stop`, `pause` (secondary ✓), `skip(label)` (overflow ✓ — skips the open step), `discard` (destructive ✓)                                          |
 | 7   | open, no steps, running (the stopwatch)                | `lap(nextTypeLabel)` (primary ✓), `stop`, `pause` (secondary ✓), `discard` (destructive ✓); no `skip`                                                                                 |
 | 8   | open, paused (any of 4–7)                              | as the running row but `resume` replaces `pause`; the primary and `skip` are **present and ✓** (a tap while paused is valid: the fold resumes nothing, it closes the segment at `at`) |
-| 9   | open, `timer == nil` (steps unknown)                   | `next(nil)` (primary ✓), `stop`, `pause`/`resume` (secondary ✓), `discard` (destructive ✓); no `skip`, no `lap`                                                                       |
+| 9   | open, `timer == nil` (steps unknown)                   | `next("")` (primary ✓), `stop`, `pause`/`resume` (secondary ✓), `discard` (destructive ✓); no `skip`, no `lap`                                                                        |
 | 10  | open after a `reopen` (terminal cleared)               | as 4–8 plus `revert` (destructive ✓) **instead of** `discard`                                                                                                                         |
 | 11  | queued `reopen` not yet acked ("Resuming…" projection) | `[]` — no controls until the ack (§2.4)                                                                                                                                               |
 | 12  | finishing                                              | `addDetails` (primary ✓), `discard` (destructive ✓)                                                                                                                                   |
@@ -223,7 +223,7 @@ answer 409 `conflict`).
 topic's latest run: `actions(lastRun.state, lastRun.status, timer, now)` with
 `stopped`/`discarded` yields `start` (primary) and, within OQ-1's window with
 `terminalId` set, `reopen(terminalId)` (secondary). A topic with no run shows
-`start` without calling `actions`. Row 9's `next(nil)` is the steps-unknown
+`start` without calling `actions`. Row 9's `next("")` is the steps-unknown
 fallback: no step label, rendered as a plain "Next" (§1.3).
 
 **Placement.** The layout model (`RunControlsLayout` / `controlsLayout.ts`)
@@ -238,7 +238,7 @@ different rows.
 | ------------------ | --------------------------------------- | --------------------------------- | ----------------------------------- |
 | `start`            | "Start"                                 | `play` / `play`                   | "Start {topic}"                     |
 | `next(label)`      | "Next: {label}"                         | `chevron.right` / `chevronRight`  | "Next: {label}"                     |
-| `next(nil)`        | "Next"                                  | `chevron.right` / `chevronRight`  | "Next"                              |
+| `next("")`         | "Next"                                  | `chevron.right` / `chevronRight`  | "Next"                              |
 | `lap(nil)`         | "Lap"                                   | `flag` / `flag`                   | "Lap"                               |
 | `lap("Rest")`      | "Lap → Rest"                            | `flag` / `flag`                   | "Lap, then Rest"                    |
 | `skip(label)`      | "Skip {label}"                          | `forward.end` / `skip`            | "Skip {label}"                      |
@@ -810,8 +810,8 @@ are M1's, consumed here.
 
 ### M2 implementation corrections
 
-| Finding                                                  | Outcome                                                                                                                               |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| I2-LA: iOS truncates a Lock Screen activity above 160 pt | Fixed in §4.2: two text rows and one button row (primary ½, Pause/Resume ¼, Stop ¼); Dynamic Type capped at xxLarge                   |
-| M1 seams (rows 1–3, 9, 13; 10 s alert label)             | Fixed in §1.2, §1.3, §2.1: idle rows from the latest run; `next(nil)` → "Next"; `reopen` secondary; the 10 s label is I1-ALERTS state |
-| I2-HOME / F2-HOME / F2-BAR / MODEL-ADOPT                 | Fixed in §1.2 (placement), §3.2 (no `now`, Stop width, combined element), §3.3 (Resume slot), §6.2 (`card-status`), §6.3 (bar)        |
+| Finding                                                  | Outcome                                                                                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| I2-LA: iOS truncates a Lock Screen activity above 160 pt | Fixed in §4.2: two text rows and one button row (primary ½, Pause/Resume ¼, Stop ¼); Dynamic Type capped at xxLarge                  |
+| M1 seams (rows 1–3, 9, 13; 10 s alert label)             | Fixed in §1.2, §1.3, §2.1: idle rows from the latest run; `next("")` → "Next"; `reopen` secondary; the 10 s label is I1-ALERTS state |
+| I2-HOME / F2-HOME / F2-BAR / MODEL-ADOPT                 | Fixed in §1.2 (placement), §3.2 (no `now`, Stop width, combined element), §3.3 (Resume slot), §6.2 (`card-status`), §6.3 (bar)       |
