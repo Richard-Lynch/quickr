@@ -536,7 +536,12 @@ Generator version 3 adds the lap-type stats (content-display.md §4.1; models in
     typed laps: an empty bar); `legend` = `[key, label]` of the lap types some bar has, in
     card order, then keys with no card (none in these cases) as `[key, key]`; `segments` =
     per bar, `[key, ms]` bottom up in legend order, zeros left out; `labelled` per chart
-    width as for `series[]`; `labels.short` / `labels.long` = `formatBucket(start)` in `tz`.
+    width `W` (`meta.widths`) as for a stacked `series[]` chart: with `n` bars, gap `g` = 3
+    (`BARS_LAYOUT`), bar width `bw = min(36, (W - g(n-1)) / n)` and `offset = (W - (bw·n +
+    g(n-1))) / 2`, bar `i`'s label centre is `offset + i(bw + g) + bw/2`, and `pickLabels(xs,
+    52)` keeps, from the last bar backwards, each bar whose centre is at least 52 px left of
+    the last kept one (the last bar is always kept; the `pick[]` cases pin this rule);
+    `labels.short` / `labels.long` = `formatBucket(start)` in `tz`.
     Values are milliseconds; the tooltip shows them with `fmtDuration`.
 
 ## `run-fold-vectors.json`

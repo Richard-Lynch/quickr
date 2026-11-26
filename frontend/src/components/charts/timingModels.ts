@@ -74,7 +74,12 @@ function meanPerRunByBucket(
   return groupByBucket(series, bucket).map(([start, points]) => {
     const keys = new Set(points.flatMap((p) => Object.keys(times(p))));
     const option_counts: Record<string, number> = {};
-    for (const key of keys) option_counts[key] = floorMean(points.map((p) => times(p)[key] ?? 0));
+    // Own keys only: a key like `constructor` is valid, and a run without it must count 0.
+    const timeOf = (p: TimingSeriesPoint, key: string) => {
+      const t = times(p);
+      return Object.hasOwn(t, key) ? (t[key] ?? 0) : 0;
+    };
+    for (const key of keys) option_counts[key] = floorMean(points.map((p) => timeOf(p, key)));
     return { start, count: points.length, mean: null, min: null, max: null, option_counts };
   });
 }

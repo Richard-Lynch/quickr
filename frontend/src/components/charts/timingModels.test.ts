@@ -128,6 +128,12 @@ describe('timing chart models', () => {
     expect(stepsByBucket(series, 'day')[0]?.option_counts).toEqual({ run: 90 });
   });
 
+  it('a key named like an Object property counts 0 in a run without it', () => {
+    const series = [run(19, 8, 0, { toString: 40 }, { constructor: 100 }), run(19, 9, 0)];
+    expect(lapTypesByBucket(series, 'day')[0]?.option_counts).toEqual({ constructor: 50 });
+    expect(stepsByBucket(series, 'day')[0]?.option_counts).toEqual({ toString: 20 });
+  });
+
   it('lap-type cards: label, lap count, median, best and mean', () => {
     expect(
       lapTypeCards([

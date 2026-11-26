@@ -179,9 +179,13 @@ export function TimingOverview({ timing, bucket }: { timing: TopicTiming; bucket
                   </span>
                   <span className="text-xs text-muted">median</span>
                 </span>
-                <span className="font-mono text-xs text-ink-soft tabular">
-                  best <span data-testid="laptype-best">{c.best}</span> · mean{' '}
-                  <span data-testid="laptype-mean">{c.mean}</span>
+                <span className="flex flex-wrap gap-x-3 font-mono text-xs text-ink-soft tabular">
+                  <span>
+                    best <span data-testid="laptype-best">{c.best}</span>
+                  </span>
+                  <span>
+                    mean <span data-testid="laptype-mean">{c.mean}</span>
+                  </span>
                 </span>
               </li>
             ))}
