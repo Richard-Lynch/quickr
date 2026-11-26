@@ -507,6 +507,10 @@ public final class AppSession {
 
     // MARK: - Binding
 
+    /// A connect or rebind is in progress: `outbox` and `scheduler` may be about to be replaced, and
+    /// the replaced scheduler's flush cancelled (its claimed item becomes maybe delivered, S3).
+    public var isBinding: Bool { bindsInFlight > 0 }
+
     /// The active store as the app has it (the notification handler's gate, notifications.md §7.1
     /// steps 8 and 10): the bound store, while it is also the registry's active store at its
     /// current generation. When they differ a switch or a reset is under way (a rebind will follow)

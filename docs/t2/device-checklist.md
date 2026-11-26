@@ -53,28 +53,34 @@ signed in to the same server.
       item below: it needs T2 timers, so a level-2 server, so it runs on the
       `v0.4.0` build. The rc bot PR `compat/testflight-<build>` merges into
       `main` as usual.
-- [ ] **Fallback if rc1 fails to sign on the entitlement.** Flip the one
+      **CI half done (2026-11-26):** run
+      [45861915528](https://github.com/Richard-Lynch/quickr/actions/runs/45861915528)
+      signed, exported and uploaded build `20261126.180255` with no entitlement
+      or profile error. Still for you: the App Store Connect entitlements view,
+      the install and the Settings toggle.
+- [x] ~~**Fallback if rc1 fails to sign on the entitlement.**~~ Not needed: rc1
+      signed (run 45861915528). Flip the one
       constant, `RunAlerts.interruptionLevel = .active`
       (`ios/QuickrKit/Sources/QuickrData/Notifications/RunAlerts.swift`), and
       remove the `com.apple.developer.usernotifications.time-sensitive` line
       from the T2-M1 block of `ios/project.yml` (timers2.md §9.1: a TestFlight
       build never fails on the entitlement), in a small PR on `feat/t2`; tell
       the orchestrator; then the Apple portal step at the end of this section.
-The items below (M1-DEV) need T2 timers, so a level-2 server: they run on
-the **`v0.4.0`** TestFlight build after deploy order step 3, and the PWA items
-at the end of this file on the `v0.4.0` web build. Only the signing proof
-and its fallback above run on `v0.4.0-rc1`. `v0.4.0` carries every T2
-milestone, so these items also lean on M2's Live Activity alert line and
-tile Resume, M4's entry-detail Resume and M1's F1-ALERTS (the PWA alerts);
-an item whose surface is missing from the build gets a `t2-followup` issue,
-not a tick. Common setup for the alert items: Settings →
-Notifications → QuickR has Allow Notifications, Sounds and Time Sensitive
-Notifications on, the ring/silent switch is on ring, and the phone and the
-second device both show the server time (no manual clock). An alert is a
-local notification whose title is the topic name (`Intervals`) and whose body
-is `"{alert label} · {segment label}"`; it is planned for the open segment
-only, never while paused, and an alert whose instant passed while the app
-couldn't plan is missed, not fired late (timers2.md §9.1).
+      The items below (M1-DEV) need T2 timers, so a level-2 server: they run on
+      the **`v0.4.0`** TestFlight build after deploy order step 3, and the PWA items
+      at the end of this file on the `v0.4.0` web build. Only the signing proof
+      and its fallback above run on `v0.4.0-rc1`. `v0.4.0` carries every T2
+      milestone, so these items also lean on M2's Live Activity alert line and
+      tile Resume, M4's entry-detail Resume and M1's F1-ALERTS (the PWA alerts);
+      an item whose surface is missing from the build gets a `t2-followup` issue,
+      not a tick. Common setup for the alert items: Settings →
+      Notifications → QuickR has Allow Notifications, Sounds and Time Sensitive
+      Notifications on, the ring/silent switch is on ring, and the phone and the
+      second device both show the server time (no manual clock). An alert is a
+      local notification whose title is the topic name (`Intervals`) and whose body
+      is `"{alert label} · {segment label}"`; it is planned for the open segment
+      only, never while paused, and an alert whose instant passed while the app
+      couldn't plan is missed, not fired late (timers2.md §9.1).
 
 - [ ] **Real notification centre with permission (R23, I1-ALERTS note).**
       `SystemNotificationCenterTests` (R23) runs on the simulator, but the real
