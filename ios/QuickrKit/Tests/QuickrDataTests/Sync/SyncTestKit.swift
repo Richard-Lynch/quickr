@@ -24,6 +24,8 @@ final class FakeFeedServer: @unchecked Sendable {
         var runs: [String: [String: Any]] = [:]
         /// The seq of each closed run's delete row.
         var runsClosedAt: [String: Int] = [:]
+        /// Each closed run's revision: the close bumps it (timers2.md §5.2, `FeedDeletion.revision`).
+        var runsClosedRevision: [String: Int] = [:]
         var deleted: [String: (kind: String, id: String, topicId: String)]
     }
 
@@ -192,6 +194,7 @@ final class FakeFeedServer: @unchecked Sendable {
             let seq = nextSeq()
             state.deleted["run:\(id)"] = ("run", id, run["topic_id"] as? String ?? "")
             state.runsClosedAt[id] = seq
+            state.runsClosedRevision[id] = (run["revision"] as? Int ?? 0) + 1
             state.log.append((seq, "run", id))
         }
     }
@@ -214,6 +217,10 @@ final class FakeFeedServer: @unchecked Sendable {
             for (versionId, version) in state.versions where version["topic_id"] as? String == id {
                 state.versions[versionId] = nil
                 state.deleted["version:\(versionId)"] = ("version", versionId, id)
+            }
+            // Its closed runs' rows are gone too: their deletions carry no revision any more.
+            for gone in state.deleted.values where gone.kind == "run" && gone.topicId == id {
+                state.runsClosedRevision[gone.id] = nil
             }
             state.topics[id] = nil
             state.deleted["topic:\(id)"] = ("topic", id, id)
@@ -291,9 +298,12 @@ final class FakeFeedServer: @unchecked Sendable {
                 default:
                     guard let gone = state.deleted[key] else { continue }
                     if kind == "run", let closed = state.runsClosedAt[id], closed > next { continue }
+                    // A closed run's revision; null for a topic cascade and other kinds.
+                    let revision: Any = (kind == "run" ? state.runsClosedRevision[id] : nil) ?? NSNull()
                     deleted[kind]!.append([
                         "kind": kind, "seq": seq, "id": id, "topic_id": gone.topicId,
                         "deleted_at": "2026-06-01T12:00:00.123456Z",
+                        "revision": revision,
                     ])
                 }
             }
