@@ -5,12 +5,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from app.db import get_sessionmaker
 from app.mcp_server import mcp
+from app.models import Run
 from tests.helpers import backdate_schedule, normal_timer, sleep_questions
 from tests.test_api_runs import frozen_clock
 
@@ -698,3 +701,18 @@ def test_instructions_cover_timers_v2() -> None:
         "the server fills `at_ms`",
     ):
         assert phrase in text, phrase
+
+
+async def test_run_action_reopen_without_a_target_on_a_state_stored_before_fold_v4(
+    mcp_client: Client[Any],
+) -> None:
+    """M1-REVIEW P3-5: a run stopped before ``terminal_id`` existed in its stored state. The tool
+    leaves the target null and the server resolves it (``_terminal_stop``), as REST does."""
+    run_id, stopped = await _stopped_run(mcp_client)
+    async with get_sessionmaker()() as db:
+        row = await db.get_one(Run, UUID(run_id))
+        row.state = {k: v for k, v in row.state.items() if k != "terminal_id"}
+        await db.commit()
+    reopened = await call(mcp_client, "run_action", run_id=run_id, action="reopen")
+    assert (reopened["event"]["effect"], reopened["run"]["status"]) == ("applied", "running")
+    assert reopened["run"]["events"][-1]["target"] == stopped["event"]["id"]

@@ -769,6 +769,15 @@ def pause_json(p: Pause) -> dict[str, Any]:
     return {"start": format_instant(p.start), "end": format_instant(p.end), "id": p.id}
 
 
+def stored_lap_count(state: Mapping[str, Any]) -> int:
+    """A stored state's ``lap_count``: a state stored before fold v4 has none, so its closed lap
+    segments are counted, as the fold counts them."""
+    count = state.get("lap_count")
+    if count is not None:
+        return int(count)
+    return sum(1 for s in state.get("segments") or () if s.get("kind") == "lap")
+
+
 def state_json(state: RunState) -> dict[str, Any]:
     """``RunState`` as the API carries it (§4.3, timers2.md §3.3), plus ``started_at`` and
     ``ended_at``."""

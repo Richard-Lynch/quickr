@@ -20,7 +20,9 @@ import QuickrCore
 ///   start failed (that run never existed on the server).
 /// - A `reopen` or `remove` waits for the earlier active item its `target` names (timers2.md §5.5):
 ///   a reopen for its stop, a remove for the pause or lap it removes. A failed one holds nothing
-///   (the server answers `no_target`).
+///   (the server answers `no_target`). A reopen also waits for its run's earlier active `finish`
+///   (M1-REVIEW P2-1): sent first, it would open the run and the finish would fail on `run_open`
+///   with its answers stranded.
 /// - Every event of a run but its start waits for the run's earlier active `reopen` (A7), so a lap
 ///   can't reach a run still stopped on the server and come back `after_stop`.
 ///
@@ -43,6 +45,8 @@ struct OutboxScope {
     private var activeRunEvent: [String: OutboxItem] = [:]
     /// By run id: the run's first active `reopen`.
     private var activeReopenOfRun: [String: OutboxItem] = [:]
+    /// By run id: the run's first active `finish`, which holds a later reopen.
+    private var activeFinishOfRun: [String: OutboxItem] = [:]
 
     init(aliases: [String: String] = [:]) { self.aliases = aliases }
 
@@ -74,6 +78,7 @@ struct OutboxScope {
                 blockers.append(activeEndsOfTopic[item.topicId]?.first { $0.run != run }?.item)
             case .reopen, .remove:
                 blockers.append(payload?.event.target.flatMap { activeRunEvent[$0.lowercased()] })
+                if payload?.type == .reopen { blockers.append(activeFinishOfRun[run]) }
             default:
                 break
             }
@@ -93,6 +98,7 @@ struct OutboxScope {
         activeRunEvent[item.id.lowercased()] = item
         if type == .reopen, activeReopenOfRun[run] == nil { activeReopenOfRun[run] = item }
         if type == .stop, activeStopOfRun[run] == nil { activeStopOfRun[run] = item }
+        if type == .finish, activeFinishOfRun[run] == nil { activeFinishOfRun[run] = item }
         if type == .stop || type == .discard, startOfRun[run]?.state != .failed {
             activeEndsOfTopic[item.topicId, default: []].append((run, item))
         }

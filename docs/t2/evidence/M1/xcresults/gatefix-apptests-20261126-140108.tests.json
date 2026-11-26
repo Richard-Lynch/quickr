@@ -1,0 +1,167 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "F629B124-9B6A-4176-BD6C-7AF7807469D8",
+      "deviceName" : "quickR iOS-26-0 t2-m1-gatefix-ios-fdf87d",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "0.2s",
+                  "durationInSeconds" : 0.19524192810058594,
+                  "name" : "aDoublePressStartsOnceThenTheNextPressAdvances()",
+                  "nodeIdentifier" : "RunIntentHandlerTests/aDoublePressStartsOnceThenTheNextPressAdvances()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests/aDoublePressStartsOnceThenTheNextPressAdvances()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.043s",
+                  "durationInSeconds" : 0.04283928871154785,
+                  "name" : "aWidgetFromAnotherStoreIsRefused()",
+                  "nodeIdentifier" : "RunIntentHandlerTests/aWidgetFromAnotherStoreIsRefused()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests/aWidgetFromAnotherStoreIsRefused()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.064s",
+                  "durationInSeconds" : 0.06361913681030273,
+                  "name" : "theIntentsAskForWhatTheyShow()",
+                  "nodeIdentifier" : "RunIntentHandlerTests/theIntentsAskForWhatTheyShow()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests/theIntentsAskForWhatTheyShow()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "RunIntentHandlerTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunIntentHandlerTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "0.0063s",
+                  "durationInSeconds" : 0.006252765655517578,
+                  "name" : "aSecondAlertRestartsTheTenSecondsAndAReminderChangesNothing()",
+                  "nodeIdentifier" : "RunAlertPresenceTests/aSecondAlertRestartsTheTenSecondsAndAReminderChangesNothing()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertPresenceTests/aSecondAlertRestartsTheTenSecondsAndAReminderChangesNothing()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.0062s",
+                  "durationInSeconds" : 0.006222963333129883,
+                  "name" : "runAlertsAreBannersWithSound()",
+                  "nodeIdentifier" : "RunAlertPresenceTests/runAlertsAreBannersWithSound()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertPresenceTests/runAlertsAreBannersWithSound()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.0017s",
+                  "durationInSeconds" : 0.0017180442810058594,
+                  "name" : "anAlertBumpsTheHapticAndShowsItsLabelOnItsRunFor10Seconds()",
+                  "nodeIdentifier" : "RunAlertPresenceTests/anAlertBumpsTheHapticAndShowsItsLabelOnItsRunFor10Seconds()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertPresenceTests/anAlertBumpsTheHapticAndShowsItsLabelOnItsRunFor10Seconds()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "RunAlertPresenceTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertPresenceTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "0.64s",
+                  "durationInSeconds" : 0.6366839408874512,
+                  "name" : "aTapWritesThroughTheActiveStoreOnceInItsCooldown()",
+                  "nodeIdentifier" : "LiveActivityTapTests/aTapWritesThroughTheActiveStoreOnceInItsCooldown()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests/aTapWritesThroughTheActiveStoreOnceInItsCooldown()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.061s",
+                  "durationInSeconds" : 0.061067819595336914,
+                  "name" : "theButtonIntentReachesTheRegisteredHandler()",
+                  "nodeIdentifier" : "LiveActivityTapTests/theButtonIntentReachesTheRegisteredHandler()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests/theButtonIntentReachesTheRegisteredHandler()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.049s",
+                  "durationInSeconds" : 0.048631906509399414,
+                  "name" : "aNotificationStartRequestsOneActivity()",
+                  "nodeIdentifier" : "LiveActivityTapTests/aNotificationStartRequestsOneActivity()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests/aNotificationStartRequestsOneActivity()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "LiveActivityTapTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/LiveActivityTapTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "0.12s",
+                  "durationInSeconds" : 0.1214299201965332,
+                  "name" : "a Live Activity's Lap schedules the new lap's alerts, and its Pause cancels them, with no RootView",
+                  "nodeIdentifier" : "RunAlertTapTests/activityTapsReschedule()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertTapTests/activityTapsReschedule()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "0.061s",
+                  "durationInSeconds" : 0.06131482124328613,
+                  "name" : "a run intent's start then lap schedules the lap's alerts, with no RootView",
+                  "nodeIdentifier" : "RunAlertTapTests/intentTapsReschedule()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertTapTests/intentTapsReschedule()",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "RunAlertTapTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests/RunAlertTapTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRTests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRTests",
+          "nodeType" : "Unit test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "Unit",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}
