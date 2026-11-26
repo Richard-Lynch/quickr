@@ -129,7 +129,9 @@ public actor RunAlertScheduler {
             // window ahead of it: an alert planned less than a second out is still to schedule.
             // A pending one it would have replaced goes: its new time has passed.
             if let fireAt = request.fireAt, fireAt <= now() {
-                if current[request.id] != nil { center.removePendingNotificationRequests(withIdentifiers: [request.id]) }
+                if current[request.id] != nil {
+                    center.removePendingNotificationRequests(withIdentifiers: [request.id])
+                }
                 continue
             }
             // Same identifier: the system replaces the pending request.
