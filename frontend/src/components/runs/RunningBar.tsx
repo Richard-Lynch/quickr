@@ -103,7 +103,7 @@ function RunningItem({ run }: { run: LocalRun }) {
           disabled={primary.disabled}
           onClick={primary.onTap}
           data-testid="bar-primary"
-          className="ml-auto inline-flex min-h-11 max-w-full shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-1.5 text-left text-sm leading-tight font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:transform-none"
+          className="ml-auto inline-flex min-h-11 max-w-full shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-1.5 text-left text-sm leading-tight font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:active:scale-none"
         >
           <Icon
             name={actionIcon(primary.action.kind)}
@@ -133,11 +133,12 @@ function useOpenRunPrimary(
   const runCtx = useRunContext(run, topic);
   const cooling = useRunCooldown(run?.topic_id ?? '');
   const now = useServerNow(run?.status === 'running');
-  if (!run || !isOpen(run)) return null;
+  // None for a queued reopen before its ack (§1.2 row 11, M1's `resuming` projection): it has
+  // no controls anywhere, and `actions` can't say so itself (model.ts).
+  if (!run || !isOpen(run) || run.resuming) return null;
   const steps = runCtx ? runCtx.steps : run.steps;
   const timer = runTimer(timerOf(versions.data, run.version), steps);
   const action = controlsLayout(runActions(run.state, run.status, timer, now)).primary;
-  // None: a queued reopen before its ack (§1.2 row 11) has no controls anywhere.
   if (!action) return null;
   // Captured at render: a second tap before the bar catches up targets what it showed.
   const expect = expectOf(run, steps);

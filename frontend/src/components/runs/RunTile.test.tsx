@@ -17,6 +17,8 @@ import {
   type Harness,
 } from '../../test/runUi';
 import { tapCooldownOn } from '../../test/tapClock';
+import { lapTopic, seedStopped } from '../../test/resume';
+import { normalTimer } from '../../test/timer';
 
 let h: Harness | null = null;
 
@@ -309,6 +311,26 @@ describe('the running bar’s primary is the run panel’s', () => {
       title: 'Lap',
     },
     {
+      // #173: a typed lap's primary names the lap it opens, on the bar as on the panel.
+      name: 'row 5, typed: a Run lap open, Rest next',
+      fixture: () => {
+        const f = timedTopic({ steps: [] });
+        const timer = normalTimer({
+          steps: [],
+          laps: [
+            { key: 'run', label: 'Run' },
+            { key: 'rest', label: 'Rest' },
+          ],
+        });
+        return {
+          topic: { ...f.topic, timer },
+          versions: f.versions.map((v) => ({ ...v, timer })),
+        };
+      },
+      seed: (s) => seedRun(s),
+      title: 'Lap → Rest',
+    },
+    {
       name: 'row 8: paused',
       fixture: () => timedTopic(),
       seed: (s) => seedRun(s, [{ type: 'pause', s: 30 }]),
@@ -347,6 +369,44 @@ describe('the running bar’s primary is the run panel’s', () => {
     await userEvent.click(bar);
     await sent(h, 1);
     expect(h.server.events()[0]?.type).toBe(title.startsWith('Lap') ? 'lap' : 'next');
+  });
+});
+
+describe('the running bar while a reopen waits for its ack (§1.2 row 11)', () => {
+  it('lists the run without a primary, then shows it on the ack', async () => {
+    let hold = true;
+    h = renderRunApp('/', lapTopic(), (s) => seedStopped(s, 114_000, 10_000));
+    h.server.override = (body) =>
+      body.type === 'reopen' && hold ? new Response('{}', { status: 503 }) : undefined;
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId('run-reopen'));
+    expect(await screen.findByText(/^Resuming…/)).toBeInTheDocument();
+    // A search that doesn't list the topic: its card goes, so the bar lists the run, and a
+    // resuming run has no controls anywhere.
+    const listed = globalThis.fetch;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), 'https://q.test');
+      return url.pathname === '/api/v1/topics' && url.searchParams.has('q')
+        ? Promise.resolve(
+            new Response(JSON.stringify({ items: [], total: 0, limit: 50, offset: 0 }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        : listed(input, init);
+    });
+    await user.type(screen.getByRole('searchbox'), 'zzz');
+    expect(await screen.findByText('No matches')).toBeInTheDocument();
+    const bar = await screen.findByRole('region', { name: 'Running' });
+    expect(within(bar).getByText('Morning')).toBeInTheDocument();
+    expect(within(bar).queryByTestId('bar-primary')).toBeNull();
+
+    hold = false;
+    const item = (await outbox.list()).find((i) => i.status === 'pending');
+    await outbox.retry(item?.id ?? '');
+    expect(
+      await within(screen.getByRole('region', { name: 'Running' })).findByTestId('bar-primary'),
+    ).toHaveTextContent('Lap');
   });
 });
 

@@ -7,7 +7,7 @@ import SwiftUI
 /// the topic's tint with the title and Pause/Resume, the segment clock with the run's total, the
 /// headline, the alert line, and the primary (Next or Lap) beside Stop. Tapping anywhere else
 /// opens the run screen. The buttons are `RunControlsLayout.tile` over
-/// `RunPresentation.actions`: placed by role, titled by kind (§1.3).
+/// `RunActions.actions(for:)`: placed by role, titled by kind (§1.3).
 ///
 /// Accessibility identifiers: `tile.<slug>` on the card; inside it `tile.<slug>.segment`,
 /// `tile.<slug>.total`, `run.status` (the headline), `tile.<slug>.alert`, `tile.<slug>.run` (the
@@ -27,14 +27,11 @@ struct ActiveTopicCard: View {
         let now = environment.runTicker.serverNow
         let paused = run.status == .paused
         let timer = run.timer
-        let resuming = Self.isResuming(run)
-        // A queued reopen shows no controls until the ack (§1.2 row 11, §3.3).
-        let controls =
-            resuming
-            ? RunControlsLayout.Tile(primary: nil, stop: nil, pauseResume: nil)
-            : RunControlsLayout.tile(
-                actions: RunPresentation.actions(run.state, status: run.status, timer: timer, now: RunInstant.date(now))
-            )
+        let resuming = run.resuming
+        // M1's actions with rows 11 and 14 (`RunActions.actions(for:)`, as the run screen has
+        // them): none while a queued reopen awaits its ack (§3.3), all off during the cooldown.
+        let controls = RunControlsLayout.tile(
+            actions: environment.runActions.actions(for: run, timer: timer, now: RunInstant.date(now)))
         let alert = RunPresentation.alertLine(run.state, timer: timer, now: RunInstant.date(now))
         let stacked = typeSize.isAccessibilitySize
         let slug = topic.topic.slug
@@ -143,7 +140,7 @@ struct ActiveTopicCard: View {
             Label(action.title, systemImage: action.systemImage)
         }
         .buttonStyle(.qr(.ghost, size: .small))
-        .disabled(!action.enabled || busy)
+        .disabled(!action.enabled)
         .accessibilityLabel(action.spokenTitle(topic: topic.topic.name))
         .accessibilityIdentifier("tile.\(slug).\(action.id)")
         // Last in the card's order (§7): summary 3, primary 2, Stop 1, then this.
@@ -166,7 +163,7 @@ struct ActiveTopicCard: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.qr(.primary, size: .large))
-                .disabled(!primary.enabled || busy)
+                .disabled(!primary.enabled)
                 .accessibilityLabel(primary.spokenTitle(topic: topic.topic.name))
                 .accessibilityIdentifier("tile.\(slug).run")
                 .accessibilitySortPriority(2)
@@ -181,7 +178,7 @@ struct ActiveTopicCard: View {
                 }
                 .buttonStyle(.qr(.secondary, size: .large))
                 .fixedSize(horizontal: !stacked, vertical: false)
-                .disabled(!stop.enabled || busy)
+                .disabled(!stop.enabled)
                 .accessibilityLabel(stop.spokenTitle(topic: topic.topic.name))
                 .accessibilityIdentifier("tile.\(slug).stop")
                 .accessibilitySortPriority(1)
@@ -190,9 +187,6 @@ struct ActiveTopicCard: View {
     }
 
     // MARK: - Taps
-
-    /// The run's cooldown (`RunActions`), until `actions` reports it itself (§1.2 row 14).
-    private var busy: Bool { environment.runActions.isBusy(topic.topic.id) }
 
     /// One of the card's controls. The card only ever holds an open run's primary (Next or Lap),
     /// Stop and Pause/Resume; anything else has no tap here.
@@ -228,8 +222,4 @@ struct ActiveTopicCard: View {
         if resuming { return status }
         return RunHeadline.text(run).map { "\(status) · \($0)" } ?? status
     }
-
-    /// A reopen queued from the run's entry and not yet acked (timers2.md §5.3, M1's "resuming"
-    /// projection): "Resuming…", no controls until the ack (§1.2 row 11, §3.3).
-    static func isResuming(_ run: LocalRun) -> Bool { run.resuming }
 }

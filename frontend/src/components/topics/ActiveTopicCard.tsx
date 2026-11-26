@@ -77,7 +77,7 @@ export const isResuming = (run: Pick<LocalRun, 'resuming'>): boolean => run.resu
  * through to the card's link.
  */
 const CONTROL =
-  'inline-flex min-h-14 select-none items-center justify-center gap-2 rounded-full py-2 text-center text-base leading-tight font-semibold transition-[background-color,filter,transform] duration-150 active:scale-[0.97] motion-reduce:transform-none disabled:cursor-not-allowed disabled:opacity-50';
+  'inline-flex min-h-14 select-none items-center justify-center gap-2 rounded-full py-2 text-center text-base leading-tight font-semibold transition-[background-color,filter,transform] duration-150 active:scale-[0.97] motion-reduce:active:scale-none disabled:cursor-not-allowed disabled:opacity-50';
 
 export function ActiveTopicCard({
   topic,

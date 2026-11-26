@@ -3,14 +3,16 @@ import QuickrCore
 import Testing
 
 /// Where each run action goes (active-surfaces.md §1, §2.2, §3.2), table-driven over the 14 rows of
-/// the §1.2 state table. Rows today's `RunPresentation.actions` yields are folded and passed
-/// through it; the rest (idle, after a reopen, a queued reopen, busy) are the table's lists by hand.
+/// the §1.2 state table. Every row M1's `RunPresentation.actions` expresses is folded and passed
+/// through it (#153). By hand: row 1 (a topic with no run doesn't call `actions`), and rows 11 (a
+/// queued reopen) and 14 (busy), which are the caller's (`RunActions.actions(for:)`, QuickrData).
 @Suite struct RunControlsLayoutTests {
     static let steps = [
         TopicTimer.Step(key: "shower", label: "Shower"), TopicTimer.Step(key: "dress", label: "Dress"),
         TopicTimer.Step(key: "teeth", label: "Teeth"),
     ]
     static let terminal = UUID(uuidString: "00000000-0000-4000-8000-000000000013")!
+    static let minute = 60_000
 
     struct Row: Sendable, CustomTestStringConvertible {
         var row: String
@@ -26,14 +28,15 @@ import Testing
         RunAction(kind: kind, role: role, enabled: enabled)
     }
 
-    /// M1's actions for a run folded from `start` plus `events`.
+    /// M1's actions for a run folded from `start` plus `events`, at `now` (epoch ms).
     private static func actions(
-        _ events: [RunEvent], steps: [TopicTimer.Step] = steps, status: RunStatus? = nil, timer: TopicTimer?
+        _ events: [RunEvent], steps: [TopicTimer.Step] = steps, status: RunStatus? = nil, timer: TopicTimer?,
+        now: Int = 10
     ) -> [RunAction] {
         // A fixture that doesn't fold is a broken test: crash rather than skip the row.
         let state = try! RunFold.fold(
             runId: "r", steps: steps, events: [RunEvent(id: "r", type: .start, at: 0)] + events)
-        return RunPresentation.actions(state, status: status ?? state.status, timer: timer, now: Date())
+        return RunPresentation.actions(state, status: status ?? state.status, timer: timer, now: RunInstant.date(now))
     }
 
     static let rows: [Row] = {
@@ -43,7 +46,8 @@ import Testing
         let n2 = RunEvent(id: "n2", type: .next, at: 2, seg: 1)
         let l1 = RunEvent(id: "l1", type: .lap, at: 1, seg: 0)
         let p = RunEvent(id: "p", type: .pause, at: 4)
-        let x = RunEvent(id: "x", type: .stop, at: 5)
+        let x = RunEvent(id: terminal.wireString, type: .stop, at: 5)
+        let reopened = RunEvent(id: "0e000000-0000-4000-8000-000000000002", type: .reopen, at: 6, target: x.id)
         let start = a(.start, .primary)
         let reopen = a(.reopen(target: terminal), .secondary)
         let stop = a(.stop, .secondary)
@@ -63,11 +67,13 @@ import Testing
                 row: "1 idle, timer nil", actions: [start], primary: start, secondaries: [], overflow: [],
                 tile: .init(primary: start, stop: nil, pauseResume: nil)),
             Row(
-                row: "2 idle, timer with steps, latest entry resumable", actions: [start, reopen], primary: start,
-                secondaries: [reopen], overflow: [], tile: .init(primary: start, stop: nil, pauseResume: nil)),
-            Row(
-                row: "3 idle, laps only (as 2)", actions: [start, reopen], primary: start, secondaries: [reopen],
+                row: "2 idle, timer with steps, latest entry resumable",
+                actions: actions([x], status: .stopped, timer: timer), primary: start, secondaries: [reopen],
                 overflow: [], tile: .init(primary: start, stop: nil, pauseResume: nil)),
+            Row(
+                row: "3 idle, laps only (as 2)", actions: actions([x], steps: [], status: .stopped, timer: lapsOnly),
+                primary: start, secondaries: [reopen], overflow: [],
+                tile: .init(primary: start, stop: nil, pauseResume: nil)),
             Row(
                 row: "4 step open, a step remains, running", actions: actions([], timer: timer), primary: next,
                 secondaries: [stop, pause], overflow: [skipShower, discard], tile: open(next, pause)),
@@ -89,7 +95,7 @@ import Testing
                 row: "9 open, timer nil", actions: actions([], timer: nil), primary: a(.next(label: ""), .primary),
                 secondaries: [stop, pause], overflow: [discard], tile: open(a(.next(label: ""), .primary), pause)),
             Row(
-                row: "10 open after a reopen (row 4)", actions: [next, stop, pause, skipShower, revert], primary: next,
+                row: "10 open after a reopen (row 4)", actions: actions([x, reopened], timer: timer), primary: next,
                 secondaries: [stop, pause], overflow: [skipShower, revert], tile: open(next, pause)),
             Row(
                 row: "11 queued reopen not yet acked", actions: [], primary: nil, secondaries: [], overflow: [],
@@ -99,11 +105,16 @@ import Testing
                 primary: a(.addDetails, .primary), secondaries: [], overflow: [discard],
                 tile: .init(primary: a(.addDetails, .primary), stop: nil, pauseResume: nil)),
             Row(
-                row: "13 stopped, entry resumable", actions: [reopen], primary: nil, secondaries: [reopen],
-                overflow: [], tile: none),
+                // Row 13 seen from the topic (§1.2 decision): `start` beside the resumable stop's
+                // `reopen`, as row 2; the entry detail's reopen alone is M4's.
+                row: "13 stopped, entry resumable",
+                actions: actions([x], status: .stopped, timer: timer, now: 5 + minute),
+                primary: start, secondaries: [reopen], overflow: [],
+                tile: .init(primary: start, stop: nil, pauseResume: nil)),
             Row(
                 // M1's idle rows (§1.2): a stopped run past OQ-1's window is `start` alone.
-                row: "13 stopped, past the window", actions: actions([x], status: .stopped, timer: timer),
+                row: "13 stopped, past the window",
+                actions: actions([x], status: .stopped, timer: timer, now: 5 + 16 * minute),
                 primary: a(.start, .primary), secondaries: [], overflow: [],
                 tile: .init(primary: a(.start, .primary), stop: nil, pauseResume: nil)),
             {

@@ -1,7 +1,8 @@
 /**
  * Where each run action goes (active-surfaces.md §1, §6.1, §6.2), table-driven over the 14 rows of
- * the §1.2 state table. Rows today's `actions` yields are folded and passed through it; the rest
- * (idle, after a reopen, a queued reopen, busy) are the table's lists by hand.
+ * the §1.2 state table. Every row M1's `actions` expresses is folded and passed through it (#153).
+ * By hand: row 1 (a topic with no run doesn't call `actions`), and rows 11 (a queued reopen) and 14
+ * (busy), which are the callers' (`LocalRun.resuming`, the tap cooldown).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -37,6 +38,7 @@ const n2 = ev('n2', 'next', s(2), { seg: 1 });
 const l1 = ev('l1', 'lap', s(1), { seg: 0 });
 const p = ev('p', 'pause', s(4));
 const x = ev('x', 'stop', s(5));
+const o1 = ev('o1', 'reopen', s(6), { target: 'x' });
 
 const a = (kind: RunActionKind, role: RunActionRole, enabled = true): RunAction => ({
   kind,
@@ -45,7 +47,6 @@ const a = (kind: RunActionKind, role: RunActionRole, enabled = true): RunAction 
   id: kind.type,
 });
 const startA = a({ type: 'start' }, 'primary');
-const reopen = a({ type: 'reopen', target: TERMINAL }, 'secondary');
 const stop = a({ type: 'stop' }, 'secondary');
 const pause = a({ type: 'pause' }, 'secondary');
 const resume = a({ type: 'resume' }, 'secondary');
@@ -90,17 +91,17 @@ const rows: Row[] = [
   },
   {
     row: '2 idle, timer with steps, latest entry resumable',
-    actions: [startA, reopen],
+    actions: folded([x], TIMER, { status: 'stopped' }),
     primary: startA,
-    secondaries: [reopen],
+    secondaries: [a({ type: 'reopen', target: 'x' }, 'secondary')],
     overflow: [],
     tile: idleTile,
   },
   {
     row: '3 idle, laps only (as 2)',
-    actions: [startA, reopen],
+    actions: folded([x], LAPS_ONLY, { steps: [], status: 'stopped' }),
     primary: startA,
-    secondaries: [reopen],
+    secondaries: [a({ type: 'reopen', target: 'x' }, 'secondary')],
     overflow: [],
     tile: idleTile,
   },
@@ -154,7 +155,7 @@ const rows: Row[] = [
   },
   {
     row: '10 open after a reopen (row 4)',
-    actions: [next('Breakfast'), stop, pause, skip('Shower'), revert],
+    actions: folded([x, o1], TIMER),
     primary: next('Breakfast'),
     secondaries: [stop, pause],
     overflow: [skip('Shower'), revert],
@@ -175,14 +176,6 @@ const rows: Row[] = [
     secondaries: [],
     overflow: [discard],
     tile: { primary: a({ type: 'addDetails' }, 'primary'), stop: null, pauseResume: null },
-  },
-  {
-    row: '13 stopped, entry resumable',
-    actions: [reopen],
-    primary: null,
-    secondaries: [reopen],
-    overflow: [],
-    tile: noTile,
   },
   {
     row: '13 stopped, folded: within the window, Start and Resume',

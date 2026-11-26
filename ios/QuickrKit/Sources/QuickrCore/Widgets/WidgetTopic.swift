@@ -29,6 +29,11 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     /// Whether the open run's pinned timer has lap types (`RunWrites.autoTap` reads that one, not
     /// the topic's current timer); nil without an open run.
     public var runLapTyped: Bool?
+    /// What the open run's Auto press does (`RunWrites.autoTap`, active-surfaces.md §5.3), so the
+    /// one-button surfaces say what the press will do; nil without an open run. The content state
+    /// alone can't tell it: on a timer without lap types a lap opened mid-steps carries no
+    /// `next_label`, yet the press is Next while a step remains.
+    public var runAuto: WidgetRunButton?
     /// This build is too old for the store's server (client-versions.md §4.1): the widget shows a
     /// small "Update quickR" line, and its taps are kept on the iPhone until the update.
     public var updateRequired: Bool
@@ -38,7 +43,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     public init(
         topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
         scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false, run: RunActivityState? = nil,
-        runLapTyped: Bool? = nil, updateRequired: Bool = false
+        runLapTyped: Bool? = nil, runAuto: WidgetRunButton? = nil, updateRequired: Bool = false
     ) {
         self.topic = topic
         self.quick = quick
@@ -50,6 +55,7 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
         self.hasOpenRun = hasOpenRun
         self.run = run
         self.runLapTyped = runLapTyped
+        self.runAuto = runAuto
         self.updateRequired = updateRequired
     }
 
@@ -141,6 +147,7 @@ extension WidgetTopic {
             return topic.status == .archived ? [] : [.start]
         case .open:
             guard let display = runDisplay else { return [] }
+            if compact, let runAuto { return [runAuto] }
             return Self.runButtons(of: display, compact: compact, lapTyped: isLapTyped)
         }
     }
@@ -150,19 +157,18 @@ extension WidgetTopic {
     /// Auto button (`autoButton`).
     public static func runButtons(of display: RunActivityDisplay, compact: Bool, lapTyped: Bool) -> [WidgetRunButton] {
         let primary: WidgetRunButton = display.buttons.first == .lap ? .lap : .next
-        if compact { return [autoButton(primary: primary, nextLabel: display.nextLabel, lapTyped: lapTyped)] }
+        if compact { return [autoButton(primary: primary, lapTyped: lapTyped)] }
         return [primary, .stop]
     }
 
-    /// The one-button rule (§5.3): a lap-typed timer's Auto is its primary (Lap stays Lap); on any
-    /// other timer v1's Auto (timers.md §11.1), Next while a named step remains or the steps
-    /// aren't known, else Stop (so a one-press stopwatch can still be stopped). A step remains when
-    /// the primary is Next, or when a lap is open with a step still to come (`nextLabel` names it:
-    /// without lap types a lap's `nextLabel` is never a lap type), which is what `RunWrites.auto`
-    /// does on that press.
-    public static func autoButton(primary: WidgetRunButton, nextLabel: String?, lapTyped: Bool) -> WidgetRunButton {
+    /// The one-button rule (§5.3) from the content state alone, for a topic built without the
+    /// store (`runAuto` nil: the widget gallery, tests): a lap-typed timer's Auto is its primary
+    /// (Lap stays Lap); on any other timer v1's Auto (timers.md §11.1), Next while the primary is
+    /// Next (a named step follows, or the steps aren't known), else Stop. A lap opened mid-steps on
+    /// such a timer presses Next, which only the run knows: the reader sets `runAuto` for it.
+    public static func autoButton(primary: WidgetRunButton, lapTyped: Bool) -> WidgetRunButton {
         if lapTyped { return primary }
-        return primary == .next || nextLabel != nil ? .next : .stop
+        return primary == .next ? .next : .stop
     }
 
     /// A button's title (§1.3): "Start", "Next: Breakfast" (a plain "Next" while the steps aren't

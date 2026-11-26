@@ -203,6 +203,10 @@ export function renderRunApp(
       cleanup();
       stop();
       disconnect();
+      // A flush pass still running (slow under load) can put a retried item back after the
+      // clear, so the next test would start with this one's queued taps: let it finish first
+      // (a concurrent flush() joins it; the scheduler is stopped, so none follows).
+      await outbox.flush().catch(() => undefined);
       qc.clear();
       await outbox.clear();
       // The page's snapshots are module state: start the next test from empty ones.

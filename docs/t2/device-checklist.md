@@ -185,11 +185,11 @@ signed in to the same server.
 
 ## M2 · active surfaces
 
-Checked against `t2/m2` after I2-LA (#138) and I2-WIDGETS (#136); spec
-[active-surfaces.md](../specs/active-surfaces.md) §3–§5. An item, or a part of
-one, marked **(pending <WP>)** depends on work not yet in `t2/m2` when this was
-written; the release build has it, so run it as written, and if the behaviour is
-missing, check that the named WP merged before filing.
+Checked against `t2/m2` after I2-LA (#138) and I2-WIDGETS (#136), and again at
+M2-REVIEW after M2-RESUME (iOS, #275) landed: every WP these items depend on
+(I2-LA-FIELDS #212, I2-HOME #163, M1's I1-WRITES, the lap-typed Auto #222, Resume
+and "Resuming…") is in `t2/m2`, so no item is pending. Spec
+[active-surfaces.md](../specs/active-surfaces.md) §3–§5.
 
 Extra setup for M2: two timed topics **without lap types** (the §5.3 Auto
 carve-out applies to them): `Dishwasher` (no steps: a stopwatch) and `Morning`
@@ -213,9 +213,9 @@ next one.
       the text stops growing at the widgets' cap (xxLarge), the button row is
       still fully visible and every label, "Next: Breakfast" included, reads in
       full (shrunk is fine, cut off is not); VoiceOver reads the buttons "Next:
-      Breakfast", "Pause", "Stop Morning" (§1.3; the shipped Stop reads "Stop":
-      #143). Stop `Morning`; VoiceOver off and the text size back.
-- [ ] **Live Activity lap fields (pending I2-LA-FIELDS).** Start `Intervals`,
+      Breakfast", "Pause", "Stop Morning" (§1.3, #143 fixed in #212). Stop
+      `Morning`; VoiceOver off and the text size back.
+- [ ] **Live Activity lap fields.** Start `Intervals`,
       lock. Expected: the second row's text is the headline ("Run 1 · lap 1"
       style, §4.1) and the trailing badge "L1"; the primary reads **Lap → Rest**
       (VoiceOver: "Lap, then Rest"). Tap it so `Rest 1` is open: under the
@@ -232,7 +232,7 @@ next one.
       **Next: Breakfast** prominent at two thirds and **Stop** at one third (no
       Pause in the Island). Start `Dishwasher` instead: compact leading is the
       timer glyph and the expanded primary is **Lap**. Stop both runs.
-- [ ] **Dynamic Island lap counter (pending I2-LA-FIELDS).** Start `Intervals`.
+- [ ] **Dynamic Island lap counter.** Start `Intervals`.
       Expected: compact leading shows the lap counter ("L1", then "L2" after a
       Lap); expanded trailing shows the alert countdown under the total while
       `Rest` is open. Stop `Intervals`.
@@ -253,8 +253,8 @@ next one.
       activity's primary is Lap. Press it again: the run stops and saves, and
       the control reads "Start". With `Morning`: "Next: Breakfast" (chevron
       icon) while `Shower` is open, then "Stop" on `Breakfast`.
-- [ ] **Timer control on a lap-typed timer (pending I1-WRITES, I2-LA-FIELDS).**
-      Configure a second Timer control for `Intervals`, start it. Expected: the
+- [ ] **Timer control on a lap-typed timer.** Configure a second Timer control
+      for `Intervals`, start it. Expected: the
       detail reads "Lap → Rest" (flag icon) while a `Run` lap is open; a press
       performs the lap (not a stop) and the detail flips to "Lap → Run". No
       press of this control ever stops `Intervals`.
@@ -262,10 +262,10 @@ next one.
       **Advance Timer**, topic `Dishwasher`, action Auto. Expected: idle, a
       press starts the run; the next press stops it (v1 Auto on a timer without
       lap types); a press may show quickR's short confirmation. Then set the
-      topic to `Intervals` **(pending I1-WRITES)**: a first press starts it;
+      topic to `Intervals`: a first press starts it;
       while it runs, each further press records a lap (the Live Activity's lap
       moves on), never a stop. Stop `Intervals` from the app.
-- [ ] **Active card on the home screen (pending I2-HOME).** Start `Intervals`
+- [ ] **Active card on the home screen.** Start `Intervals`
       and open the home screen. Expected: an "Active now" section, with a
       pulsing timer glyph, sits above "Due now", and `Intervals` appears only
       there. Its card is tinted, with a leading bar; it shows the name with a
@@ -280,7 +280,7 @@ next one.
       largest accessibility text size the primary stacks over Stop (both full
       width) and Pause moves under the badge. Light and dark both legible. Stop:
       the section disappears.
-- [ ] **Resume within 15 minutes (pending M1, M2-RESUME).** `Smoke` has no
+- [ ] **Resume within 15 minutes.** `Smoke` has no
       questions, so Stop saves at once. Start `Smoke`, run it about a minute,
       stop it from its active card. Expected: the toast "Saved Smoke: m:ss"
       offers **Resume**; tap it: the same run is running again (its total

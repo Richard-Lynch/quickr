@@ -91,6 +91,16 @@ public struct WidgetReader: Sendable {
         return run.steps != nil && !(run.timer?.laps.isEmpty ?? true)
     }
 
+    /// The open run's Auto press as `RunWrites.autoTap` makes it (§5.3); nil without an open run.
+    static func openRunAuto(_ topicId: UUID, in runs: Runs) -> WidgetRunButton? {
+        guard let run = runs.all.first(where: { $0.topicId == topicId && $0.isOpen }) else { return nil }
+        switch RunWrites.autoTap(run) {
+        case .lap: return .lap
+        case .stop: return .stop
+        default: return .next
+        }
+    }
+
     private func widgetTopic(
         _ topic: Topic, state: (skew: TimeInterval, updateRequired: Bool), runs: Runs, now: Date
     ) async throws -> WidgetTopic {
@@ -116,6 +126,6 @@ public struct WidgetReader: Sendable {
             topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope,
             skew: state.skew, hasOpenRun: RunOverlay.openRunTopics(runs.all).contains(topic.id),
             run: Self.shownRun(topic.id, in: runs, now: now), runLapTyped: Self.openRunLapTyped(topic.id, in: runs),
-            updateRequired: state.updateRequired)
+            runAuto: Self.openRunAuto(topic.id, in: runs), updateRequired: state.updateRequired)
     }
 }

@@ -162,7 +162,7 @@ export function RunControls({
               aria-label="More"
               title="More"
               data-testid="run-more"
-              className="inline-flex size-14 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-soft transition-colors hover:bg-sunken hover:text-ink active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+              className="inline-flex size-14 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-soft transition-colors hover:bg-sunken hover:text-ink active:scale-95 disabled:pointer-events-none disabled:opacity-50 motion-reduce:active:scale-none"
               disabled={busy}
               onClick={() => setMore(true)}
             >
@@ -182,7 +182,7 @@ export function RunControls({
               <button
                 type="button"
                 className={cn(
-                  'flex min-h-14 w-full items-center gap-2 rounded-[1.75rem] px-5 py-3 text-left text-base font-semibold transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50',
+                  'flex min-h-14 w-full items-center gap-2 rounded-[1.75rem] px-5 py-3 text-left text-base font-semibold transition-colors active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 motion-reduce:active:scale-none',
                   a.role === 'destructive'
                     ? 'text-danger hover:bg-danger-soft'
                     : 'border border-line-strong bg-surface text-ink hover:bg-sunken',
