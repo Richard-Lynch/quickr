@@ -1,5 +1,5 @@
 # M4 milestone review findings (triaged by t2-m4-lead)
-Sources: Codex review (`M4-milestone-codex.md`) and an independent Claude review (Opus sub-agent; full text in this file below).
+Sources: Codex review (`M4-milestone-codex.md`) and an independent Claude review (Opus sub-agent; see M4-milestone-claude.md).
 
 ## Fix in PWA fix WP (t2/m4-review-fe)
 - R2 (P2): EntriesPage list ignores the A14 projection. Map each listed entry through `projectedEntryTiming(…, outbox.items)` before SummaryLine/TimingChip, and show "Waiting to sync" when pending. Test: a queued remove changes the row's chip.
