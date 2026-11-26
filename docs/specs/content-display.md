@@ -261,8 +261,9 @@ chip. Untimed entries of a timed topic have no chip (timers.md §11.1).
   would answer 409 `conflict`, terminal on both outboxes, and the intent would
   be lost without a notice).
 - `TimingEdit` editor (`TimingEditorSheet`, `TimingEditor.tsx`) keeps lap types:
-  a lap row's type picker (none / declared types) via M1's `TimingEdit`
-  additions; relabelling follows M1's rule after save.
+  lap rows show the type their position gives them, labelled as the save will
+  relabel them (timers2.md §3.2). `TimingEdit` carries no `lap_type`, so there is
+  no per-lap picker (amended 2026-11-26, #246).
 - An entry whose id is a locally open or finishing run is **not shown as an
   entry** (OQ-14 default, timers2.md §5.3): the list filters it out and the
   detail route redirects to the run.
