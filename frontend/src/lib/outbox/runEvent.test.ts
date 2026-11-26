@@ -704,3 +704,213 @@ describe('a start the server already has (§8.1, §10.2)', () => {
     expect(await ids()).toEqual(['n1:failed']);
   });
 });
+
+describe('reopen and remove ordering (timers2.md §5.5)', () => {
+  const reopen = runItem('reopen', { id: 'o1', run: 'r1', at: T0 + 3000, target: 's1' });
+  const pause = runItem('pause', { id: 'p1', run: 'r1', at: T0 + 1500 });
+  const remove = runItem('remove', { id: 'x1', run: 'r1', at: T0 + 3000, target: 'p1' });
+  const lap = runItem('lap', { id: 'l2', run: 'r1', at: T0 + 4000, seg: 1 });
+  const down = (...ids: string[]) => {
+    const state = { up: false };
+    const respond: Responder = (b) =>
+      ids.includes(b.id) && !state.up ? problem(503, 'down') : ok(b.id);
+    return { state, respond };
+  };
+
+  it('a reopen enqueued behind a retrying stop is sent only after the stop acks', async () => {
+    const { state, respond } = down('s1');
+    const { outbox, sent, queue, ids } = setup(respond);
+    await queue(stop, reopen);
+    await outbox.flush();
+    expect(sent).toEqual(['s1']);
+    expect(await ids()).toEqual(['s1:pending', 'o1:pending']);
+    state.up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['s1', 's1', 'o1']);
+  });
+
+  it("waits for the run's start too", async () => {
+    const { state, respond } = down('r1');
+    const { outbox, sent, queue } = setup(respond);
+    await queue(start, reopen);
+    await outbox.flush();
+    expect(sent).toEqual(['r1']);
+    state.up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['r1', 'r1', 'o1']);
+  });
+
+  it('a failed target holds nothing: the reopen goes (and the server answers no_target)', async () => {
+    const { outbox, sent, queue } = setup((b) =>
+      b.id === 's1' ? problem(422, 'invalid_request') : result(b.id, 'void', 'no_target'),
+    );
+    await queue(stop, reopen);
+    await outbox.flush();
+    expect(sent).toEqual(['s1', 'o1']);
+  });
+
+  it('a remove waits for the retrying pause it names; the same for a lap', async () => {
+    const { state, respond } = down('p1');
+    const { outbox, sent, queue } = setup(respond);
+    await queue(pause, remove);
+    await outbox.flush();
+    expect(sent).toEqual(['p1']);
+    state.up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['p1', 'p1', 'x1']);
+
+    const kind = OUTBOX_KINDS[RUN_EVENT];
+    const lap1 = runItem('lap', { id: 'l1', run: 'r1', at: T0 + 1000, seg: 0 });
+    const removeLap = runItem('remove', { id: 'x2', run: 'r1', at: T0 + 3000, target: 'L1' });
+    expect(kind?.waitsFor?.(removeLap, [lap1, removeLap])).toEqual(['r1', 'l1']);
+    // Failed: not waited for.
+    expect(kind?.waitsFor?.(removeLap, [{ ...lap1, status: 'failed' }, removeLap])).toEqual(['r1']);
+  });
+
+  it('lap-waits-for-pending-reopen: an event enqueued after a retrying reopen waits for it', async () => {
+    const { state, respond } = down('o1');
+    const { outbox, sent, queue, ids } = setup(respond);
+    await queue(reopen, lap);
+    await outbox.flush();
+    expect(sent).toEqual(['o1']);
+    expect(await ids()).toEqual(['o1:pending', 'l2:pending']);
+    state.up = true;
+    await outbox.flush({ force: true });
+    expect(sent).toEqual(['o1', 'o1', 'l2']);
+  });
+
+  it('a discard after a pending reopen (a revert) waits for it as well, and an earlier tap does not', () => {
+    const kind = OUTBOX_KINDS[RUN_EVENT];
+    const discard = runItem('discard', { id: 'd1', run: 'r1', at: T0 + 5000 });
+    expect(kind?.waitsFor?.(discard, [reopen, discard])).toEqual(['r1', 'o1']);
+    expect(kind?.waitsFor?.(pause, [pause, reopen])).toEqual(['r1']);
+    // Another run's reopen holds nothing here; a failed reopen holds nothing either.
+    const elsewhere = runItem('reopen', { id: 'o9', run: 'r9', at: T0 + 3000, target: 's9' });
+    expect(kind?.waitsFor?.(lap, [elsewhere, lap])).toEqual(['r1']);
+    expect(kind?.waitsFor?.(lap, [{ ...reopen, status: 'failed' }, lap])).toEqual(['r1']);
+  });
+
+  it('a failed reopen holds nothing after it', async () => {
+    const { outbox, sent, queue, ids } = setup((b) =>
+      b.id === 'o1' ? problem(409, 'conflict') : ok(b.id),
+    );
+    await queue(reopen, lap);
+    await outbox.flush();
+    expect(sent).toEqual(['o1', 'l2']);
+    expect(await ids()).toEqual(['o1:failed']);
+  });
+
+  it('a finish enqueued after a pending reopen waits for it and for the re-stop', () => {
+    const kind = OUTBOX_KINDS[RUN_EVENT];
+    const restop = runItem('stop', { id: 's2', run: 'r1', at: T0 + 5000 });
+    const finish = runItem('finish', { id: 'f1', run: 'r1', at: T0 + 6000, answers: {} });
+    expect(kind?.waitsFor?.(finish, [reopen, restop, finish])).toEqual(['r1', 's2', 'o1']);
+  });
+
+  it('k6-not-on-revert: a discard after a queued reopen is appended, never coalesced', async () => {
+    const discard = runItem('discard', { id: 'd1', run: 'r1', at: T0 + 5000 });
+    const { outbox, queue, ids } = setup(() => new Error('offline'));
+    await queue(start, stop, reopen, discard);
+    expect(await ids()).toEqual(['r1:pending', 's1:pending', 'o1:pending', 'd1:pending']);
+    expect(await outbox.get('d1')).toBeDefined();
+  });
+
+  it('K6 still drops a never-sent run as a whole, remove items included', async () => {
+    const discard = runItem('discard', { id: 'd1', run: 'r1', at: T0 + 5000 });
+    const { queue, ids } = setup(() => new Error('offline'));
+    await queue(start, pause, remove, discard);
+    expect(await ids()).toEqual([]);
+  });
+});
+
+describe('reopen and re-stop against the fake run server', () => {
+  async function onFake() {
+    const { fakeRunServer } = await import('../../test/fakeRunServer');
+    const { timedTopic } = await import('../../test/runUi');
+    const fixture = timedTopic({ questions: [] });
+    const server = fakeRunServer(fixture.topic, fixture.versions);
+    const t = { now: T0 };
+    const outbox = createOutbox({
+      kinds: OUTBOX_KINDS,
+      store: memoryOutboxStore(),
+      fetch: server.fetch,
+      now: () => t.now,
+      random: () => 0.5,
+      channelName: null,
+    });
+    const item = (type: RunEventPayload['event']['type'], id: string, at: number, extra = {}) => {
+      const i = runItem(type, { id, run: 'r1', at, ...extra });
+      i.payload.topic = { ...TOPIC, id: fixture.topic.id };
+      if (type === 'start') i.payload.event.topic_id = fixture.topic.id;
+      return i;
+    };
+    const queue = async (...items: OutboxItem<RunEventPayload>[]) => {
+      for (const i of items) await outbox.enqueue(RUN_EVENT, i.payload, { id: i.id });
+    };
+    return { server, outbox, item, queue };
+  }
+
+  it('reopen, lap and re-stop update the one entry; a second reopen is not_stopped', async () => {
+    const { server, outbox, item, queue } = await onFake();
+    await queue(item('start', 'r1', T0), item('stop', 's1', T0 + 60_000));
+    await outbox.flush();
+    expect(server.runs.get('r1')?.status).toBe('stopped');
+    expect(server.entries).toHaveLength(1);
+    await queue(
+      item('reopen', 'o1', T0 + 90_000, { target: 's1' }),
+      item('reopen', 'o2', T0 + 90_001, { target: 's1' }),
+    );
+    await outbox.flush();
+    expect(server.runOut('r1').status).toBe('running');
+    expect(server.runOut('r1').state.effects.o2).toEqual({ effect: 'void', reason: 'not_stopped' });
+    await queue(item('stop', 's2', T0 + 120_000));
+    await outbox.flush();
+    expect(server.runs.get('r1')?.status).toBe('stopped');
+    expect(server.entries).toHaveLength(1);
+    expect(server.entries[0]).toMatchObject({
+      revision: 2,
+      timing: { paused_ms: 30_000, terminal_id: 's2' },
+    });
+  });
+
+  it("another device's reopen lists the run open; its revert by discard restores the entry", async () => {
+    const { server, outbox, item, queue } = await onFake();
+    await queue(item('start', 'r1', T0), item('stop', 's1', T0 + 60_000));
+    await outbox.flush();
+    server.reopenElsewhere('r1', T0 + 90_000);
+    const listed = (await (await server.fetch('/api/v1/runs')).json()) as { id: string }[];
+    expect(listed.map((r) => r.id)).toEqual(['r1']);
+    server.record('r1', { id: 'd9', type: 'discard', at: formatInstant(T0 + 100_000) });
+    expect(server.runs.get('r1')?.status).toBe('stopped');
+    expect(server.runOut('r1').state.terminal_id).toBe('s1');
+    expect(server.entries[0]?.timing?.terminal_id).toBe('s1');
+  });
+
+  it('a reopen while the topic has another open run is 409 conflict, nothing stored', async () => {
+    const { server, outbox, item, queue } = await onFake();
+    await queue(item('start', 'r1', T0), item('stop', 's1', T0 + 60_000));
+    await outbox.flush();
+    const other = item('start', 'r2', T0 + 70_000);
+    other.payload.run_id = 'r2';
+    await queue(other);
+    await outbox.flush();
+    await queue(item('reopen', 'o1', T0 + 90_000, { target: 's1' }));
+    await outbox.flush();
+    expect((await outbox.get('o1'))?.status).toBe('failed');
+    expect(server.runOut('r1').events.map((e) => e.id)).toEqual(['r1', 's1']);
+  });
+
+  it('a remove on a stopped run merges into its entry (revision bumped)', async () => {
+    const { server, outbox, item, queue } = await onFake();
+    await queue(
+      item('start', 'r1', T0),
+      item('pause', 'p1', T0 + 10_000),
+      item('resume', 'u1', T0 + 20_000, { pause_id: 'p1' }),
+      item('stop', 's1', T0 + 60_000),
+    );
+    await outbox.flush();
+    await queue(item('remove', 'x1', T0 + 90_000, { target: 'p1' }));
+    await outbox.flush();
+    expect(server.entries[0]).toMatchObject({ revision: 2, timing: { paused_ms: 0, pauses: [] } });
+  });
+});
