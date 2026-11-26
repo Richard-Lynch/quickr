@@ -16,7 +16,14 @@ import entriesRaw from '../../../../shared/fixtures/api/listEntries.json?raw';
 import seriesRaw from '../../../../shared/fixtures/api/getQuestionSeries.json?raw';
 import enumSeriesRaw from '../../../../shared/fixtures/api/getQuestionSeries.enum.json?raw';
 import vectorsRaw from '../../../../shared/fixtures/timing-stats-vectors.json?raw';
-import type { EntryPage, QuestionSeries, TimerInput, TopicDetail, TopicStats, TopicTiming } from '../../client';
+import type {
+  EntryPage,
+  QuestionSeries,
+  TimerInput,
+  TopicDetail,
+  TopicStats,
+  TopicTiming,
+} from '../../client';
 import { client } from '../../client/client.gen';
 import { activityStrip, localDay, localMidnight } from '../../components/charts/timingModels';
 import { ToastProvider } from '../../components/ui/Toast';

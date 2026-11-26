@@ -77,7 +77,10 @@ def test_timing_part_is_the_active_duration() -> None:
 
 def test_untyped_laps_are_counted_with_the_plural() -> None:
     assert timing_summary(lap_timing(760_000), None) == "12:40 · 1 lap"
-    assert timing_summary(lap_timing(300_000, 460_000), Timer(steps=[])) == "12:40 · 2 laps"
+    assert (
+        timing_summary(lap_timing(300_000, 460_000), Timer(steps=[], laps=[], variables=[]))
+        == "12:40 · 2 laps"
+    )
 
 
 def test_step_segments_are_not_laps() -> None:
@@ -206,7 +209,10 @@ def test_line_is_timing_then_answers_in_question_order() -> None:
         entry_summary(answers, lap_timing(760_000), questions, None)
         == "12:40 · 1 lap · Weight: 72 kg · Note: walked"
     )
-    assert entry_summary(answers, None, questions, Timer(steps=[])) == "Weight: 72 kg · Note: walked"
+    assert (
+        entry_summary(answers, None, questions, Timer(steps=[], laps=[], variables=[]))
+        == "Weight: 72 kg · Note: walked"
+    )
     assert entry_summary(answers[:1], None, questions[:1], None) == ""
     assert entry_summary([], None, [], None) == ""
 

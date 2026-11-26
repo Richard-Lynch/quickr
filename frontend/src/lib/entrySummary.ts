@@ -5,7 +5,7 @@
  * `backend/app/services/summary.py`, pinned to the same text by
  * `shared/fixtures/entry-summary-vectors.json` (`entrySummary.vectors.test.ts`).
  */
-import type { EntryOut, Timer, Timing, TimingSegment } from '../client';
+import type { EntryOut, TimerOutput as Timer, Timing, TimingSegment } from '../client';
 import type { Question } from './questions';
 import { fmtDuration } from './runs/format';
 

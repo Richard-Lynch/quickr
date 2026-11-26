@@ -1013,7 +1013,7 @@ export type FeedRun = {
  * FeedTopic
  *
  * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
- * ``due``) are not re-sent when entries change: clients recompute them from entries.
+ * ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries.
  */
 export type FeedTopic = {
     /**
@@ -2864,6 +2864,10 @@ export type TopicDetail = {
      */
     timer: TimerOutput | null;
     /**
+     * The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change.
+     */
+    last_entry: EntryOut | null;
+    /**
      * Questions
      */
     questions: Array<IntQuestionOutput | DoubleQuestionOutput | StrQuestionOutput | EnumQuestionOutput>;
@@ -3005,6 +3009,10 @@ export type TopicSummary = {
      * The current version's timer; null when the topic is not timed.
      */
     timer: TimerOutput | null;
+    /**
+     * The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change.
+     */
+    last_entry: EntryOut | null;
 };
 
 /**

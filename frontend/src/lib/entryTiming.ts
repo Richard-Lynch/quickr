@@ -3,7 +3,7 @@
  * timing chip and the detail's rows, segments and pauses in one list in time order. The twin
  * of iOS `QuickrCore/Entries/EntryTimingModel.swift`.
  */
-import type { Timer, Timing, TimingPause, TimingSegment } from '../client';
+import type { TimerOutput as Timer, Timing, TimingPause, TimingSegment } from '../client';
 import { timingSummary } from './entrySummary';
 import { parseInstant } from './runs/instant';
 

@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 
 import raw from '../../../shared/fixtures/entry-summary-vectors.json?raw';
-import type { Timer, Timing } from '../client';
+import type { TimerOutput as Timer, Timing } from '../client';
 import { formatAnswer } from './answerDisplay';
 import {
   answerText,

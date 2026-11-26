@@ -1334,6 +1334,7 @@ export const zTopicDetail = z.object({
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
     timer: zTimerOutput.nullable(),
+    last_entry: zEntryOut.nullable(),
     questions: z.array(z.union([
         zIntQuestionOutput,
         zDoubleQuestionOutput,
@@ -1346,7 +1347,7 @@ export const zTopicDetail = z.object({
  * FeedTopic
  *
  * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
- * ``due``) are not re-sent when entries change: clients recompute them from entries.
+ * ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries.
  */
 export const zFeedTopic = z.object({
     kind: z.literal('topic').default('topic'),
@@ -1377,7 +1378,8 @@ export const zTopicSummary = z.object({
     ]).nullable(),
     schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
     due: zDueStatus.nullable(),
-    timer: zTimerOutput.nullable()
+    timer: zTimerOutput.nullable(),
+    last_entry: zEntryOut.nullable()
 });
 
 /**

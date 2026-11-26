@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type { EntryOut, Timer } from '../../client';
+import type { EntryOut, TimerOutput as Timer } from '../../client';
 import { entrySummary } from '../../lib/entrySummary';
 import type { Question } from '../../lib/questions';
 

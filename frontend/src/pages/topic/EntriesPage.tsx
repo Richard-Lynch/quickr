@@ -8,7 +8,7 @@ import {
   listEntriesInfiniteOptions,
   listTopicVersionsOptions,
 } from '../../client/@tanstack/react-query.gen';
-import type { EntryOut, Timer, TopicDetail, TopicVersionOut } from '../../client';
+import type { EntryOut, TimerOutput as Timer, TopicDetail, TopicVersionOut } from '../../client';
 import { ChannelBadge } from '../../components/ChannelBadge';
 import { FilterBar } from '../../components/FilterBar';
 import { pendingTimedEntries } from '../../components/runs/model';
