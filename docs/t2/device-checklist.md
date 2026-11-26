@@ -87,9 +87,9 @@ couldn't plan is missed, not fired late (timers2.md §9.1).
       watch. Expected: at 30 s of `Rest 1` a banner `Intervals` / "Half way ·
       Rest 1" with sound and the alert haptic (foreground presentation is
       `.banner, .sound`); at 60 s "Done · Rest 1"; both fire within about 1 s
-      of the run screen's segment timer reading 0:30 and 1:00, and both are
-      grouped under the topic in Notification Center. Spec: timers2.md §9.1,
-      §12.3 R23.
+      of the run screen's segment timer reading 0:30 and 1:00 (the banner
+      only: foreground alerts are not listed in Notification Center). Spec:
+      timers2.md §9.1, §12.3 R23.
 - [ ] **Locked-screen lap alert, sound and haptic.** Build: `v0.4.0`. Setup:
       the common setup, no Focus on. Steps: start `Intervals`, tap Lap so the
       open lap is `Rest 1`, lock the phone at once and leave it. Expected: at
