@@ -1,7 +1,8 @@
 /**
  * The run UI end to end against a fake server (timers-plan.md F-RUN acceptance): start →
  * Next → Skip → Pause → Resume → Stop → answers → Save, checking every request, and a
- * void reply's notice (§11.4).
+ * void reply's notice (§11.4). The taps go through `RunControls` (active-surfaces.md §6.1):
+ * the primary, Stop and Pause/Resume beside it, Skip and Discard in "More".
  */
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -20,6 +21,13 @@ afterEach(async () => {
 });
 
 const types = (hh: Harness) => hh.server.events().map((e) => e.type);
+
+/** Open the panel's "More" sheet and tap `name` in it. */
+async function fromMore(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(screen.getByRole('button', { name: 'More' }));
+  const list = await screen.findByRole('list', { name: 'More run actions' });
+  await user.click(within(list).getByRole('button', { name }));
+}
 
 /** Wait until the server has seen `n` run events. */
 async function sent(hh: Harness, n: number) {
@@ -41,7 +49,7 @@ describe('the run panel, scripted', () => {
     await sent(h, 2);
     expect(await screen.findByTestId('segment-label')).toHaveTextContent('Breakfast');
 
-    await user.click(screen.getByRole('button', { name: 'Skip Breakfast' }));
+    await fromMore(user, 'Skip Breakfast');
     await sent(h, 3);
     // Skip relabels the open segment: the time since the last mark is Teeth's (§4.2).
     await waitFor(() => expect(screen.getByTestId('segment-label')).toHaveTextContent('Teeth'));
@@ -51,10 +59,16 @@ describe('the run panel, scripted', () => {
     await user.click(await screen.findByRole('button', { name: 'Resume' }));
     await sent(h, 5);
 
-    // On the last step the primary button is Stop (§11.1).
+    // On the last step the primary is Lap, and Stop is a secondary (active-surfaces.md §1.2).
     await screen.findByRole('button', { name: 'Pause' });
     expect(screen.queryByRole('button', { name: /^Next/ })).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Stop' }));
+    expect(screen.getByTestId('run-primary')).toHaveAccessibleName('Lap');
+    expect(screen.getByTestId('run-stop')).toHaveAccessibleName('Stop Morning');
+    // The table has no buttons (D-3).
+    expect(within(screen.getByRole('list', { name: 'Steps' })).queryAllByRole('button')).toEqual(
+      [],
+    );
+    await user.click(screen.getByRole('button', { name: 'Stop Morning' }));
     await sent(h, 6);
 
     // A required question: the run is finishing, and the answers form opens.
@@ -93,10 +107,12 @@ describe('the run panel, scripted', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
-    // No steps: Lap and Stop (§11.1).
-    await user.click(await screen.findByRole('button', { name: 'Lap' }));
+    // No steps (a lap topic): Lap is the primary, Stop beside it (active-surfaces.md §1.2).
+    const primary = await screen.findByTestId('run-primary');
+    expect(primary).toHaveAccessibleName('Lap');
+    await user.click(primary);
     await sent(h, 2);
-    await user.click(screen.getByRole('button', { name: 'Stop' }));
+    await user.click(screen.getByRole('button', { name: 'Stop Morning' }));
     await sent(h, 3);
     expect(await screen.findByText(/^Saved Morning: \d+:\d\d$/)).toBeInTheDocument();
     expect(types(h)).toEqual(['start', 'lap', 'stop']);
@@ -108,7 +124,8 @@ describe('the run panel, scripted', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
-    await user.click(await screen.findByRole('button', { name: 'Discard' }));
+    await screen.findByTestId('run-primary');
+    await fromMore(user, 'Discard run');
     const dialog = await screen.findByRole('dialog');
     expect(h.server.events()).toHaveLength(1);
     await user.click(within(dialog).getByRole('button', { name: 'Discard' }));
@@ -234,26 +251,27 @@ describe('double taps, within one render (review H1): `expect` only, cooldown of
     expect(types(h)).toEqual(['start', 'next']);
   });
 
-  it('(cooldown on) a Stop that replaced Next under the finger is ignored, then accepted', async () => {
+  it('(cooldown on) a Lap that replaced Next under the finger is ignored, then accepted', async () => {
     h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
     setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
     fireEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
-    // The screen caught up: the same button now says Stop (the only Stop). A tap right away
+    // The screen caught up: the same button now says Lap (the last step). A tap right away
     // is ignored.
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^Next/ })).toBeNull();
-      expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
+      expect(screen.getByTestId('run-primary')).toHaveAccessibleName('Lap');
+      expect(screen.getByTestId('run-primary')).toBeEnabled();
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    fireEvent.click(screen.getByTestId('run-primary'));
     await sent(h, 2);
     await settle();
     expect(types(h)).toEqual(['start', 'next']);
     await new Promise((r) => setTimeout(r, RUN_TAP_COOLDOWN_MS));
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    fireEvent.click(screen.getByTestId('run-primary'));
     await sent(h, 3);
-    expect(types(h)).toEqual(['start', 'next', 'stop']);
+    expect(types(h)).toEqual(['start', 'next', 'lap']);
   });
 
   it('Pause twice pauses once (no resume)', async () => {
@@ -286,14 +304,15 @@ describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
     expect(types(h)).toEqual(['start', 'next']);
   });
 
-  it('the last Next twice doesn’t stop the run', async () => {
+  it('the last Next twice doesn’t add a lap', async () => {
     h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
     setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
     await userEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
     await gap();
-    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    // The primary under the finger is Lap now; Stop is never there (§1.2).
+    await userEvent.click(await screen.findByRole('button', { name: 'Lap' }));
     await settle();
     expect(types(h)).toEqual(['start', 'next']);
   });
@@ -338,12 +357,39 @@ describe('double taps, ~100 ms apart (review H1): the cooldown', () => {
 });
 
 describe('the panel’s controls', () => {
-  it('Skip is disabled with nothing to skip (no steps)', async () => {
+  it('no steps: no Skip, and More holds only Discard run', async () => {
     h = renderRunApp('/t/morning/record', timedTopic({ steps: [], questions: [] }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
-    expect(await screen.findByRole('button', { name: 'Skip' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Lap' })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Lap' })).toBeEnabled());
+    expect(screen.queryByRole('button', { name: /^Skip/ })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'More' }));
+    const list = await screen.findByRole('list', { name: 'More run actions' });
+    expect(
+      within(list)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Discard run']);
+  });
+
+  it('each control renders once, and the table has none', async () => {
+    h = renderRunApp('/t/morning/record', timedTopic());
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start' }));
+    await sent(h, 1);
+    const panel = await screen.findByRole('group', { name: 'Run controls' });
+    await waitFor(() => expect(within(panel).getByTestId('run-primary')).toBeEnabled());
+    expect(
+      within(panel)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual(['Next: Breakfast', 'Stop Morning', 'Pause', 'More']);
+    expect(screen.queryByRole('button', { name: 'Lap' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Discard/ })).toBeNull();
+    expect(within(screen.getByRole('list', { name: 'Steps' })).queryAllByRole('button')).toEqual(
+      [],
+    );
   });
 
   it('a stopped run’s optional details form has no Discard', async () => {
@@ -351,7 +397,7 @@ describe('the panel’s controls', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
     // Wait out the start's ack before the stop, so the run is stopped, not finishing.
-    await userEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Stop Morning' }));
     await sent(h, 2);
     expect(await screen.findByRole('heading', { name: 'Details' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Discard run' })).toBeNull();

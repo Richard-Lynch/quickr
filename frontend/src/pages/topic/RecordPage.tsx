@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router';
 
 import { ENTRY_NOT_SAVED, lastEntryOptions, useRecordEntry } from '../../api/entries';
 import { useUndoLog } from '../../api/quickLog';
-import type { TopicDetail, TopicVersionOut } from '../../client';
+import type { EntryOut, TopicDetail, TopicVersionOut } from '../../client';
 import { canGoBack, Page, TopBar } from '../../components/AppShell';
 import { EntryForm, type EntryFormValues, type Prefill } from '../../components/answers/EntryForm';
 import { OfflineNotice } from '../../components/pwa/Sync';
@@ -14,9 +14,10 @@ import {
   useRunContext,
   useTopicVersions,
 } from '../../components/runs/context';
-import { activeMs } from '../../components/runs/model';
+import { activeMs, resumable } from '../../components/runs/model';
+import { useServerNow } from '../../components/runs/RunClock';
 import { RunDetailsForm } from '../../components/runs/RunDetailsForm';
-import { RunPanel, RunStart } from '../../components/runs/RunPanel';
+import { RunPanel, RunStart, type ReopenOffer } from '../../components/runs/RunPanel';
 import { useRunActions, type FinishResult } from '../../components/runs/useRunActions';
 import { ButtonLink } from '../../components/ui/Button';
 import { Banner, VersionTag } from '../../components/ui/Card';
@@ -157,6 +158,32 @@ function questionsOf(
 }
 
 /**
+ * Resume of `entry`'s run under Start while it is `resumable` (active-surfaces.md §2.4,
+ * §6.3). Its target is `entry.timing.terminal_id` (timers2.md §3.3), sent as a `reopen` tap.
+ *
+ * Seam, pending T2-M1: `Timing.terminal_id` (F1-CORE) and the `reopen` tap type (F1-OUTBOX)
+ * aren't on this branch, so nothing is offered (and `resumable` is still false). With them:
+ * `{ topic, totalMs: entry.timing.active_ms, onReopen: () => tap(target) }`.
+ */
+function reopenOf(entry: EntryOut | undefined, now: number): ReopenOffer | null {
+  if (!entry?.timing || !resumable(entry, now)) return null;
+  return null;
+}
+
+/**
+ * The toast's Resume after a Stop that saved the entry (§6.3): the same reopen as
+ * `reopenOf`, for 15 minutes (OQ-1). Seam, pending T2-M1: the stop's entry is not an
+ * `EntryOut` here until the reply lands (the optimistic entry has no `terminal_id`), and
+ * there is no `reopen` tap yet; with them it takes that entry and returns `reopenOf(entry, now)`.
+ */
+function reopenOfStop(): ReopenOffer | null {
+  return null;
+}
+
+/** OQ-1: how long the stop toast offers Resume. */
+const RESUME_WINDOW_MS = 15 * 60_000;
+
+/**
  * A timed topic's Record page: the run panel while a run is open, the answers form after
  * Stop (`?finish={run id}&v={version}`) or for a finishing run ("Add details"), and Start
  * otherwise (timers.md §11.5).
@@ -196,6 +223,10 @@ function TimedRecord({
   const shown: LocalRun | undefined = details ? details.run : open;
   const runCtx = useRunContext(shown, ref);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // The latest entry, for Resume under Start (§6.3); idle only.
+  const idle = !details && !open;
+  const last = useQuery({ ...lastEntryOptions(topic.slug), enabled: idle });
+  const now = useServerNow(false);
 
   const title = (
     <span className="flex items-center gap-2">
@@ -268,6 +299,7 @@ function TimedRecord({
       <RunPanel
         run={open}
         ctx={runCtx}
+        topic={topic.name}
         actions={actions}
         onStopped={(run, _item, totalMs) => {
           // Questions not known yet: open the form, which waits for them (as the tile does).
@@ -276,7 +308,16 @@ function TimedRecord({
             setParams({ finish: run.id, v: String(run.version) }, { replace: true });
             return;
           }
-          toast({ title: `Saved ${topic.name}: ${fmtDuration(totalMs)}` });
+          const reopen = reopenOfStop();
+          toast({
+            title: `Saved ${topic.name}: ${fmtDuration(totalMs)}`,
+            ...(reopen
+              ? {
+                  duration: RESUME_WINDOW_MS,
+                  action: { label: 'Resume', onClick: reopen.onReopen },
+                }
+              : {}),
+          });
           leave();
         }}
         onDiscarded={() => {
@@ -296,6 +337,7 @@ function TimedRecord({
         onStart={() => {
           if (ctx) void actions.start(ctx);
         }}
+        reopen={archived ? null : reopenOf(last.data?.items[0], now)}
         note={
           ctx === null && !archived ? (
             <p className="text-center text-sm text-muted">
