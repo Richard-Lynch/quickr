@@ -141,6 +141,7 @@ describe('removeControl (content-display.md §3.2)', () => {
     opened(segment('lap', 20, 30), 'next', 'e2'),
     opened(segment('step', 30, 40), 'next', 'e3'),
     opened(segment('lap', 40, 50), 'lap', null),
+    opened(segment('lap', 50, 60), 'skip', 'e5'),
   ]);
   t.pauses = [
     { start: at(12), end: at(14), id: 'p0' },
@@ -157,8 +158,10 @@ describe('removeControl (content-display.md §3.2)', () => {
     expect(control('pause', 0)).toEqual({ kind: 'remove', target: 'p0' });
   });
 
-  it('is disabled on a lap a next opened, and absent on the first segment, a step and null ids', () => {
+  it('is disabled on a lap a next or skip opened, and absent on the first segment, a step and null ids', () => {
+    // Only a `lap` event's boundary can be removed (M1's entryIds / RunWrites.entryTargets).
     expect(control('segment', 2)).toEqual({ kind: 'disabled' });
+    expect(control('segment', 5)).toEqual({ kind: 'disabled' });
     expect(control('segment', 0)).toEqual({ kind: 'none' });
     expect(control('segment', 3)).toEqual({ kind: 'none' });
     expect(control('segment', 4)).toEqual({ kind: 'none' });

@@ -237,7 +237,7 @@ export function TimingSection({ entry, steps, laps = [], ctx = null, now = Date.
         disabled={control.kind === 'disabled' || tapping !== null}
         title={
           control.kind === 'disabled'
-            ? 'This lap follows the last step: change it with Edit times'
+            ? 'This lap starts at a step boundary: change it with Edit times'
             : `Remove ${name}`
         }
         className="-my-1.5 hover:bg-danger-soft hover:text-danger"
