@@ -28,3 +28,18 @@ The pending-tag fix sends valid uncommitted text and blocks invalid text, and th
 ### Resolution
 
 1. Medium, `appearanceDirty` used String equality: fixed in the next commit. `AppearanceDraft.differs(from:)` compares code points and counts pending tag text. `aRespelledTagIsAChange` now asserts `detailsDirty`.
+
+## Phase 2 (diff origin/t2/m3a-i3store...69b5af63, stacked on I3-STORE)
+
+- **Medium — A synced appearance change discards unsaved details and appearance edits.** [TopicSettingsModel.swift:88](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/QuickrKit/Sources/QuickrUI/Topics/TopicSettingsModel.swift:88) calls `resetDetails()` whenever an incoming topic has a different appearance. If another device changes the colour while the user has a name, emoji, or tag edit in progress, the sync silently replaces the whole draft and clears its errors. The revision check cannot protect those edits because they are lost before Save. Preserve the draft when it is dirty and surface the conflict.
+
+- **Medium — A synced tag spelling change can leave the editor showing stale data.** [TopicSettingsModel.swift:92](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/QuickrKit/Sources/QuickrUI/Topics/TopicSettingsModel.swift:92) compares appearances using Swift’s canonical-equivalent string equality. If a remote change replaces `café` with `cafe\u{301}`, `topic` advances to the new spelling but the editor is not refreshed. The old spelling then appears dirty and a subsequent save can restore it, changing the exact tag-filter value. Compare tag scalar spelling when deciding whether the incoming appearance changed, and test the sync path.
+
+The shared-vector tests exercise icon and tag outcomes and stored forms, including the amended emoji cases. The model tests cover combined details and appearance changes, revision propagation through the writer seam, and explicit clears. The `SessionTopicWriter` routing matches the requested one-PATCH flow by inspection, but the new tests use a fake writer and do not verify that concrete wiring.
+
+I did not run the tests in this read-only review.
+### Resolution
+
+1. Medium, a synced appearance change resets unsaved edits: stands, justified. This is the Details section's existing rule, documented on `topicChanged`: like the PWA's forms, which are keyed by the saved values, a section whose saved values changed starts over from them. Name, slug and description already behave this way, and appearance is part of the same section and the same PATCH. When a sync arrives between the read and the Save, `expected_revision` turns the Save into `staleRevision`. Surfacing a merge conflict would be a new UX for every section, so it is out of scope here.
+2. Medium, a synced tag respelling not detected: fixed (f9a22925). `topicChanged` compares code points through `AppearanceDraft.differs(from:)`. Test `aRespelledTagFromASyncResetsTheEditor`.
+3. Note, the `SessionTopicWriter` routing is untested by host tests: it is two lines over I3-STORE's `TopicWrites.updateAppearance` / `TopicRequests.create(_:schedule:appearance:)`, which `TopicWritesTests` and `RequestGoldenTests` cover. The concrete path also runs in the UI classes on the simulator (fake server PATCH).
