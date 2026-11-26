@@ -88,3 +88,17 @@ The prior review’s pending Resume and Undo resume integration seams are justif
    disables the panel's controls for the rest of that topic's cooldown. New test: "a tap on the
    running bar leaves the panel disabled until its cooldown ends". Both cooldown tests fail when
    the panel ignores the cooldown (mutation checked, then restored from a copy).
+
+---
+
+## Round 5 (output verbatim)
+
+1. **[P2] The More dialog has no accessible name** — [RunControls.tsx:166](/Users/richie/code/quickr-worktrees/t2-m2-fcontrols/frontend/src/components/runs/RunControls.tsx:166). The new sheet displays a “More” heading, but `Sheet` does not associate that heading with its `<dialog>` using `aria-labelledby` or provide an `aria-label`. Screen reader users opening the overflow therefore encounter an unnamed dialog. Add an accessible name and test it.
+## Resolutions (f2-controls, round 5)
+
+1. **Stands here; filed as #167 (`t2-followup`).** `Sheet` (`components/ui/Sheet.tsx`, shared UI
+   outside this WP's areas) never ties its title to the `<dialog>`. Every sheet in the app,
+   `ConfirmSheet` and the v1 run panel's discard confirmation included, is unnamed today. The fix
+   (`useId` + `aria-labelledby`) belongs in `Sheet` for all of them, not in a per-sheet
+   workaround. Until then the More sheet's list is named "More run actions" and each item has
+   its §1.3 accessible name.
