@@ -103,13 +103,16 @@ sparklines), so those start at once: 14 WPs, same scope.
 ### M4-STATS · typed summary cases and stats inputs · be · S
 
 - **Scope:** typed-lap cases in `entry-summary-vectors.json` (needs fold v4's
-  `lap_type` on `TimingSegment`); `stats-vectors.json` regenerated with a
-  typed-timing topic as input for the chart generator. **No new endpoint**: the
+  `lap_type` on `TimingSegment`) and the three summary ports switched from
+  stand-ins to M1's fields. The chart generator's typed input is
+  `timing-stats-vectors.json` v3 (content-display.md §4.1, from M1-FOLD);
+  `stats-vectors.json` stays unchanged (amended 2026-11-26: it records API
+  responses, and `getTopicTiming` exposes no `lap_types` until M1-MCP). **No new endpoint**: the
   activity strip is computed client-side from entries (content-display.md §4.2)
   and the lap-type figures come from `getTopicTiming.lap_types` (M1-MCP).
 - **Depends on:** M4-SUMMARY; M1-FOLD stack (shared branch).
 - **Acceptance:** the summary says `"Run 3 · Rest 3"` for a tiktok entry; the
-  stats input fixture carries a typed series.
+  chart generator's typed input is `timing-stats-vectors.json` v3.
 - **Tests:** vector drift.
 - **DoD:** the Acceptance above holds, proven by vector drift. Evidence in the
   PR: `cd backend && uv run pytest -q <the files above>` pass counts; when
