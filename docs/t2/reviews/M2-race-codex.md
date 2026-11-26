@@ -26,3 +26,7 @@ Codex r2 (re-review of 846b70e7..c59cb816):
 > 1. **[P1] A failed runs observation restores the unsafe Start state** — HomeModel.swift:207. If the initial runs read fails independently of the topics read, this marks runs as read and shows the list with an empty `runs` dictionary. An existing open or finishing run can then appear as an idle topic with an enabled Start button—the race this change is meant to prevent. The runs observation has also ended, so it cannot later correct the tile, and the user receives no error or retry action. Surface the failure and allow retry instead of treating it as a successful empty snapshot.
 
 **Resolution: fixed.** If the runs observation fails before its first value, the list stays back. The error is kept as `loadError`, and the topics' later emissions keep it set instead of clearing it. Home then shows its error banner with Retry, and the phase is `.failed` while nothing is loaded. Retry restarts `observe()`. `theListWaitsForTheRuns` now checks the failure (`phase == .failed`, not loaded) and the retry that reads the runs.
+
+## Round 3
+
+Codex r3 on a197de71: "no findings".
