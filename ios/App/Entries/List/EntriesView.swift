@@ -346,7 +346,8 @@ private struct PendingEntryRow: View {
                 .font(.qr(.label))
                 .foregroundStyle(.qr.ink)
                 .fixedSize(horizontal: false, vertical: true)
-            // A queued run's entry shows its chip like a synced one (content-display.md §3.1).
+            // Its summary and, for a queued run's entry, its chip, like a synced row (§3.1).
+            EntrySummaryLine(row: row)
             TimingChip(row: row)
             AnswerGrid(entry: entry.entry, columns: columns, oneColumn: typeSize.isAccessibilitySize)
             if failed {
