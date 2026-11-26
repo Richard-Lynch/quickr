@@ -44,6 +44,9 @@ extension AppEnvironment {
         }
         let result = try await session.runWrites(store: store).tap(tap.tapType, runId: tap.runId, target: tap.target)
         await liveActivities.reconcile()
+        // T2-M1 (M1-REVIEW P1-2, timers2.md §9.1): the run alerts too, while the hold is held.
+        if result != nil { await rescheduleRunAlerts(store, session: session) }
+        // end T2-M1
         if result != nil { await flushAfterActivityTap(store, session: session) }
     }
 

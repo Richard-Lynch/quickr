@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 import mcp_types as mt
@@ -72,17 +72,23 @@ whether an entry is expected now, and `list_due_topics` lists the ones waiting.
 To change questions, call `check_topic_version` with the full new question list,
 then `publish_topic_version` with `base_version` = the topic's current_version.
 Question types can never change for a key and enum options can only be archived.
-A topic is timed when its current version has a `timer` ({steps: [{key, label}]};
-no steps is a plain stopwatch). `publish_topic_version` requires `timer`: pass the
-current version's (from `list_topic_versions`) to keep it, or null for untimed.
+A topic is timed when its current version has a `timer`:
+`{steps: [{key, label, alerts}], laps: [{key, label, alerts}], variables: [{name, ms}]}`.
+No steps is a plain stopwatch. `laps` names lap types: one renames laps ("Cig 1, Cig 2"),
+two or more cycle ("Run 1, Rest 1, Run 2"). An alert fires when a step's or lap's active
+time reaches `at`, an expression over the variables (`t/2`, `t+30s`); the server fills
+`at_ms`. `publish_topic_version` requires `timer`: pass the current version's (from
+`list_topic_versions`) to keep it, or null for untimed.
 
-Timing a timed topic: `start_run`, then `run_action` for each tap (next, lap, skip,
-pause, resume, stop), acting on what is open now. A stop makes the entry, or leaves
-the run `finishing` when required questions are unanswered: `run_action` finish with
-the answers then makes it. `list_runs` shows open and finishing runs. A stopped
-run's times are corrected with `edit_run_timing` on its entry (same id as the run);
-`update_entry` can't change a timed entry's captured_at. `record_entry` on a timed
-topic records an untimed entry.
+Timing: `start_run`, then `run_action` for each tap (next, lap, skip, pause, resume, stop),
+acting on what is open now. A stop makes the entry, or leaves the run `finishing` when
+required questions are unanswered: `run_action` finish with the answers then makes it. A
+stopped run can be resumed with `run_action` reopen (the gap becomes a pause); `run_action`
+remove with the id of a pause or lap event deletes it (a lap merges into the previous
+segment); discard after a reopen reverts it. `list_runs` shows open and finishing runs;
+`get_run` any run. A stopped run's times can also be replaced with `edit_run_timing` on its
+entry (same id as the run), after which late taps are ignored. `update_entry` can't change
+a timed entry's captured_at. `record_entry` on a timed topic records an untimed entry.
 """
 
 
@@ -215,15 +221,34 @@ async def list_topic_versions(ref: TopicRef) -> list[TopicVersionOut]:
         return await topic_svc.list_versions(db, ref)
 
 
+class _Unset:
+    """A tool argument left out, told apart from an explicit null."""
+
+
+_UNSET: Any = _Unset()
+
+
 @mcp.tool
 async def check_topic_version(
     ref: TopicRef,
     questions: QuestionList,
+    # A factory, not a default: the sentinel stays out of the JSON schema.
+    timer: Annotated[
+        Timer | None,
+        Field(
+            default_factory=lambda: _UNSET,
+            description="Optional: the draft's timer, or null for untimed. When given, a timer change "
+            "with no question changes is a change, as publishing treats it.",
+        ),
+    ],
     base_version: Annotated[int | None, Field(ge=1, description="Fail if the topic moved past this.")] = None,
 ) -> CompatibilityReport:
-    """Dry-run a new question list: returns changes, warnings and blocking errors."""
+    """Dry-run a new question list (and timer): returns changes, warnings and blocking errors."""
+    with_timer = timer is not _UNSET  # REST's `"timer" in body.model_fields_set`
     async with _db() as db:
-        return await topic_svc.check_version(db, ref, questions, base_version)
+        return await topic_svc.check_version(
+            db, ref, questions, base_version, timer=timer if with_timer else None, with_timer=with_timer
+        )
 
 
 @mcp.tool
@@ -337,7 +362,7 @@ async def question_series(
 
 # --- runs (docs/specs/timers.md §11.6) ----------------------------------------------------
 
-RunAction = Literal["next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+RunAction = Literal["next", "lap", "skip", "pause", "resume", "stop", "finish", "discard", "reopen", "remove"]
 TapAt = Annotated[
     AwareDatetime | None,
     Field(description="When it happened; defaults to now (server clock). At most 7 days back for a start."),
@@ -377,12 +402,22 @@ async def run_action(
     at: TapAt = None,
     answers: Annotated[AnswerMap | None, Field(description="stop and finish only.")] = None,
     notes: Annotated[str | None, Field(description="stop and finish only.")] = None,
+    target: Annotated[
+        UUID | None,
+        Field(
+            description="reopen and remove only. remove (required): the pause or lap event to delete. "
+            "reopen: the stop to reopen; defaults to the run's terminal stop (state.terminal_id)."
+        ),
+    ] = None,
 ) -> RunEventResult:
     """One tap on a run, against what is open now: next (the next step, or a lap after the
     last), lap, skip (the open step, or the next one during a lap), pause, resume, stop,
-    finish (the answers of a stopped or finishing run) or discard. A next, lap or skip with
-    nothing open, or a resume while not paused, is refused; other taps the run can't take
-    (a pause while paused, a second stop) are recorded with effect void."""
+    finish (the answers of a stopped or finishing run), discard (after a reopen: reverts it),
+    reopen (resumes a stopped run; the gap becomes a pause) or remove (deletes the pause or
+    lap event `target`; a lap merges into the previous segment). A next, lap or skip with
+    nothing open, a resume while not paused, or a reopen of a run that isn't stopped, is
+    refused; other taps the run can't take (a pause while paused, a second stop) are
+    recorded with effect void."""
     async with _db() as db:
         run = await run_svc.get_run(db, run_id)  # ends its read snapshot: the session is idle
         opened = run.state.open
@@ -402,6 +437,10 @@ async def run_action(
             pause_id = _open_pause(run)
             if pause_id is None:
                 raise InvalidRequest("the run isn't paused")
+        # timers2.md §7.3: without a target the server resolves the terminal stop, as REST's
+        # (`_terminal_stop`, which covers a state stored before fold v4 with no terminal_id).
+        if action == "reopen" and target is None and run.status not in ("stopped", "finishing"):
+            raise InvalidRequest(f"the run isn't stopped: it is {run.status}")
         if at is None:  # monotonic, as every client stamps its taps (timers.md §5.1)
             latest = max(e.at for e in run.events)
             at = max(run_svc.now(), latest + timedelta(milliseconds=1))
@@ -414,6 +453,7 @@ async def run_action(
             pause_id=pause_id,
             answers=answers,
             notes=notes,
+            target=target,
         )
         return await _record(db, run.id, body)
 
@@ -428,6 +468,16 @@ async def list_runs(
     """Open and finishing runs with their state, oldest start first. Stopped runs are entries."""
     async with _db() as db:
         return await run_svc.list_runs(db, [status] if status is not None else ["open", "finishing"])
+
+
+@mcp.tool
+async def get_run(
+    run_id: Annotated[UUID, Field(description="A run id, or the id of a start merged into it.")],
+) -> RunOut:
+    """One run in any status (a stopped one too), with its state and every event: a stopped
+    run's state.terminal_id is the stop a reopen acts on."""
+    async with _db() as db:
+        return await run_svc.get_run(db, run_id)
 
 
 @mcp.tool

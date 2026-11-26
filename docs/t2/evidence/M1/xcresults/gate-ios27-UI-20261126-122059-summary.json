@@ -1,0 +1,155 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "EBDB3CEF-02BD-410D-A9D4-FCB0CE6C50E4",
+        "deviceName" : "quickR iOS27 t2-m1-gate-f08e14",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "24A434",
+        "osVersion" : "27.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 2,
+      "passedTests" : 103,
+      "skippedTests" : 20,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 2,
+  "finishTime" : 1795699179.641,
+  "passedTests" : 103,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 20,
+  "startTime" : 1795695902.126,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 90,
+      "testIdentifierString" : "SettingsUITests/testOnboardingWithAServiceToken()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testOnboardingWithAServiceToken",
+      "testName" : "testOnboardingWithAServiceToken()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 92,
+      "testIdentifierString" : "SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain",
+      "testName" : "testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "15% of duration",
+      "text" : "3 longest test runs with outlier durations exceeding 95.96s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 125
+}

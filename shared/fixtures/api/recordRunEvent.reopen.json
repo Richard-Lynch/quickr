@@ -1,0 +1,115 @@
+{
+  "body": {
+    "entry": null,
+    "event": {
+      "effect": "applied",
+      "id": "0e000000-0000-4000-8000-000000000013",
+      "reason": null
+    },
+    "run": {
+      "aliases": [],
+      "edited": false,
+      "ended_at": null,
+      "events": [
+        {
+          "arrival": 11,
+          "at": "2026-03-04T11:10:00Z",
+          "effect": "applied",
+          "id": "0a000000-0000-4000-8000-000000000003",
+          "pause_id": null,
+          "reason": null,
+          "seg": null,
+          "source": "api",
+          "step": null,
+          "target": null,
+          "type": "start"
+        },
+        {
+          "arrival": 12,
+          "at": "2026-03-04T11:14:05.500000Z",
+          "effect": "applied",
+          "id": "0e000000-0000-4000-8000-000000000009",
+          "pause_id": null,
+          "reason": null,
+          "seg": null,
+          "source": "api",
+          "step": null,
+          "target": null,
+          "type": "stop"
+        },
+        {
+          "arrival": 16,
+          "at": "2026-03-04T11:15:00Z",
+          "effect": "applied",
+          "id": "0e000000-0000-4000-8000-000000000013",
+          "pause_id": null,
+          "reason": null,
+          "seg": null,
+          "source": "api",
+          "step": null,
+          "target": "0e000000-0000-4000-8000-000000000009",
+          "type": "reopen"
+        }
+      ],
+      "id": "0a000000-0000-4000-8000-000000000003",
+      "revision": 3,
+      "started_at": "2026-03-04T11:10:00Z",
+      "state": {
+        "effects": {
+          "0a000000-0000-4000-8000-000000000003": {
+            "effect": "applied",
+            "reason": null
+          },
+          "0e000000-0000-4000-8000-000000000009": {
+            "effect": "applied",
+            "reason": null
+          },
+          "0e000000-0000-4000-8000-000000000013": {
+            "effect": "applied",
+            "reason": null
+          }
+        },
+        "ended_at": null,
+        "lap_count": 0,
+        "next_lap_type": null,
+        "next_step": null,
+        "open": {
+          "index": 0,
+          "kind": "lap",
+          "label": "Lap 1",
+          "lap_type": null,
+          "started_at": "2026-03-04T11:10:00Z",
+          "step": null
+        },
+        "paused_since": null,
+        "pauses": [
+          {
+            "end": "2026-03-04T11:15:00Z",
+            "id": "0e000000-0000-4000-8000-000000000009",
+            "start": "2026-03-04T11:14:05.500000Z"
+          }
+        ],
+        "segments": [],
+        "skipped": [],
+        "started_at": "2026-03-04T11:10:00Z",
+        "status": "running",
+        "terminal_id": null
+      },
+      "status": "running",
+      "topic_id": "00000000-0000-4000-8000-000000000012",
+      "version": 1
+    }
+  },
+  "operation_id": "recordRunEvent",
+  "request": {
+    "body": {
+      "at": "2026-03-04T11:15:00Z",
+      "id": "0e000000-0000-4000-8000-000000000013",
+      "target": "0e000000-0000-4000-8000-000000000009",
+      "type": "reopen"
+    },
+    "method": "POST",
+    "path": "/api/v1/runs/0a000000-0000-4000-8000-000000000003/events"
+  },
+  "status": 200
+}

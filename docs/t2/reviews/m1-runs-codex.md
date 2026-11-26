@@ -1,0 +1,7 @@
+- **High — [runs.py:233](/Users/richie/code/quickr-worktrees/t2-m1-runs/backend/app/services/runs.py:233): Null-target reopen fails for pre-v2 stopped runs.** The resolution reads only `run.state["terminal_id"]`, but a run stopped before fold v4 can have no such key. The migration does not backfill it. A Resume from its v1 entry timing therefore stores a null target and is voided as `no_target`, even though §3.3 explicitly requires that request to reopen the current terminal. Resolving from the stored applied stop, as `_terminal_stop` already does for older state, would cover this case.
+
+- **Medium — [runs.py:281](/Users/richie/code/quickr-worktrees/t2-m1-runs/backend/app/services/runs.py:281): A changed reopen request can be accepted as a replay.** Any null-target reopen matches a stored reopen with the same ID and other fields, even if the original request explicitly targeted a stop. For example, after an explicit reopen of stop A and a subsequent re-stop at B, reusing that event ID with `target: null` returns 200 for the old event instead of a 409 for changed content. The stored resolved target alone does not preserve whether the original request supplied null.
+
+No low-severity findings.
+
+The review found no additional concrete issues in the requested writer ordering, tombstone, revision, timing-PATCH conflict, push-to-start, or Swift decode paths. I did not run the test suite; this was a diff and specification review.

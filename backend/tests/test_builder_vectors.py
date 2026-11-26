@@ -9,8 +9,10 @@ What the server decides about the question configs a client builds, so the iOS b
   names.
 * ``compat[]``: ``check_compatibility`` reports (``services/compat.py``) for the local
   pre-check that warns before ``versions/check``.
-* ``timers[]``: a version's timer (``{steps: [{key, label}]}``) and the locations where
-  ``Timer`` rejects it, so the steps editor accepts exactly what the server accepts.
+* ``timers[]``: a version's timer as a client sends it (timers2.md §1: steps, lap types,
+  variables and alerts; the v1 shape ``{steps: [{key, label}]}`` too) and the locations where
+  ``Timer`` rejects it, or the normalised timer it stores, so the timer editor accepts exactly
+  what the server accepts and publishes what the server would store.
 * ``slugs[]``: ``slugify`` (``services/topics.py``), which the builder pre-fills.
 
 ``QUICKR_UPDATE_VECTORS=1`` (``make vectors``) rewrites the file; otherwise the committed
@@ -36,7 +38,7 @@ from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases, updating
 
 PATH = FIXTURES_DIR / "builder-vectors.json"
 CASEFOLD_GENERATOR = FIXTURES_DIR.parents[1] / "ios" / "scripts" / "gen-casefold.py"
-GENERATOR_VERSION = 3
+GENERATOR_VERSION = 4
 
 adapter: TypeAdapter[list[Question]] = TypeAdapter(list[Question])
 
@@ -436,56 +438,142 @@ SLUG_INPUTS = [
 # --------------------------------------------------------------------------------------
 
 
-def step(key: str, label: str | None = None) -> dict[str, str]:
-    return {"key": key, "label": key.title() if label is None else label}
+def step(key: str, label: str | None = None, alerts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    out: dict[str, Any] = {"key": key, "label": key.title() if label is None else label}
+    if alerts is not None:
+        out["alerts"] = alerts
+    return out
 
 
-def steps(n: int) -> list[dict[str, str]]:
+def steps(n: int) -> list[dict[str, Any]]:
     return [step(f"step_{i}", f"Step {i}") for i in range(n)]
 
 
-TIMER_CASES: dict[str, list[dict[str, str]]] = {
-    "stopwatch": [],
-    "one-step": [step("load")],
-    "three-steps": [step("load"), step("run"), step("unload")],
-    "max-steps": steps(30),
-    "too-many-steps": steps(31),
-    "duplicate-key": [step("load"), step("run"), step("load", "Load again")],
-    "duplicate-keys-twice": [step("a"), step("a"), step("a")],
-    "duplicate-label-allowed": [step("first", "Rinse"), step("second", "Rinse")],
-    "key-uppercase": [step("Load", "Load")],
-    "key-leading-digit": [step("1st", "First")],
-    "key-hyphen": [step("load-up", "Load")],
-    "key-empty": [step("", "Load")],
-    "key-63": [step("k" * 63, "Long")],
-    "key-64": [step("k" * 64, "Long")],
-    "key-padded": [step(" load ", "Load")],
-    "label-empty": [step("load", "")],
-    "label-whitespace": [step("load", "   ")],
-    "label-padded": [step("load", "  Load  ")],
-    "label-200": [step("load", "x" * 200)],
-    "label-201": [step("load", "x" * 201)],
-    "label-200-emoji": [step("load", "\U0001f37d" * 200)],
-    "label-201-emoji": [step("load", "\U0001f37d" * 201)],
-    "label-200-padded": [step("load", " " + "x" * 200 + " ")],
-    "two-errors": [step("Bad", ""), step("ok")],
+def lap(key: str, label: str | None = None, alerts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    return {"key": key, "label": key.title() if label is None else label, "alerts": alerts or []}
+
+
+def var(name: str, ms: int) -> dict[str, Any]:
+    return {"name": name, "ms": ms}
+
+
+def alert(key: str, at: str, label: str | None = None, **kw: Any) -> dict[str, Any]:
+    return {"key": key, "label": key.title() if label is None else label, "at": at, **kw}
+
+
+def v2(
+    s: list[dict[str, Any]] | None = None,
+    laps: list[dict[str, Any]] | None = None,
+    variables: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    return {"steps": s or [], "laps": laps or [], "variables": variables or []}
+
+
+T = [var("t", 60_000)]
+EXPR_65 = "t+" * 32 + "t"
+
+TIMER_CASES: dict[str, dict[str, Any]] = {
+    **{
+        name: {"steps": s}
+        for name, s in {
+            "stopwatch": [],
+            "one-step": [step("load")],
+            "three-steps": [step("load"), step("run"), step("unload")],
+            "max-steps": steps(30),
+            "too-many-steps": steps(31),
+            "duplicate-key": [step("load"), step("run"), step("load", "Load again")],
+            "duplicate-keys-twice": [step("a"), step("a"), step("a")],
+            "duplicate-label-allowed": [step("first", "Rinse"), step("second", "Rinse")],
+            "key-uppercase": [step("Load", "Load")],
+            "key-leading-digit": [step("1st", "First")],
+            "key-hyphen": [step("load-up", "Load")],
+            "key-empty": [step("", "Load")],
+            "key-63": [step("k" * 63, "Long")],
+            "key-64": [step("k" * 64, "Long")],
+            "key-padded": [step(" load ", "Load")],
+            "label-empty": [step("load", "")],
+            "label-whitespace": [step("load", "   ")],
+            "label-padded": [step("load", "  Load  ")],
+            "label-200": [step("load", "x" * 200)],
+            "label-201": [step("load", "x" * 201)],
+            "label-200-emoji": [step("load", "\U0001f37d" * 200)],
+            "label-201-emoji": [step("load", "\U0001f37d" * 201)],
+            "label-200-padded": [step("load", " " + "x" * 200 + " ")],
+            "two-errors": [step("Bad", ""), step("ok")],
+        }.items()
+    },
+    # Timer v2 (timers2.md §1.3)
+    "laps-one-type": v2(laps=[lap("cig")]),
+    "laps-two-types": v2(laps=[lap("run"), lap("rest")]),
+    "laps-max": v2(laps=[lap(f"l{i}", f"L{i}") for i in range(8)]),
+    "laps-too-many": v2(laps=[lap(f"l{i}", f"L{i}") for i in range(9)]),
+    "lap-key-collides-with-step": v2([step("run")], laps=[lap("run")]),
+    "lap-key-collides-with-a-later-step": v2([step("warm"), step("run")], laps=[lap("rest"), lap("run")]),
+    "lap-key-duplicate": v2(laps=[lap("run"), lap("run", "Run again")]),
+    "lap-key-uppercase": v2(laps=[lap("Run", "Run")]),
+    "lap-label-empty": v2(laps=[lap("run", "")]),
+    "lap-label-64": v2(laps=[lap("run", "x" * 64)]),
+    "lap-label-65": v2(laps=[lap("run", "x" * 65)]),
+    "lap-label-padded": v2(laps=[lap("run", "  Run  ")]),
+    "steps-and-laps": v2([step("warm", "Warm up")], laps=[lap("run"), lap("rest")]),
+    "variables-max": v2(variables=[var(f"v{i}", 1000) for i in range(16)]),
+    "variables-too-many": v2(variables=[var(f"v{i}", 1000) for i in range(17)]),
+    "variable-name-uppercase-normalised": v2(variables=[var("T", 60_000)]),
+    "variable-name-duplicate-case": v2(variables=[var("t", 60_000), var("T", 120_000)]),
+    "variable-name-reserved-unit": v2(variables=[var("m", 60_000)]),
+    "variable-name-leading-digit": v2(variables=[var("2t", 60_000)]),
+    "variable-name-16": v2(variables=[var("v" * 16, 60_000)]),
+    "variable-name-17": v2(variables=[var("v" * 17, 60_000)]),
+    "variable-ms-zero": v2(variables=[var("t", 0)]),
+    "variable-ms-7d": v2(variables=[var("t", 604_800_000)]),
+    "variable-ms-negative": v2(variables=[var("t", -1)]),
+    "variable-ms-over-7d": v2(variables=[var("t", 604_800_001)]),
+    "alerts-max": v2(laps=[lap("run", alerts=[alert(f"a{i}", "1s") for i in range(8)])]),
+    "alerts-too-many": v2(laps=[lap("run", alerts=[alert(f"a{i}", "1s") for i in range(9)])]),
+    "alert-key-duplicate": v2(laps=[lap("run", alerts=[alert("a", "1s"), alert("a", "2s", "B")])]),
+    "alert-key-same-on-two-owners": v2(
+        [step("warm", alerts=[alert("go", "1s")])], laps=[lap("run", alerts=[alert("go", "2s")])]
+    ),
+    "alert-key-uppercase": v2(laps=[lap("run", alerts=[alert("Go", "1s", "Go")])]),
+    "alert-label-empty": v2(laps=[lap("run", alerts=[alert("a", "1s", "")])]),
+    "alert-label-65": v2(laps=[lap("run", alerts=[alert("a", "1s", "x" * 65)])]),
+    "alert-expr-syntax": v2(laps=[lap("run", alerts=[alert("a", "t+")])], variables=T),
+    "alert-expr-unknown-variable": v2(laps=[lap("run", alerts=[alert("a", "x/2")])], variables=T),
+    "alert-expr-type": v2(laps=[lap("run", alerts=[alert("a", "t+30")])], variables=T),
+    "alert-expr-empty": v2(laps=[lap("run", alerts=[alert("a", "")])], variables=T),
+    "alert-expr-65-chars": v2(laps=[lap("run", alerts=[alert("a", EXPR_65)])], variables=T),
+    "alert-expr-not-trimmed": v2(laps=[lap("run", alerts=[alert("a", " t / 2 ")])], variables=T),
+    "alert-expr-uppercase-variable": v2(laps=[lap("run", alerts=[alert("a", "T/2")])], variables=T),
+    "alert-expr-bad-variable-unknown": v2(
+        laps=[lap("run", alerts=[alert("a", "rest")])], variables=[*T, var("rest", -1)]
+    ),
+    "alert-on-step": v2([step("warm", alerts=[alert("go", "1m")])]),
+    "alert-at-ms-sent-ignored": v2(laps=[lap("run", alerts=[alert("a", "t/2", at_ms=1)])], variables=T),
+    "v1-shape-accepted": {"steps": [{"key": "load", "label": "Load"}]},
+    "output-normalised": {
+        "steps": [step("warm", " Warm up ")],
+        "laps": [
+            {"key": "run", "label": "Run", "alerts": [alert("half", "T/2", " Half "), alert("end", "t")]},
+            {"key": "rest", "label": " Rest "},
+        ],
+        "variables": [var("T", 60_000), var("rest", 30_000)],
+    },
 }
 
 
-def timer_errors(timer: dict[str, Any]) -> list[str]:
-    """Dotted locations (relative to the timer) where the server rejects it."""
+def timer_verdict(timer: dict[str, Any]) -> dict[str, Any]:
+    """Sorted dotted locations (relative to the timer) where the server rejects it, and the
+    normalised timer it stores when it doesn't."""
     try:
-        Timer.model_validate(timer)
+        parsed = Timer.model_validate(timer)
     except ValidationError as exc:
-        return sorted({".".join(str(p) for p in error_loc(e["loc"], e.get("ctx"))) for e in exc.errors()})
-    return []
+        errors = sorted({".".join(str(p) for p in error_loc(e["loc"], e.get("ctx"))) for e in exc.errors()})
+        return {"errors": errors, "timer": None}
+    return {"errors": [], "timer": parsed.model_dump(mode="json")}
 
 
 def timer_cases() -> list[dict[str, Any]]:
-    return [
-        {"name": name, "timer": {"steps": s}, "expected": {"errors": timer_errors({"steps": s})}}
-        for name, s in TIMER_CASES.items()
-    ]
+    return [{"name": name, "timer": t, "expected": timer_verdict(t)} for name, t in TIMER_CASES.items()]
 
 
 def casefold_table() -> list[list[Any]]:
@@ -516,9 +604,12 @@ def build() -> dict[str, Any]:
                 "option sets in hash order.",
                 "compat questions are full API shapes; whole double bounds below 1e16 are ints, as "
                 "Swift's JSONEncoder sends them.",
-                "timers[].timer: a version's timer as a client sends it; expected.errors: sorted dotted "
-                "locations (relative to the timer) where Timer rejects it; [] = accepted. Step keys "
-                "are unique; step labels need not be.",
+                "timers[].timer: a version's timer as a client sends it (timers2.md §1; the v1 shape "
+                "{steps: [{key, label}]} too); expected.errors: sorted dotted locations (relative to "
+                "the timer) where Timer rejects it, [] = accepted; expected.timer: the normalised "
+                "timer the server stores when accepted (every list present, labels stripped, "
+                "variable names lowercase, at_ms evaluated; a sent at_ms is ignored), else null. "
+                "Keys of steps and lap types share one namespace; step labels need not be unique.",
                 "slugs[]: services/topics.py slugify ('topic' when nothing is left).",
                 "casefold[]: [code point, [folded code points]] for every code point whose Python "
                 "str.casefold() differs from itself (the server compares labels by casefold, code "

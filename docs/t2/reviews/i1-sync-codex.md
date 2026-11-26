@@ -1,0 +1,13 @@
+**Two findings:**
+
+1. **P2 — A stale closing ack can still change alias state.** In [ServerLayer.swift](/Users/richie/code/quickr-worktrees/t2-m1-sync-ios/ios/QuickrKit/Sources/QuickrData/Store/ServerLayer.swift:156), the ack path inserts `sentTo` as an alias before `close` checks the stored run revision. If a delayed stop ack targets an alias and a newer reopen row already exists, `close` correctly rejects the old revision, but the alias insertion remains. The contract requires that close to be a no-op apart from acking the item; the new alias can also redirect queued events. **Fix:** decide whether the close applies before changing aliases, and add a delayed-stop test where `sentTo` differs from the canonical run ID and assert that alias state is unchanged.
+
+2. **P2 — The staged rebuild test does not exercise the stated stop → reopen → re-stop transitions.** [RunSyncTests.swift](/Users/richie/code/quickr-worktrees/t2-m1-sync-ios/ios/QuickrKit/Tests/QuickrDataTests/Sync/RunSyncTests.swift:405) performs all three server mutations before starting the rebuild. Its own assertion notes that staging never held the run open: the feed snapshot materializes the final closed state. Thus it verifies replacement of the live marker set, but not a staged marker being cleared by a later-page reopen and recreated by a subsequent close. **Fix:** drive staged page application with controlled pages containing the close, higher-revision upsert, and higher-revision close in sequence, asserting stage state after each page and live state after swap.
+
+For the other requested areas:
+
+- **Marker rules:** Aside from the stale-ack alias mutation above, I found no concrete defect in revision guards, applied-reopen ack handling, max-only marker writes, alias infinity markers, topic cascade tombstones, or 30-day pruning.
+- **Migration:** I found no concrete defect in live or stage conversion, the generation bump, timestamp format, or the `julianday` prune comparison.
+- **Other iOS tombstone consumers:** I found no additional missed run-tombstone dependency in the source search.
+- **Acceptance tests:** The tests cover the delayed pre-close ack, feed deletion followed by reopen across pages, bootstrap revisions, migration with a queued item and stale context, and topic cascade. The staged-transition limitation is described above. The request goldens are registered for pytest replay, but I did **not** run pytest or the Swift tests in this read-only environment, so I cannot confirm that they pass.
+- **Merge registration:** `1293fb31 merge-ritual: register t2m1 store migration` deliberately registers both the migration and server-layer table in `StoreSchema.swift`; I found no issue with merger ownership.

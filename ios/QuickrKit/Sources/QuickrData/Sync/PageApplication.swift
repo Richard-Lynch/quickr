@@ -101,6 +101,7 @@ public enum SyncTransactions {
         }
         try applyUpserts(db, page.items, layer: .live)
         let deletedTopics = try applyDeletions(db, page.deleted, layer: .live, wallNow: wallNow)
+        try ServerLayer.pruneClosedMarkers(db, wall: wallNow)
         try pullAck(db, entryIds: page.items.compactMap(\.entryId))
         let skew = Skew.updated(state: state, serverTime: page.serverTime, timing: timing)
         try db.execute(
@@ -155,7 +156,8 @@ public enum SyncTransactions {
         return .applied(deletedTopics: [])
     }
 
-    /// The swap (§7 step 3.2), fenced on both leases: the staged rows replace the server layer,
+    /// The swap (§7 step 3.2), fenced on both leases: the staged rows replace the server layer
+    /// (the closed markers too: the staged bootstrap's run deletions, timers2.md §5.2),
     /// `layer_gen += 1`, in-flight items become uncertain (their senders' fences now fail), then
     /// pull-ack, cancelled creates (outbox.md S8) and tombstone dependents over the whole outbox.
     public static func swap(
@@ -172,6 +174,7 @@ public enum SyncTransactions {
             try db.execute(sql: "INSERT INTO \(table) SELECT * FROM stage_\(table)")
         }
         try clearStaging(db)
+        try ServerLayer.pruneClosedMarkers(db, wall: wallNow)
         try db.execute(
             sql: """
                 UPDATE sync_state
@@ -253,7 +256,7 @@ public enum SyncTransactions {
     }
 
     /// §4.1 step 2: topics, then versions, then entries, then runs (timers.md §7.2), each through
-    /// the §4.2 guards.
+    /// the §4.2 guards (runs also through their closed markers, timers2.md §5.2).
     private static func applyUpserts(_ db: Database, _ items: [ChangeItem], layer: ServerLayer.Layer) throws {
         for item in items {
             if case .topic(_, let topic) = item { _ = try ServerLayer.upsert(db, topic: topic, into: layer) }
@@ -271,8 +274,9 @@ public enum SyncTransactions {
         }
     }
 
-    /// §4.3: tombstones and the local cascade, then (live only) the dependent outbox items.
-    /// Returns the topics this page tombstoned.
+    /// §4.3: tombstones and the local cascade (a run's deletion is a closed marker at its
+    /// `revision`, timers2.md §5.2), then (live only) the dependent outbox items. Returns the
+    /// topics this page tombstoned.
     private static func applyDeletions(
         _ db: Database, _ deletions: [Deletion], layer: ServerLayer.Layer, wallNow: Date
     ) throws -> [UUID] {
@@ -282,7 +286,8 @@ public enum SyncTransactions {
                 try deletion.kind == .topic
                 && ServerLayer.isTombstoned(db, kind: .topic, id: deletion.id.wireString, layer: layer)
             try ServerLayer.applyDeletion(
-                db, kind: deletion.kind, id: deletion.id, topicId: deletion.topicId, seq: deletion.seq, into: layer)
+                db, kind: deletion.kind, id: deletion.id, topicId: deletion.topicId, seq: deletion.seq,
+                revision: deletion.revision, wall: wallNow, into: layer)
             guard layer == .live else { continue }
             switch deletion.kind {
             case .topic:
@@ -293,8 +298,8 @@ public enum SyncTransactions {
             case .version:
                 break
             case .run:
-                // Queued run events are kept and sent: a closed run still takes late merges and
-                // the server decides (timers.md §7.2).
+                // Queued run events are kept and sent: a closed run still takes late merges (and
+                // reopens) and the server decides (timers.md §7.2, timers2.md §5.2).
                 break
             }
         }

@@ -14,6 +14,8 @@ import QuickrCore
 /// - **Expect.** Each tap carries what the control showed (`RunTapExpect`), captured at render; a
 ///   tap whose target has moved since (it went stale behind an earlier queued one) enqueues
 ///   nothing (`RunTapTarget.expect`).
+/// - **Reopen, remove, revert** (timers2.md §3.4) share the cooldown: Resume replaces Start under
+///   the finger, and Revert sits where Discard was.
 ///
 /// Shared by every tile and run screen (it lives in the app environment), so the cooldown holds
 /// across a re-render and across screens.
@@ -112,6 +114,50 @@ public final class RunActions {
         if run.hasQuestions != false { return .details(runId: run.id) }
         let at = (try? item.runEventPayload()).flatMap { RunInstant.parse($0.event.at) } ?? run.state.startedAt
         return .saved(topicName: topicName, totalMs: RunPresentation.activeMs(run.state, now: at))
+    }
+
+    // MARK: - Reopen, remove, revert (timers2.md §3.4, §5.3)
+
+    /// Resume run (a reopen) of the run `runId` routes to, or of its entry when the run isn't in
+    /// the view (a tile's or toast's "Resume", the entry detail's). Cooled down like every tap on
+    /// the topic's controls. Nil when ignored or nothing was enqueued (the run isn't stopped, or
+    /// the topic has another open run: A15).
+    @discardableResult
+    public func reopen(runId: String, topicId: UUID) async -> OutboxEnqueueResult? {
+        guard !coolingDown(topicId.wireString), let writer = writer() else { return nil }
+        return await guarded(topicId.wireString) { try await writer.tap(.reopen, runId, .current) } ?? nil
+    }
+
+    /// Removes a pause, a lap boundary or a reopened stop (`target`, an event id) of the run, or
+    /// of its entry's timing (the entry detail's Remove, content-display.md §3.2). Cooled down.
+    @discardableResult
+    public func remove(runId: String, topicId: UUID, target: String) async -> OutboxEnqueueResult? {
+        guard !coolingDown(topicId.wireString), let writer = writer() else { return nil }
+        return await guarded(topicId.wireString) { try await writer.tap(.remove, runId, .event(target)) } ?? nil
+    }
+
+    /// Revert: the discard of a reopened run (active-surfaces.md §1.2 row 10), which undoes the
+    /// reopen and keeps the entry (OQ-2). Cooled down: it sits where Discard was. True when it was
+    /// enqueued.
+    @discardableResult
+    public func revert(run: LocalRun) async -> Bool {
+        guard !coolingDown(run.topicId.wireString), let writer = writer() else { return false }
+        let result = await guarded(run.topicId.wireString) { try await writer.tap(.discard, run.id, .current) } ?? nil
+        return result != nil
+    }
+
+    /// The run's controls (active-surfaces.md §1.2): `RunPresentation.actions` with the two rows it
+    /// can't express. Row 11: a "resuming" run (a reopen from its entry not yet acked) has none.
+    /// Row 14: while a tap on the topic is being written, every one is disabled.
+    public func actions(for run: LocalRun, timer: TopicTimer?, now: Date) -> [RunAction] {
+        if run.resuming { return [] }
+        let actions = RunPresentation.actions(run.state, status: run.status, timer: timer, now: now)
+        guard isBusy(run.topicId) else { return actions }
+        return actions.map { action in
+            var action = action
+            action.enabled = false
+            return action
+        }
     }
 
     /// Discard, after the confirmation. True when it was enqueued (or dropped the never-sent run,

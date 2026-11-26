@@ -1,0 +1,1340 @@
+{
+ "devices": [
+  {
+   "architecture": "arm64",
+   "deviceId": "F8BBAD5B-8F43-4AC3-B6FA-ADE48B127470",
+   "deviceName": "quickR iOS27 t2-m1-final-85cd14",
+   "modelName": "iPhone 17",
+   "osBuildNumber": "24A434",
+   "osVersion": "27.0",
+   "platform": "iOS Simulator"
+  }
+ ],
+ "testNodes": [
+  {
+   "children": [
+    {
+     "children": [
+      {
+       "children": [
+        {
+         "durationInSeconds": 68.46530401706696,
+         "name": "testAccessibilityXXXL()",
+         "nodeIdentifier": "AppSettingsUITests/testAccessibilityXXXL()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 35.791767954826355,
+         "name": "testEveryLicenceOpens()",
+         "nodeIdentifier": "AppSettingsUITests/testEveryLicenceOpens()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 33.40462100505829,
+         "name": "testSyncSectionFollowsTheOutboxAndTheNetwork()",
+         "nodeIdentifier": "AppSettingsUITests/testSyncSectionFollowsTheOutboxAndTheNetwork()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "AppSettingsUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 44.23658204078674,
+         "name": "testAConflictLoadsTheLatestVersion()",
+         "nodeIdentifier": "BuilderUITests/testAConflictLoadsTheLatestVersion()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 90.52069401741028,
+         "name": "testANewQuestionsFieldsAtTheLargestTextSize()",
+         "nodeIdentifier": "BuilderUITests/testANewQuestionsFieldsAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 36.680274963378906,
+         "name": "testBuilderAtTheLargestTextSize()",
+         "nodeIdentifier": "BuilderUITests/testBuilderAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 41.0137540102005,
+         "name": "testEditQuestionsPublishesV2()",
+         "nodeIdentifier": "BuilderUITests/testEditQuestionsPublishesV2()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 43.8545960187912,
+         "name": "testKeepingTheDraftAfterAConflict()",
+         "nodeIdentifier": "BuilderUITests/testKeepingTheDraftAfterAConflict()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 59.35487699508667,
+         "name": "testPreviewAndCollapse()",
+         "nodeIdentifier": "BuilderUITests/testPreviewAndCollapse()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 150.4149980545044,
+         "name": "testPublishingATimerV2Topic()",
+         "nodeIdentifier": "BuilderUITests/testPublishingATimerV2Topic()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.394240021705627,
+         "name": "testVersionsAtTheLargestTextSize()",
+         "nodeIdentifier": "BuilderUITests/testVersionsAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 12.344393014907837,
+         "name": "testVersionsTab()",
+         "nodeIdentifier": "BuilderUITests/testVersionsTab()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "BuilderUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 10.147223949432373,
+         "name": "testAFirstConnectRefusedSaysToUpdate()",
+         "nodeIdentifier": "ClientVersionUITests/testAFirstConnectRefusedSaysToUpdate()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 23.47026002407074,
+         "name": "testCheckAgainOfflineSaysSoAndStays()",
+         "nodeIdentifier": "ClientVersionUITests/testCheckAgainOfflineSaysSoAndStays()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.087610960006714,
+         "name": "testServerBehindBannerDismissesForTheLaunch()",
+         "nodeIdentifier": "ClientVersionUITests/testServerBehindBannerDismissesForTheLaunch()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 15.325518012046814,
+         "name": "testServerBehindNoteUntilTheServerCatchesUp()",
+         "nodeIdentifier": "ClientVersionUITests/testServerBehindNoteUntilTheServerCatchesUp()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 17.561687111854553,
+         "name": "testUpdateRequiredCoversAnOpenSheet()",
+         "nodeIdentifier": "ClientVersionUITests/testUpdateRequiredCoversAnOpenSheet()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 20.552474975585938,
+         "name": "testUpdateRequiredUntilTheServersMinimumDrops()",
+         "nodeIdentifier": "ClientVersionUITests/testUpdateRequiredUntilTheServersMinimumDrops()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 18.062795996665955,
+         "name": "testWidgetsSayUpdateQuickR()",
+         "nodeIdentifier": "ClientVersionUITests/testWidgetsSayUpdateQuickR()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "ClientVersionUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 8.306581974029541,
+         "name": "testAccessibilityXXXL()",
+         "nodeIdentifier": "EditTests/testAccessibilityXXXL()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.0212249755859375,
+         "name": "testAMissingEntrySaysSo()",
+         "nodeIdentifier": "EditTests/testAMissingEntrySaysSo()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 16.597924947738647,
+         "name": "testARefusedEditOpensInFixMode()",
+         "nodeIdentifier": "EditTests/testARefusedEditOpensInFixMode()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 7.737078905105591,
+         "name": "testARefusedLogOffersFix()",
+         "nodeIdentifier": "EditTests/testARefusedLogOffersFix()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 9.608923077583313,
+         "name": "testAWaitingLogEdits()",
+         "nodeIdentifier": "EditTests/testAWaitingLogEdits()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 13.582551002502441,
+         "name": "testDeleteFromTheEditScreenThenUndo()",
+         "nodeIdentifier": "EditTests/testDeleteFromTheEditScreenThenUndo()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 15.575304985046387,
+         "name": "testFixModeSaveIsInTheKeyboardToolbarAtOnce()",
+         "nodeIdentifier": "EditTests/testFixModeSaveIsInTheKeyboardToolbarAtOnce()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 12.47248101234436,
+         "name": "testLeavingWithChangesAsks()",
+         "nodeIdentifier": "EditTests/testLeavingWithChangesAsks()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 19.84176993370056,
+         "name": "testOnlyATapOnDeleteDeletes()",
+         "nodeIdentifier": "EditTests/testOnlyATapOnDeleteDeletes()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 15.79910397529602,
+         "name": "testSaveIsInTheKeyboardToolbarWhileTyping()",
+         "nodeIdentifier": "EditTests/testSaveIsInTheKeyboardToolbarWhileTyping()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 14.490117073059082,
+         "name": "testSavingAnEditReturnsToTheListWithTheChange()",
+         "nodeIdentifier": "EditTests/testSavingAnEditReturnsToTheListWithTheChange()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 23.509582042694092,
+         "name": "testSwipingBackWorksOnlyWithoutChanges()",
+         "nodeIdentifier": "EditTests/testSwipingBackWorksOnlyWithoutChanges()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "EditTests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.10737109184265137,
+         "name": "testAChipLogReachesTheServerAndUndoRemovesIt()",
+         "nodeIdentifier": "EndToEndUITests/testAChipLogReachesTheServerAndUndoRemovesIt()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04335200786590576,
+         "name": "testAnEntryRecordedOfflineSyncsOnReconnect()",
+         "nodeIdentifier": "EndToEndUITests/testAnEntryRecordedOfflineSyncsOnReconnect()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04286801815032959,
+         "name": "testDemoChipAndUndo()",
+         "nodeIdentifier": "EndToEndUITests/testDemoChipAndUndo()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04298698902130127,
+         "name": "testDemoOfflineThenSync()",
+         "nodeIdentifier": "EndToEndUITests/testDemoOfflineThenSync()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.042489051818847656,
+         "name": "testDemoSameAsLast()",
+         "nodeIdentifier": "EndToEndUITests/testDemoSameAsLast()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.07815396785736084,
+         "name": "testLinksOpenTheRecordScreenBySlugOrId()",
+         "nodeIdentifier": "EndToEndUITests/testLinksOpenTheRecordScreenBySlugOrId()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04862105846405029,
+         "name": "testSameAsLastOffersTheEntryLoggedOnTheWeb()",
+         "nodeIdentifier": "EndToEndUITests/testSameAsLastOffersTheEntryLoggedOnTheWeb()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        }
+       ],
+       "name": "EndToEndUITests",
+       "nodeType": "Test Suite",
+       "result": "Skipped"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04490399360656738,
+         "name": "testADeleteReachesTheServerAfterTheHold()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testADeleteReachesTheServerAfterTheHold()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.041622042655944824,
+         "name": "testAnEditOnThePhoneReachesTheServer()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testAnEditOnThePhoneReachesTheServer()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.05679798126220703,
+         "name": "testAWebEditReachesThePhone()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testAWebEditReachesThePhone()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04355800151824951,
+         "name": "testUndoingADeleteKeepsTheEntryOnTheServer()",
+         "nodeIdentifier": "EntriesEndToEndUITests/testUndoingADeleteKeepsTheEntryOnTheServer()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        }
+       ],
+       "name": "EntriesEndToEndUITests",
+       "nodeType": "Test Suite",
+       "result": "Skipped"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 11.048061966896057,
+         "name": "testAccessibilityXXXL()",
+         "nodeIdentifier": "EntriesExportUITests/testAccessibilityXXXL()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 10.143157005310059,
+         "name": "testExportOpensTheShareSheet()",
+         "nodeIdentifier": "EntriesExportUITests/testExportOpensTheShareSheet()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 19.72322189807892,
+         "name": "testLightAndDark()",
+         "nodeIdentifier": "EntriesExportUITests/testLightAndDark()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 23.16726005077362,
+         "name": "testOfflineSaysExportNeedsAConnection()",
+         "nodeIdentifier": "EntriesExportUITests/testOfflineSaysExportNeedsAConnection()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "EntriesExportUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 21.900635957717896,
+         "name": "testAccessibilityXXXL()",
+         "nodeIdentifier": "EntriesTests/testAccessibilityXXXL()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.059639930725098,
+         "name": "testFilters()",
+         "nodeIdentifier": "EntriesTests/testFilters()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.879788994789124,
+         "name": "testSwipeDeleteThenUndo()",
+         "nodeIdentifier": "EntriesTests/testSwipeDeleteThenUndo()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 10.368849039077759,
+         "name": "testTappingOpensEditOrFix()",
+         "nodeIdentifier": "EntriesTests/testTappingOpensEditOrFix()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 9.998034000396729,
+         "name": "testTheEntriesTabFromHome()",
+         "nodeIdentifier": "EntriesTests/testTheEntriesTabFromHome()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 7.6300530433654785,
+         "name": "testUnsyncedEntriesPinAboveTheList()",
+         "nodeIdentifier": "EntriesTests/testUnsyncedEntriesPinAboveTheList()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "EntriesTests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 18.57477307319641,
+         "name": "testFillingAMixedTopicMovesFocusAndSubmitsTheBody()",
+         "nodeIdentifier": "FormUITests/testFillingAMixedTopicMovesFocusAndSubmitsTheBody()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 18.255877017974854,
+         "name": "testWorkoutFormWorksAtAnAccessibilityTextSize()",
+         "nodeIdentifier": "FormUITests/testWorkoutFormWorksAtAnAccessibilityTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "FormUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 21.301761031150818,
+         "name": "testAccessibilityXXXL()",
+         "nodeIdentifier": "HomeTests/testAccessibilityXXXL()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 14.324886083602905,
+         "name": "testATileOpensItsTopicAndLogOpensRecord()",
+         "nodeIdentifier": "HomeTests/testATileOpensItsTopicAndLogOpensRecord()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 23.60438597202301,
+         "name": "testAtXXXLTheHeaderNeverCoversTheList()",
+         "nodeIdentifier": "HomeTests/testAtXXXLTheHeaderNeverCoversTheList()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 21.764505982398987,
+         "name": "testReduceMotionKeepsEverythingWorking()",
+         "nodeIdentifier": "HomeTests/testReduceMotionKeepsEverythingWorking()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 12.325703024864197,
+         "name": "testSearchMatchesQuestionsAndClears()",
+         "nodeIdentifier": "HomeTests/testSearchMatchesQuestionsAndClears()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 10.81159496307373,
+         "name": "testTheArchivedFilterShowsArchivedTopics()",
+         "nodeIdentifier": "HomeTests/testTheArchivedFilterShowsArchivedTopics()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 18.124616980552673,
+         "name": "testTheHeaderScalesWithDynamicType()",
+         "nodeIdentifier": "HomeTests/testTheHeaderScalesWithDynamicType()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 12.950316071510315,
+         "name": "testTheListIsDueFirst()",
+         "nodeIdentifier": "HomeTests/testTheListIsDueFirst()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "HomeTests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 6.055851936340332,
+         "name": "testFirstLaunchShowsOnboarding()",
+         "nodeIdentifier": "LaunchTests/testFirstLaunchShowsOnboarding()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "LaunchTests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 6.641448020935059,
+         "name": "testALinkFromAnotherServerIsRefusedNamingIt()",
+         "nodeIdentifier": "LinksUITests/testALinkFromAnotherServerIsRefusedNamingIt()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.201220989227295,
+         "name": "testALinkToTheServersPWAOpensSettings()",
+         "nodeIdentifier": "LinksUITests/testALinkToTheServersPWAOpensSettings()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.734436988830566,
+         "name": "testAnUnknownLinkSaysSo()",
+         "nodeIdentifier": "LinksUITests/testAnUnknownLinkSaysSo()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 8.16928505897522,
+         "name": "testAQuickrLinkOpensItsScreenAndBackReturnsToTheList()",
+         "nodeIdentifier": "LinksUITests/testAQuickrLinkOpensItsScreenAndBackReturnsToTheList()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.0053709745407104,
+         "name": "testARecordLinkOpensTheRecordScreen()",
+         "nodeIdentifier": "LinksUITests/testARecordLinkOpensTheRecordScreen()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 6.714802026748657,
+         "name": "testTheActiveServersScopedLinkOpensAtLaunch()",
+         "nodeIdentifier": "LinksUITests/testTheActiveServersScopedLinkOpensAtLaunch()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "LinksUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Test skipped - Real-time launch measurements only (make ios-perf-launch)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.05434393882751465,
+         "name": "testColdStartToHomesFirstTile()",
+         "nodeIdentifier": "PerfLaunchUITests/testColdStartToHomesFirstTile()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - Real-time launch measurements only (make ios-perf-launch)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.05014598369598389,
+         "name": "testLaunchMetric()",
+         "nodeIdentifier": "PerfLaunchUITests/testLaunchMetric()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        }
+       ],
+       "name": "PerfLaunchUITests",
+       "nodeType": "Test Suite",
+       "result": "Skipped"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 14.631682991981506,
+         "name": "testACancelledSwipeBackLeavesTheScreenWorking()",
+         "nodeIdentifier": "RecordUITests/testACancelledSwipeBackLeavesTheScreenWorking()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 11.134163975715637,
+         "name": "testAContentSwipeGoesBackFromACleanForm()",
+         "nodeIdentifier": "RecordUITests/testAContentSwipeGoesBackFromACleanForm()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 12.247872948646545,
+         "name": "testAContentSwipeKeepsAChangedForm()",
+         "nodeIdentifier": "RecordUITests/testAContentSwipeKeepsAChangedForm()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 9.068387031555176,
+         "name": "testASingleChipTopicSavesOnTap()",
+         "nodeIdentifier": "RecordUITests/testASingleChipTopicSavesOnTap()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "XCTAssertTrue failed",
+           "nodeType": "Failure Message",
+           "sourceLocation": {
+            "filePath": "/Users/richie/code/quickr-worktrees/t2-m1-final/ios/UITests/RecordUITests.swift",
+            "lineNumber": 66
+           }
+          }
+         ],
+         "durationInSeconds": 35.30415201187134,
+         "name": "testFixModeFromALink()",
+         "nodeIdentifier": "RecordUITests/testFixModeFromALink()",
+         "nodeType": "Test Case",
+         "result": "Failed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 14.44068694114685,
+         "name": "testLeavingWithChangesAsksFirst()",
+         "nodeIdentifier": "RecordUITests/testLeavingWithChangesAsksFirst()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 14.2637699842453,
+         "name": "testLogAnotherOffersSameAsLastTime()",
+         "nodeIdentifier": "RecordUITests/testLogAnotherOffersSameAsLastTime()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 13.46732497215271,
+         "name": "testRecordAtAnAccessibilityTextSize()",
+         "nodeIdentifier": "RecordUITests/testRecordAtAnAccessibilityTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 12.575922012329102,
+         "name": "testRecordToastAndUndo()",
+         "nodeIdentifier": "RecordUITests/testRecordToastAndUndo()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 13.82741892337799,
+         "name": "testSaveIsInTheKeyboardToolbarWhileTyping()",
+         "nodeIdentifier": "RecordUITests/testSaveIsInTheKeyboardToolbarWhileTyping()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 19.506212949752808,
+         "name": "testSwipingBackWorksOnlyWithoutChanges()",
+         "nodeIdentifier": "RecordUITests/testSwipingBackWorksOnlyWithoutChanges()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 19.045592069625854,
+         "name": "testTheSwipeGuardSurvivesLeavingAndComingBack()",
+         "nodeIdentifier": "RecordUITests/testTheSwipeGuardSurvivesLeavingAndComingBack()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "RecordUITests",
+       "nodeType": "Test Suite",
+       "result": "Failed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 42.050901889801025,
+         "name": "testRemoteRemoveRenumbersLaps()",
+         "nodeIdentifier": "RunUITests/testRemoteRemoveRenumbersLaps()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 35.4122359752655,
+         "name": "testRunComesBackAfterRemoteReopen()",
+         "nodeIdentifier": "RunUITests/testRunComesBackAfterRemoteReopen()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 42.97057294845581,
+         "name": "testStartNextNextSkipPauseResumeStopAnswerSave()",
+         "nodeIdentifier": "RunUITests/testStartNextNextSkipPauseResumeStopAnswerSave()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 39.774949073791504,
+         "name": "testTikTokLapLabels()",
+         "nodeIdentifier": "RunUITests/testTikTokLapLabels()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "RunUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 17.752892017364502,
+         "name": "testCancellingTheTokenSheetSavesNothing()",
+         "nodeIdentifier": "SettingsUITests/testCancellingTheTokenSheetSavesNothing()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 12.821493983268738,
+         "name": "testOnboardingConnectsAndEndsAtTheTopicList()",
+         "nodeIdentifier": "SettingsUITests/testOnboardingConnectsAndEndsAtTheTopicList()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.966784954071045,
+         "name": "testOnboardingWithAServiceToken()",
+         "nodeIdentifier": "SettingsUITests/testOnboardingWithAServiceToken()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 11.960173964500427,
+         "name": "testOnboardingWorksAtAnAccessibilityTextSize()",
+         "nodeIdentifier": "SettingsUITests/testOnboardingWorksAtAnAccessibilityTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 24.070891976356506,
+         "name": "testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+         "nodeIdentifier": "SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "SettingsUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 45.977527022361755,
+         "name": "testAccessibilityXXXL()",
+         "nodeIdentifier": "StatsUITests/testAccessibilityXXXL()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 19.641414999961853,
+         "name": "testOfflineShowsLastUpdated()",
+         "nodeIdentifier": "StatsUITests/testOfflineShowsLastUpdated()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 17.993003964424133,
+         "name": "testOverviewShowsTheStatsAndCharts()",
+         "nodeIdentifier": "StatsUITests/testOverviewShowsTheStatsAndCharts()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 14.08939790725708,
+         "name": "testTheRangeIsSharedWithEntries()",
+         "nodeIdentifier": "StatsUITests/testTheRangeIsSharedWithEntries()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "StatsUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Test skipped - QUICKR_SHOTS_DIR not set: demo screenshots only",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.044865965843200684,
+         "name": "testDemoScreenshots()",
+         "nodeIdentifier": "SyncUITests/testDemoScreenshots()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "durationInSeconds": 19.26501500606537,
+         "name": "testFailedItemRetryThenDiscard()",
+         "nodeIdentifier": "SyncUITests/testFailedItemRetryThenDiscard()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 15.953731060028076,
+         "name": "testOfflineEntryWaitsThenSyncsWhenBackOnline()",
+         "nodeIdentifier": "SyncUITests/testOfflineEntryWaitsThenSyncsWhenBackOnline()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 13.511397957801819,
+         "name": "testSheetAtAccessibilityXXXL()",
+         "nodeIdentifier": "SyncUITests/testSheetAtAccessibilityXXXL()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "SyncUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.060407042503356934,
+         "name": "testA_OneQuestionChoice_and_F_Undo()",
+         "nodeIdentifier": "TapCountUITests/testA_OneQuestionChoice_and_F_Undo()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.047721028327941895,
+         "name": "testB_OneQuestionNumber()",
+         "nodeIdentifier": "TapCountUITests/testB_OneQuestionNumber()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.049169063568115234,
+         "name": "testC_FourQuestionMixed()",
+         "nodeIdentifier": "TapCountUITests/testC_FourQuestionMixed()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04754495620727539,
+         "name": "testD_SameAsLastTime()",
+         "nodeIdentifier": "TapCountUITests/testD_SameAsLastTime()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04734301567077637,
+         "name": "testE_FromANotification()",
+         "nodeIdentifier": "TapCountUITests/testE_FromANotification()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        },
+        {
+         "children": [
+          {
+           "name": "Test skipped - No integration stack (run make ios-uitest-e2e)",
+           "nodeType": "Skip Message"
+          }
+         ],
+         "durationInSeconds": 0.04606902599334717,
+         "name": "testG_Offline()",
+         "nodeIdentifier": "TapCountUITests/testG_Offline()",
+         "nodeType": "Test Case",
+         "result": "Skipped"
+        }
+       ],
+       "name": "TapCountUITests",
+       "nodeType": "Test Suite",
+       "result": "Skipped"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 17.61868107318878,
+         "name": "testAChipLogsInOneTapAndUndoRemovesTheEntry()",
+         "nodeIdentifier": "TileUITests/testAChipLogsInOneTapAndUndoRemovesTheEntry()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 9.805127024650574,
+         "name": "testOnlyQuickLogTopicsGetControls()",
+         "nodeIdentifier": "TileUITests/testOnlyQuickLogTopicsGetControls()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 10.481551051139832,
+         "name": "testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap()",
+         "nodeIdentifier": "TileUITests/testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 20.592458963394165,
+         "name": "testTilesWorkAtAnAccessibilityTextSize()",
+         "nodeIdentifier": "TileUITests/testTilesWorkAtAnAccessibilityTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "TileUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 25.43489694595337,
+         "name": "testEditTimesThenTheStatsShowTheNewMedian()",
+         "nodeIdentifier": "TimingUITests/testEditTimesThenTheStatsShowTheNewMedian()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 53.18167591094971,
+         "name": "testPublishingATimedTopic()",
+         "nodeIdentifier": "TimingUITests/testPublishingATimedTopic()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "TimingUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 130.39142608642578,
+         "name": "testCreateLogPublishV2AndLogAgain()",
+         "nodeIdentifier": "TopicLifecycleUITests/testCreateLogPublishV2AndLogAgain()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "TopicLifecycleUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 19.79611301422119,
+         "name": "testANewSlugKeepsAnUnsavedSchedule()",
+         "nodeIdentifier": "TopicUITests/testANewSlugKeepsAnUnsavedSchedule()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 12.679934978485107,
+         "name": "testAnInvalidNewTopicShowsItsErrors()",
+         "nodeIdentifier": "TopicUITests/testAnInvalidNewTopicShowsItsErrors()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 20.410035014152527,
+         "name": "testASingleTopicIsCreatedAndLoggedInOneTap()",
+         "nodeIdentifier": "TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "children": [
+          {
+           "name": "Invalid frame dimension (negative or non-finite).",
+           "nodeType": "Runtime Warning"
+          }
+         ],
+         "durationInSeconds": 35.95042598247528,
+         "name": "testCreateATopicOpensItsRecordScreen()",
+         "nodeIdentifier": "TopicUITests/testCreateATopicOpensItsRecordScreen()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 55.45446002483368,
+         "name": "testNewTopicAndItsScheduleAtTheLargestTextSize()",
+         "nodeIdentifier": "TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 16.33054792881012,
+         "name": "testOfflineSaysItNeedsAConnection()",
+         "nodeIdentifier": "TopicUITests/testOfflineSaysItNeedsAConnection()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 19.325299978256226,
+         "name": "testScreenshots()",
+         "nodeIdentifier": "TopicUITests/testScreenshots()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 66.3490560054779,
+         "name": "testSettingsAtTheLargestTextSize()",
+         "nodeIdentifier": "TopicUITests/testSettingsAtTheLargestTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 56.57174110412598,
+         "name": "testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+         "nodeIdentifier": "TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "TopicUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      },
+      {
+       "children": [
+        {
+         "durationInSeconds": 23.546241998672485,
+         "name": "testHomeScreenWidgetsInLightAndDark()",
+         "nodeIdentifier": "WidgetViewsUITests/testHomeScreenWidgetsInLightAndDark()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 16.965948939323425,
+         "name": "testLockScreenAndTintedWidgets()",
+         "nodeIdentifier": "WidgetViewsUITests/testLockScreenAndTintedWidgets()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        },
+        {
+         "durationInSeconds": 7.193861961364746,
+         "name": "testWidgetsAtAnAccessibilityTextSize()",
+         "nodeIdentifier": "WidgetViewsUITests/testWidgetsAtAnAccessibilityTextSize()",
+         "nodeType": "Test Case",
+         "result": "Passed"
+        }
+       ],
+       "name": "WidgetViewsUITests",
+       "nodeType": "Test Suite",
+       "result": "Passed"
+      }
+     ],
+     "name": "QuickRUITests",
+     "nodeType": "UI test bundle",
+     "result": "Failed"
+    }
+   ],
+   "name": "UI",
+   "nodeType": "Test Plan",
+   "result": "Failed"
+  }
+ ],
+ "testPlanConfigurations": [
+  {
+   "configurationId": "1",
+   "configurationName": "Default"
+  }
+ ]
+}

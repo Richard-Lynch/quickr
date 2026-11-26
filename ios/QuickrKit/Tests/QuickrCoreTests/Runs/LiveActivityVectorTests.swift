@@ -154,6 +154,7 @@ import Testing
         let wanted: Set = [
             "update_tiktok_lap", "update_alert_pending", "update_alert_paused", "start_renamed_laps",
             "update_reopened", "start_longest_labels", "payload_budget_truncation", "payload_budget_terminal",
+            "typed_lap_mid_steps",
         ]
         #expect(wanted.isSubset(of: names))
     }
@@ -285,6 +286,30 @@ import Testing
         #expect(try content([start], now: 450_000).alertLabel == "Time")
         #expect(try content([start], now: 900_000).alertAt == nil)
         #expect(try content([start], now: nil).alertAt == nil)
+    }
+
+    /// timers2.md §8.1: in a lap, `next_label` is the next lap's type label (nil when laps are
+    /// untyped), never the pending step's; in a step it is the next step's (#208).
+    @Test func nextLabelInALapIsNeverThePendingStep() throws {
+        let vectors = try Self.load()
+        func content(_ set: String, _ events: [RunEvent]) throws -> RunActivityState {
+            let timer = try #require(vectors.timerSets[set])
+            let all = [RunEvent(id: "r", type: .start, at: 0)] + events
+            let folded = try RunFold.fold(runId: "r", timer: timer, events: all)
+            return RunActivityContent.state(
+                runId: "r", revision: 1, status: folded.status, state: folded, timer: timer, now: nil)
+        }
+        let lap = RunEvent(id: "l", type: .lap, at: 60_000, seg: 0)
+        let inStep = try content("steps_and_laps", [])
+        #expect(inStep.label == "Warmup")
+        #expect(inStep.nextLabel == "Cooldown")
+        let typed = try content("steps_and_laps", [lap])
+        #expect(typed.label == "Run 1")
+        #expect(typed.nextLabel == "Rest", "the next lap's type, not the pending Cooldown")
+        let untyped = try content("three", [lap])
+        #expect(untyped.label == "Lap 1")
+        #expect(untyped.lapType == nil)
+        #expect(untyped.nextLabel == nil, "untyped laps: nil, not the pending Breakfast")
     }
 
     @Test func truncateCountsScalarsAndKeepsTheEllipsis() {

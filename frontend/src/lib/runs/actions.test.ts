@@ -1,7 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { RunOut } from '../../client';
-import { CTX, T0, ev, runEventResult, serverRun } from '../../test/runs';
+import {
+  CTX,
+  LAP_CTX,
+  LAPS,
+  T0,
+  entryOf,
+  entryPayload,
+  ev,
+  runEventResult,
+  serverRun,
+} from '../../test/runs';
 import { OUTBOX_KINDS, type RunEventPayload } from '../outbox/kinds';
 import { createOutbox } from '../outbox/outbox';
 import { memoryOutboxStore } from '../outbox/store';
@@ -9,6 +19,7 @@ import type { OutboxItem } from '../outbox/types';
 import { RunVersionMismatch, startRun, tapRun, type RunTapDeps } from './actions';
 import { ackedItems, memoryAckedStore, setAckedStore } from './acked';
 import { parseInstant } from './instant';
+import { localRuns, runById } from './localView';
 
 beforeEach(() => {
   setAckedStore(memoryAckedStore());
@@ -360,5 +371,202 @@ describe('a reminder’s Start (timers.md §10.2)', () => {
     expect((await startRun(deps, BLIND, { id: 'slot-1', reminder: true })).started).toBe(false);
     expect((await queued())[0]).toEqual(failed);
     expect((await startRun(deps, BLIND, { id: 'slot-2', reminder: true })).started).toBe(true);
+  });
+});
+
+describe('reopen and remove (timers2.md §5.3, §5.5)', () => {
+  const S = 1000;
+  const start = ev('r1', 'start', T0);
+  const next = ev('n1', 'next', T0 + 60 * S, { seg: 0 });
+  const stop = ev('s1', 'stop', T0 + 90 * S);
+  const view = async (deps: RunTapDeps) =>
+    localRuns(deps.serverRuns(), await deps.outbox.list(), (await deps.acked?.()) ?? []);
+
+  it('a reopen of a locally stopped run targets its terminal stop and opens it at once', async () => {
+    const { deps, clock, queued } = setup();
+    const { runId } = await startRun(deps, CTX);
+    clock.now += 60 * S;
+    const stopItem = await tapRun(deps, runId, CTX, 'stop');
+    clock.now += 30 * S;
+    const reopen = await tapRun(deps, runId, CTX, 'reopen');
+    expect(reopen?.payload).toMatchObject({
+      run_id: runId,
+      makes_entry: false,
+      event: { type: 'reopen', target: stopItem?.id },
+    });
+    expect(reopen?.payload.entry).toBeUndefined();
+    expect(runById(await view(deps), runId)?.status).toBe('running');
+    expect(await queued()).toHaveLength(3);
+  });
+
+  it("a reopen of a finishing server run targets the server's terminal", async () => {
+    const finishing = serverRun('r1', [start, next, stop], { status: 'finishing' });
+    const { deps } = setup([finishing]);
+    const reopen = await tapRun(deps, 'r1', CTX, 'reopen');
+    expect(reopen?.payload.event).toMatchObject({ type: 'reopen', target: 's1' });
+  });
+
+  it('a reopen of an open run, or of a discarded one, has no target: nothing is queued', async () => {
+    const { deps, queued } = setup([serverRun('r1', [start, next])]);
+    expect(await tapRun(deps, 'r1', CTX, 'reopen')).toBeNull();
+    expect(await queued()).toEqual([]);
+  });
+
+  it("is refused while the topic has another locally open run (A15: the server's 409)", async () => {
+    const finishing = serverRun('r1', [start, next, stop], { status: 'finishing' });
+    const { deps, queued } = setup([finishing, serverRun('r2', [ev('r2', 'start', T0 + 100 * S)])]);
+    expect(await tapRun(deps, 'r1', CTX, 'reopen')).toBeNull();
+    const entry = entryOf('r0', [ev('r0', 'start', T0 - 600 * S), ev('s0', 'stop', T0 - 500 * S)]);
+    expect(await tapRun(deps, 'r0', CTX, 'reopen', {}, { entry })).toBeNull();
+    expect(await queued()).toEqual([]);
+  });
+
+  it('from an entry with no run row: the target is timing.terminal_id, and the entry rides along', async () => {
+    const { deps, clock } = setup();
+    clock.now = T0 + 120 * S;
+    const entry = entryOf('r1', [start, next, stop]);
+    const reopen = await tapRun(deps, 'r1', CTX, 'reopen', {}, { entry });
+    expect(reopen?.payload).toMatchObject({
+      run_id: 'r1',
+      makes_entry: false,
+      entry: entryPayload(entry),
+      event: { type: 'reopen', target: 's1' },
+    });
+    expect(atOf(reopen?.payload.event ?? { at: '' })).toBe(T0 + 120 * S);
+  });
+
+  it('from a pre-v2 entry (no terminal_id): target null, which the server resolves (A12)', async () => {
+    const { deps } = setup();
+    const entry = entryOf('r1', [start, next, stop]);
+    const preV2 = { ...entry, timing: { ...entry.timing, terminal_id: null } };
+    const reopen = await tapRun(deps, 'r1', CTX, 'reopen', {}, { entry: preV2 });
+    expect(reopen?.payload.event).toMatchObject({ type: 'reopen', target: null });
+  });
+
+  it('a reopen is stamped after the stop it reopens', async () => {
+    const { deps, clock } = setup();
+    clock.now = T0; // the device clock is behind the entry's stop
+    const entry = entryOf('r1', [start, next, stop]);
+    const reopen = await tapRun(deps, 'r1', CTX, 'reopen', {}, { entry });
+    expect(atOf(reopen?.payload.event ?? { at: '' })).toBe(T0 + 90 * S + 1);
+  });
+
+  it('a remove takes the chosen event id: a pause or lap of the run', async () => {
+    const run = serverRun(
+      'r1',
+      [start, ev('p1', 'pause', T0 + 10 * S), ev('u1', 'resume', T0 + 20 * S, { pause_id: 'p1' })],
+      {},
+    );
+    const { deps } = setup([run]);
+    const remove = await tapRun(deps, 'r1', CTX, 'remove', {}, { target: 'P1' });
+    expect(remove?.payload.event).toMatchObject({ type: 'remove', target: 'p1' });
+    // Not an event of the run, or not one a remove can name: nothing queued.
+    expect(await tapRun(deps, 'r1', CTX, 'remove', {}, { target: 'zz' })).toBeNull();
+    expect(await tapRun(deps, 'r1', CTX, 'remove', {}, { target: 'r1' })).toBeNull();
+    expect(await tapRun(deps, 'r1', CTX, 'remove')).toBeNull();
+  });
+
+  it('a remove of a gap pause says whether it absorbed a user pause (P3-1)', async () => {
+    // Vector reopen-while-paused-ends-pause, open again: the gap s1 took over pause p1.
+    const absorbing = serverRun('r1', [
+      start,
+      ev('p1', 'pause', T0 + 30 * S),
+      ev('s1', 'stop', T0 + 60 * S),
+      ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+    ]);
+    const { deps } = setup([absorbing]);
+    const gap = await tapRun(deps, 'r1', CTX, 'remove', {}, { target: 's1' });
+    expect(gap?.payload.event).toMatchObject({ type: 'remove', target: 's1' });
+    expect(gap?.payload.gap).toEqual({ absorbs: 'p1' });
+    // A user pause's remove carries none.
+    const user = await tapRun(deps, 'r1', CTX, 'remove', {}, { target: 'p1' });
+    expect(user?.payload.gap).toBeUndefined();
+    // A plain gap (nothing paused at the stop) absorbs nothing.
+    const plain = serverRun('r1', [
+      start,
+      ev('s1', 'stop', T0 + 60 * S),
+      ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+    ]);
+    const other = setup([plain]);
+    const bare = await tapRun(other.deps, 'r1', CTX, 'remove', {}, { target: 's1' });
+    expect(bare?.payload.gap).toEqual({ absorbs: null });
+  });
+
+  it("a remove from an entry names the timing's ids: a lap's event_id or a pause id", async () => {
+    const { deps } = setup();
+    const entry = entryOf(
+      'r1',
+      [
+        start,
+        ev('l1', 'lap', T0 + 10 * S, { seg: 0 }),
+        ev('p1', 'pause', T0 + 20 * S),
+        ev('u1', 'resume', T0 + 30 * S, { pause_id: 'p1' }),
+        ev('s1', 'stop', T0 + 40 * S),
+      ],
+      { steps: [], laps: LAPS },
+    );
+    const lap = await tapRun(deps, 'r1', LAP_CTX, 'remove', {}, { target: 'l1', entry });
+    expect(lap?.payload).toMatchObject({
+      entry: entryPayload(entry),
+      event: { type: 'remove', target: 'l1' },
+    });
+    const pause = await tapRun(deps, 'r1', LAP_CTX, 'remove', {}, { target: 'p1', entry });
+    expect(pause?.payload.event).toMatchObject({ type: 'remove', target: 'p1' });
+    expect(await tapRun(deps, 'r1', LAP_CTX, 'remove', {}, { target: 'zz', entry })).toBeNull();
+  });
+
+  it('carries the version’s lap types, so the local view labels laps (overlay included)', async () => {
+    const { deps } = setup();
+    const { runId } = await startRun(deps, LAP_CTX);
+    const lap = await tapRun(deps, runId, LAP_CTX, 'lap');
+    expect(lap?.payload.laps).toEqual(LAPS);
+  });
+
+  describe('makesEntry for a re-stop', () => {
+    it('a re-stop of a reopened run that has its entry makes none (the entry exists)', async () => {
+      const { deps, clock, queued } = setup();
+      const { runId } = await startRun(deps, CTX);
+      clock.now += 60 * S;
+      await tapRun(deps, runId, CTX, 'stop');
+      clock.now += 30 * S;
+      await tapRun(deps, runId, CTX, 'reopen');
+      clock.now += 30 * S;
+      const restop = await tapRun(deps, runId, CTX, 'stop');
+      expect(restop?.payload.makes_entry).toBe(false);
+      // The first stop makes it: the optimistic entry is projected once, from the re-stop.
+      expect((await queued()).map((i) => i.payload.makes_entry)).toEqual([
+        false,
+        true,
+        false,
+        false,
+      ]);
+    });
+
+    it('nor of a server run reopened from its entry', async () => {
+      const reopened = serverRun('r1', [
+        start,
+        next,
+        stop,
+        ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }),
+      ]);
+      const { deps } = setup([reopened]);
+      const restop = await tapRun(deps, 'r1', CTX, 'stop');
+      expect(restop?.payload.makes_entry).toBe(false);
+    });
+
+    it('a reopened finishing run (no entry): a re-stop follows the v1 rule', async () => {
+      const required = { ...CTX, requires_answers: true };
+      const reopened = serverRun('r1', [
+        start,
+        next,
+        stop,
+        ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }),
+      ]);
+      const a = setup([reopened]);
+      expect((await tapRun(a.deps, 'r1', required, 'stop'))?.payload.makes_entry).toBe(false);
+      const b = setup([reopened]);
+      const answered = await tapRun(b.deps, 'r1', required, 'stop', { answers: { mood: 2 } });
+      expect(answered?.payload.makes_entry).toBe(true);
+    });
   });
 });
