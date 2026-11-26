@@ -1,0 +1,5 @@
+AppSettingsUITests/testAccessibilityXXXL() - iOS 26.0 clone 75433D26, check-ios UI plan, head ab46f445b048de067fc4387f2b06d278161b9cda
+Message: XCTAssertTrue failed (AppSettingsUITests.swift:102, openLicences: "licences.list" didn't exist within 5 s of tapping settings.licences)
+Hierarchy at failure: still on Settings; settings.licences Button {{16.0, 726.7}, {370.0, 93.3}} on screen; no toast/alert.
+Recording (last8s.png): the list is still decelerating from reveal()'s swipeUp when the tap lands; the tap only stops the scroll.
+Class: pre-existing flake, not M3a. AppAboutSection.swift last changed in #6 (1ca2b943), AppSettingsUITests.swift in #93 (396be80f); no M3a diff. Passed in the 8425195a gate and on iOS 27.0 in this run. Filed #302.

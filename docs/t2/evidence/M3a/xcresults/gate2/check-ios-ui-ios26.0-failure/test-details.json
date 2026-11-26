@@ -1,0 +1,72 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "75433D26-6E3C-4BE6-B850-FC7DF549E729",
+      "deviceName" : "quickR iOS-26-0 t2-m3a-gate2-a5dd99",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "duration" : "Ran for 1 minute, 2 seconds",
+  "durationInSeconds" : 62.184141993522644,
+  "hasMediaAttachments" : true,
+  "hasPerformanceMetrics" : false,
+  "startTime" : 1795725112.121,
+  "testDescription" : "Test case with 1 run",
+  "testIdentifier" : "AppSettingsUITests/testAccessibilityXXXL()",
+  "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/AppSettingsUITests/testAccessibilityXXXL",
+  "testName" : "testAccessibilityXXXL()",
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ],
+  "testResult" : "Failed",
+  "testRuns" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "name" : "",
+                  "nodeType" : "Source Code Reference",
+                  "sourceLocation" : {
+                    "filePath" : "/Users/richie/code/quickr-worktrees/t2-m3a-gate2/ios/UITests/AppSettingsUITests.swift",
+                    "lineNumber" : 102
+                  }
+                }
+              ],
+              "name" : "XCTAssertTrue failed",
+              "nodeType" : "Test Case Run",
+              "result" : "Failed",
+              "sourceLocation" : {
+                "filePath" : "/Users/richie/code/quickr-worktrees/t2-m3a-gate2/ios/UITests/AppSettingsUITests.swift",
+                "lineNumber" : 102
+              }
+            }
+          ],
+          "duration" : "1m 2s",
+          "durationInSeconds" : 62.184141993522644,
+          "name" : "Default",
+          "nodeIdentifier" : "1",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/AppSettingsUITests/testAccessibilityXXXL",
+          "nodeType" : "Test Plan Configuration",
+          "result" : "Failed"
+        }
+      ],
+      "details" : "iOS Simulator 26.0",
+      "duration" : "1m 2s",
+      "durationInSeconds" : 62.184141993522644,
+      "name" : "iPhone 17",
+      "nodeIdentifier" : "75433D26-6E3C-4BE6-B850-FC7DF549E729",
+      "nodeType" : "Device",
+      "result" : "Failed"
+    }
+  ]
+}
