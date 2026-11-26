@@ -74,33 +74,42 @@ extension BuilderUITests {
     }
 
     // The evidence shots (docs/t2/evidence/M3a): the editor and the header for three colours, in
-    // light and dark, and at the largest text size. One test per colour, so each stays inside the
-    // default execution allowance (three create flows each).
+    // light and dark, and once at the largest text size. Split so each test stays inside the
+    // default execution allowance (an XXXL create flow alone takes about two minutes under load).
 
     @MainActor
-    func testTealAppearanceInLightDarkAndTheLargestTextSize() {
+    func testTealAppearanceInLightAndDark() {
         shootAppearance(color: "teal", icon: "💧", name: "Water", tags: ["Health", "Daily"])
     }
 
     @MainActor
-    func testOrangeAppearanceInLightDarkAndTheLargestTextSize() {
+    func testOrangeAppearanceInLightAndDark() {
         shootAppearance(color: "orange", icon: "🚬", name: "Smoking", tags: ["Habit"])
     }
 
     @MainActor
-    func testVioletAppearanceInLightDarkAndTheLargestTextSize() {
+    func testVioletAppearanceInLightAndDark() {
         shootAppearance(color: "violet", icon: "🧘", name: "Meditate", tags: ["Mind", "Morning"])
+    }
+
+    @MainActor
+    func testAppearanceAtTheLargestTextSize() {
+        shootAppearance(
+            color: "teal", icon: "💧", name: "Water", tags: ["Health", "Daily"],
+            modes: [("xxxl", .light, AccessibilityLaunch.arguments())])
     }
 
     // MARK: T2-M3 helpers
 
-    /// Creates the topic with this look in light, dark and light at the largest text size, and
-    /// attaches the editor and the header each time.
+    /// Creates the topic with this look in each mode (light and dark by default), and attaches the
+    /// editor and the header each time.
     @MainActor
-    private func shootAppearance(color: String, icon: String, name: String, tags: [String]) {
-        let modes: [(name: String, appearance: XCUIDevice.Appearance, extra: [String])] = [
-            ("light", .light, []), ("dark", .dark, []), ("xxxl", .light, AccessibilityLaunch.arguments()),
+    private func shootAppearance(
+        color: String, icon: String, name: String, tags: [String],
+        modes: [(name: String, appearance: XCUIDevice.Appearance, extra: [String])] = [
+            ("light", .light, []), ("dark", .dark, []),
         ]
+    ) {
         for mode in modes {
             XCUIDevice.shared.appearance = mode.appearance
             let app = launchForAppearance(extra: mode.extra)
