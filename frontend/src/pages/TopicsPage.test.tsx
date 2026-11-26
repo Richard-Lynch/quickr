@@ -43,6 +43,7 @@ const vitamins: TopicSummary = {
     last_entry_at: null,
   },
   timer: null,
+  appearance: { color: null, icon: null, tags: [] }, // T2-M3
 };
 
 /** A due timed topic, so an idle "Morning" would be in "Due now" too. */
