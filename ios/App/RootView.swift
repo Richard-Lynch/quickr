@@ -149,6 +149,11 @@ struct RootView: View {
                 UITestSyncControls().padding(.bottom, 24)
             }
         }
+        // T2-M1: above the run screen's bar.
+        .overlay(alignment: .bottomLeading) {
+            if UITestRunControls.isShown { UITestRunControls().padding(.leading, 12).padding(.bottom, 96) }
+        }
+        // end T2-M1
         #endif
         #if DEBUG || QUICKR_PERF
         .overlay(alignment: .topTrailing) {
