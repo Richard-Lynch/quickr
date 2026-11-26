@@ -310,7 +310,9 @@ final class TopicUITests: XCTestCase {
     /// fold only once they scroll in.
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
+        // Whole on screen: a row half under the home indicator is hittable, but a tap at its centre
+        // misses it.
+        for _ in 0..<12 where !(element.exists && element.isHittable && app.frame.contains(element.frame)) {
             // Above where a keyboard would be.
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
             start.press(
