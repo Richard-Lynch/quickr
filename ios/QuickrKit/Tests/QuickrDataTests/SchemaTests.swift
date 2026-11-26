@@ -129,7 +129,7 @@ import Testing
     /// repository used from another task.
     @Test func poolAndSendableRepository() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
+        defer { TestFiles.remove(directory) }
         let pool = try StoreDatabase.openPool(at: directory.appendingPathComponent("stores/s.g1.sqlite"))
         let repository: any SyncStateRepository = GRDBSyncStateRepository(reader: pool)
         #expect(try await repository.syncState() == nil)

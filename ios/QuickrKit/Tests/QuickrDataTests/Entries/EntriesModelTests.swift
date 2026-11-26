@@ -70,7 +70,7 @@ import Testing
             await session.start()
         }
 
-        func cleanup() { try? FileManager.default.removeItem(at: root) }
+        func cleanup() { TestFiles.remove(root) }
 
         func model(_ ref: String = "water") async throws -> (EntriesModel, Task<Void, Never>) {
             let model = EntriesModel(
