@@ -67,3 +67,16 @@ The existing tests cover ordinary rebasing, retry, conflict, and a newer observa
 1. High, a details-only save sent no revision: fixed. `SessionTopicWriter.saveDetails` always sends `expected_revision` through `TopicWrites.updateAppearance`, as `MetaForm` does. The fake writer checks it on every details save. Test `aNameChangedElsewhereConflicts`.
 2. High, a schedule answer during a details save moved the base: fixed. `adopt` doesn't rebase while a details save is in flight, and the stale check uses the edited fields captured before sending. Test `aCopyDuringAFailedSaveIsTakenAfterIt`.
 3. Medium, a copy that arrived during a failed save was never rebased: fixed. A failed save rebases on the newest copy when it ends. The same test covers it; with the rebase removed it fails.
+
+## Field-level round 2 (ee535023)
+
+**No new findings** in the reviewed commit or its branch context.
+
+The three reported fixes are present:
+
+- Details-only saves now send `expected_revision` through [SessionTopicWriter.swift](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/App/Topics/SessionTopicWriter.swift:30).
+- [TopicSettingsModel.swift](/Users/richie/code/quickr-worktrees/t2-m3a-i3edit/ios/QuickrKit/Sources/QuickrUI/Topics/TopicSettingsModel.swift:92) defers rebasing during a details save, and the stale-revision check uses the fields captured before the request.
+- A failed save now reconsiders the newest adopted topic when submission ends, preserving edits while rebasing untouched fields.
+
+The new tests cover revision enforcement in the fake writer and a copy arriving during a failed save. They do not directly exercise the production writer or a concurrent schedule response through `adopt()`. I did not run the tests.
+No new findings. The production writer is covered by the UI run on the simulator, and `TopicWritesTests` covers I3-STORE's `updateAppearance`.
