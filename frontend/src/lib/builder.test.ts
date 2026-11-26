@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
+import { FALLBACK_LIMITS } from '../api/limits';
+import { builderFieldFor } from '../components/builder/serverErrors';
 import {
+  appearanceChanges,
+  appearanceDraftOf,
+  emptyTopicDraft,
+  makeAppearanceSchema,
+  makeTopicDraftAppearanceSchema,
+  makeTopicMetaAppearanceSchema,
   convertDraftQuestion,
   draftFromQuestion,
   draftFromTimer,
@@ -372,3 +380,121 @@ describe('timer drafts (timers.md §2.1)', () => {
     expect(timerChanges(a, { steps: [{ key: 'y', label: 'Y' }] })).toEqual(['Step removed: X']);
   });
 });
+
+// T2-M3 (F3-EDIT): appearance in the topic forms (appearance.md §1.3, §7).
+describe('appearance schemas', () => {
+  const appearance = makeAppearanceSchema();
+  const issues = (r: { success: boolean; error?: { issues: { path: PropertyKey[] }[] } }) =>
+    r.error?.issues.map((i) => i.path.join('.'));
+
+  it('turns a draft into the wire Appearance, storing the normalised emoji and tags', () => {
+    expect(
+      appearance.parse({ color: 'teal', icon: ' \u{263A} ', tags: [' gym ', 'a  b'] }),
+    ).toEqual({
+      color: 'teal',
+      icon: { kind: 'emoji', value: '\u{263A}\u{FE0F}' },
+      tags: ['gym', 'a b'],
+    });
+    expect(appearance.parse(appearanceDraftOf(null))).toEqual({
+      color: null,
+      icon: null,
+      tags: [],
+    });
+  });
+
+  it('puts icon and tag errors on their paths', () => {
+    expect(issues(appearance.safeParse({ color: null, icon: 'abc', tags: [] }))).toEqual(['icon']);
+    expect(issues(appearance.safeParse({ color: null, icon: '', tags: ['a', 'A'] }))).toEqual([
+      'tags.1',
+    ]);
+    const eleven = Array.from({ length: 11 }, (_, i) => `t${String(i)}`);
+    expect(issues(appearance.safeParse({ color: null, icon: '', tags: eleven }))).toEqual(['tags']);
+    expect(issues(appearance.safeParse({ color: 'mauve', icon: '', tags: [] }))).toEqual(['color']);
+  });
+
+  it('uses the server’s limits when GET /limits carries them', () => {
+    const tight = makeAppearanceSchema({
+      ...FALLBACK_LIMITS,
+      max_tags: 1,
+    } as typeof FALLBACK_LIMITS);
+    expect(tight.safeParse({ color: null, icon: '', tags: ['a', 'b'] }).success).toBe(false);
+  });
+
+  it('sends appearance on create only when it isn’t the default', () => {
+    const schema = makeTopicDraftAppearanceSchema();
+    const base = { ...emptyTopicDraft(), name: 'Gym', schedule };
+    const plain = schema.parse({ ...base, appearance: appearanceDraftOf(null) });
+    expect(plain).not.toHaveProperty('appearance');
+    expect(plain).toMatchObject({ name: 'Gym', timer: null });
+    const themed = schema.parse({
+      ...base,
+      appearance: { color: 'red', icon: '🏃', tags: ['sport'] },
+    });
+    expect(themed.appearance).toEqual({
+      color: 'red',
+      icon: { kind: 'emoji', value: '🏃' },
+      tags: ['sport'],
+    });
+  });
+
+  it('reports draft and appearance errors together on create', () => {
+    const r = makeTopicDraftAppearanceSchema().safeParse({
+      ...emptyTopicDraft(),
+      schedule,
+      appearance: { color: null, icon: 'x', tags: [] },
+    });
+    expect(issues(r)).toEqual(expect.arrayContaining(['name', 'appearance.icon']));
+  });
+
+  it('adds appearance to the settings schema', () => {
+    const r = makeTopicMetaAppearanceSchema().safeParse({
+      name: 'Gym',
+      slug: 'gym',
+      description: '',
+      appearance: { color: 'blue', icon: '', tags: ['x'.repeat(25)] },
+    });
+    expect(issues(r)).toEqual(['appearance.tags.0']);
+  });
+});
+
+describe('appearanceChanges', () => {
+  const base = { color: 'red', icon: { kind: 'emoji', value: '🏃' }, tags: ['a'] } as const;
+  const current = { ...base, tags: [...base.tags] };
+
+  it('is null when nothing changed', () => {
+    expect(appearanceChanges(current, { ...current, tags: ['a'] })).toBeNull();
+    expect(appearanceChanges(null, { color: null, icon: null, tags: [] })).toBeNull();
+  });
+
+  it('has only the changed fields, with null and [] to clear', () => {
+    expect(appearanceChanges(current, { ...current, color: 'blue' })).toEqual({ color: 'blue' });
+    expect(appearanceChanges(current, { ...current, icon: null, tags: [] })).toEqual({
+      icon: null,
+      tags: [],
+    });
+    expect(appearanceChanges(current, { ...current, tags: ['b', 'a'] })).toEqual({
+      tags: ['b', 'a'],
+    });
+  });
+});
+
+describe('builderFieldFor appearance paths', () => {
+  const draft = { ...emptyTopicDraft(), appearance: { color: null, icon: '', tags: ['a', 'b'] } };
+
+  it('maps the server’s dotted paths onto the Appearance card', () => {
+    expect(builderFieldFor('appearance.color', draft)).toBe('appearance.color');
+    expect(builderFieldFor('appearance.icon.value', draft)).toBe('appearance.icon');
+    expect(builderFieldFor('appearance.icon', draft)).toBe('appearance.icon');
+    expect(builderFieldFor('appearance.tags.1', draft)).toBe('appearance.tags.1');
+    expect(builderFieldFor('appearance.tags', draft)).toBe('appearance.tags');
+  });
+
+  it('falls back to the list for a tag the draft doesn’t have, and the banner otherwise', () => {
+    expect(builderFieldFor('appearance.tags.7', draft)).toBe('appearance.tags');
+    expect(builderFieldFor('appearance', draft)).toBeNull();
+    expect(builderFieldFor('appearance.bogus', draft)).toBeNull();
+    // A form without the card (the question editor) sends these to the banner.
+    expect(builderFieldFor('appearance.color', emptyTopicDraft())).toBeNull();
+  });
+});
+// end T2-M3

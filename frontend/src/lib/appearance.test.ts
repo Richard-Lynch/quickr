@@ -1,6 +1,14 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { COLOR_NAMES, PALETTE, glyphOf, topicStyle, type Appearance } from './appearance';
+import {
+  COLOR_NAMES,
+  PALETTE,
+  checkIcon,
+  checkTags,
+  glyphOf,
+  topicStyle,
+  type Appearance,
+} from './appearance';
 
 const red: Appearance = { color: 'red', icon: null, tags: [] };
 const smoking: Appearance = { color: null, icon: { kind: 'emoji', value: '🚬' }, tags: ['habit'] };
@@ -166,3 +174,80 @@ function luminance(hex: string): number {
   });
   return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
 }
+
+// T2-M3 (F3-EDIT): checkIcon / checkTags.
+// T2-M3: repoint at appearance-vectors.json `icons[]`/`tags[]` (cases copied from spec §2, §3.2).
+const VS = '\u{FE0F}';
+const ICONS: { name: string; value: string; stored: string | null }[] = [
+  { name: 'plain', value: '🚬', stored: '🚬' },
+  { name: 'vs16_added', value: '\u{263A}', stored: `\u{263A}${VS}` },
+  { name: 'vs16_present', value: `\u{263A}${VS}`, stored: `\u{263A}${VS}` },
+  { name: 'copyright_vs16', value: `\u{A9}${VS}`, stored: `\u{A9}${VS}` },
+  { name: 'zwj_family', value: '👨\u{200D}👩\u{200D}👧', stored: '👨\u{200D}👩\u{200D}👧' },
+  { name: 'skin_tone', value: '👍\u{1F3FD}', stored: '👍\u{1F3FD}' },
+  { name: 'flag', value: '\u{1F1EC}\u{1F1E7}', stored: '\u{1F1EC}\u{1F1E7}' },
+  { name: 'keycap', value: `1${VS}\u{20E3}`, stored: `1${VS}\u{20E3}` },
+  { name: 'letter', value: 'a', stored: null },
+  { name: 'digit', value: '5', stored: null },
+  { name: 'digit_vs16', value: `5${VS}`, stored: null },
+  { name: 'hash_vs16_no_keycap', value: `#${VS}`, stored: null },
+  { name: 'two_emoji', value: '🚬🚬', stored: null },
+  { name: 'emoji_plus_letter', value: '🚬a', stored: null },
+  { name: 'empty', value: '', stored: null },
+  // A black flag and 16 tag characters: one grapheme cluster, 17 code points.
+  { name: 'too_long', value: '\u{1F3F4}' + '\u{E0067}'.repeat(16), stored: null },
+  { name: 'text_symbol_no_vs16_unfixable', value: '\u{2192}', stored: null },
+];
+
+describe('checkIcon', () => {
+  it.each(ICONS)('$name', ({ value, stored }) => {
+    const r = checkIcon(value);
+    if (stored === null) expect(r.ok).toBe(false);
+    else expect(r).toEqual({ ok: true, value: stored });
+  });
+
+  it('normalises to NFC before counting', () => {
+    expect(checkIcon('\u{263A}'.normalize('NFD'))).toEqual({ ok: true, value: `\u{263A}${VS}` });
+  });
+
+  it('takes the length limit from the caller', () => {
+    expect(checkIcon('👨\u{200D}👩\u{200D}👧', 4).ok).toBe(false);
+    expect(checkIcon('👨\u{200D}👩\u{200D}👧', 5).ok).toBe(true);
+  });
+});
+
+describe('checkTags', () => {
+  const ok = (value: string[]) => ({ ok: true, value });
+  it('trims, collapses inner whitespace and keeps order', () => {
+    expect(checkTags(['  gym ', 'early\t  morning', 'Alpha'])).toEqual(
+      ok(['gym', 'early morning', 'Alpha']),
+    );
+  });
+
+  it('refuses a casefold duplicate at its index, not dropping it', () => {
+    expect(checkTags(['Gym', 'run', 'gym'])).toMatchObject({ ok: false, index: 2 });
+    expect(checkTags(['Straße', 'STRASSE'])).toMatchObject({ ok: false, index: 1 });
+  });
+
+  it('refuses an eleventh tag on the list, not a tag', () => {
+    const ten = Array.from({ length: 10 }, (_, i) => `t${String(i)}`);
+    expect(checkTags(ten).ok).toBe(true);
+    expect(checkTags([...ten, 'eleven'])).toMatchObject({ ok: false, index: -1 });
+  });
+
+  it('counts code points: 24 is fine, 25 is not', () => {
+    expect(checkTags(['🏃'.repeat(24)]).ok).toBe(true);
+    expect(checkTags(['ok', 'x'.repeat(25)])).toMatchObject({ ok: false, index: 1 });
+  });
+
+  it('refuses a tag that is empty after trimming, and a control character', () => {
+    expect(checkTags(['a', '   '])).toMatchObject({ ok: false, index: 1 });
+    expect(checkTags(['bell\u{7}'])).toMatchObject({ ok: false, index: 0 });
+  });
+
+  it('takes the limits from the caller', () => {
+    expect(checkTags(['a', 'b'], { maxTags: 1 })).toMatchObject({ ok: false, index: -1 });
+    expect(checkTags(['abc'], { maxLength: 2 })).toMatchObject({ ok: false, index: 0 });
+  });
+});
+// end T2-M3

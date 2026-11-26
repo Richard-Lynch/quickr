@@ -18,11 +18,12 @@ import { Banner, Card } from '../components/ui/Card';
 import { Icon } from '../components/ui/Icon';
 import { useToast } from '../components/ui/Toast';
 import {
+  appearanceDraftOf,
   emptyTopicDraft,
-  makeTopicDraftSchema,
+  makeTopicDraftAppearanceSchema,
   type TopicDraft,
-  type TopicDraftOutput,
 } from '../lib/builder';
+import type { TopicCreateBody } from '../lib/topicAppearanceSeam';
 import { useUnsavedChangesGuard } from '../lib/unsavedChanges';
 
 const CLIENT_INVALID = 'Fix the highlighted fields';
@@ -34,10 +35,10 @@ export function NewTopicPage() {
   const [banner, setBanner] = useState<{ message: string; extra: FieldError[] } | null>(null);
   const create = useMutation(createTopicMutation());
   const limits = useLimits();
-  const schema = useMemo(() => makeTopicDraftSchema(limits), [limits]);
-  const form = useForm<TopicDraft, unknown, TopicDraftOutput>({
+  const schema = useMemo(() => makeTopicDraftAppearanceSchema(limits), [limits]);
+  const form = useForm<TopicDraft, unknown, TopicCreateBody>({
     resolver: zodResolver(schema),
-    defaultValues: emptyTopicDraft(),
+    defaultValues: { ...emptyTopicDraft(), appearance: appearanceDraftOf(null) },
     mode: 'onSubmit',
     reValidateMode: 'onChange',
   });

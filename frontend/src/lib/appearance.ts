@@ -132,3 +132,89 @@ function firstGrapheme(s: string): string {
   for (const { segment } of graphemes.segment(s)) return segment;
   return '';
 }
+
+// T2-M3 (F3-EDIT): the PWA's icon and tag predicates (appearance.md §1.3, §2, §5) and the
+// empty appearance. M3-DB pins `checkIcon`/`checkTags` to `icons[]`/`tags[]` in appearance-vectors.json.
+
+/** §1.3 defaults; the forms pass the server's `GET /limits` values. */
+export const MAX_ICON_LENGTH = 16;
+export const MAX_TAGS = 10;
+export const MAX_TAG_LENGTH = 24;
+
+const VS16 = '\u{fe0f}';
+const KEYCAP = '\u{20e3}';
+const PICTOGRAPH = /^\p{Extended_Pictographic}$/u;
+const PRESENTATION = /^\p{Emoji_Presentation}$/u;
+const REGIONAL = /^\p{Regional_Indicator}$/u;
+const KEYCAP_BASE = /^[0-9#*]$/;
+
+/**
+ * One emoji, in its stored form (§2): NFC, a text-presentation pictograph gets U+FE0F, then exactly
+ * one grapheme cluster that starts as an emoji. The same predicate as the server's, scalar by
+ * scalar: a pictograph shown as emoji (by default or with U+FE0F), a flag, or a keycap.
+ */
+export function checkIcon(
+  value: string,
+  maxLength: number = MAX_ICON_LENGTH,
+): { ok: true; value: string } | { ok: false; message: string } {
+  let scalars = Array.from(value.normalize('NFC'));
+  if (scalars.length === 0) return { ok: false, message: 'Enter an emoji' };
+  if (scalars.length > maxLength) return { ok: false, message: 'Enter a single emoji' };
+  const [s0 = '', s1] = scalars;
+  if (PICTOGRAPH.test(s0) && !PRESENTATION.test(s0) && s1 !== VS16) {
+    scalars = [s0, VS16, ...scalars.slice(1)];
+  }
+  const v = scalars.join('');
+  if ([...graphemes.segment(v)].length !== 1) return { ok: false, message: 'Enter a single emoji' };
+  const [c0 = '', c1 = '', c2] = scalars;
+  const emoji =
+    (PICTOGRAPH.test(c0) && (PRESENTATION.test(c0) || c1 === VS16)) ||
+    (REGIONAL.test(c0) && REGIONAL.test(c1)) ||
+    (KEYCAP_BASE.test(c0) && c1 === VS16 && c2 === KEYCAP);
+  return emoji ? { ok: true, value: v } : { ok: false, message: 'Enter an emoji, not text' };
+}
+
+/** `str.casefold()` near enough: upper-casing first folds ß → SS → ss as Python does. */
+function fold(s: string): string {
+  return s.toUpperCase().toLowerCase();
+}
+
+// Python's `str.isspace()` set (what `str.strip()` and `split()` use) is Unicode White_Space.
+const SPACE_RUN = /[\p{White_Space}]+/gu;
+const EDGE_SPACE = /^[\p{White_Space}]+|[\p{White_Space}]+$/gu;
+const CONTROL = /\p{Cc}/u;
+
+/**
+ * Tags in their stored form (§1.3, §5): each trimmed, inner whitespace runs collapsed to one space,
+ * 1..`maxLength` code points, no control characters; at most `maxTags`; unique by casefold (a
+ * duplicate is an error, not dropped); order kept. `index` is the offending tag, or -1 for too
+ * many tags (the server's path `appearance.tags` rather than `appearance.tags.{i}`).
+ */
+export function checkTags(
+  tags: readonly string[],
+  limits: { maxTags?: number; maxLength?: number } = {},
+): { ok: true; value: string[] } | { ok: false; index: number; message: string } {
+  const maxTags = limits.maxTags ?? MAX_TAGS;
+  const maxLength = limits.maxLength ?? MAX_TAG_LENGTH;
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const [index, raw] of tags.entries()) {
+    const tag = raw.replace(EDGE_SPACE, '').replace(SPACE_RUN, ' ');
+    if (tag === '') return { ok: false, index, message: 'A tag can’t be empty' };
+    if (CONTROL.test(tag))
+      return { ok: false, index, message: 'Tags can’t hold control characters' };
+    if (Array.from(tag).length > maxLength)
+      return { ok: false, index, message: `At most ${String(maxLength)} characters` };
+    const key = fold(tag);
+    if (seen.has(key)) return { ok: false, index, message: `“${tag}” is already a tag` };
+    seen.add(key);
+    out.push(tag);
+  }
+  if (out.length > maxTags)
+    return { ok: false, index: -1, message: `At most ${String(maxTags)} tags` };
+  return { ok: true, value: out };
+}
+
+export const EMPTY_APPEARANCE: Appearance = { color: null, icon: null, tags: [] };
+
+// end T2-M3
