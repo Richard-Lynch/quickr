@@ -284,6 +284,38 @@ import Testing
         #expect(removed.isEmpty, "the go alert, still pending, is kept")
     }
 
+    @Test("M1-REVIEW P2-2 (Codex): an add that suspends past a later alert's fire time doesn't schedule it late")
+    func addSuspendingPastTheNextAlert() async throws {
+        let clock = clock
+        let hooked = HookedAddCenter(center) { _ in clock.set(RunAlertKit.date(RunAlertKit.at(70.5))) }
+        let scheduler = RunAlertScheduler(center: hooked, now: { clock.now() })
+        now(39.5)
+        await scheduler.reconcile(input([try K.resting()]))
+        #expect(added.map(\.id) == [Self.half], "go came due during half's add: not added to fire 1 s late")
+    }
+
+    @Test("M1-REVIEW P2-2 (Codex): a replacement whose new time passes during the pass removes the old request")
+    func replacementPastDuringThePass() async throws {
+        let scheduler = scheduler
+        await scheduler.reconcile(input([try K.resting()]))
+        let gated = HeldPendingCenter(center)
+        let racing = RunAlertScheduler(center: gated, now: { [clock] in clock.now() })
+        // A renamed topic changes both requests' content: planned at 39.5 s, the pass then waits
+        // on the pending list until 40.1 s, past half's 40 s.
+        now(39.5)
+        let renamed = RunAlertScheduler.Input(
+            serverId: K.serverId,
+            subjects: [RunAlertScheduler.Subject(run: try K.resting(), timer: K.timer, topicName: "Renamed")])
+        let pass = Task { await racing.reconcile(renamed) }
+        await gated.waitForQuery(1)
+        now(40.1)
+        await gated.open()
+        await pass.value
+        #expect(removed == [Self.half], "the old half isn't left to fire with stale content")
+        #expect(added.count == 3, "only go is replaced")
+        #expect(pending.map(\.id) == [Self.go])
+    }
+
     @Test("M1-REVIEW P2-2: a due-now alert that is still pending is kept, not cancelled")
     func dueNowStillPendingIsKept() async throws {
         let scheduler = scheduler
@@ -385,6 +417,38 @@ private actor HeldPendingCenter: NotificationCenterProtocol {
         inner.removePendingNotificationRequests(withIdentifiers: identifiers)
     }
     func add(_ request: LocalNotificationRequest) async throws { try await inner.add(request) }
+    func setBadgeCount(_ count: Int) async throws { try await inner.setBadgeCount(count) }
+    func authorizationStatus() async -> NotificationAuthorization { await inner.authorizationStatus() }
+    func requestAuthorization() async throws -> Bool { try await inner.requestAuthorization() }
+}
+
+/// The fake centre, running `onAdd` inside every `add` (an add the system takes its time over).
+private final class HookedAddCenter: NotificationCenterProtocol {
+    let inner: FakeNotificationCenter
+    let onAdd: @Sendable (LocalNotificationRequest) -> Void
+
+    init(_ inner: FakeNotificationCenter, onAdd: @escaping @Sendable (LocalNotificationRequest) -> Void) {
+        self.inner = inner
+        self.onAdd = onAdd
+    }
+
+    func add(_ request: LocalNotificationRequest) async throws {
+        try await inner.add(request)
+        onAdd(request)
+    }
+
+    func setNotificationCategories(_ categories: [NotificationCategorySpec]) {
+        inner.setNotificationCategories(categories)
+    }
+    func notificationCategories() async -> [NotificationCategorySpec] { await inner.notificationCategories() }
+    func deliveredNotifications() async -> [NotificationSnapshot] { await inner.deliveredNotifications() }
+    func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
+        inner.removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+    func pendingNotificationRequests() async -> [NotificationSnapshot] { await inner.pendingNotificationRequests() }
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+        inner.removePendingNotificationRequests(withIdentifiers: identifiers)
+    }
     func setBadgeCount(_ count: Int) async throws { try await inner.setBadgeCount(count) }
     func authorizationStatus() async -> NotificationAuthorization { await inner.authorizationStatus() }
     func requestAuthorization() async throws -> Bool { try await inner.requestAuthorization() }
