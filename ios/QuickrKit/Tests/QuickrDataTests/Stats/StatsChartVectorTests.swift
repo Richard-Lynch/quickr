@@ -139,6 +139,68 @@ import Testing
             var labelled: [Int]
         }
 
+        /// `activityStrip(captured_at, today, tz)` (generator version 2).
+        struct Activity: Decodable {
+            var name: String
+            var tz: String
+            var today: String
+            var capturedAt: [Int64]
+            var firstDay: String
+            var from: String
+            /// `[day, count, level]`.
+            var cells: [[JSONValue]]
+            var max: Int
+            var total: Int
+
+            enum CodingKeys: String, CodingKey {
+                case name, tz, today, from, cells, max, total
+                case capturedAt = "captured_at"
+                case firstDay = "first_day"
+            }
+        }
+
+        /// `sparkline(points, width)`: a series case's points, or its own.
+        struct Spark: Decodable {
+            struct Last: Decodable {
+                var x: Double
+                var y: Double
+                var value: Double
+            }
+
+            var name: String
+            var width: Double
+            var points: [JSONValue]?
+            var empty: Bool
+            var path: [[Double]]?
+            var last: Last?
+            var min: Double?
+            var max: Double?
+        }
+
+        /// `stepsByBucket(series, bucket)` for a `timing-stats-vectors.json` case.
+        struct TimingModel: Decodable {
+            struct Bucket: Decodable {
+                var start: String
+                var count: Int
+                var optionCounts: [String: Int]
+
+                enum CodingKeys: String, CodingKey {
+                    case start, count
+                    case optionCounts = "option_counts"
+                }
+            }
+
+            var name: String
+            var bucket: QuestionSeries.Bucket
+            var tz: String
+            var stepsByBucket: [Bucket]
+
+            enum CodingKeys: String, CodingKey {
+                case name, bucket, tz
+                case stepsByBucket = "steps_by_bucket"
+            }
+        }
+
         var meta: Meta
         var defaultBucket: [[String]]
         var ticks: [Tick]
@@ -148,10 +210,14 @@ import Testing
         var series: [Series]
         var synthetic: [Synthetic]
         var stats: [Stats]
+        var activity: [Activity]
+        var sparklines: [Spark]
+        var timingModels: [TimingModel]
 
         enum CodingKeys: String, CodingKey {
-            case meta, ticks, numbers, percents, pick, series, synthetic, stats
+            case meta, ticks, numbers, percents, pick, series, synthetic, stats, activity, sparklines
             case defaultBucket = "default_bucket"
+            case timingModels = "timing_models"
         }
     }
 
@@ -414,6 +480,130 @@ import Testing
                 #expect(common == card.mostCommon, "\(q.key) most common")
                 #expect(q.recent.prefix(5).map(\.entryId.wireString) == card.recent, "\(q.key) recent")
             }
+        }
+    }
+
+    // MARK: - Activity strip (content-display.md §4.2)
+
+    @Test func theActivityCasesCoverTheSpec() {
+        let names = Self.charts.activity.map(\.name)
+        #expect(names.count == 8)
+        #expect(Set(Self.charts.activity.map(\.tz)).isSuperset(of: ["UTC", "Europe/London", "Pacific/Auckland"]))
+        #expect(Self.charts.activity.contains { $0.capturedAt.isEmpty })
+    }
+
+    @Test(arguments: charts.activity.map(\.name)) func activity(_ name: String) throws {
+        let expected = try #require(Self.charts.activity.first { $0.name == name })
+        let zone = try Self.zone(expected.tz)
+        let strip = ActivityStrip(
+            capturedAt: expected.capturedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) },
+            today: expected.today, timeZone: zone)
+        #expect(strip.firstDay == expected.firstDay)
+        #expect(ActivityStrip.firstDay(today: expected.today) == expected.firstDay)
+        let cells = strip.cells.map { [JSONValue.string($0.day), .number(Double($0.count)), .number(Double($0.level))] }
+        #expect(cells == expected.cells)
+        #expect(strip.max == expected.max)
+        #expect(strip.total == expected.total)
+        // The query bound: the first cell's local midnight, to the millisecond.
+        let from = ActivityStrip.localMidnight(expected.firstDay, timeZone: zone)
+        #expect(Self.isoMilliseconds(from) == expected.from)
+        #expect(ActivityStrip.localDay(from, timeZone: zone) == expected.firstDay)
+        #expect(ActivityStrip.localDay(from.addingTimeInterval(-0.001), timeZone: zone) < expected.firstDay)
+    }
+
+    /// The strip's columns as VoiceOver reads them ("Week of 3 Nov: 5 entries").
+    @Test func activityColumnsAreMondayWeeks() throws {
+        let expected = try #require(Self.charts.activity.first { $0.name == "today on a Monday" })
+        let strip = ActivityStrip(
+            capturedAt: expected.capturedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) },
+            today: expected.today, timeZone: try Self.zone(expected.tz))
+        let columns = strip.columns
+        #expect(columns.count == ActivityStrip.weeks)
+        #expect(columns.first?.firstDay == expected.firstDay)
+        #expect(columns.last?.firstDay == expected.today, "today is the last column's only day")
+        #expect(columns.reduce(0) { $0 + $1.count } == strip.total)
+        #expect(zip(columns, columns.dropFirst()).allSatisfy { ActivityStrip.addDays($0.firstDay, 7) == $1.firstDay })
+    }
+
+    @Test func activityTextForVoiceOverAndTheCaption() throws {
+        let expected = try #require(Self.charts.activity.first { $0.name == "today on a Monday" })
+        let strip = ActivityStrip(
+            capturedAt: expected.capturedAt.map { Date(timeIntervalSince1970: Double($0) / 1000) },
+            today: expected.today, timeZone: try Self.zone(expected.tz))
+        let gb = Locale(identifier: "en_GB")
+        #expect(ActivityStrip.spokenWeek(.init(firstDay: "2026-11-02", count: 5), locale: gb) == "Week of 2 Nov: 5 entries")
+        #expect(ActivityStrip.spokenWeek(.init(firstDay: "2025-11-03", count: 1), locale: gb) == "Week of 3 Nov: 1 entry")
+        #expect(ActivityStrip.spokenWeek(.init(firstDay: "2026-11-02", count: 0), locale: Self.locale) == "Week of Nov 2: 0 entries")
+        #expect(strip.caption(locale: Self.locale) == "7 entries in the last 12 weeks")
+        #expect(ActivityStrip(capturedAt: [], today: "2026-11-25", timeZone: try Self.zone("UTC")).caption(locale: Self.locale) == "0 entries in the last 12 weeks")
+    }
+
+    /// JS `toISOString()`: UTC, milliseconds, `Z`.
+    static func isoMilliseconds(_ date: Date) -> String {
+        date.formatted(Date.ISO8601FormatStyle(includingFractionalSeconds: true, timeZone: TimeZone(identifier: "UTC")!))
+    }
+
+    // MARK: - Sparklines (§4.3)
+
+    @Test(arguments: charts.sparklines.map(\.name)) func sparkline(_ name: String) throws {
+        let expected = try #require(Self.charts.sparklines.first { $0.name == name })
+        let points: [QuestionSeries.Point]
+        if let inline = expected.points {
+            let body = JSONValue.object([
+                "key": .string("k"), "type": .string("double"), "bucket": .string("day"), "points": .array(inline),
+            ])
+            points = try QuestionSeriesDTO.decode(JSONEncoder().encode(body), using: WireCoding.decoder()).toDomain()
+                .points
+        } else {
+            points = try Self.response(QuestionSeriesDTO.self, name).points
+        }
+        let model = SparklineModel(series: points, width: expected.width)
+        if expected.empty {
+            #expect(model == nil)
+            return
+        }
+        let spark = try #require(model)
+        #expect(spark.path.map { [$0.x, $0.y] } == expected.path)
+        let last = try #require(expected.last)
+        #expect(spark.last.x == last.x && spark.last.y == last.y && spark.lastValue == last.value)
+        #expect(spark.min == expected.min && spark.max == expected.max)
+    }
+
+    @Test func theSparklineCasesUseTheMetaWidthAndIncludeSynthetics() {
+        #expect(Self.charts.sparklines.contains { $0.points != nil })
+        #expect(Self.charts.sparklines.contains { $0.empty })
+        #expect(Self.charts.sparklines.filter { $0.points == nil }.allSatisfy { $0.width == 160 })
+    }
+
+    // MARK: - Timing models
+
+    struct TimingInput: Decodable {
+        struct Case: Decodable {
+            var name: String
+            var expected: JSONValue
+        }
+
+        var cases: [Case]
+    }
+
+    static let timingInput: TimingInput = load("timing-stats-vectors.json")
+
+    /// `stepsByBucket` is `TimingOverviewText.stepTotals`: each step's floored mean per run, a run
+    /// without the step counting 0, by the bucket the run ended in.
+    @Test(arguments: charts.timingModels.map(\.name)) func stepsByBucket(_ name: String) throws {
+        let expected = try #require(Self.charts.timingModels.first { $0.name == name })
+        let input = try #require(Self.timingInput.cases.first { $0.name == name }, "no timing case \(name)")
+        let timing = try WireCoding.decoder().decode(TopicTimingDTO.self, from: JSONEncoder().encode(input.expected))
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try Self.zone(expected.tz)
+        let buckets = TimingOverviewText(timing).stepTotals(by: expected.bucket, calendar: calendar)
+        #expect(buckets.count == expected.stepsByBucket.count)
+        for (bucket, want) in zip(buckets, expected.stepsByBucket) {
+            #expect(bucket.start == (try Date(want.start, strategy: .iso8601)), "\(want.start)")
+            #expect(bucket.count == want.count)
+            #expect(
+                Dictionary(uniqueKeysWithValues: bucket.meanMs.map { ($0.key, $0.ms) }) == want.optionCounts,
+                "\(want.start)")
         }
     }
 }

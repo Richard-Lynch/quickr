@@ -22,6 +22,9 @@ struct OverviewView: View {
     @State private var now = Date()
     /// The reader's zone, which series are bucketed and labelled in: a change reloads them.
     @State private var timeZone = TimeZone.current.identifier
+    /// The activity strip's today, in the reader's zone: checked each minute, so the strip moves
+    /// on at midnight with the screen open (the PWA's `useNow(60_000)`).
+    @State private var today = ActivityStrip.localDay(Date(), timeZone: .current)
     /// The pull to refresh in flight. Unstructured, so SwiftUI updating the view doesn't cancel
     /// it; the model drops its answer if the store changed meanwhile.
     @State private var refreshing: Task<Void, Never>?
@@ -35,6 +38,12 @@ struct OverviewView: View {
     private struct ModelKey: Hashable {
         var topicId: UUID
         var binding: AppSession.Binding?
+    }
+
+    private struct ActivityKey: Hashable {
+        var model: ModelKey?
+        var today: String
+        var timeZone: String
     }
 
     private struct LoadKey: Hashable {
@@ -53,6 +62,9 @@ struct OverviewView: View {
 
     private var query: StatsQuery { StatsQuery(filters, now: now, calendar: .autoupdatingCurrent) }
 
+    /// The numeric cards' trends are in the range's default bucket, whatever the charts' (§4.3).
+    private var sparkBucket: QuestionSeries.Bucket { filters.range.defaultChartBucket }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -65,10 +77,10 @@ struct OverviewView: View {
         .qrPaperBackground()
         .accessibilityIdentifier("overview.list")
         // Unstructured: SwiftUI cancels a refresh's own task when the view updates under it.
-        .refreshable { [weak model, query, bucket] in
+        .refreshable { [weak model, query, bucket, sparkBucket] in
             let task = Task { [weak model] in
                 guard let model else { return }
-                await model.load(query: query, bucket: bucket)
+                await model.load(query: query, bucket: bucket, sparkBucket: sparkBucket)
             }
             refreshing = task
             await task.value
@@ -83,18 +95,35 @@ struct OverviewView: View {
         ) {
             await load()
         }
+        // The strip follows the store (a sync, a logged or deleted entry) while it's on screen.
+        .task(id: ActivityKey(model: modelKey, today: today, timeZone: timeZone)) { [session] in
+            await model?.observeActivity(today: today, refresh: session.refresh.stream())
+        }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                updateToday()
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 now = Date()
                 timeZone = TimeZone.current.identifier
+                updateToday()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .NSSystemTimeZoneDidChange)) { _ in
             timeZone = TimeZone.current.identifier
+            updateToday()
         }
     }
 
     // MARK: - Loading
+
+    private func updateToday() {
+        let day = ActivityStrip.localDay(Date(), timeZone: .current)
+        if day != today { today = day }
+    }
 
     private func observeTopic() async {
         topic = nil
@@ -125,7 +154,7 @@ struct OverviewView: View {
             model = OverviewModel(topicId: topic.topic.id, ref: topic.topic.slug) { session.stats }
             modelKey = key
         }
-        await model?.load(query: query, bucket: bucket)
+        await model?.load(query: query, bucket: bucket, sparkBucket: sparkBucket)
     }
 
     // MARK: - Controls
@@ -204,20 +233,24 @@ struct OverviewView: View {
             case .unavailable(let reason):
                 StatsMessage(title: "Could not load stats", text: reason.message, id: "overview.error") {
                     PrimaryButton("Try again", icon: .sync, size: .medium) {
-                        Task { await model.load(query: query, bucket: bucket) }
+                        Task { await model.load(query: query, bucket: bucket, sparkBucket: sparkBucket) }
                     }
                 }
             case .loaded(let stats, let freshness):
                 StatsFreshnessLabel(freshness: freshness)
                 if stats.entryCount == 0 {
+                    // The strip ignores the range and filters: an empty range still has a last 12 weeks.
+                    if topic.topic.entryCount > 0 { ActivityStripCard(activity: model.activity) }
                     empty(topic)
                 } else {
                     StatsSummaryCard(stats: stats)
+                    ActivityStripCard(activity: model.activity)
                     TimingOverviewSection(timing: model.timing, timed: topic.topic.timer != nil, bucket: bucket)
                     ForEach(stats.questions, id: \.key) { question in
                         QuestionStatsCard(
                             stats: question, question: topic.topic.questions.first { $0.key == question.key },
-                            series: model.series[question.key], bucket: bucket)
+                            series: model.series[question.key], sparkline: model.sparklines[question.key],
+                            bucket: bucket)
                     }
                 }
             }

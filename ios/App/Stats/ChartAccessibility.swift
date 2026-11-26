@@ -121,3 +121,27 @@ struct DistributionDescriptor: AXChartDescriptorRepresentable {
         }
     }
 }
+
+/// The activity strip (`ActivityStripCard`): one data point per week column, "Week of 3 Nov"
+/// with its entries, so VoiceOver steps through the 12 weeks and can play them as an Audio Graph.
+struct ActivityStripDescriptor: AXChartDescriptorRepresentable {
+    let strip: ActivityStrip
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let columns = strip.columns
+        let labels = columns.map { ActivityStrip.weekLabel($0.firstDay) }
+        return AXChartDescriptor(
+            title: "Activity",
+            summary: strip.caption(),
+            xAxis: AXCategoricalDataAxisDescriptor(title: "Week", categoryOrder: labels),
+            yAxis: AXNumericDataAxisDescriptor(
+                title: "Entries", range: 0...Double(max(1, columns.map(\.count).max() ?? 0)), gridlinePositions: []
+            ) { ChartFormat.count(Int($0)) },
+            additionalAxes: [],
+            series: [
+                AXDataSeriesDescriptor(
+                    name: "Entries", isContinuous: false,
+                    dataPoints: zip(labels, columns).map { AXDataPoint(x: $0, y: Double($1.count)) })
+            ])
+    }
+}

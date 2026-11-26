@@ -75,6 +75,8 @@ struct QuestionStatsCard: View {
     /// The question in the topic's current version; nil when it was retired.
     let question: Question?
     let series: OverviewModel.Load<QuestionSeries>?
+    /// A numeric question's trend (the range's default bucket).
+    var sparkline: OverviewModel.Load<QuestionSeries>?
     let bucket: QuestionSeries.Bucket
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -137,12 +139,20 @@ struct QuestionStatsCard: View {
     private func numericBody(_ s: QuestionStats.Numeric) -> some View {
         let dec = s.type == .int ? 1 : 2
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(ChartFormat.number(s.mean, maxDecimals: dec))
-                    .font(.qr(.monoRegular, size: 36, relativeTo: .largeTitle).bold())
-                Text("avg" + (unit.map { " \($0)" } ?? "")).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+            // The mean, and its trend beside it (stacked at accessibility sizes, where both don't fit).
+            let row =
+                typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 12))
+            row {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(ChartFormat.number(s.mean, maxDecimals: dec))
+                        .font(.qr(.monoRegular, size: 36, relativeTo: .largeTitle).bold())
+                    Text("avg" + (unit.map { " \($0)" } ?? "")).font(.qr(.subheadline)).foregroundStyle(.qr.muted)
+                }
+                .fixedSize()
+                .accessibilityElement(children: .combine)
+                SparklineView(series: sparkline, label: s.label)
             }
-            .accessibilityElement(children: .combine)
             let rows: [(String, Double?)] = [
                 ("Median", s.median), ("Min", s.min), ("Max", s.max), ("Std dev", s.stddev), ("Sum", s.sum),
             ]
