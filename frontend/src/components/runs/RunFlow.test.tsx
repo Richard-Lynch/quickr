@@ -251,24 +251,27 @@ describe('double taps, within one render (review H1): `expect` only, cooldown of
     expect(types(h)).toEqual(['start', 'next']);
   });
 
-  it('(cooldown on) a Lap that replaced Next under the finger is ignored, then accepted', async () => {
+  it('(cooldown on) a Lap that replaced Next under the finger is disabled and ignored, then accepted', async () => {
     h = renderRunApp('/t/morning/record', timedTopic({ steps: STEPS3.slice(0, 2) }));
     await userEvent.click(await screen.findByRole('button', { name: 'Start' }));
     await sent(h, 1);
     setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
     fireEvent.click(await screen.findByRole('button', { name: 'Next: Breakfast' }));
-    // The screen caught up: the same button now says Lap (the last step). A tap right away
-    // is ignored.
+    // The screen caught up: the same button now says Lap (the last step), and every control
+    // is disabled while the cooldown lasts (active-surfaces.md §2.2, §9). A tap is ignored.
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /^Next/ })).toBeNull();
       expect(screen.getByTestId('run-primary')).toHaveAccessibleName('Lap');
-      expect(screen.getByTestId('run-primary')).toBeEnabled();
     });
+    const controls = screen.getByRole('group', { name: 'Run controls' });
+    for (const b of within(controls).getAllByRole('button')) expect(b).toBeDisabled();
     fireEvent.click(screen.getByTestId('run-primary'));
     await sent(h, 2);
     await settle();
     expect(types(h)).toEqual(['start', 'next']);
-    await new Promise((r) => setTimeout(r, RUN_TAP_COOLDOWN_MS));
+    await waitFor(() => expect(screen.getByTestId('run-primary')).toBeEnabled(), {
+      timeout: RUN_TAP_COOLDOWN_MS * 2,
+    });
     fireEvent.click(screen.getByTestId('run-primary'));
     await sent(h, 3);
     expect(types(h)).toEqual(['start', 'next', 'lap']);

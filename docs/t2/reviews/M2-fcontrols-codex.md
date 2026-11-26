@@ -58,3 +58,18 @@ The prior review’s pending Resume and Undo resume integration seams are justif
 3. **Fixed.** `RunPanel` takes the pinned version's `timer` (RecordPage passes
    `timerOf(versions, open.version)`); the steps-only timer and the `null` (steps unknown)
    fallback remain for when the versions aren't known.
+
+---
+
+## Round 3 (output verbatim)
+
+1. **[P2] Controls remain enabled during the tap cooldown** — [RunPanel.tsx:159](/Users/richie/code/quickr-worktrees/t2-m2-fcontrols/frontend/src/components/runs/RunPanel.tsx:159). The previous review’s justification conflicts with the spec: §2.2 explicitly defines `busy` as including the 450 ms cooldown and requires every button to be disabled during it. The spec’s PWA test requirements also call for the panel to be disabled under cooldown. Here, `busy` covers only the enqueue, so controls appear enabled while `useRunActions` silently ignores taps. The updated flow test instead asserts that the primary is enabled during this interval.
+## Resolutions (f2-controls, round 3)
+
+1. **Fixed (round 2's justification withdrawn).** §2.2 does define `busy` as including the
+   450 ms cooldown and §9 asks for the panel disabled under it. `useRunActions` now exposes
+   `cooling` (true for `RUN_TAP_COOLDOWN_MS` after a tap from that hook starts its topic's
+   cooldown; never set while the cooldown is off, as in tests), and the panel passes
+   `busy || cooling` to `RunControls`. The flow test now asserts every control is disabled
+   right after the Next, the tap is ignored, and the primary is enabled and accepted after the
+   cooldown. `busy` itself is unchanged, so Start's spinner and the tiles keep their behaviour.

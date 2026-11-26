@@ -4,7 +4,7 @@
  * the server's answer, like the record screen, so a rejected answer lands on its field.
  */
 import { useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { RECORD_WAIT_MS } from '../../api/entries';
 import { invalidateOperations } from '../../api/queryClient';
@@ -72,6 +72,11 @@ function coolingDown(topicId: string): boolean {
 export interface RunActions {
   /** A tap is being enqueued. */
   busy: boolean;
+  /**
+   * A tap from this hook started its topic's cooldown less than `RUN_TAP_COOLDOWN_MS` ago:
+   * the run panel shows its controls disabled meanwhile (active-surfaces.md §2.2, §9).
+   */
+  cooling: boolean;
   start: (ctx: RunContext, opts?: Parameters<typeof startRun>[2]) => Promise<StartResult | null>;
   /**
    * One tap on a run's controls. `expect` is what the control showed (see `TapExpect`); a
@@ -101,6 +106,9 @@ export function useRunActions(): RunActions {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [cooling, setCooling] = useState(false);
+  const coolTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(coolTimer.current), []);
 
   return useMemo(() => {
     const deps = runTapDeps(qc);
@@ -184,19 +192,29 @@ export function useRunActions(): RunActions {
       }
     };
 
+    /** `coolingDown`, and while it lasts `cooling` (no state change when it's off, as in tests). */
+    const cools = (topicId: string): boolean => {
+      if (coolingDown(topicId)) return true;
+      if (cooldownMs > 0) {
+        setCooling(true);
+        window.clearTimeout(coolTimer.current);
+        coolTimer.current = window.setTimeout(() => setCooling(false), cooldownMs);
+      }
+      return false;
+    };
+
     return {
       busy,
+      cooling,
       // The cooldown starts at the tap, before the await: Start becomes Next under the finger.
       start: (ctx, startOpts) =>
-        coolingDown(ctx.topic.id)
-          ? Promise.resolve(null)
-          : guarded(() => startRun(deps, ctx, startOpts)),
+        cools(ctx.topic.id) ? Promise.resolve(null) : guarded(() => startRun(deps, ctx, startOpts)),
       // A discard is confirmed in a sheet first: no double tap to guard (as on iOS).
       tap: (runId, ctx, type, body, expect) =>
-        type !== 'discard' && coolingDown(ctx.topic.id)
+        type !== 'discard' && cools(ctx.topic.id)
           ? Promise.resolve(null)
           : guarded(() => tapRun(deps, runId, ctx, type, body, expect ? { expect } : {})),
       finish,
     };
-  }, [qc, toast, busy]);
+  }, [qc, toast, busy, cooling]);
 }

@@ -156,7 +156,7 @@ export function RunPanel({
 
         <RunControls
           actions={list}
-          busy={ctx === null || actions.busy}
+          busy={ctx === null || actions.busy || actions.cooling}
           topic={topic}
           onAction={onAction}
         />
