@@ -136,7 +136,23 @@ describe('TopicTabs header: a colour', () => {
     const img = within(present(glyph())).getByRole('img', { hidden: true });
     expect(img).toHaveTextContent('🏃');
     expect(img).not.toHaveClass('rounded-full');
-    expect(screen.getByRole('list', { name: 'Tags' })).toHaveTextContent('HealthOutdoors');
+    // Decorative and a fixed 32 px, whatever the colour.
+    expect(glyph()).toHaveAttribute('aria-hidden', 'true');
+    expect(img.style.width).toBe('32px');
+    expect(img.style.height).toBe('32px');
+    expect(screen.getByRole('heading', { level: 1, name: 'Running' })).toBeInTheDocument();
+    // The chips are labels, not controls (the Home tag filter is T2-WIRE's).
+    const chips = screen.getByRole('list', { name: 'Tags' });
+    expect(chips).toHaveTextContent('HealthOutdoors');
+    expect(within(chips).queryAllByRole('link')).toHaveLength(0);
+    expect(within(chips).queryAllByRole('button')).toHaveLength(0);
+    // The Log buttons (header and floating) keep the brand accent.
+    const logs = screen.getAllByRole('link', { name: 'Log' });
+    expect(logs).toHaveLength(2);
+    for (const log of logs) {
+      expect(log).toHaveClass('bg-accent', 'text-on-accent');
+      expect(log).not.toHaveClass('bg-topic-tint');
+    }
   });
 
   it('shows the initial on the tint circle when there is no emoji', () => {
@@ -146,6 +162,8 @@ describe('TopicTabs header: a colour', () => {
     expect(img).toHaveClass('rounded-full', 'bg-topic-tint', 'text-topic-on-tint');
     expect(img.style.getPropertyValue('--topic-tint')).toBe('var(--topic-pink-tint, #b8386e)');
     expect(header().style.getPropertyValue('--topic-tint')).toBe('var(--topic-pink-tint, #b8386e)');
+    expect(img.style.width).toBe('32px');
+    expect(glyph()).toHaveAttribute('aria-hidden', 'true');
     expect(screen.getByRole('heading', { level: 1, name: 'Running' })).toBeInTheDocument();
   });
 });
