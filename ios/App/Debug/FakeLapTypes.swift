@@ -116,6 +116,12 @@ enum FakeLapTypes {
 
     // MARK: - Feed
 
+    /// `FakeTiming`'s seeded `feed`, then this topic's items numbered after it (`FakeTiming.seedFeed`'s
+    /// one hook into this file).
+    static func seedFeed(after feed: [String]) -> [String] {
+        feed + seedFeed(firstSeq: FakeServer.seededHead + 1 + feed.count)
+    }
+
     /// The topic's version and topic rows, then its runs' entries, oldest first, from `firstSeq`.
     static func seedFeed(firstSeq: Int) -> [String] {
         guard isEnabled else { return [] }

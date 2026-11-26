@@ -65,7 +65,7 @@ public enum EntryTimingModel {
     // MARK: - Remove (content-display.md §3.2)
 
     /// A row's one-tap Remove: the event it targets (timers2.md §3.3, A7), whether it can be sent,
-    /// the confirmation it asks first, and its accessibility identifier.
+    /// the confirmation it asks first, what VoiceOver says of it, and its accessibility identifier.
     public struct Remove: Sendable, Hashable {
         /// A lap's `event_id` (the event that opened it) or a pause's `id` (a gap pause carries
         /// the reopened stop's: removing it removes the gap).
@@ -77,15 +77,29 @@ public enum EntryTimingModel {
         public let message: String
         /// `entry.timing.remove.<i>` on a segment row, `entry.timing.pause.remove.<j>` on a pause.
         public let identifier: String
+        /// The button's accessibility label, naming its row: "Remove Rest 1", "Remove pause, 20
+        /// seconds" (every row's button would otherwise read "Remove").
+        public let label: String
+        /// Why a disabled Remove is disabled; nil when enabled.
+        public let hint: String?
 
-        public init(target: String, enabled: Bool, title: String, message: String, identifier: String) {
+        public init(
+            target: String, enabled: Bool, title: String, message: String, identifier: String,
+            label: String = "Remove", hint: String? = nil
+        ) {
             self.target = target
             self.enabled = enabled
             self.title = title
             self.message = message
             self.identifier = identifier
+            self.label = label
+            self.hint = hint
         }
     }
+
+    /// A disabled lap Remove's hint: the lap was opened by a `next` or a `skip` (a step boundary,
+    /// whose `remove` is `no_target`), so only Edit times changes it.
+    public static let stepBoundaryHint = "Starts at a step boundary: change it with Edit times"
 
     /// Remove on `row` of `timing`, or nil: never on an edited timing (the server voids it,
     /// `run_edited`, timers2.md §3.6), a step, the first segment, or a row without an id (a
@@ -95,14 +109,17 @@ public enum EntryTimingModel {
         switch row {
         case .segment(let index, let segment):
             guard index > 0, segment.kind == .lap, let target = segment.eventId else { return nil }
+            let enabled = segment.openedBy == .lap
             return Remove(
-                target: target, enabled: segment.openedBy == .lap, title: "Remove this lap?",
-                message: "Its time joins the previous segment.", identifier: "entry.timing.remove.\(index)")
+                target: target, enabled: enabled, title: "Remove this lap?",
+                message: "Its time joins the previous segment.", identifier: "entry.timing.remove.\(index)",
+                label: "Remove \(segment.label)", hint: enabled ? nil : stepBoundaryHint)
         case .pause(let index, let pause):
             guard let target = pause.id else { return nil }
             return Remove(
                 target: target, enabled: true, title: "Remove this pause?", message: "Its time becomes active.",
-                identifier: "entry.timing.pause.remove.\(index)")
+                identifier: "entry.timing.pause.remove.\(index)",
+                label: "Remove pause, \(RunPresentation.spoken(pause.end - pause.start))")
         }
     }
 

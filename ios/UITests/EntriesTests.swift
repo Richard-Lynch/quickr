@@ -91,21 +91,26 @@ final class EntriesTests: XCTestCase {
 
     /// Remove on a pause row (content-display.md §3.2): it confirms, then the pause's time turns
     /// active. Offline, the remove queues: the row goes and the total grows at once, with
-    /// "Waiting" (A14); back online the fake server applies it (`FakeLapTypes.record`) and the
-    /// ack's entry (revision 2) clears the mark.
+    /// "Waiting" (A14), and Edit times waits for it (an edit would void it, review R1); back
+    /// online the fake server applies it (`FakeLapTypes.record`) and the ack's entry (revision 2)
+    /// clears the mark. The Remove names its row for VoiceOver (review R5).
     @MainActor
     func testRemovePauseFromEntryDetail() {
         let app = launchTyped(["-QuickrSyncControls"])
         find(app, Self.newest).tap()
         let pause = find(app, "entry.timing.pause.0")
         let total = find(app, "entry.timing.total")
+        let editTimes = find(app, "entry.timing.edit")
         XCTAssertTrue(pause.waitForExistence(timeout: 10), "the newest run's pause row")
         XCTAssertEqual(pause.label, "Paused, 20 seconds")
         XCTAssertEqual(total.label, "Total 5 minutes")
         XCTAssertFalse(find(app, "entry.timing.pending").exists)
+        XCTAssertTrue(editTimes.exists, "Edit times, before the remove")
 
         find(app, "debug.offline").tap()
-        find(app, "entry.timing.pause.remove.0").tap()
+        let removePause = find(app, "entry.timing.pause.remove.0")
+        XCTAssertEqual(removePause.label, "Remove pause, 20 seconds")
+        removePause.tap()
         let alert = app.alerts["Remove this pause?"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "the confirmation")
         // SwiftUI lists the alert's action twice under the alert: the first is the button.
@@ -114,9 +119,12 @@ final class EntriesTests: XCTestCase {
         XCTAssertTrue(find(app, "entry.timing.pending").waitForExistence(timeout: 10), "Waiting while queued")
         XCTAssertTrue(waitForAbsence(pause), "the pause row is gone")
         XCTAssertTrue(waitForLabel(total, "Total 5 minutes 20 seconds"), "its 20 s became active")
+        XCTAssertTrue(waitForAbsence(editTimes), "no Edit times while the remove is queued")
+        XCTAssertEqual(find(app, "entry.timing.editUnavailable").label, "Edit times once the removal has synced.")
 
         find(app, "debug.online").tap()
         XCTAssertTrue(waitForAbsence(find(app, "entry.timing.pending"), timeout: 20), "the ack clears Waiting")
+        XCTAssertTrue(editTimes.waitForExistence(timeout: 10), "Edit times is back after the ack")
         XCTAssertFalse(find(app, "entry.timing.pause.0").exists)
         XCTAssertEqual(total.label, "Total 5 minutes 20 seconds")
         XCTAssertTrue(find(app, "entry.timing.segment.1").label.hasPrefix("Rest 1"), "the laps stay")
@@ -190,6 +198,7 @@ final class EntriesTests: XCTestCase {
             XCTAssertTrue(row.label.hasPrefix(label), "\(label) in \(row.label)")
             if index > 0 {
                 XCTAssertTrue(remove.exists, "\(label)'s Remove")
+                XCTAssertEqual(remove.label, "Remove \(label.prefix { $0 != "," })", "it names its row (review R5)")
                 XCTAssertGreaterThanOrEqual(remove.frame.minY, row.frame.maxY - 1, "\(label)'s Remove is under it")
             }
             if index == 1 {

@@ -388,6 +388,41 @@ import Testing
         #expect(model.rows.allSatisfy { $0.timing == nil })
     }
 
+    /// Review C3 (content-display.md §1.2): an entry whose version isn't read (not synced yet,
+    /// or its read failed) never borrows another version's labels or units: it shows its timing
+    /// part alone. The current version's questions are the topic's, even before its row is read.
+    @Test func anUnreadVersionGivesTheTimingPartAlone() async throws {
+        let w = try await World(seeded: false)
+        defer { w.cleanup() }
+        let store = try #require(w.session.store)
+        // Version 3 renames Glasses to Cups (unit "cups"); only version 1's row is here.
+        let cups = Question(key: "glasses", label: "Cups", kind: .int(.init(min: 0, unit: "cups")))
+        var renamed = Self.topic
+        renamed.currentVersion = 3
+        renamed.questions = [cups]
+        let timing = Self.intervalsTiming()
+        var timed = Self.entry(42, daysAgo: 2, version: 2, answers: ["glasses": .int(2)])
+        timed.timing = timing
+        try await store.writer.write { [renamed, timed] db in
+            _ = try ServerLayer.upsert(db, topic: renamed)
+            _ = try ServerLayer.insert(
+                db, version: TopicVersion(version: 1, questions: [Self.glasses], createdAt: Self.now), id: UUID(),
+                topicId: Self.topicId)
+            _ = try ServerLayer.upsert(db, entry: Self.entry(41, daysAgo: 1, version: 1))
+            _ = try ServerLayer.upsert(db, entry: timed)
+            _ = try ServerLayer.upsert(db, entry: Self.entry(43, daysAgo: 3, version: 2))
+            _ = try ServerLayer.upsert(db, entry: Self.entry(44, daysAgo: 4, version: 3))
+        }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+
+        let summaries = Dictionary(uniqueKeysWithValues: model.rows.map { (Self.ids([$0])[0], $0.summary) })
+        #expect(summaries[41] == "Glasses: 41 glasses", "its own version's row")
+        #expect(summaries[42] == EntrySummary.timingLine(timing, timer: nil), "version 2 unread: the timing alone")
+        #expect(summaries[43] == "", "version 2 unread, untimed: nothing to say (not \"Cups: 43 cups\")")
+        #expect(summaries[44] == "Cups: 44 cups", "the current version: the topic's questions")
+    }
+
     @Test func withoutAServer() async throws {
         let w = try await World(active: false)
         defer { w.cleanup() }

@@ -162,6 +162,49 @@ extension EntriesModelTests {
         #expect(recorder.count == 2)
     }
 
+    /// Review R1: a queued Remove is seen (`removeQueued`), so the screen holds Edit times back
+    /// until its ack; a refused one lets it go again.
+    @Test func aQueuedRemoveIsSeen() async throws {
+        let w = try await World()
+        defer { w.cleanup() }
+        let store = try #require(w.session.store)
+        try await Self.seedIntervals(store)
+        let recorder = Recorder()
+        let (model, observing) = try await actionsModel(w, 31, recorder: recorder)
+        defer { observing.cancel() }
+        try await eventually("the outbox is read") { await MainActor.run { !model.removeQueued } }
+
+        let rows = EntryTimingModel.rows(try #require(model.entry.entry.timing))
+        #expect(await model.remove(try #require(model.removeAction(rows[1]))))
+        w.session.refresh.poke()
+        try await eventually("the queued remove is seen") { await MainActor.run { model.removeQueued } }
+
+        // Refused (terminal): the server's timing stands, Edit times is free again.
+        try await store.writer.write { db in try db.execute(sql: "UPDATE outbox_item SET state = 'failed'") }
+        w.session.refresh.poke()
+        try await eventually("not while refused") { await MainActor.run { !model.removeQueued } }
+    }
+
+    /// Review R8: a Remove or Resume run that isn't enqueued says so, in the PWA's words.
+    @Test func aRefusedActionSaysSo() async throws {
+        let w = try await World()
+        defer { w.cleanup() }
+        let store = try #require(w.session.store)
+        try await Self.seedIntervals(store)
+        let recorder = Recorder()
+        let (model, observing) = try await actionsModel(w, 32, recorder: recorder)  // edited
+        defer { observing.cancel() }
+        let said = Mutex<[String]>([])
+        model.onRefused = { message in said.withLock { $0.append(message) } }
+
+        let forged = EntryTimingModel.Remove(
+            target: Self.lapEvent, enabled: true, title: "", message: "", identifier: "")
+        #expect(await model.remove(forged) == false)
+        #expect(await model.resume(now: Self.now) == false)
+        #expect(said.withLock { $0 } == ["That can’t be removed now", "This run can’t be resumed now"])
+        #expect(recorder.count == 0)
+    }
+
     /// The lap a `next` opened has Remove, disabled: nothing is sent (its remove is `no_target`).
     @Test func removeIsDisabledOnANextOpenedLap() async throws {
         let w = try await World()

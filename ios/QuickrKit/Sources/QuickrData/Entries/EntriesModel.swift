@@ -196,16 +196,20 @@ public final class EntriesModel {
     private func relist() {
         let server = entries.filter { !$0.isLocalOnly }
         // Each row carries the binding of the observation that read it, and its summary in its
-        // own version's questions (the topic's current ones when the version isn't read yet).
-        let questions = [Int: [Question]](versions.map { ($0.version, $0.questions) }, uniquingKeysWith: { $1 })
-        let current = topic?.topic.questions ?? []
+        // own version's questions (content-display.md §1.2). The current version's are the
+        // topic's, even before its version row is read; an older version not read yet (or whose
+        // read failed) gives the timing part alone, never another version's labels and units.
+        var questions = [Int: [Question]](versions.map { ($0.version, $0.questions) }, uniquingKeysWith: { $1 })
+        if let topic, questions[topic.topic.currentVersion] == nil {
+            questions[topic.topic.currentVersion] = topic.topic.questions
+        }
         let timer = topic?.topic.timer
         let row = { [binding] (entry: ViewEntry) in
             binding.map {
                 Row(
                     entry: entry, binding: $0,
                     summary: EntrySummary.line(
-                        entry: entry.entry, questions: questions[entry.entry.version] ?? current, timer: timer),
+                        entry: entry.entry, questions: questions[entry.entry.version] ?? [], timer: timer),
                     timing: EntryTimingModel.chip(entry.entry.timing, timer: timer))
             }
         }

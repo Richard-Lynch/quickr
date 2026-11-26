@@ -152,10 +152,10 @@ struct EntryTimingSection: View {
     /// the row's.
     @ViewBuilder private func removeButton(_ row: EntryTimingModel.Row) -> some View {
         if let actions, let remove = actions.removeAction(row) {
-            QuickrIconButton(.trash, label: "Remove", small: true) { confirming = remove }
+            QuickrIconButton(.trash, label: remove.label, small: true) { confirming = remove }
                 .disabled(!remove.enabled)
                 .opacity(remove.enabled ? 1 : 0.4)
-                .accessibilityHint(remove.enabled ? "" : "The lap after the last step can’t be removed.")
+                .accessibilityHint(remove.hint ?? "")
                 .accessibilityIdentifier(remove.identifier)
         }
     }

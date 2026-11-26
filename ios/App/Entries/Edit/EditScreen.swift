@@ -43,6 +43,8 @@ struct EditScreen: View {
                 .onChange(of: actions.isOpenHere, initial: true) { _, open in
                     if open { environment.router.replaceTop(with: .run(ref)) }
                 }
+                // A queued Remove holds Edit times back until its ack (saving times would void it).
+                .onChange(of: actions.removeQueued, initial: true) { _, queued in model.removeQueued = queued }
                 // The entry as the store shows it, as it changes: a timed entry's times (and an
                 // open Edit times sheet's staleness), a queued remove's re-projection (A14), or
                 // answers changed elsewhere.
@@ -156,6 +158,9 @@ struct EditScreen: View {
                 timerLapTypes: timer?.laps ?? [], timingWriter: SessionTopicWriter(session: session, binding: binding))
             let actions = EntryActionsModel(
                 entry: viewEntry, store: store, refresh: session.refresh, runActions: environment.runActions)
+            // A Remove or Resume run that wasn't enqueued says so (the PWA's toasts).
+            let toasts = environment.entryToasts.center
+            actions.onRefused = { message in _ = toasts.show(Toast(message, tone: .danger)) }
             load = .ready(model, EntriesModel.Row(entry: viewEntry, binding: binding), store, actions)
         } catch {
             load = .failed(String(describing: error))

@@ -98,6 +98,9 @@ public final class EditModel: EntryDetailsEditing {
     public let timerLapTypes: [TopicTimer.LapType]
     /// The open Edit times sheet.
     public var timingEditor: TimingEditModel?
+    /// One of the run's removes is queued (`EntryActionsModel.removeQueued`, content-display.md
+    /// §3.2): Edit times waits for its ack, since saving times would void it (`run_edited`).
+    public var removeQueued = false
     /// The entry changed elsewhere while the answers or notes are being edited: what it says now.
     /// Shown with Reload; the edits stay until then.
     public private(set) var changedElsewhere: Entry?
@@ -293,11 +296,12 @@ public final class EditModel: EntryDetailsEditing {
 
     // MARK: Edit times (timers.md §3.8)
 
-    /// Why Edit times isn't offered, if it isn't: the server must have the entry, and saving is
-    /// online.
+    /// Why Edit times isn't offered, if it isn't: the server must have the entry, saving is
+    /// online, and a queued remove must have synced first (an edit voids it).
     public var timingEditUnavailable: String? {
         guard let timing = entry.timing else { return nil }
         if localOnly || timingWriter == nil { return "Edit times once this run has synced." }
+        if removeQueued { return "Edit times once the removal has synced." }
         // Its steps' labels and choices come from its version's row.
         if timerSteps.isEmpty && timing.segments.contains(where: { $0.kind == .step }) {
             return "Edit times once its version has synced."

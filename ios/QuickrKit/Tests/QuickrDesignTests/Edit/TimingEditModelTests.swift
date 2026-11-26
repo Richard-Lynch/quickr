@@ -302,6 +302,20 @@ private let utc = TimingEditClock(timeZone: TimeZone(identifier: "UTC")!)
         #expect(m.timingEditor == nil)
     }
 
+    /// Review R1 (content-display.md §3.2): while a Remove is queued, Edit times waits for its
+    /// ack. Saving times over the projection would void the Remove (`run_edited`).
+    @Test func editTimesWaitsForAQueuedRemove() {
+        let m = editModel()
+        #expect(m.timingEditUnavailable == nil)
+        m.removeQueued = true
+        #expect(m.timingEditUnavailable == "Edit times once the removal has synced.")
+        m.openTimingEditor()
+        #expect(m.timingEditor == nil)
+        m.removeQueued = false
+        m.openTimingEditor()
+        #expect(m.timingEditor != nil, "after the ack it opens")
+    }
+
     // MARK: - Lap types (content-display.md §3.2, timers2.md §3.2)
 
     /// With the version's lap types, a lap row's choice names the type its position gives it, and
