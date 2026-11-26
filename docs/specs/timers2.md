@@ -222,6 +222,11 @@ before `m`). A unit MUST follow its number without a space (`30 s` is a `syntax`
 error at the `s`). `+`/`-` and `*`/`/` are left-associative; `*`/`/` bind
 tighter; unary minus binds tightest (`-t/2` is `(-t)/2`).
 
+Whitespace is space, tab, CR and LF; letters and digits are ASCII. A number
+takes a fraction only when a digit follows the `.`; the unit is the longest of
+`ms`, `s`, `m`, `h` that directly follows; whatever comes next starts a new
+token (`30sec` is `30s` then `ec`: `syntax` 3).
+
 ### 2.2 Types
 
 Two types: **number** (a scalar) and **duration** (ms). Variables are durations.
@@ -253,6 +258,15 @@ the error is reported at (the whole expression: 0).
 | `negative`         | The result is below 0                                                                                                 | 0                                        |
 | `too_long`         | The text is longer than 64 characters (`pos` 64), or the result or any intermediate duration exceeds 7 days (`pos` 0) |
 
+Errors are reported in this order: text length; then the whole parse (the first
+syntax error, by position; an unexpected token is reported at its first
+character); then evaluation, first error in evaluation order (left operand,
+right operand, then the operator's checks: `type`, `div_zero`, then `too_long`
+if a duration's magnitude exceeds 7 days; literals and variables are checked as
+read); finally a number result is `type` 0 and a result below 0 is `negative` 0.
+Numbers have no bound. `pos` and the 64-character limit count Unicode code
+points.
+
 ### 2.4 Evaluation
 
 Numbers and durations are IEEE doubles during evaluation (ms for durations:
@@ -261,6 +275,8 @@ the same order, so results are bit-identical. The final duration is **truncated
 toward zero to whole ms** (`int()`, `Math.trunc`, `Int()`). Intermediate values
 are never rounded. A unit literal is `number × factor` with factors 1, 1 000, 60
 000, 3 600 000.
+Every check uses the untruncated double (`0s-0.5ms` is `negative`;
+`168h+0.5ms` is `too_long`).
 
 ### 2.5 Implementations and vectors
 

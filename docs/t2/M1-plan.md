@@ -389,12 +389,16 @@ the M1↔M2 seam is active-surfaces.md §1.
   with the ASC key on the WP branch if the orchestrator allows, or `v0.4.0-rc1`:
   the orchestrator tags it from `feat/t2` only after M1 has merged there with
   all five checks green; CI publishes ghcr images and a TestFlight build,
-  nothing deploys the server; the build installs and a lap alert sounds under a
-  Focus on the device (checklist item); against the level-1 server the rc build
+  nothing deploys the server; the build signs and installs and its
+  entitlements list the time-sensitive key (revision 5: the alert-under-Focus
+  check needs a level-2 server, so it runs on the `v0.4.0` build; checklist
+  item); against the level-1 server the rc build
   shows the non-blocking "server is older" note and T2 features do not work
   (expected); the bot PR `compat/testflight-<build>` is merged into `main` as
   usual; (3) fallback: if rc1's signing fails on the entitlement, flip the one
-  constant (`RunAlerts.interruptionLevel = .active`) in a small PR on `feat/t2`,
+  constant (`RunAlerts.interruptionLevel = .active`) **and remove the
+  time-sensitive entitlement line from `ios/project.yml`** (revision 5) in a
+  small PR on `feat/t2`,
   record the Apple portal step on the device checklist, and tell the
   orchestrator.
 - **Tests:** the archive/signing log in the PR; `make check-ios` still green
