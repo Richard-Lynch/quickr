@@ -56,6 +56,8 @@ const topic = {
   appearance,
 } satisfies TopicDetail;
 
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
@@ -315,7 +317,7 @@ describe('SettingsPage appearance PATCH', () => {
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(patches()[0]).toEqual({
       method: 'PATCH',
-      path: '/api/v1/topics/gym',
+      path: `/api/v1/topics/${topic.id}`,
       body: { appearance: { color: 'blue', tags: ['sport'] }, expected_revision: 7 },
     });
   });
@@ -379,21 +381,27 @@ describe('SettingsPage appearance PATCH', () => {
 
 describe('SettingsPage saves on one topic', () => {
   /**
-   * A server with the topic's revision: every PATCH bumps it, and a details PATCH whose
-   * `expected_revision` isn't current gets 409 `stale_revision`. `external` changes the topic as
-   * another device would.
+   * A server with the topic's revision, found by id or slug: every PATCH bumps it, and a details
+   * PATCH whose `expected_revision` isn't current gets 409 `stale_revision`. `external` changes the
+   * topic as another device would. `beforeDetails` queues one step per details PATCH, run before the
+   * server handles it: another device's write in between, or a reply that replaces the server's.
    */
   function fakeServer() {
     let current: TopicDetail = { ...topic };
     const details: Record<string, unknown>[] = [];
+    const paths: string[] = [];
+    const steps: (() => Response | undefined)[] = [];
+    const isCurrent = (path: string) =>
+      path === `/api/v1/topics/${current.id}` || path === `/api/v1/topics/${current.slug}`;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: Request) => {
         const text = await input.text();
         const body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-        if (input.method === 'GET' && new URL(input.url).pathname === '/api/v1/topics/gym')
-          return json(200, current);
-        if (input.method !== 'PATCH')
+        const path = new URL(input.url).pathname;
+        paths.push(`${input.method} ${path}`);
+        if (input.method === 'GET' && isCurrent(path)) return json(200, current);
+        if (input.method !== 'PATCH' || !isCurrent(path))
           return json(404, { code: 'not_found', detail: 'not found', errors: [] });
         if ('schedule' in body) {
           const sch = body.schedule as { times: string[]; timezone: string };
@@ -413,13 +421,16 @@ describe('SettingsPage saves on one topic', () => {
           return json(200, current);
         }
         details.push(body);
+        const replaced = steps.shift()?.();
+        if (replaced) return replaced;
         if (body.expected_revision !== current.revision)
           return json(409, { code: 'stale_revision', detail: 'Changed elsewhere', errors: [] });
-        const a = (body.appearance ?? {}) as Partial<Appearance>;
+        const { appearance: a, expected_revision: _, ...meta } = body;
         current = {
           ...current,
+          ...(meta as Partial<TopicDetail>),
           revision: current.revision + 1,
-          appearance: { ...current.appearance, ...a },
+          appearance: { ...current.appearance, ...(a as Partial<Appearance> | undefined) },
         };
         return json(200, current);
       }),
@@ -427,7 +438,8 @@ describe('SettingsPage saves on one topic', () => {
     const external = (patch: Partial<TopicDetail>) => {
       current = { ...current, ...patch, revision: current.revision + 1 };
     };
-    return { details, external };
+    const beforeDetails = (...more: (() => Response | undefined)[]) => steps.push(...more);
+    return { details, paths, external, beforeDetails };
   }
 
   /** The topic comes from the query cache, as in TopicLayout, so this page's own saves reach it. */
@@ -459,7 +471,7 @@ describe('SettingsPage saves on one topic', () => {
         </ToastProvider>
       </QueryClientProvider>,
     );
-    return { user: userEvent.setup(), qc };
+    return { user: userEvent.setup(), qc, router };
   }
 
   async function saveSchedule(user: ReturnType<typeof userEvent.setup>) {
@@ -508,7 +520,7 @@ describe('SettingsPage saves on one topic', () => {
     await act(() => qc.refetchQueries());
     expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Save details' }));
-    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    expect(await screen.findByText(/^Colour changed elsewhere/)).toBeInTheDocument();
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
   });
 
@@ -525,7 +537,7 @@ describe('SettingsPage saves on one topic', () => {
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 8 }]);
   });
 
-  it('retries once on the newer revision when an unseen change left the edits alone', async () => {
+  it('re-sends on the newer revision when an unseen change left the edits alone', async () => {
     const server = fakeServer();
     const { user } = renderSettings();
     await user.click(await screen.findByRole('radio', { name: 'Blue' }));
@@ -539,14 +551,106 @@ describe('SettingsPage saves on one topic', () => {
     expect(screen.queryByText('Changed elsewhere')).toBeNull();
   });
 
-  it('shows the conflict when an unseen change touched the edited field', async () => {
+  it('shows the conflict naming the field, then a second save overwrites it', async () => {
     const server = fakeServer();
     const { user } = renderSettings();
     await user.click(await screen.findByRole('radio', { name: 'Blue' }));
-    server.external({ appearance: { ...appearance, color: 'green' } });
+    // Unseen: another device sets the colour and renames the topic.
+    server.external({ name: 'Lifting', appearance: { ...appearance, color: 'green' } });
     await user.click(screen.getByRole('button', { name: 'Save details' }));
-    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'Colour changed elsewhere. Your edit is still here: save again to keep it.',
+      ),
+    ).toBeInTheDocument();
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
+    // The form now stands on the other device's topic, with the colour edit on top.
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Lifting'));
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+  });
+
+  it('re-sends by id over a slug changed elsewhere while only the colour was edited', async () => {
+    const server = fakeServer();
+    const { user, router } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ slug: 'lifting' }); // unseen: /topics/gym is gone
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+    const topicCalls = server.paths.filter((p) => p.startsWith('PATCH') || p.endsWith(topic.id));
+    expect(topicCalls).toEqual([
+      `PATCH /api/v1/topics/${topic.id}`,
+      `GET /api/v1/topics/${topic.id}`,
+      `PATCH /api/v1/topics/${topic.id}`,
+    ]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+    await waitFor(() => expect(router.state.location.pathname).toBe('/t/lifting/settings'));
+  });
+
+  it('keeps re-sending over two unrelated writes in a row', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' });
+    server.beforeDetails(
+      () => undefined,
+      () => void server.external({ description: 'Twice a week' }), // after the refetch
+    );
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details.map((d) => d.expected_revision)).toEqual([7, 8, 9]);
+    expect(server.details.every((d) => sameJson(d.appearance, { color: 'blue' }))).toBe(true);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+  });
+
+  it('gives up after three attempts on a busy topic, with the busy error', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    const write = (n: number) => () => void server.external({ description: `Write ${String(n)}` });
+    server.beforeDetails(write(1), write(2), write(3), write(4));
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(
+      await screen.findByText('This topic is busy with other changes. Try again.'),
+    ).toBeInTheDocument();
+    expect(server.details.map((d) => d.expected_revision)).toEqual([7, 8, 9]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+  });
+
+  it('keeps tag text not added yet and the 422 field errors over a rebase', async () => {
+    const server = fakeServer();
+    const { user, qc } = renderSettings();
+    await user.clear(await screen.findByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Gymnasium');
+    server.beforeDetails(() =>
+      json(422, {
+        code: 'invalid_request',
+        detail: 'Invalid request',
+        errors: [{ loc: ['body', 'name'], message: 'Value error, name is reserved' }],
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Name is reserved')).toBeInTheDocument();
+    await user.type(tagInput(), 'yoga'); // typed, not added
+    server.external({ description: 'Twice a week' });
+    await act(() => qc.refetchQueries());
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /^Description/ })).toHaveValue('Twice a week'),
+    );
+    expect(tagInput()).toHaveValue('yoga');
+    expect(screen.getByLabelText('Name')).toHaveValue('Gymnasium');
+    expect(screen.getByText('Name is reserved')).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('rebases over a change from elsewhere that leaves the details alone', async () => {

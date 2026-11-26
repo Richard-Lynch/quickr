@@ -209,12 +209,12 @@ ExpectedRevision = Annotated[
 ]
 
 
-def _not_nullable(schema: dict[str, Any]) -> None:
-    """Drop ``null`` from an optional field's schema: absent is allowed, ``null`` is refused."""
-    schema.update(next(s for s in schema.pop("anyOf") if s.get("type") != "null"))
-
-
 # T2-M3: topic appearance (docs/specs/appearance.md §1.1, §1.3, §2; services/appearance.py)
+def _not_nullable_late(schema: dict[str, Any]) -> None:
+    """``_not_nullable`` (defined with ``EntryUpdate``, below), looked up when the schema is built."""
+    _not_nullable(schema)
+
+
 # ---------------------------------------------------------------------------
 # Appearance
 # ---------------------------------------------------------------------------
@@ -278,7 +278,7 @@ class AppearanceUpdate(StrictModel):
     color: ColorName | None = Field(default=None, description="null clears the colour.")
     icon: TopicIcon | None = Field(default=None, description="null clears the icon.")
     tags: Tags | None = Field(
-        default=None, json_schema_extra=_not_nullable, description="Replaces the tags; [] clears them."
+        default=None, json_schema_extra=_not_nullable_late, description="Replaces the tags; [] clears them."
     )
 
     @field_validator("tags", mode="before")
@@ -327,7 +327,7 @@ class TopicUpdate(StrictModel):
     # T2-M3: optional but not nullable, like EntryUpdate.timing
     appearance: AppearanceUpdate | None = Field(
         default=None,
-        json_schema_extra=_not_nullable,
+        json_schema_extra=_not_nullable_late,
         description="Changes the fields it holds; null is refused (clear fields individually).",
     )
 
@@ -602,6 +602,11 @@ class TimingEdit(StrictModel):
     pauses: Annotated[list[TimingEditPause], Field(max_length=MAX_RUN_EVENTS)] = Field(
         description="Sorted, not overlapping, within the run."
     )
+
+
+def _not_nullable(schema: dict[str, Any]) -> None:
+    """Drop ``null`` from an optional field's schema: absent is allowed, ``null`` is refused."""
+    schema.update(next(s for s in schema.pop("anyOf") if s.get("type") != "null"))
 
 
 class EntryUpdate(StrictModel):
