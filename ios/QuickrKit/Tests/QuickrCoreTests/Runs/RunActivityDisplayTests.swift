@@ -128,9 +128,9 @@ import Testing
     }
 
     /// §4.1 replaces v1's `nextLabel != nil` test: a lap open while a step is still pending
-    /// (the content state has `next_label` but no `step_index`) is Lap. Its title stays "Lap":
-    /// that `next_label` is the step Next would start, not what the lap opens (the lap is
-    /// untyped). Not among the server's vectors, so folded here.
+    /// (no `step_index`) is Lap, titled plain "Lap". In a lap `next_label` is the next lap type's
+    /// label, never the pending step's (timers2.md §8.1, #208), so an untyped lap has none. Not
+    /// among the server's vectors, so folded here.
     @Test func lapWithAStepPendingIsLap() throws {
         let state = try Self.folded { runId, t0 in
             [
@@ -141,7 +141,7 @@ import Testing
         let stepIndex: Int? = state.stepIndex
         #expect(stepIndex == nil)
         let nextLabel: String? = state.nextLabel
-        #expect(nextLabel == "B")
+        #expect(nextLabel == nil)
         let d = RunActivityDisplay(state: state, topicName: "T")
         #expect(d.label == "Lap 1")
         let buttons: [Button] = d.buttons
@@ -352,8 +352,8 @@ import Testing
         }
         // The 7 open cases of I2-LA, M1-LA-STATE's 5 lap and alert cases (`start_renamed_laps`,
         // `update_tiktok_lap`, `update_alert_pending`, `update_alert_paused`, `update_reopened`)
-        // and its 2 running payload-budget cases.
-        #expect(open == 14)
+        // its 2 running payload-budget cases, and #234's `typed_lap_mid_steps`.
+        #expect(open == 15)
     }
 
     /// A content state folded from `events` over steps A, B, C.

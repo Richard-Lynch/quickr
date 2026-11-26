@@ -57,6 +57,9 @@ function runOf(opts: { paused?: boolean; open?: OpenSegment | null } = {}): Loca
     queued: [],
     steps: null,
     requires_answers: null,
+    laps: null,
+    resuming: false,
+    has_entry: false,
   };
 }
 

@@ -86,8 +86,8 @@ import Testing
                 row: "8 paused (row 4)", actions: actions([p], timer: timer), primary: next,
                 secondaries: [stop, resume], overflow: [skipShower, discard], tile: open(next, resume)),
             Row(
-                row: "9 open, timer nil", actions: actions([], timer: nil), primary: a(.next(label: "Next"), .primary),
-                secondaries: [stop, pause], overflow: [discard], tile: open(a(.next(label: "Next"), .primary), pause)),
+                row: "9 open, timer nil", actions: actions([], timer: nil), primary: a(.next(label: ""), .primary),
+                secondaries: [stop, pause], overflow: [discard], tile: open(a(.next(label: ""), .primary), pause)),
             Row(
                 row: "10 open after a reopen (row 4)", actions: [next, stop, pause, skipShower, revert], primary: next,
                 secondaries: [stop, pause], overflow: [skipShower, revert], tile: open(next, pause)),
@@ -102,8 +102,10 @@ import Testing
                 row: "13 stopped, entry resumable", actions: [reopen], primary: nil, secondaries: [reopen],
                 overflow: [], tile: none),
             Row(
-                row: "13 stopped, not resumable (today's model)", actions: actions([x], status: .stopped, timer: timer),
-                primary: nil, secondaries: [], overflow: [], tile: none),
+                // M1's idle rows (§1.2): a stopped run past OQ-1's window is `start` alone.
+                row: "13 stopped, past the window", actions: actions([x], status: .stopped, timer: timer),
+                primary: a(.start, .primary), secondaries: [], overflow: [],
+                tile: .init(primary: a(.start, .primary), stop: nil, pauseResume: nil)),
             {
                 let off = { (action: RunAction) in a(action.kind, action.role, enabled: false) }
                 return Row(
