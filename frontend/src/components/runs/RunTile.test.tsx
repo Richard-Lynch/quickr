@@ -4,9 +4,10 @@
  */
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { outbox } from '../../lib/outbox/client';
+import { setRunTapCooldown } from './useRunActions';
 import {
   RUN_ID,
   renderRunApp,
@@ -22,6 +23,9 @@ afterEach(async () => {
   await h?.teardown();
   h = null;
 });
+
+/** The `flag` icon's path (`ui/Icon.tsx`): Lap's (§1.3). */
+const FLAG_PATH = 'M5 21V4h12l-2.5 4L17 12H5';
 
 const tile = async () => screen.findByRole('article', { name: 'Morning' });
 const sent = async (hh: Harness, n: number) => {
@@ -54,7 +58,7 @@ describe('the home tile of a timed topic', () => {
     expect(h.server.events()[0]).toMatchObject({ type: 'next', seg: 0 });
   });
 
-  it('on the last step: Stop, then the answers form for a version with questions', async () => {
+  it('on the last step: Lap, never Stop (active-surfaces.md §1.2)', async () => {
     h = renderRunApp('/', timedTopic(), (s) =>
       seedRun(s, [
         { type: 'next', s: 10, seg: 0 },
@@ -62,27 +66,12 @@ describe('the home tile of a timed topic', () => {
       ]),
     );
     const t = await tile();
-    const stop = await within(t).findByRole('button', { name: 'Stop · Morning' });
-    await waitFor(() => expect(stop).toBeEnabled());
-    await userEvent.click(stop);
+    const lap = await within(t).findByRole('button', { name: 'Lap · Morning' });
+    expect(within(t).queryByRole('button', { name: /^Stop/ })).toBeNull();
+    await waitFor(() => expect(lap).toBeEnabled());
+    await userEvent.click(lap);
     await sent(h, 1);
-    expect(h.server.events()[0]).toMatchObject({ type: 'stop' });
-    await waitFor(() =>
-      expect(screen.getByTestId('where')).toHaveTextContent(
-        `/t/morning/record?finish=${RUN_ID}&v=1`,
-      ),
-    );
-    expect(await screen.findByRole('heading', { name: 'Add details' })).toBeInTheDocument();
-  });
-
-  it('a version without questions saves at Stop, with its time', async () => {
-    h = renderRunApp('/', timedTopic({ steps: [], questions: [] }), (s) => seedRun(s));
-    const t = await tile();
-    const stop = await within(t).findByRole('button', { name: 'Stop · Morning' });
-    await waitFor(() => expect(stop).toBeEnabled());
-    await userEvent.click(stop);
-    expect(await screen.findByText(/^Saved Morning: 1:0\d$/)).toBeInTheDocument();
-    expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/);
+    expect(h.server.events()[0]).toMatchObject({ type: 'lap', seg: 2 });
   });
 
   it('paused: "Paused"', async () => {
@@ -213,6 +202,160 @@ describe('the running bar', () => {
     h = renderRunApp('/t/morning', timedTopic());
     expect(await screen.findByText('Topic overview')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Running' })).toBeNull();
+  });
+
+  it('on the last step: Lap with its flag, never Stop; a tap laps (§6.3)', async () => {
+    h = renderRunApp('/t/morning', timedTopic(), (s) =>
+      seedRun(s, [
+        { type: 'next', s: 10, seg: 0 },
+        { type: 'next', s: 20, seg: 1 },
+      ]),
+    );
+    const lap = await screen.findByTestId('bar-primary');
+    expect(lap).toHaveAccessibleName('Lap · Morning');
+    expect(lap).toHaveTextContent(/^Lap$/);
+    expect(lap.querySelector('path')).toHaveAttribute('d', FLAG_PATH);
+    const bar = screen.getByRole('region', { name: 'Running' });
+    expect(within(bar).queryByRole('button', { name: /Stop/ })).toBeNull();
+    await waitFor(() => expect(lap).toBeEnabled());
+    await userEvent.click(lap);
+    await sent(h, 1);
+    expect(h.server.events()[0]).toMatchObject({ type: 'lap', seg: 2 });
+  });
+
+  it('is off while the topic’s tap cooldown runs, as the panel is', async () => {
+    h = renderRunApp('/t/morning', timedTopic(), (s) => seedRun(s));
+    const next = await screen.findByTestId('bar-primary');
+    await waitFor(() => expect(next).toBeEnabled());
+    setRunTapCooldown(60_000);
+    await userEvent.click(next);
+    await sent(h, 1);
+    // The primary under the finger is the next step's now, and off until the cooldown ends.
+    await waitFor(() =>
+      expect(screen.getByTestId('bar-primary')).toHaveAccessibleName('Next: Teeth · Morning'),
+    );
+    expect(screen.getByTestId('bar-primary')).toBeDisabled();
+  });
+});
+
+/**
+ * The acceptance of F2-BAR (docs/t2/M2-plan.md): the bar's button is the run screen's primary,
+ * state by state (active-surfaces.md §1.2 rows 4–9). Each state is rendered twice, the bar on
+ * the topic page and the panel on the record page, and the two titles and icons compared.
+ */
+describe('the running bar’s primary is the run panel’s', () => {
+  type Fixture = ReturnType<typeof timedTopic>;
+  const cases: {
+    name: string;
+    fixture: () => Fixture;
+    seed: (s: Parameters<typeof seedRun>[0]) => void;
+    title: string;
+  }[] = [
+    {
+      name: 'row 4: a step open, a step left',
+      fixture: () => timedTopic(),
+      seed: (s) => seedRun(s),
+      title: 'Next: Breakfast',
+    },
+    {
+      name: 'row 6: the last step open',
+      fixture: () => timedTopic(),
+      seed: (s) =>
+        seedRun(s, [
+          { type: 'next', s: 10, seg: 0 },
+          { type: 'next', s: 20, seg: 1 },
+        ]),
+      title: 'Lap',
+    },
+    {
+      name: 'row 5: a lap open',
+      fixture: () => timedTopic(),
+      seed: (s) =>
+        seedRun(s, [
+          { type: 'next', s: 10, seg: 0 },
+          { type: 'next', s: 20, seg: 1 },
+          { type: 'next', s: 30, seg: 2 },
+        ]),
+      title: 'Lap',
+    },
+    {
+      name: 'row 7: no steps (the stopwatch)',
+      fixture: () => timedTopic({ steps: [] }),
+      seed: (s) => seedRun(s),
+      title: 'Lap',
+    },
+    {
+      name: 'row 8: paused',
+      fixture: () => timedTopic(),
+      seed: (s) => seedRun(s, [{ type: 'pause', s: 30 }]),
+      title: 'Next: Breakfast',
+    },
+    {
+      name: 'row 9: steps unknown',
+      fixture: () => timedTopic(),
+      seed: (s) => {
+        s.versionsDown = true;
+        seedRun(s);
+      },
+      title: 'Next',
+    },
+  ];
+
+  const shown = (el: HTMLElement) => ({
+    title: el.textContent,
+    icon: el.querySelector('path')?.getAttribute('d'),
+    enabled: !(el as HTMLButtonElement).disabled,
+  });
+
+  it.each(cases)('$name: $title', async ({ fixture, seed, title }) => {
+    h = renderRunApp('/t/morning/record', fixture(), seed);
+    const panel = await screen.findByTestId('run-primary');
+    await waitFor(() => expect(panel).toBeEnabled());
+    const onPanel = shown(panel);
+    await h.teardown();
+
+    h = renderRunApp('/t/morning', fixture(), seed);
+    const bar = await screen.findByTestId('bar-primary');
+    await waitFor(() => expect(bar).toBeEnabled());
+    expect(shown(bar)).toEqual(onPanel);
+    expect(onPanel.title).toBe(title);
+  });
+});
+
+describe('the running bar on the topics page', () => {
+  it('leaves out a run whose primary the page lists, so it shows once', async () => {
+    h = renderRunApp('/', timedTopic(), (s) => seedRun(s));
+    await tile();
+    expect(await screen.findAllByRole('button', { name: /^Next: Breakfast/ })).toHaveLength(1);
+    expect(screen.queryByRole('region', { name: 'Running' })).toBeNull();
+  });
+
+  it('keeps a run whose topic the page doesn’t list (a search)', async () => {
+    h = renderRunApp('/', timedTopic(), (s) => seedRun(s));
+    await tile();
+    // The server finds nothing for the search: the tile goes, and with it the run's primary.
+    const listed = globalThis.fetch;
+    vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), 'https://q.test');
+      return url.pathname === '/api/v1/topics' && url.searchParams.has('q')
+        ? Promise.resolve(
+            new Response(JSON.stringify({ items: [], total: 0, limit: 50, offset: 0 }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          )
+        : listed(input, init);
+    });
+    await userEvent.type(screen.getByRole('searchbox'), 'zzz');
+    expect(await screen.findByText('No matches')).toBeInTheDocument();
+    const bar = await screen.findByRole('region', { name: 'Running' });
+    expect(within(bar).getByTestId('bar-primary')).toHaveAccessibleName(
+      'Next: Breakfast · Morning',
+    );
+    // Clearing the search lists the topic again: the bar leaves the run out once more.
+    await userEvent.clear(screen.getByRole('searchbox'));
+    await tile();
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Running' })).toBeNull());
   });
 });
 

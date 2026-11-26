@@ -85,6 +85,11 @@ const ICON: Record<RunActionKind['type'], IconName> = {
   discard: 'trash',
 };
 
+/** The button's icon (§1.3). */
+export function actionIcon(kind: RunActionKind): IconName {
+  return ICON[kind.type];
+}
+
 export function RunControls({
   actions,
   busy,

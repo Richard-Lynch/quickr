@@ -19,6 +19,7 @@ import { Badge, Card } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
 import { ConfirmSheet } from '../ui/Sheet';
+import { runTimer } from './context';
 import { Duration, useServerNow } from './RunClock';
 import { actionLabel, RunControls } from './RunControls';
 import {
@@ -63,7 +64,7 @@ export function RunPanel({
   const now = useServerNow(!paused);
   // Null: the steps aren't known here yet (no step list, no Skip; the clock still runs).
   const steps: readonly TimerStep[] | null = ctx ? ctx.steps : run.steps;
-  const timer: Timer | null = pinned ?? (steps === null ? null : { steps: [...steps] });
+  const timer = runTimer(pinned, steps);
   const total = activeMs(run.state, now);
   const segment = segmentMs(run.state, now);
   const open = run.state.open;

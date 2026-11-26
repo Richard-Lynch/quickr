@@ -1,7 +1,9 @@
 /**
- * The running bar (timers.md §11.5): a strip above the content listing every open run,
- * each with its timer and primary button, linking to its run panel. The run whose panel
- * is on screen is left out.
+ * The running bar (timers.md §11.5, active-surfaces.md §6.3): a strip above the content listing
+ * every open run, each with its timer and the run panel's primary (Lap or Next, never Stop),
+ * linking to its run panel for the rest. A run whose primary is already on screen is left out,
+ * so no control shows twice: the run whose panel is open, and a run the topics page shows as a
+ * card (`onScreen.ts`).
  */
 import { useQuery } from '@tanstack/react-query';
 import { Link, useMatch, useSearchParams } from 'react-router';
@@ -13,8 +15,10 @@ import { useRuns } from '../../lib/runs/useRuns';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
 import { activeMs } from './model';
+import { useTopicsWithControlsOnScreen } from './onScreen';
 import { useServerNow } from './RunClock';
-import { useRunPrimary } from './RunTile';
+import { actionIcon, actionLabel, actionTitle } from './RunControls';
+import { useOpenRunPrimary } from './RunTile';
 
 export function RunningBar() {
   const { runs } = useRuns();
@@ -27,11 +31,13 @@ export function RunningBar() {
     ...getTopicOptions({ path: { ref: onRecord ?? '' } }),
     enabled: onRecord !== undefined,
   }).data?.id;
+  const onScreen = useTopicsWithControlsOnScreen();
   const open = runs.filter(
     (r) =>
       isOpen(r) &&
       !(onRecord && [r.topic_id, r.topic?.slug].includes(onRecord)) &&
-      r.topic_id !== shownTopic,
+      r.topic_id !== shownTopic &&
+      !onScreen.has(r.topic_id.toLowerCase()),
   );
   if (open.length === 0) return null;
   return (
@@ -59,14 +65,17 @@ function RunningItem({ run }: { run: LocalRun }) {
     run.topic ??
     (detail.data ? { id: detail.data.id, slug: detail.data.slug, name: detail.data.name } : null);
   const now = useServerNow(run.status === 'running');
-  const primary = useRunPrimary(topic ?? { id: run.topic_id, slug: run.topic_id, name: '' }, run);
+  const primary = useOpenRunPrimary(
+    topic ?? { id: run.topic_id, slug: run.topic_id, name: '' },
+    run,
+  );
   if (!topic) return null;
   const paused = run.status === 'paused';
   return (
     <li className="flex items-center gap-2">
       <Link
         to={`/t/${topic.slug}/record`}
-        className="flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-full px-2 text-sm"
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-full px-2 text-sm"
       >
         <Icon
           name={paused ? 'pause' : 'timer'}
@@ -82,19 +91,22 @@ function RunningItem({ run }: { run: LocalRun }) {
         </span>
       </Link>
       {primary ? (
+        // The topic in the name: the bar may list several runs. The title truncates rather
+        // than squeezing the topic's name and clock out at 390 px.
         <button
           type="button"
-          aria-label={`${primary.label} · ${topic.name}`}
+          aria-label={`${actionLabel(primary.action.kind, topic.name)} · ${topic.name}`}
           disabled={primary.disabled}
           onClick={primary.onTap}
-          className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 text-sm font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50"
+          data-testid="bar-primary"
+          className="inline-flex h-11 max-w-[45%] shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 text-sm font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:transform-none"
         >
           <Icon
-            name={primary.type === 'next' ? 'chevronRight' : 'stop'}
-            className="size-4"
+            name={actionIcon(primary.action.kind)}
+            className="size-4 shrink-0"
             strokeWidth={2.6}
           />
-          {primary.type === 'next' ? 'Next' : 'Stop'}
+          <span className="truncate">{actionTitle(primary.action.kind)}</span>
         </button>
       ) : null}
     </li>

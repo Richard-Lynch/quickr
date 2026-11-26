@@ -1,22 +1,24 @@
 /**
  * A timed topic's home tile parts (timers.md §11.1, §11.5): idle shows Start; running shows
- * "Running · 4:12", the segment label and Next or Stop; finishing shows "Add details".
+ * "Running · 4:12", the segment label and the run's primary (Next or Lap, active-surfaces.md
+ * §1.2); finishing shows "Add details".
  * `TopicTile` lays them out like its Log action.
  */
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 
 import type { TopicVersionOut } from '../../client';
 import type { RunContext } from '../../lib/runs/actions';
 import { fmtDuration } from '../../lib/runs/format';
-import { parseInstant } from '../../lib/runs/instant';
 import { isOpen, type LocalRun } from '../../lib/runs/localView';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
-import { useToast } from '../ui/Toast';
-import { contextFor, useRunContext, useTopicVersions } from './context';
-import { activeMs, expectOf, primaryActionV1, segmentMs, type PrimaryAction } from './model';
+import { contextFor, runTimer, timerOf, useRunContext, useTopicVersions } from './context';
+import { controlsLayout } from './controlsLayout';
+import { actions as runActions, activeMs, expectOf, segmentMs, type RunAction } from './model';
+import { useRunControlsOnScreen } from './onScreen';
 import { useServerNow } from './RunClock';
-import { useRunActions } from './useRunActions';
+import { actionIcon, actionLabel, actionTitle } from './RunControls';
+import { useRunActions, useRunCooldown } from './useRunActions';
 
 type TopicRef = RunContext['topic'];
 
@@ -73,8 +75,8 @@ const ACTION =
   'relative z-10 flex w-[5.25rem] shrink-0 flex-col items-center justify-center gap-1 border-l px-1 text-[0.95rem] font-semibold transition-[background-color,transform] select-none active:scale-[0.97] disabled:cursor-wait disabled:opacity-60';
 
 /**
- * The tile's action: Start when idle, the primary button (Next or Stop) while running,
- * and "Add details" for a finishing run.
+ * The tile's action: Start when idle, the run's primary (Next or Lap) while running, and
+ * "Add details" for a finishing run.
  */
 export function RunTileAction({
   topic,
@@ -92,7 +94,9 @@ export function RunTileAction({
   loud: boolean;
 }) {
   const actions = useRunActions();
-  const primary = useRunPrimary(topic, run);
+  const primary = useOpenRunPrimary(topic, run);
+  // The tile shows this run's primary: the running bar leaves the run out.
+  useRunControlsOnScreen(primary ? topic.id : null);
 
   if (run?.status === 'finishing') {
     return (
@@ -111,7 +115,7 @@ export function RunTileAction({
     return (
       <button
         type="button"
-        aria-label={`${primary.label} · ${topic.name}`}
+        aria-label={`${actionLabel(primary.action.kind, topic.name)} · ${topic.name}`}
         disabled={primary.disabled}
         onClick={primary.onTap}
         className={cn(
@@ -119,12 +123,10 @@ export function RunTileAction({
           'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong',
         )}
       >
-        <Icon
-          name={primary.type === 'next' ? 'chevronRight' : 'stop'}
-          className="size-6"
-          strokeWidth={2.6}
-        />
-        {primary.type === 'next' ? 'Next' : 'Stop'}
+        <Icon name={actionIcon(primary.action.kind)} className="size-6" strokeWidth={2.6} />
+        <span className="text-center text-[0.8rem] leading-tight break-words">
+          {actionTitle(primary.action.kind)}
+        </span>
       </button>
     );
   }
@@ -152,41 +154,34 @@ export function RunTileAction({
 }
 
 /**
- * An open run's primary button (§11.1): Next while a named step remains, else Stop. After
- * a Stop, a version with questions opens the answers form; one without says it's saved.
- * Null when the run isn't open.
+ * An open run's primary (active-surfaces.md §1.2, §6.3): the layout model's, as on the run
+ * panel, so Lap (with the next lap type) or Next, never Stop; the bar links to the panel for
+ * Stop. Off as the panel's is: while the run's context isn't known, a tap is being enqueued,
+ * the topic's tap cooldown runs, or the action itself is off. Null when the run isn't open.
  */
-export function useRunPrimary(
+export function useOpenRunPrimary(
   topic: TopicRef,
   run: LocalRun | undefined,
-): (PrimaryAction & { disabled: boolean; onTap: () => void }) | null {
-  const actions = useRunActions();
-  const navigate = useNavigate();
-  const { toast } = useToast();
+): { action: RunAction; disabled: boolean; onTap: () => void } | null {
+  const taps = useRunActions();
   const versions = useTopicVersions(run?.topic_id ?? '', Boolean(run));
   const runCtx = useRunContext(run, topic);
+  const cooling = useRunCooldown(run?.topic_id ?? '');
+  const now = useServerNow(run?.status === 'running');
   if (!run || !isOpen(run)) return null;
   const steps = runCtx ? runCtx.steps : run.steps;
-  const primary = primaryActionV1(run, steps);
+  const timer = runTimer(timerOf(versions.data, run.version), steps);
+  const action = controlsLayout(runActions(run.state, run.status, timer, now)).primary;
+  // An open run's primary is Next or Lap (§1.2); anything else would be a dead button here.
+  if (action?.kind.type !== 'next' && action?.kind.type !== 'lap') return null;
+  // Captured at render: a second tap before the bar catches up targets what it showed.
   const expect = expectOf(run, steps);
+  const type = action.kind.type;
   return {
-    ...primary,
-    disabled: runCtx === null || actions.busy,
+    action,
+    disabled: runCtx === null || taps.busy || cooling || !action.enabled,
     onTap: () => {
-      if (!runCtx) return;
-      if (primary.type === 'next') {
-        void actions.tap(run.id, runCtx, 'next', {}, expect);
-        return;
-      }
-      void actions.tap(run.id, runCtx, 'stop', {}, expect).then((item) => {
-        if (!item) return;
-        if (hasQuestions(versions.data, run.version) !== false) {
-          void navigate(finishUrl(topic.slug, run));
-        } else {
-          const total = activeMs(run.state, parseInstant(item.payload.event.at));
-          toast({ title: `Saved ${topic.name}: ${fmtDuration(total)}` });
-        }
-      });
+      if (runCtx) void taps.tap(run.id, runCtx, type, {}, expect);
     },
   };
 }
