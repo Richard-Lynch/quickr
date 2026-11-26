@@ -52,12 +52,14 @@ extension BuilderUITests {
         // The glyph square before the name holds the emoji: drawn (not all paper), and not the teal
         // fallback initial (a tint-filled circle) or an empty box.
         let paper = pixel(in: shot, at: CGPoint(x: header.frame.minX + 4, y: name.frame.midY))
-        let glyph = (0..<13).flatMap { row in
-            (0..<13).map { column in
-                pixel(
-                    in: shot,
-                    at: CGPoint(
-                        x: header.frame.minX + 18 + CGFloat(column) * 2, y: name.frame.midY - 12 + CGFloat(row) * 2))
+        // A 13 × 13 grid, 2 pt apart, over the glyph's box (16 pt in, centred on the name's line).
+        let origin = CGPoint(x: header.frame.minX + 18, y: name.frame.midY - 12)
+        var glyph: [ScreenColor] = []
+        for row in 0..<13 {
+            for column in 0..<13 {
+                let dx = CGFloat(column) * 2
+                let dy = CGFloat(row) * 2
+                glyph.append(pixel(in: shot, at: CGPoint(x: origin.x + dx, y: origin.y + dy)))
             }
         }
         let inked = glyph.filter { !$0.near(paper) }
