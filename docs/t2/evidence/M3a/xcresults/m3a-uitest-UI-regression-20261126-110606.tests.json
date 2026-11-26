@@ -1,0 +1,384 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "BB9679F1-2E79-4697-A8C4-243B8765AE24",
+      "deviceName" : "quickR iOS-26-0 t2-m3a-uitest-9c2eef",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "43s",
+                  "durationInSeconds" : 43.97468602657318,
+                  "name" : "testAConflictLoadsTheLatestVersion()",
+                  "nodeIdentifier" : "BuilderUITests/testAConflictLoadsTheLatestVersion()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testAConflictLoadsTheLatestVersion",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "1m 28s",
+                  "durationInSeconds" : 88.80000495910645,
+                  "name" : "testANewQuestionsFieldsAtTheLargestTextSize()",
+                  "nodeIdentifier" : "BuilderUITests/testANewQuestionsFieldsAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testANewQuestionsFieldsAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Failed to get matching snapshot: No matches found for first query match sequence: `Descendants matching type Any` -> `Elements matching predicate '\"topic.tags.0\" IN identifiers'`, given input App element pid: 14382",
+                      "nodeType" : "Failure Message"
+                    }
+                  ],
+                  "duration" : "3m 40s",
+                  "durationInSeconds" : 220.07745492458344,
+                  "name" : "testAppearanceInLightDarkAndTheLargestTextSize()",
+                  "nodeIdentifier" : "BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "duration" : "36s",
+                  "durationInSeconds" : 36.74954688549042,
+                  "name" : "testBuilderAtTheLargestTextSize()",
+                  "nodeIdentifier" : "BuilderUITests/testBuilderAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testBuilderAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "43s",
+                  "durationInSeconds" : 43.91550695896149,
+                  "name" : "testEditQuestionsPublishesV2()",
+                  "nodeIdentifier" : "BuilderUITests/testEditQuestionsPublishesV2()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testEditQuestionsPublishesV2",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "43s",
+                  "durationInSeconds" : 43.95808005332947,
+                  "name" : "testKeepingTheDraftAfterAConflict()",
+                  "nodeIdentifier" : "BuilderUITests/testKeepingTheDraftAfterAConflict()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testKeepingTheDraftAfterAConflict",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "1m",
+                  "durationInSeconds" : 60.83302307128906,
+                  "name" : "testPreviewAndCollapse()",
+                  "nodeIdentifier" : "BuilderUITests/testPreviewAndCollapse()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testPreviewAndCollapse",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "13s",
+                  "durationInSeconds" : 13.009811997413635,
+                  "name" : "testVersionsAtTheLargestTextSize()",
+                  "nodeIdentifier" : "BuilderUITests/testVersionsAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testVersionsAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.267661094665527,
+                  "name" : "testVersionsTab()",
+                  "nodeIdentifier" : "BuilderUITests/testVersionsTab()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testVersionsTab",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "BuilderUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "20s",
+                  "durationInSeconds" : 20.38268494606018,
+                  "name" : "testCancellingTheTokenSheetSavesNothing()",
+                  "nodeIdentifier" : "SettingsUITests/testCancellingTheTokenSheetSavesNothing()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testCancellingTheTokenSheetSavesNothing",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.083385944366455,
+                  "name" : "testOnboardingConnectsAndEndsAtTheTopicList()",
+                  "nodeIdentifier" : "SettingsUITests/testOnboardingConnectsAndEndsAtTheTopicList()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testOnboardingConnectsAndEndsAtTheTopicList",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Failed to not hittable: Button, {{24.0, 394.0}, {354.0, 56.0}}, identifier: 'onboarding.done', label: 'Not now'",
+                      "nodeType" : "Failure Message"
+                    }
+                  ],
+                  "duration" : "18s",
+                  "durationInSeconds" : 18.488070964813232,
+                  "name" : "testOnboardingWithAServiceToken()",
+                  "nodeIdentifier" : "SettingsUITests/testOnboardingWithAServiceToken()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testOnboardingWithAServiceToken",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "duration" : "10s",
+                  "durationInSeconds" : 10.515028953552246,
+                  "name" : "testOnboardingWorksAtAnAccessibilityTextSize()",
+                  "nodeIdentifier" : "SettingsUITests/testOnboardingWorksAtAnAccessibilityTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testOnboardingWorksAtAnAccessibilityTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Failed to not hittable: Button, {{16.0, 554.3}, {370.0, 52.0}}, identifier: 'settings.removeToken', label: 'Remove token'",
+                      "nodeType" : "Failure Message"
+                    }
+                  ],
+                  "duration" : "22s",
+                  "durationInSeconds" : 22.734128952026367,
+                  "name" : "testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+                  "nodeIdentifier" : "SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                }
+              ],
+              "name" : "SettingsUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "16s",
+                  "durationInSeconds" : 16.013321042060852,
+                  "name" : "testAChipLogsInOneTapAndUndoRemovesTheEntry()",
+                  "nodeIdentifier" : "TileUITests/testAChipLogsInOneTapAndUndoRemovesTheEntry()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TileUITests/testAChipLogsInOneTapAndUndoRemovesTheEntry",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "8s",
+                  "durationInSeconds" : 8.348603010177612,
+                  "name" : "testOnlyQuickLogTopicsGetControls()",
+                  "nodeIdentifier" : "TileUITests/testOnlyQuickLogTopicsGetControls()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TileUITests/testOnlyQuickLogTopicsGetControls",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "8s",
+                  "durationInSeconds" : 8.974123001098633,
+                  "name" : "testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap()",
+                  "nodeIdentifier" : "TileUITests/testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TileUITests/testTheStepperStartsAtTheLastValueSoCheckLogsInOneTap",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "19s",
+                  "durationInSeconds" : 19.383219957351685,
+                  "name" : "testTilesWorkAtAnAccessibilityTextSize()",
+                  "nodeIdentifier" : "TileUITests/testTilesWorkAtAnAccessibilityTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TileUITests/testTilesWorkAtAnAccessibilityTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "TileUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TileUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "24s",
+                  "durationInSeconds" : 24.965075969696045,
+                  "name" : "testEditTimesThenTheStatsShowTheNewMedian()",
+                  "nodeIdentifier" : "TimingUITests/testEditTimesThenTheStatsShowTheNewMedian()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TimingUITests/testEditTimesThenTheStatsShowTheNewMedian",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "36s",
+                  "durationInSeconds" : 36.07080602645874,
+                  "name" : "testPublishingATimedTopic()",
+                  "nodeIdentifier" : "TimingUITests/testPublishingATimedTopic()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TimingUITests/testPublishingATimedTopic",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "TimingUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TimingUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "2m 15s",
+                  "durationInSeconds" : 135.6502629518509,
+                  "name" : "testCreateLogPublishV2AndLogAgain()",
+                  "nodeIdentifier" : "TopicLifecycleUITests/testCreateLogPublishV2AndLogAgain()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicLifecycleUITests/testCreateLogPublishV2AndLogAgain",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "TopicLifecycleUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicLifecycleUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "23s",
+                  "durationInSeconds" : 23.20622706413269,
+                  "name" : "testANewSlugKeepsAnUnsavedSchedule()",
+                  "nodeIdentifier" : "TopicUITests/testANewSlugKeepsAnUnsavedSchedule()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "13s",
+                  "durationInSeconds" : 13.501459002494812,
+                  "name" : "testAnInvalidNewTopicShowsItsErrors()",
+                  "nodeIdentifier" : "TopicUITests/testAnInvalidNewTopicShowsItsErrors()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "26s",
+                  "durationInSeconds" : 26.77826499938965,
+                  "name" : "testASingleTopicIsCreatedAndLoggedInOneTap()",
+                  "nodeIdentifier" : "TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "35s",
+                  "durationInSeconds" : 35.56072199344635,
+                  "name" : "testCreateATopicOpensItsRecordScreen()",
+                  "nodeIdentifier" : "TopicUITests/testCreateATopicOpensItsRecordScreen()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "54s",
+                  "durationInSeconds" : 54.853495955467224,
+                  "name" : "testNewTopicAndItsScheduleAtTheLargestTextSize()",
+                  "nodeIdentifier" : "TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "15s",
+                  "durationInSeconds" : 15.499890923500061,
+                  "name" : "testOfflineSaysItNeedsAConnection()",
+                  "nodeIdentifier" : "TopicUITests/testOfflineSaysItNeedsAConnection()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "15s",
+                  "durationInSeconds" : 15.873501062393188,
+                  "name" : "testScreenshots()",
+                  "nodeIdentifier" : "TopicUITests/testScreenshots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "1m 6s",
+                  "durationInSeconds" : 66.37120497226715,
+                  "name" : "testSettingsAtTheLargestTextSize()",
+                  "nodeIdentifier" : "TopicUITests/testSettingsAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "51s",
+                  "durationInSeconds" : 51.78581988811493,
+                  "name" : "testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+                  "nodeIdentifier" : "TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "TopicUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

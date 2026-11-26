@@ -33,11 +33,37 @@ extension BuilderUITests {
         XCTAssertGreaterThanOrEqual(
             name.frame.minX - header.frame.minX, 53, "the glyph sits before the name: \(name.frame) in \(header.frame)")
         XCTAssertTrue(node("topic.header.tags", in: app).exists)
-        XCTAssertEqual(node("topic.header.tags.0", in: app).label, "Health")
-        XCTAssertEqual(node("topic.header.tags.1", in: app).label, "Daily")
+        for (index, tag) in ["Health", "Daily"].enumerated() {
+            let chip = node("topic.header.tags.\(index)", in: app)
+            XCTAssertEqual(chip.label, tag)
+            // Shown: laid out inside the header, which is on screen above the tabs.
+            XCTAssertFalse(chip.frame.isEmpty, tag)
+            XCTAssertTrue(header.frame.contains(chip.frame), "\(tag) \(chip.frame) in \(header.frame)")
+        }
         XCTAssertFalse(node("topic.header.tags.2", in: app).exists)
+        XCTAssertTrue(app.frame.contains(header.frame), "\(header.frame)")
         XCTAssertLessThan(header.frame.maxY, node("topic.tabs", in: app).frame.minY, "above the tabs")
+        let shot = app.screenshot()
         capture(app, "appearance-header")
+        // The glyph and the rule are drawn, not spoken: read them off the screenshot. The 4 pt rule
+        // along the header's bottom is teal's light tint (#19786f, appearance.md §3.1).
+        let rule = pixel(in: shot, at: CGPoint(x: header.frame.midX, y: header.frame.maxY - 2))
+        XCTAssertTrue(rule.near(red: 0x19, green: 0x78, blue: 0x6f), "the rule is teal: \(rule)")
+        // The glyph square before the name holds the emoji: drawn (not all paper), and not the teal
+        // fallback initial (a tint-filled circle) or an empty box.
+        let paper = pixel(in: shot, at: CGPoint(x: header.frame.minX + 4, y: name.frame.midY))
+        let glyph = (0..<13).flatMap { row in
+            (0..<13).map { column in
+                pixel(
+                    in: shot,
+                    at: CGPoint(
+                        x: header.frame.minX + 18 + CGFloat(column) * 2, y: name.frame.midY - 12 + CGFloat(row) * 2))
+            }
+        }
+        let inked = glyph.filter { !$0.near(paper) }
+        let tinted = glyph.filter { $0.near(rule) }
+        XCTAssertGreaterThan(inked.count, 10, "the glyph is drawn (\(inked.count) of \(glyph.count) inked)")
+        XCTAssertLessThan(tinted.count, glyph.count / 3, "an emoji, not the initial on the tint")
 
         // Stored: the settings' Appearance row reads the topic back.
         touch("topic.settings", in: app)
@@ -47,36 +73,48 @@ extension BuilderUITests {
         XCTAssertTrue(stored.label.contains("Teal · 🏃 · 2 tags"), stored.label)
     }
 
-    /// The evidence shots (docs/t2/evidence/M3a): the editor and the header for three colours, in
-    /// light and dark, and at the largest text size.
+    // The evidence shots (docs/t2/evidence/M3a): the editor and the header for three colours, in
+    // light and dark, and at the largest text size. One test per colour, so each stays inside the
+    // default execution allowance (three create flows each).
+
     @MainActor
-    func testAppearanceInLightDarkAndTheLargestTextSize() {
-        let looks: [(color: String, icon: String, name: String, tags: [String])] = [
-            ("teal", "💧", "Water", ["Health", "Daily"]),
-            ("orange", "🚬", "Smoking", ["Habit"]),
-            ("violet", "🧘", "Meditate", ["Mind", "Morning"]),
-        ]
-        let modes: [(name: String, appearance: XCUIDevice.Appearance, extra: [String])] = [
-            ("light", .light, []), ("dark", .dark, []), ("xxxl", .light, AccessibilityLaunch.arguments()),
-        ]
-        for look in looks {
-            for mode in modes {
-                XCUIDevice.shared.appearance = mode.appearance
-                let app = launchForAppearance(extra: mode.extra)
-                pickAppearance(name: look.name, color: look.color, icon: look.icon, tags: look.tags, in: app)
-                capture(app, "appearance-editor-\(look.color)-\(mode.name)")
-                backToNewTopic(in: app)
-                createAndOpen(look.name.lowercased(), in: app)
-                XCTAssertTrue(node("topic.header", in: app).waitForExistence(timeout: 10), "\(look.color) \(mode.name)")
-                XCTAssertEqual(node("topic.header.name", in: app).label, look.name)
-                capture(app, "appearance-header-\(look.color)-\(mode.name)")
-                app.terminate()
-            }
-        }
-        XCUIDevice.shared.appearance = .light
+    func testTealAppearanceInLightDarkAndTheLargestTextSize() {
+        shootAppearance(color: "teal", icon: "💧", name: "Water", tags: ["Health", "Daily"])
+    }
+
+    @MainActor
+    func testOrangeAppearanceInLightDarkAndTheLargestTextSize() {
+        shootAppearance(color: "orange", icon: "🚬", name: "Smoking", tags: ["Habit"])
+    }
+
+    @MainActor
+    func testVioletAppearanceInLightDarkAndTheLargestTextSize() {
+        shootAppearance(color: "violet", icon: "🧘", name: "Meditate", tags: ["Mind", "Morning"])
     }
 
     // MARK: T2-M3 helpers
+
+    /// Creates the topic with this look in light, dark and light at the largest text size, and
+    /// attaches the editor and the header each time.
+    @MainActor
+    private func shootAppearance(color: String, icon: String, name: String, tags: [String]) {
+        let modes: [(name: String, appearance: XCUIDevice.Appearance, extra: [String])] = [
+            ("light", .light, []), ("dark", .dark, []), ("xxxl", .light, AccessibilityLaunch.arguments()),
+        ]
+        for mode in modes {
+            XCUIDevice.shared.appearance = mode.appearance
+            let app = launchForAppearance(extra: mode.extra)
+            pickAppearance(name: name, color: color, icon: icon, tags: tags, in: app)
+            capture(app, "appearance-editor-\(color)-\(mode.name)")
+            backToNewTopic(in: app)
+            createAndOpen(name.lowercased(), in: app)
+            XCTAssertTrue(node("topic.header", in: app).waitForExistence(timeout: 10), "\(color) \(mode.name)")
+            XCTAssertEqual(node("topic.header.name", in: app).label, name)
+            capture(app, "appearance-header-\(color)-\(mode.name)")
+            app.terminate()
+        }
+        XCUIDevice.shared.appearance = .light
+    }
 
     @MainActor
     private func launchForAppearance(extra: [String] = []) -> XCUIApplication {
@@ -115,6 +153,9 @@ extension BuilderUITests {
         closeKeyboard(app)
         for (index, tag) in tags.enumerated() {
             let chip = node("topic.tags.\(index)", in: app)
+            // Either way: putting the keyboard away drags the list toward its top, which at the
+            // largest text size leaves the chips below the fold.
+            slide(to: chip, in: app)
             slide(to: chip, in: app, up: true)
             XCTAssertEqual(chip.label, "Remove tag \(tag)")
         }
@@ -184,6 +225,30 @@ extension BuilderUITests {
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "the keyboard closes")
     }
 
+    /// The screenshot's colour at `point` (in points, the frames' space).
+    @MainActor
+    private func pixel(in shot: XCUIScreenshot, at point: CGPoint) -> ScreenColor {
+        let image = shot.image
+        guard let cgImage = image.cgImage else { return ScreenColor(red: -1, green: -1, blue: -1) }
+        let x = Int(point.x * image.scale)
+        let y = Int(point.y * image.scale)
+        var rgba = [UInt8](repeating: 0, count: 4)
+        let drawn = rgba.withUnsafeMutableBytes { bytes -> Bool in
+            guard
+                let context = CGContext(
+                    data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                    space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            else { return false }
+            // The image's (x, y) pixel onto the 1×1 context (its origin is bottom-left).
+            context.draw(
+                cgImage, in: CGRect(x: -x, y: y - cgImage.height + 1, width: cgImage.width, height: cgImage.height))
+            return true
+        }
+        guard drawn else { return ScreenColor(red: -1, green: -1, blue: -1) }
+        return ScreenColor(red: Int(rgba[0]), green: Int(rgba[1]), blue: Int(rgba[2]))
+    }
+
     @MainActor
     private func capture(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
@@ -191,4 +256,20 @@ extension BuilderUITests {
         shot.lifetime = .keepAlways
         add(shot)
     }
+}
+
+/// An sRGB colour read off a screenshot, 0–255 per channel.
+private struct ScreenColor: CustomStringConvertible {
+    var red: Int
+    var green: Int
+    var blue: Int
+
+    /// Within `tolerance` per channel (screenshots round and blend at edges).
+    func near(red: Int, green: Int, blue: Int, tolerance: Int = 24) -> Bool {
+        abs(self.red - red) <= tolerance && abs(self.green - green) <= tolerance && abs(self.blue - blue) <= tolerance
+    }
+
+    func near(_ other: ScreenColor) -> Bool { near(red: other.red, green: other.green, blue: other.blue) }
+
+    var description: String { String(format: "#%02x%02x%02x", red, green, blue) }
 }

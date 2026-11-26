@@ -1,0 +1,75 @@
+Application, 0x10ad14660, pid: 28178, label: 'quickR' <App element pid: 28178>
+  Window, 0x10ad14c80, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4435509664.4>
+    Other, 0x10ad1a210, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4434466848.5>
+      Other, 0x10ad1a330, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4435559792.6>
+        Other, 0x10ad19f70, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4436570272.7>
+          Other, 0x10ad1a090, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4485865056.8>
+            Other, 0x10ad1a450, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4485831696.9>
+            ScrollView, 0x10ad1a570, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4463333376.10>
+              Other, 0x10ad1a690, {{0.0, 62.0}, {402.0, 412.0}} <AX element pid: 28178, elementOrHash.elementID: 4435538064.11>
+                Other, 0x10ad1a7b0, {{24.0, 86.0}, {354.0, 364.0}}, identifier: 'onboarding.reminders' <AX element pid: 28178, elementOrHash.elementID: 4427715680.158>
+                  StaticText, 0x10ad1a8d0, {{24.0, 86.0}, {134.7, 33.7}}, label: 'Connected' <AX element pid: 28178, elementOrHash.elementID: 4427157296.151>
+                  Other, 0x10ad1a9f0, {{44.0, 163.7}, {314.0, 186.3}}, identifier: 'notifications.explainer' <AX element pid: 28178, elementOrHash.elementID: 4427697792.159>
+                    Image, 0x10ad1ab10, {{44.0, 163.7}, {40.0, 40.0}}, identifier: 'bell', label: 'Notifications' <AX element pid: 28178, elementOrHash.elementID: 4427736416.161>
+                    StaticText, 0x10ad1ac30, {{96.0, 172.8}, {84.0, 21.7}}, label: 'Reminders' <AX element pid: 28178, elementOrHash.elementID: 4427730256.162>
+                    StaticText, 0x10ad1ae70, {{44.0, 215.7}, {314.0, 78.3}}, label: 'quickR reminds you when a topic is due, and you can log straight from the reminder without opening the app. It never sends anything else.' <AX element pid: 28178, elementOrHash.elementID: 4427125760.163>
+                    Button, 0x107827650, {{44.0, 306.0}, {155.0, 44.0}}, identifier: 'notifications.allow', label: 'Allow reminders' <AX element pid: 28178, elementOrHash.elementID: 4427738016.164>
+                  Button, 0x107828020, {{24.0, 394.0}, {354.0, 56.0}}, identifier: 'onboarding.done', label: 'Not now' <AX element pid: 28178, elementOrHash.elementID: 4427720112.160>
+                    Image, 0x107829980, {{162.3, 415.0}, {8.7, 14.3}}, identifier: 'chevron.right', label: 'Forward' <AX element pid: 28178, elementOrHash.elementID: 4427829328.165>
+                    StaticText, 0x107829aa0, {{24.0, 394.0}, {354.0, 56.0}}, label: 'Not now' <AX element pid: 28178, elementOrHash.elementID: 4427852704.166>
+              Other, 0x107829bc0, {{369.0, 62.0}, {30.0, 750.0}}, label: 'Vertical scroll bar, 1 page', value: 0% <AX element pid: 28178, elementOrHash.elementID: 4435552000.12>
+                Other, 0x107829ce0, {{396.0, 250.0}, {3.0, 559.0}} <AX element pid: 28178, elementOrHash.elementID: 4435664160.14>
+              Other, 0x107829e00, {{369.0, 62.0}, {30.0, 750.0}}, label: 'Vertical scroll bar, 1 page', value: 0% <AX element pid: 28178, elementOrHash.elementID: 4435552000.12>
+                Other, 0x107829f20, {{396.0, 250.0}, {3.0, 559.0}} <AX element pid: 28178, elementOrHash.elementID: 4435664160.14>
+  Window (Main), 0x10782a040, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4563624960.26>
+    Other, 0x10782a160, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4485940544.28>
+      Other, 0x10782a280, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4486103392.30>
+    Other, 0x10782a3a0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4434654080.152>
+      Other, 0x10782a4c0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4434740544.153>
+        Other, 0x10782a5e0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4434616656.154>
+          Other, 0x10782a700, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4479934480.155>
+            Other, 0x10782a820, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4436762320.156>
+              Other, 0x10782a940, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 4436696480.157>
+                Other, 0x104713370, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 28178, elementOrHash.elementID: 3785224733638416253.9999>
+                  Other, 0x104713750, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 27377, elementOrHash.elementID: 4422991072.46>
+                    Other, 0x103e1ed50, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 27377, elementOrHash.elementID: 4324525280.47>
+                    Other, 0x103e22250, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 27377, elementOrHash.elementID: 4422918720.48>
+                    Sheet, 0x103e22370, {{41.0, 317.0}, {320.0, 268.0}}, label: 'Save Password?' <AX element pid: 27377, elementOrHash.elementID: 5301642240.49>
+                      Other, 0x103e22490, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4422920112.50>
+                        Other, 0x103e225b0, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4422920528.52>
+                          Other, 0x103e226d0, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4422931376.54>
+                          Other, 0x103e227f0, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4422922768.55>
+                            ScrollView, 0x103e22910, {{41.0, 317.0}, {320.0, 132.0}} <AX element pid: 27377, elementOrHash.elementID: 5301671936.57>
+                              Other, 0x103e22a30, {{41.0, 317.0}, {320.0, 132.0}} <AX element pid: 27377, elementOrHash.elementID: 4422945984.61>
+                                StaticText, 0x103e22b50, {{71.0, 339.0}, {260.0, 20.3}}, label: 'Save Password?' <AX element pid: 27377, elementOrHash.elementID: 4422953552.70>
+                                StaticText, 0x103e22c70, {{71.0, 366.7}, {260.0, 78.0}}, label: 'Securely store your password in the Passwords app so it’s filled automatically the next time you need it.' <AX element pid: 27377, elementOrHash.elementID: 4422954976.71>
+                              Other, 0x103e22d90, {{41.0, 447.0}, {320.0, 2.0}} <AX element pid: 27377, elementOrHash.elementID: 4324596256.62>
+                              Other, 0x103e22eb0, {{328.0, 317.0}, {30.0, 132.0}}, label: 'Vertical scroll bar, 2 pages', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324500096.63>
+                                Other, 0x103e22fd0, {{355.0, 278.0}, {3.0, 36.0}} <AX element pid: 27377, elementOrHash.elementID: 4324500560.72>
+                              Other, 0x103e230f0, {{41.0, 416.0}, {320.0, 30.0}}, label: 'Horizontal scroll bar, 1 page', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324493072.64>
+                                Other, 0x103e23210, {{2.0, 443.0}, {36.0, 3.0}} <AX element pid: 27377, elementOrHash.elementID: 4324493536.73>
+                              Other, 0x103e23330, {{328.0, 317.0}, {30.0, 132.0}}, label: 'Vertical scroll bar, 2 pages', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324500096.63>
+                                Other, 0x103e23450, {{355.0, 278.0}, {3.0, 36.0}} <AX element pid: 27377, elementOrHash.elementID: 4324500560.72>
+                              Other, 0x103e23570, {{41.0, 416.0}, {320.0, 30.0}}, label: 'Horizontal scroll bar, 1 page', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324493072.64>
+                                Other, 0x103e23690, {{2.0, 443.0}, {36.0, 3.0}} <AX element pid: 27377, elementOrHash.elementID: 4324493536.73>
+                            ScrollView, 0x103e237b0, {{41.0, 449.0}, {320.0, 136.0}} <AX element pid: 27377, elementOrHash.elementID: 5301643776.58>
+                              Other, 0x103e238d0, {{41.0, 449.0}, {320.0, 136.0}} <AX element pid: 27377, elementOrHash.elementID: 4422929024.65>
+                                Other, 0x103e239f0, {{57.0, 465.0}, {288.0, 104.0}} <AX element pid: 27377, elementOrHash.elementID: 4422930032.74>
+                                  Button, 0x103e23b10, {{57.0, 465.0}, {288.0, 48.0}}, label: 'Save Password' <AX element pid: 27377, elementOrHash.elementID: 4324444896.78>
+                                  Button, 0x103e23c30, {{57.0, 521.0}, {288.0, 48.0}}, label: 'Not Now' <AX element pid: 27377, elementOrHash.elementID: 4324529072.79>
+                              Other, 0x103e23d50, {{328.0, 449.0}, {30.0, 136.0}}, label: 'Vertical scroll bar, 1 page', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324512864.66>
+                                Other, 0x103e23e70, {{355.0, 452.0}, {3.0, 130.0}} <AX element pid: 27377, elementOrHash.elementID: 4324513328.75>
+                              Other, 0x103e23f90, {{41.0, 552.0}, {320.0, 30.0}}, label: 'Horizontal scroll bar, 1 page', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324510768.67>
+                                Other, 0x103e240b0, {{44.0, 579.0}, {314.0, 3.0}} <AX element pid: 27377, elementOrHash.elementID: 4324511232.76>
+                              Other, 0x103e241d0, {{328.0, 449.0}, {30.0, 136.0}}, label: 'Vertical scroll bar, 1 page', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324512864.66>
+                                Other, 0x103e242f0, {{355.0, 452.0}, {3.0, 130.0}} <AX element pid: 27377, elementOrHash.elementID: 4324513328.75>
+                              Other, 0x103e24410, {{41.0, 552.0}, {320.0, 30.0}}, label: 'Horizontal scroll bar, 1 page', value: 0% <AX element pid: 27377, elementOrHash.elementID: 4324510768.67>
+                                Other, 0x103e24530, {{44.0, 579.0}, {314.0, 3.0}} <AX element pid: 27377, elementOrHash.elementID: 4324511232.76>
+                      Other, 0x103e24650, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4324484544.51>
+                        Other, 0x103e24770, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4324485008.53>
+                          Other, 0x103e24890, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4324487296.56>
+                            Other, 0x103e249b0, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4324487712.59>
+                              Other, 0x103e24ad0, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4324488592.68>
+                                Other, 0x103e24bf0, {{41.0, 317.0}, {402.0, 874.0}} <AX element pid: 27377, elementOrHash.elementID: 4324486736.77>
+                            Other, 0x103e24d10, {{41.0, 317.0}, {320.0, 268.0}} <AX element pid: 27377, elementOrHash.elementID: 4324491680.60>
+                              Other, 0x103e24e30, {{41.0, 317.0}, {402.0, 874.0}} <AX element pid: 27377, elementOrHash.elementID: 4324493984.69>
