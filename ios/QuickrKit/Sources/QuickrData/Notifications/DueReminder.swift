@@ -48,8 +48,19 @@ public enum DueReminder {
         }
         let body = Due.message(timezone: topic.schedule?.timezone ?? "UTC", dueSince: dueSince, now: now)
         return request(
-            serverId: serverId, topicId: topic.id.wireString, topicSlug: topic.slug, title: topic.name, body: body,
+            serverId: serverId, topicId: topic.id.wireString, topicSlug: topic.slug,
+            title: title(name: topic.name, icon: topic.appearance.icon), body: body,
             version: topic.currentVersion, dueSince: dueSince, category: category, fireDate: fireDate)
+    }
+
+    /// The reminder's title as `scheduler.py` composes it (appearance.md §6.7): `"{emoji} {name}"`
+    /// when the topic has an icon, else the name. The request cuts it from the end, so the emoji
+    /// stays. Checked against `appearance-vectors.json` `reminder_titles[]`.
+    public static func title(name: String, icon: TopicIcon?) -> String {
+        switch icon {
+        case .emoji(let emoji)?: "\(emoji) \(name)"
+        case nil: name
+        }
     }
 
     /// `canonical_instant`: UTC, truncated to whole seconds, with a `Z`.

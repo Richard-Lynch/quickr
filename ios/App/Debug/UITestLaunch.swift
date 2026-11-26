@@ -426,7 +426,8 @@ enum FakeServer {
         _ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int, timer: String = "null"
     ) -> String {
         #"""
-        {"kind": "topic", "seq": \#(seq), "topic": {"archived_at": null, "created_at": "2026-01-01T00:00:00Z",
+        {"kind": "topic", "seq": \#(seq), "topic": {"appearance": {"color": null, "icon": null, "tags": []},
+         "archived_at": null, "created_at": "2026-01-01T00:00:00Z",
          "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
          "last_captured_at": null, "name": "\#(name)", "question_count": \#(count), "questions": \#(questions),
          "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
@@ -674,6 +675,7 @@ private struct FakeServerTransport: Transport {
                 "archived_at": NSNull(), "schedule": schedule,
                 "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
                 "timer": body["timer"] ?? NSNull(), "questions": questions,
+                "appearance": body["appearance"] ?? ["color": NSNull(), "icon": NSNull(), "tags": [String]()],
             ]
             state.put(topic)
             // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.
@@ -699,6 +701,13 @@ private struct FakeServerTransport: Transport {
                 return problem(409, "conflict", "slug '\(slug)' is already taken")
             }
             for key in ["name", "slug", "description"] where body[key] != nil { topic[key] = body[key] }
+            // T2-M3: an omitted appearance field is unchanged; null and [] clear (appearance.md §1.1).
+            if let patch = body["appearance"] as? [String: Any] {
+                var appearance = topic["appearance"] as? [String: Any] ?? [:]
+                for (key, value) in patch where ["color", "icon", "tags"].contains(key) { appearance[key] = value }
+                topic["appearance"] = appearance
+            }
+            // end T2-M3
             if let input = body["schedule"] {
                 // Like the backend: an unchanged schedule keeps its reference point; a removed one
                 // clears it.

@@ -112,6 +112,10 @@ EXPECTED: dict[str, int] = {
     "updateTopic": 200,
     "updateTopic.schedule_set": 200,
     "updateTopic.schedule_cleared": 200,
+    # T2-M3: the iOS Details save with the appearance, and a themed create (appearance.md §1.1).
+    "updateTopic.appearance": 200,
+    "createTopic.appearance": 201,
+    # end T2-M3
     "archiveTopic": 200,
     "unarchiveTopic": 200,
     "deleteTopic": 204,
@@ -411,6 +415,13 @@ async def test_golden_replays(name: str, replay: tuple[httpx.AsyncClient, Substi
         assert r.json()["channel"] == "ios"
         if op == "createEntry":
             assert r.json()["source"] == request["body"]["source"]
+    # T2-M3: the server took the appearance as the client sent it.
+    if name == "updateTopic.appearance":
+        assert r.json()["appearance"] == {"color": "teal", "icon": None, "tags": []}, r.text
+    if name == "createTopic.appearance":
+        icon = {"kind": "emoji", "value": "🚬"}
+        assert r.json()["appearance"] == {"color": "amber", "icon": icon, "tags": ["Habit", "Health"]}, r.text
+    # end T2-M3
     if name == "registerLiveActivity.update":  # kept: its run is open
         async with get_sessionmaker()() as db:
             kinds = (await db.execute(select(LiveActivityToken.kind))).scalars().all()
