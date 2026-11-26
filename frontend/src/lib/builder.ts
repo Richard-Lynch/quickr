@@ -1003,6 +1003,7 @@ import {
   checkTags,
   COLOR_NAMES,
   EMPTY_APPEARANCE,
+  isBlankTag,
   type Appearance,
   type ColorName,
 } from './appearance';
@@ -1060,7 +1061,7 @@ export function makeAppearanceSchema(limits: Limits = FALLBACK_LIMITS) {
         return z.NEVER;
       }),
       // The editor adds a valid tag on Enter, comma or blur, so text left here is one it refused.
-      tagInput: z.string().refine((v) => v.trim() === '', 'Fix this tag or clear it'),
+      tagInput: z.string().refine(isBlankTag, 'Fix this tag or clear it'),
     })
     .transform(({ color, icon, tags }): Appearance => ({ color, icon, tags }));
 }

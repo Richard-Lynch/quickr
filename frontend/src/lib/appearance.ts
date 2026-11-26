@@ -226,6 +226,11 @@ export function checkTags(
   return { ok: true, value: out };
 }
 
+/** Blank as Python's `str.strip()` sees it (JavaScript's `trim()` also strips U+FEFF; Python doesn't). */
+export function isBlankTag(s: string): boolean {
+  return s.replace(EDGE_SPACE, '') === '';
+}
+
 export const EMPTY_APPEARANCE: Appearance = { color: null, icon: null, tags: [] };
 
 // end T2-M3

@@ -45,6 +45,15 @@ type MetaOutput = z.output<MetaSchema>;
 
 const META_FIELDS = new Set(['name', 'slug', 'description']);
 
+function metaValuesOf(t: TopicDetail): MetaValues {
+  return {
+    name: t.name,
+    slug: t.slug,
+    description: t.description,
+    appearance: appearanceDraftOf(appearanceOf(t)),
+  };
+}
+
 interface DirtyProps {
   /** Report unsaved edits to the page's single unsaved-changes guard. */
   onDirty: (dirty: boolean) => void;
@@ -86,29 +95,31 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
   const { toast } = useToast();
   const limits = useLimits();
   const schema = useMemo(() => makeTopicMetaAppearanceSchema(limits), [limits]);
-  const appearance = appearanceOf(topic);
   const [banner, setBanner] = useState<string | null>(null);
   const update = useUpdateTopicMeta();
   const form = useForm<MetaValues, unknown, MetaOutput>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      name: topic.name,
-      slug: topic.slug,
-      description: topic.description,
-      appearance: appearanceDraftOf(appearance),
-    },
+    defaultValues: metaValuesOf(topic),
   });
   const e = form.formState.errors;
-  const { isDirty } = form.formState;
+  const { isDirty, isSubmitting } = form.formState;
   useEffect(() => onDirty(isDirty), [isDirty, onDirty]);
+  // The topic the form's values came from: a save diffs against it and sends its revision, so a
+  // change made elsewhere meanwhile is refused (409) rather than overwritten. The form isn't keyed
+  // by the topic's values (the optimistic patch would remount it mid-save and a failure would lose
+  // the edits and the 422's field errors); a clean form takes a newer topic instead.
+  const [base, setBase] = useState(topic);
+  if (topic !== base && !isDirty && !isSubmitting) setBase(topic);
+  useEffect(() => form.reset(metaValuesOf(base)), [base, form]);
 
   const onSubmit = form.handleSubmit(async (v) => {
     setBanner(null);
-    const changed = appearanceChanges(appearance, v.appearance);
+    const from = base;
+    const changed = appearanceChanges(appearanceOf(from), v.appearance);
     const body: TopicUpdateBody = {
-      ...(v.name !== topic.name ? { name: v.name } : {}),
-      ...(v.slug !== topic.slug ? { slug: v.slug } : {}),
-      ...(v.description !== topic.description ? { description: v.description } : {}),
+      ...(v.name !== from.name ? { name: v.name } : {}),
+      ...(v.slug !== from.slug ? { slug: v.slug } : {}),
+      ...(v.description !== from.description ? { description: v.description } : {}),
       ...(changed ? { appearance: changed } : {}),
     };
     if (Object.keys(body).length === 0) {
@@ -118,20 +129,13 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
     try {
       const updated = await update.mutateAsync({
         path: { ref: topic.slug },
-        body: { ...body, expected_revision: topic.revision },
+        body: { ...body, expected_revision: from.revision },
       });
       toast({ title: 'Saved' });
-      // Not keyed by the values: their optimistic patch would remount the form mid-save, and a
-      // failure would lose the edits and the 422's field errors. Take the saved values instead.
-      form.reset({
-        name: updated.name,
-        slug: updated.slug,
-        description: updated.description,
-        appearance: appearanceDraftOf(appearanceOf(updated)),
-      });
+      setBase(updated);
       onDirty(false);
       allowNavigation();
-      if (updated.slug !== topic.slug)
+      if (updated.slug !== from.slug)
         void navigate(`/t/${updated.slug}/settings`, { replace: true });
     } catch (err) {
       const mapped = mapApiError(err);
@@ -160,49 +164,52 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
       <form onSubmit={(ev) => void onSubmit(ev)} noValidate className="flex flex-col gap-4">
         <SectionTitle>Details</SectionTitle>
         {banner ? <Banner title={banner} /> : null}
-        <Field label="Name" error={e.name?.message}>
-          {({ id, describedBy, invalid }) => (
-            <Input
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              {...form.register('name')}
-            />
-          )}
-        </Field>
-        <Field
-          label="URL slug"
-          hint="Changing it breaks old links to this topic"
-          error={e.slug?.message}
-        >
-          {({ id, describedBy, invalid }) => (
-            <Input
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              autoCapitalize="none"
-              spellCheck={false}
-              className="font-mono"
-              {...form.register('slug')}
-            />
-          )}
-        </Field>
-        <Field label="Description" optional error={e.description?.message}>
-          {({ id, describedBy, invalid }) => (
-            <Textarea
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              rows={3}
-              {...form.register('description')}
-            />
-          )}
-        </Field>
-        <FormProvider {...form}>
-          <div className="border-t border-line pt-4">
-            <AppearanceFields />
-          </div>
-        </FormProvider>
+        {/* Read-only while saving: the reply resets the form, which would drop edits made meanwhile. */}
+        <fieldset disabled={isSubmitting} className="contents">
+          <Field label="Name" error={e.name?.message}>
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                {...form.register('name')}
+              />
+            )}
+          </Field>
+          <Field
+            label="URL slug"
+            hint="Changing it breaks old links to this topic"
+            error={e.slug?.message}
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                autoCapitalize="none"
+                spellCheck={false}
+                className="font-mono"
+                {...form.register('slug')}
+              />
+            )}
+          </Field>
+          <Field label="Description" optional error={e.description?.message}>
+            {({ id, describedBy, invalid }) => (
+              <Textarea
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                rows={3}
+                {...form.register('description')}
+              />
+            )}
+          </Field>
+          <FormProvider {...form}>
+            <div className="border-t border-line pt-4">
+              <AppearanceFields />
+            </div>
+          </FormProvider>
+        </fieldset>
         <p className="text-xs text-muted">Questions are edited by publishing a new version.</p>
         <div className="flex justify-end">
           <Button
