@@ -84,6 +84,21 @@ function withLocalStop(served: EntryOut, runs: readonly LocalRun[]): Candidate {
   return { ...served, timing: { ...wire, skipped: [...wire.skipped], edited: t.edited } };
 }
 
+/**
+ * The entry a stopped run row will have, projected from its state (a re-stop of a reopened
+ * run, its entry not cached here); `edited` as the server's run says.
+ */
+function rowEntry(row: LocalRun): Candidate {
+  const wire = timingToWire(projectTiming(row.state, { steps: row.steps ?? [] }));
+  return {
+    id: row.id,
+    topic_id: row.topic_id,
+    version: row.version,
+    timing: { ...wire, skipped: [...wire.skipped], edited: row.server?.edited ?? false },
+    revision: null,
+  };
+}
+
 /** The candidate whose stop is the latest (ties broken by id, as `resumableInView` does). */
 function latestOf(candidates: readonly Candidate[]): Candidate | undefined {
   let best: Candidate | undefined;
@@ -220,10 +235,11 @@ async function reopenStop(
   const latest = qc.getQueryData(lastEntryOptions(slug).queryKey)?.items[0];
   const ours = latest?.id.toLowerCase() === runId.toLowerCase() ? latest : undefined;
   // Queued, its entry is the optimistic one, or (a re-stop of a reopened run, which updates
-  // its entry) the server's with the row's stop. Sent, the topic's latest entry is the run's.
+  // its entry) the server's with the row's stop, or the row's own projection when the cache
+  // doesn't have it. Sent, the topic's latest entry is the run's.
   const entry: Candidate | undefined = queued
     ? (optimistic.find((c) => c.id.toLowerCase() === runId.toLowerCase()) ??
-      (ours ? withLocalStop(ours, runs) : undefined))
+      (ours ? withLocalStop(ours, runs) : rowEntry(row)))
     : ours;
   if (entry?.timing?.terminal_id?.toLowerCase() !== stopId) return null;
   const now = serverNow(Date.now(), serverOffset());

@@ -374,6 +374,8 @@ describe('the stop toast, checked again at the tap', () => {
         (i) => (i.payload as { event: { type: string } }).event.type === type,
       );
     const [restop] = await queued('stop');
+    // Nor does it need the latest-entry cache: the row's own projection will do.
+    h.qc.removeQueries({ queryKey: [{ _id: 'listEntries' }] });
     await user.click(newer);
     await waitFor(async () => expect(await queued('reopen')).toHaveLength(1));
     const [reopen] = await queued('reopen');
