@@ -37,22 +37,24 @@ struct TopicProvider: AppIntentTimelineProvider {
                 WidgetBootstrap.log.error("no suggested topic: \(String(describing: error), privacy: .public)")
             }
         }
-        return TopicEntry(date: now, topic: await topic(id: id))
+        return TopicEntry(date: now, topic: await topic(id: id, now: now))
     }
 
-    /// Entries at every due change and refresh point (`WidgetTimeline`); rebuilt after the last.
+    /// Entries at every due change and refresh point (`WidgetTimeline`); rebuilt after the last,
+    /// or when the shown run's pending alert passes.
     static func timeline(for configuration: SelectTopicIntent, now: Date = .now) async -> Timeline<TopicEntry> {
-        let topic = await topic(id: configuration.topic?.id)
+        let topic = await topic(id: configuration.topic?.id, now: now)
         let dates = WidgetTimeline.entryDates(for: topic.map { [$0.topic] } ?? [], now: now, skew: topic?.skew ?? 0)
+        let alert = topic?.runDisplay?.alert.map { Date(timeIntervalSince1970: $0.at) }
         return Timeline(
             entries: dates.map { TopicEntry(date: $0, topic: topic) },
-            policy: .after(WidgetTimeline.reloadDate(after: dates, now: now)))
+            policy: .after(WidgetTimeline.reloadDate(after: dates, now: now, alert: alert)))
     }
 
-    private static func topic(id: UUID?) async -> WidgetTopic? {
+    private static func topic(id: UUID?, now: Date) async -> WidgetTopic? {
         guard let id, let reader = WidgetBootstrap.reader() else { return nil }
         do {
-            return try await reader.topic(id: id)
+            return try await reader.topic(id: id, now: now)
         } catch {
             WidgetBootstrap.log.error("topic \(id) unreadable: \(String(describing: error), privacy: .public)")
             return nil

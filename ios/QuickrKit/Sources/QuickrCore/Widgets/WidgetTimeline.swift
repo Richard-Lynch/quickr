@@ -46,9 +46,13 @@ public enum WidgetTimeline {
         return [now] + all.sorted()
     }
 
-    /// When WidgetKit should ask for the next timeline: after the last entry.
-    public static func reloadDate(after dates: [Date], now: Date) -> Date {
-        dates.last.map { max($0, now.addingTimeInterval(15 * 60)) } ?? now.addingTimeInterval(horizon)
+    /// When WidgetKit should ask for the next timeline: after the last entry, or at `alert` (a
+    /// shown run's pending alert, device time) when that comes first, so the alert line moves on
+    /// to the next alert, or goes, instead of staying at 0:00.
+    public static func reloadDate(after dates: [Date], now: Date, alert: Date? = nil) -> Date {
+        let last = dates.last.map { max($0, now.addingTimeInterval(15 * 60)) } ?? now.addingTimeInterval(horizon)
+        guard let alert, alert > now else { return last }
+        return min(last, alert)
     }
 }
 

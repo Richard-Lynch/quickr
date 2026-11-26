@@ -6,7 +6,7 @@ import QuickrTestSupport
 import Testing
 
 /// A timed topic's widget (timers.md §11.3, active-surfaces.md §5.1), from the store: idle Start;
-/// open, the segment, the primary (Next while a step follows, else Lap: §4.1) and Stop, and in the
+/// open, the segment's headline and pending alert, the primary (Next while a step follows, else Lap: §4.1) and Stop, and in the
 /// small size the one Auto button of §5.3; finishing "Add details". An open run hides the due state
 /// and isn't counted as due (§11.1).
 @Suite struct TimedWidgetTests {
@@ -89,6 +89,7 @@ import Testing
         #expect(topic.runTile == .open(paused: false))
         let label = try #require(topic.runDisplay?.label)
         #expect(label == "Lap 2")
+        #expect(topic.runDisplay?.headline == "Lap 2", "an untyped lap's headline is its label")
         #expect(topic.runButtons(compact: false) == [.lap, .stop])
         #expect(topic.runButtons(compact: true) == [.stop])
         #expect(topic.runButtonTitle(.lap) == "Lap")
@@ -183,6 +184,82 @@ import Testing
         #expect(topic.runButtons(compact: true) == [.next])
         #expect(topic.runButtonTitle(.next) == "Next")
         #expect(topic.runButtonLabel(.next) == "Next")
+    }
+
+    // MARK: - The Live Activity's fields (active-surfaces.md §5.1, §4.1)
+
+    /// A lap-typed run (`lapTyped`: Run then Rest, Rest's "Go" 15 minutes in) on its second lap,
+    /// Rest from 60 s; `pause` pauses it 30 s later.
+    static func restLap(_ h: OutboxHarness, pause: Bool = false) async throws {
+        try h.lapTyped()
+        let runId = try await h.runs().start(topic: h.ref, version: 2).runId
+        h.wall.advance(by: 60)
+        _ = try await h.runs().lap(runId: runId)
+        if pause {
+            h.wall.advance(by: 30)
+            _ = try await h.runs().pause(runId: runId)
+        }
+    }
+
+    /// The widget at device time `t0 + seconds`.
+    static func shown(_ h: OutboxHarness, at seconds: Double) async throws -> WidgetTopic {
+        let now = Make.t0.addingTimeInterval(seconds)
+        return try #require(try await WidgetReader(store: h.store).topic(id: h.topic.id, now: now))
+    }
+
+    /// A step's headline counts it, as the run screen's: "Shower · 1 of 3".
+    @Test func aStepsHeadlineCountsIt() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        try await Self.tap(h)
+        let display = try #require(try await Self.shown(h).runDisplay)
+        #expect(display.headline == "Shower · 1 of 3")
+        #expect(display.label == "Shower")
+        #expect(display.alert == nil, "these steps have no alerts")
+    }
+
+    /// A typed lap, read with the pinned version's timer as the Live Activity is: the headline
+    /// counts the lap, `next_label` names the lap type a Lap opens, and Rest's pending "Go" alert
+    /// is the line under the total. The due list reads the same run.
+    @Test func aTypedLapShowsItsHeadlineAndPendingAlert() async throws {
+        let h = try OutboxHarness()
+        try await Self.restLap(h)
+        let topic = try await Self.shown(h, at: 120)
+        #expect(topic.runTile == .open(paused: false))
+        let display = try #require(topic.runDisplay)
+        #expect(display.headline == "Rest 1 · lap 2")
+        #expect(display.lapCounter == "L2")
+        let lapNext: String? = display.lapNextLabel
+        #expect(lapNext == "Run")
+        let alert = RunActivityDisplay.Alert(label: "Go", at: Make.t0.timeIntervalSince1970 + 960)
+        #expect(display.alert == alert)
+        let listed = try await WidgetReader(store: h.store).dueList(now: Make.t0.addingTimeInterval(120))
+        #expect(listed.first { $0.id == h.topic.id }?.runDisplay?.alert == alert)
+    }
+
+    /// `alert_at` is the next alert after the reader's `now`: once "Go" has passed there is none,
+    /// and the line goes (the timeline is rebuilt then: `WidgetTimeline.reloadDate`).
+    @Test func aPassedAlertIsNoLongerShown() async throws {
+        let h = try OutboxHarness()
+        try await Self.restLap(h)
+        let before = try await Self.shown(h, at: 959)
+        #expect(before.runDisplay?.alert?.label == "Go")
+        let after = try await Self.shown(h, at: 961)
+        #expect(after.runDisplay?.alert == nil)
+        #expect(after.runDisplay?.headline == "Rest 1 · lap 2")
+    }
+
+    /// Paused: the headline stays, the alert line goes (it cannot fire while paused).
+    @Test func aPausedLapHidesTheAlert() async throws {
+        let h = try OutboxHarness()
+        try await Self.restLap(h, pause: true)
+        let topic = try await Self.shown(h, at: 120)
+        #expect(topic.runTile == .open(paused: true))
+        let display = try #require(topic.runDisplay)
+        #expect(display.headline == "Rest 1 · lap 2")
+        #expect(display.alert == nil)
+        let alertAt: Double? = topic.run?.alertAt
+        #expect(alertAt == nil)
     }
 
     @Test func finishingOffersAddDetailsWhichOpensTheAnswersForm() async throws {

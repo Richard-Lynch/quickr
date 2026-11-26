@@ -32,10 +32,11 @@ struct WidgetGalleryView: View {
 
     /// A timed topic with an open run (the demo store has none), as the widget reader would show
     /// it: `steps` is the pinned version's; `open` the segment, as the Live Activity's content
-    /// state. No store, so its chips open the run screen.
+    /// state; `lap` a typed lap's type and closed laps; `alert` a pending alert's label and
+    /// seconds to go. No store, so its chips open the run screen.
     private func timed(
         slug: String, name: String, steps: [TopicTimer.Step], open: (label: String, stepIndex: Int?, next: String?),
-        paused: Bool = false
+        paused: Bool = false, lap: (type: String, closed: Int)? = nil, alert: (label: String, in: Double)? = nil
     ) -> WidgetTopic? {
         guard var topic = topics.first?.topic else { return nil }
         topic.slug = slug
@@ -47,7 +48,8 @@ struct WidgetGalleryView: View {
             runId: "00000000-0000-4000-8000-0000000000aa", revision: 3, status: paused ? "paused" : "running",
             startedAt: startedAt, seg: 3, segStartedAt: startedAt + 63, label: open.label, stepIndex: open.stepIndex,
             stepCount: steps.count, nextLabel: open.next, pausedAt: paused ? startedAt + 90 : nil,
-            pausedMsBeforeSeg: 0, pausedMsInSeg: 0, endedAt: nil, activeMs: nil)
+            pausedMsBeforeSeg: 0, pausedMsInSeg: 0, endedAt: nil, activeMs: nil, lapType: lap?.type,
+            lapCount: lap?.closed, alertAt: alert.map { now.timeIntervalSince1970 + $0.in }, alertLabel: alert?.label)
         return WidgetTopic(
             topic: topic, quick: nil, lastAnswer: nil, hasOpenRun: true, run: run, updateRequired: outdated)
     }
@@ -60,6 +62,15 @@ struct WidgetGalleryView: View {
         timed(
             slug: typed ? "smoke-typed" : "smoke", name: "Smoke", steps: [],
             open: (label: "Lap 3", stepIndex: nil, next: typed ? "Rest" : nil))
+    }
+
+    /// Intervals on a typed lap, its fourth: "Rest 2 · lap 4", "Go" due in 5 minutes (the alert
+    /// line under the total, active-surfaces.md §5.1). Lap reads "Lap" while the widget's lap
+    /// types wait for M1's Auto (`WidgetTopic.isLapTyped`).
+    private func intervals() -> WidgetTopic? {
+        timed(
+            slug: "intervals", name: "Intervals", steps: [], open: (label: "Rest 2", stepIndex: nil, next: "Run"),
+            lap: (type: "rest", closed: 3), alert: (label: "Go", in: 300))
     }
 
     /// A step run on its first step, Breakfast next; `paused` freezes its timers.
@@ -114,6 +125,10 @@ struct WidgetGalleryView: View {
         }
         frame(.systemMedium, "widget.medium.timed.paused") {
             TopicWidgetView(topic: morning(paused: true), date: now, style: $0)
+        }
+        // A typed lap's headline and the pending alert under the total (§5.1).
+        frame(.systemMedium, "widget.medium.timed.alert") {
+            TopicWidgetView(topic: intervals(), date: now, style: $0)
         }
         frame(.systemLarge, "widget.large.due") { DueListWidgetView(topics: topics, date: now, style: $0) }
     }

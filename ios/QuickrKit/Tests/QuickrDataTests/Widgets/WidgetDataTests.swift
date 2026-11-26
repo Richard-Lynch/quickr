@@ -116,6 +116,18 @@ import Testing
         #expect(WidgetTimeline.reloadDate(after: dates, now: now) == dates.last)
     }
 
+    /// A shown run's pending alert rebuilds the timeline when it passes, if that comes before the
+    /// last entry; one past, or after the last entry, changes nothing.
+    @Test func aPendingAlertRebuildsTheTimelineWhenItPasses() {
+        let now = Make.t0
+        let dates = WidgetTimeline.entryDates(for: [], now: now, skew: 0)
+        let last = WidgetTimeline.reloadDate(after: dates, now: now)
+        let alert = now.addingTimeInterval(12)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: alert) == alert)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: now.addingTimeInterval(-1)) == last)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: last.addingTimeInterval(60)) == last)
+    }
+
     /// A due change gets its own entry, so the widget turns due at the minute it does.
     @Test func aDueChangeIsAnEntry() {
         let now = Make.t0.addingTimeInterval(7 * 60)  // logged at t0, every 50 min: due at t0+50

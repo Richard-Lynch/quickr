@@ -86,15 +86,22 @@ public struct RunActivitySnapshot: Sendable, Hashable {
                 names[topicId] = try String.fetchOne(
                     db, sql: "SELECT name FROM topic WHERE id = ?", arguments: [topicId.wireString])
             }
-            var versions: [String: TopicTimer?] = [:]
-            var timers: [String: TopicTimer] = [:]
-            for run in runs where run.steps != nil {
-                let key = "\(run.topicId.wireString)#\(run.version)"
-                if versions[key] == nil { versions[key] = try timer(db, topicId: run.topicId, version: run.version) }
-                if let timer = versions[key] ?? nil { timers[run.id] = timer }
-            }
-            return RunActivitySnapshot(serverId: serverId, runs: runs, topicNames: names, timers: timers)
+            return RunActivitySnapshot(
+                serverId: serverId, runs: runs, topicNames: names, timers: try timers(db, runs: runs))
         }
+    }
+
+    /// Each run's pinned version's timer, by run id, when that version is stored and timed (one
+    /// read per version): what `timers` holds. The widget reader reads the same.
+    static func timers(_ db: Database, runs: [LocalRun]) throws -> [String: TopicTimer] {
+        var versions: [String: TopicTimer?] = [:]
+        var timers: [String: TopicTimer] = [:]
+        for run in runs where run.steps != nil {
+            let key = "\(run.topicId.wireString)#\(run.version)"
+            if versions[key] == nil { versions[key] = try timer(db, topicId: run.topicId, version: run.version) }
+            if let timer = versions[key] ?? nil { timers[run.id] = timer }
+        }
+        return timers
     }
 
     /// A stored version's timer; nil when the version isn't stored or is untimed.
