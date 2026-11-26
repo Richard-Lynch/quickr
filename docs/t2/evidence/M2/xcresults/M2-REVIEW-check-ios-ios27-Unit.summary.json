@@ -1,0 +1,96 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "D78EC65C-DBA1-417A-9FA1-90D803D932FB",
+        "deviceName" : "quickR iOS27 t2-m2-review-75f624",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "24A434",
+        "osVersion" : "27.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 6223,
+      "skippedTests" : 28,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "Unit · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1795730596.975,
+  "passedTests" : 1641,
+  "result" : "Passed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m2-review/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    }
+  ],
+  "skippedTests" : 28,
+  "startTime" : 1795729950.676,
+  "statistics" : [
+    {
+      "subtitle" : "4689 test runs",
+      "title" : "107 tests ran with dynamic parameters"
+    }
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "6% of duration",
+      "text" : "50 longest test runs with outlier durations exceeding 8.70s (three standard deviations)"
+    },
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "12% of duration",
+      "text" : "3 longest test runs with outlier durations exceeding 0.82s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 1669
+}
