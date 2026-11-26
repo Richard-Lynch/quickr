@@ -25,14 +25,23 @@ interface Options {
   message?: ReactNode;
 }
 
+/**
+ * Navigation state for a URL change that keeps the page and its forms mounted (the topic's slug
+ * changed elsewhere and the route follows it): the guard lets it through.
+ */
+export const KEEPS_PAGE = { keepsPage: true } as const;
+
+const keepsPage = (state: unknown) =>
+  typeof state === 'object' && state !== null && 'keepsPage' in state && state.keepsPage === true;
+
 /** Pure part of the blocker decision (unit-tested). Search/hash-only changes pass. */
 export function shouldBlockNavigation(
   isDirty: boolean,
   skip: boolean,
   current: { pathname: string },
-  next: { pathname: string },
+  next: { pathname: string; state?: unknown },
 ): boolean {
-  return isDirty && !skip && current.pathname !== next.pathname;
+  return isDirty && !skip && current.pathname !== next.pathname && !keepsPage(next.state);
 }
 
 /**

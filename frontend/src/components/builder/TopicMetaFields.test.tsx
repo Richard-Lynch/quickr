@@ -25,6 +25,7 @@ import {
 import type { TopicCreateBody } from '../../lib/topicAppearanceSeam';
 import { emptyScheduleDraft } from '../../lib/schedule';
 import { SettingsPage } from '../../pages/topic/SettingsPage';
+import { TopicLayout } from '../../pages/topic/TopicLayout';
 import { ToastProvider } from '../ui/Toast';
 import { CURATED_EMOJI } from './AppearanceFields';
 import { TopicMetaFields } from './TopicMetaFields';
@@ -453,13 +454,14 @@ describe('SettingsPage saves on one topic', () => {
     return <Outlet context={{ topic: q.data }} />;
   }
 
-  function renderSettings() {
+  /** `layout: 'app'` uses the app's TopicLayout, which loads the topic by the route's slug. */
+  function renderSettings({ layout }: { layout?: 'app' } = {}) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const router = createMemoryRouter(
       [
         {
           path: '/t/:ref',
-          element: <Layout />,
+          element: layout === 'app' ? <TopicLayout /> : <Layout />,
           children: [{ path: 'settings', element: <SettingsPage /> }],
         },
       ],
@@ -595,6 +597,27 @@ describe('SettingsPage saves on one topic', () => {
     ]);
     expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
     await waitFor(() => expect(router.state.location.pathname).toBe('/t/lifting/settings'));
+  });
+
+  it('follows a slug changed elsewhere in the app layout, keeping the form through a conflict', async () => {
+    const server = fakeServer();
+    const { user, router } = renderSettings({ layout: 'app' });
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    // Another device renames the slug and sets the colour; the 409's invalidation refetches
+    // /topics/gym, which is gone.
+    server.external({ slug: 'lifting', appearance: { ...appearance, color: 'green' } });
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText(/^Colour changed elsewhere/)).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe('/t/lifting/settings'));
+    expect(screen.queryByText('Topic not found')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await waitFor(() => expect(screen.getByLabelText('URL slug')).toHaveValue('lifting'));
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
   });
 
   it('keeps re-sending over two unrelated writes in a row', async () => {

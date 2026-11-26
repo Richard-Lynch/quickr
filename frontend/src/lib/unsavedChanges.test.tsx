@@ -4,7 +4,12 @@ import { useState } from 'react';
 import { createMemoryRouter, Link, RouterProvider, useNavigate } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
-import { hasUnsavedChanges, shouldBlockNavigation, useUnsavedChangesGuard } from './unsavedChanges';
+import {
+  hasUnsavedChanges,
+  KEEPS_PAGE,
+  shouldBlockNavigation,
+  useUnsavedChangesGuard,
+} from './unsavedChanges';
 
 describe('shouldBlockNavigation', () => {
   const a = { pathname: '/a' };
@@ -14,6 +19,7 @@ describe('shouldBlockNavigation', () => {
     expect(shouldBlockNavigation(false, false, a, b)).toBe(false);
     expect(shouldBlockNavigation(true, true, a, b)).toBe(false);
     expect(shouldBlockNavigation(true, false, a, { pathname: '/a' })).toBe(false);
+    expect(shouldBlockNavigation(true, false, a, { ...b, state: KEEPS_PAGE })).toBe(false);
   });
 });
 
