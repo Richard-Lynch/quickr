@@ -9,6 +9,20 @@ import {
   topicStyle,
   type Appearance,
 } from './appearance';
+// T2-M3: the palette's source of truth (appearance.md §3.2, §3.3)
+import vectorsRaw from '../../../shared/fixtures/appearance-vectors.json?raw';
+
+interface VectorSwatch {
+  tint: string;
+  tint_soft: string;
+  on_tint: string;
+}
+const vectors = JSON.parse(vectorsRaw) as {
+  meta: { colors: string[]; min_contrast: number };
+  palette: { name: string; light: VectorSwatch; dark: VectorSwatch }[];
+};
+const swatchOf = (s: VectorSwatch) => ({ tint: s.tint, tintSoft: s.tint_soft, onTint: s.on_tint });
+// end T2-M3
 
 const red: Appearance = { color: 'red', icon: null, tags: [] };
 const smoking: Appearance = { color: null, icon: { kind: 'emoji', value: '🚬' }, tags: ['habit'] };
@@ -38,32 +52,33 @@ function vars(css: string): Record<string, string> {
 }
 
 describe('PALETTE', () => {
-  it('has the twelve names of appearance.md §3.1, in palette order', () => {
-    expect(COLOR_NAMES).toEqual([
-      'red',
-      'orange',
-      'amber',
-      'yellow',
-      'lime',
-      'green',
-      'teal',
-      'cyan',
-      'blue',
-      'indigo',
-      'violet',
-      'pink',
-    ]);
+  // T2-M3: against shared/fixtures/appearance-vectors.json (generated from the server's table)
+  it('has the twelve names of appearance-vectors.json, in palette order', () => {
+    expect(COLOR_NAMES).toHaveLength(12);
+    expect([...COLOR_NAMES]).toEqual(vectors.meta.colors);
+    expect(vectors.palette.map((p) => p.name)).toEqual(vectors.meta.colors);
     expect(Object.keys(PALETTE)).toEqual([...COLOR_NAMES]);
   });
 
-  it('keeps onTint on tint at 4.5:1 or better, light and dark', () => {
+  it('equals the palette of appearance-vectors.json, light and dark', () => {
+    for (const p of vectors.palette) {
+      const name = p.name as (typeof COLOR_NAMES)[number];
+      expect(PALETTE[name], name).toEqual({ light: swatchOf(p.light), dark: swatchOf(p.dark) });
+    }
+  });
+
+  it('keeps onTint on tint at the vectors’ min_contrast (4.5:1) or better, light and dark', () => {
+    expect(vectors.meta.min_contrast).toBe(4.5);
     for (const name of COLOR_NAMES) {
       for (const mode of ['light', 'dark'] as const) {
         const s = PALETTE[name][mode];
-        expect(contrast(s.onTint, s.tint), `${name} ${mode}`).toBeGreaterThanOrEqual(4.5);
+        expect(contrast(s.onTint, s.tint), `${name} ${mode}`).toBeGreaterThanOrEqual(
+          vectors.meta.min_contrast,
+        );
       }
     }
   });
+  // end T2-M3
 });
 
 describe('topicStyle', () => {

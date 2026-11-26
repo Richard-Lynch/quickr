@@ -59,6 +59,7 @@ from app.schemas.api import (
     VersionCreate,
     VersionDraft,
 )
+from app.schemas.limits import MAX_TAG_LENGTH
 from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, StrQuestion
 from app.services import changes as changes_svc
 from app.services import entries as entry_svc
@@ -188,11 +189,21 @@ async def list_topics(
         ),
     ] = "due",
     due_only: Annotated[bool, Query(description="Only topics that are due now.")] = False,
+    # T2-M3
+    tag: Annotated[
+        str | None,
+        Query(
+            max_length=MAX_TAG_LENGTH,
+            description="Only topics with this tag, spelled exactly as stored (tags are unique "
+            "ignoring case, so the stored spelling is the one the topic shows).",
+        ),
+    ] = None,
+    # end T2-M3
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> TopicPage:
     return await topic_svc.list_topics(
-        db, q=q, status=status_, sort=sort, due_only=due_only, limit=limit, offset=offset
+        db, q=q, status=status_, sort=sort, due_only=due_only, tag=tag, limit=limit, offset=offset
     )
 
 

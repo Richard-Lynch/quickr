@@ -250,6 +250,9 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
             "description": "One of each question type.",
             "questions": EVERYTHING,
             "schedule": {"kind": "daily", "times": ["08:00", "21:30"], "timezone": "Europe/London"},
+            # T2-M3
+            "appearance": {"color": "teal", "icon": {"kind": "emoji", "value": "🧪"}, "tags": ["Health"]},
+            # end T2-M3
         },
         status=201,
     )
@@ -325,12 +328,22 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
     )
 
     # --- topic lifecycle -------------------------------------------------------------
-    await rec("updateTopic", "PATCH", "/topics/old-habit", {"description": "Retired."}, status=200)
+    await rec(
+        "updateTopic",
+        "PATCH",
+        "/topics/old-habit",
+        {"description": "Retired.", "appearance": {"color": "amber", "tags": ["Habit", "health"]}},  # T2-M3
+        status=200,
+    )
     await rec("archiveTopic", "POST", "/topics/old-habit/archive", status=200)
 
     # --- reads ------------------------------------------------------------------
     await rec("listTopics", "GET", "/topics", status=200)
     await rec("listTopics", "GET", "/topics", status=200, variant="all", params={"status": "all"})
+    # T2-M3: the tag filter matches the stored spelling exactly ("health" on Old habit doesn't)
+    tag = {"status": "all", "tag": "Health"}
+    await rec("listTopics", "GET", "/topics", status=200, variant="tag", params=tag)
+    # end T2-M3
     await rec("getTopic", "GET", "/topics/everything", status=200)
     await rec("getTopic", "GET", "/topics/water", status=200, variant="interval")
     await rec("listTopicVersions", "GET", "/topics/everything/versions", status=200)
