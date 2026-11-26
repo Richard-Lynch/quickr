@@ -227,6 +227,7 @@ describe('checkTags', () => {
   it('refuses a casefold duplicate at its index, not dropping it', () => {
     expect(checkTags(['Gym', 'run', 'gym'])).toMatchObject({ ok: false, index: 2 });
     expect(checkTags(['Straße', 'STRASSE'])).toMatchObject({ ok: false, index: 1 });
+    expect(checkTags(['ß', '\u{1E9E}'])).toMatchObject({ ok: false, index: 1 });
     // Python: 'ı'.casefold() == 'ı' != 'i'.
     expect(checkTags(['ı', 'i'])).toEqual({ ok: true, value: ['ı', 'i'] });
   });
@@ -240,6 +241,10 @@ describe('checkTags', () => {
   it('counts code points: 24 is fine, 25 is not', () => {
     expect(checkTags(['🏃'.repeat(24)]).ok).toBe(true);
     expect(checkTags(['ok', 'x'.repeat(25)])).toMatchObject({ ok: false, index: 1 });
+  });
+
+  it('treats U+001C–U+001F as whitespace, as Python does', () => {
+    expect(checkTags(['a\u{1C}b\u{1F}'])).toEqual({ ok: true, value: ['a b'] });
   });
 
   it('refuses a tag that is empty after trimming, and a control character', () => {

@@ -175,17 +175,22 @@ export function checkIcon(
 }
 
 /**
- * `str.casefold()` near enough, per code point: upper-casing first folds ß → SS → ss as Python
- * does. Dotless ı is the one common letter where that round trip differs (it would become i;
- * Python keeps ı), so it is left alone. M3-DB's `tags[]` vectors pin the cases that matter.
+ * `str.casefold()` near enough, per code point: upper- then lower-casing, then ß → ss (so ß, ẞ and
+ * SS all fold to ss, as in Python). Dotless ı is left alone: the round trip would make it i, while
+ * Python keeps ı. M3-DB's `tags[]` vectors pin the cases that matter.
  */
 function fold(s: string): string {
-  return Array.from(s, (c) => (c === '\u{131}' ? c : c.toUpperCase().toLowerCase())).join('');
+  return Array.from(s, (c) => (c === '\u{131}' ? c : c.toUpperCase().toLowerCase()))
+    .join('')
+    .replace(/ß/g, 'ss');
 }
 
-// Python's `str.isspace()` set (what `str.strip()` and `split()` use) is Unicode White_Space.
-const SPACE_RUN = /[\p{White_Space}]+/gu;
-const EDGE_SPACE = /^[\p{White_Space}]+|[\p{White_Space}]+$/gu;
+// Python's `str.isspace()` (what `str.strip()` and `split()` use): Unicode White_Space plus the
+// information separators U+001C–U+001F.
+// eslint-disable-next-line no-control-regex -- U+001C–U+001F are whitespace to Python
+const SPACE_RUN = /[\p{White_Space}\u{1C}-\u{1F}]+/gu;
+// eslint-disable-next-line no-control-regex -- as above
+const EDGE_SPACE = /^[\p{White_Space}\u{1C}-\u{1F}]+|[\p{White_Space}\u{1C}-\u{1F}]+$/gu;
 const CONTROL = /\p{Cc}/u;
 
 /**
