@@ -26,3 +26,11 @@ The requested gallery UI assertion remains deferred to I2-UITEST as stated. I co
 
 1. Fixed: the reload's alert is the last retained entry's (`entries.last?.value`), not the last read topic's. Test: the capped case in `WidgetDataTests.entriesTakeTheValueCurrentAtTheirDate`.
 2. Fixed: `WidgetFingerprint` and `ControlFingerprint` compare the run state without `alert_at`/`alert_label`. Test: `TimedWidgetTests.anAlertPassingSpendsNoReload`.
+
+## Round 3 (on 3288930d)
+
+No remaining or new findings identified.
+
+The prior timeline-cap and reload-gate fixes are present, and their regression tests cover the reported cases. The widget rendering checks remain deferred to I2-UITEST as recorded in the review history.
+
+I could not access GitHub issue #209 from this environment or verify layouts in a simulator. The review is based on the branch diff, checked-in spec, review history, and source inspection; I did not run the tests.
