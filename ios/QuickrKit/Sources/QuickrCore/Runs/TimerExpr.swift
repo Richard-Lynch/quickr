@@ -52,7 +52,10 @@ public enum TimerExpr {
     }
 
     /// The whole ms `text` evaluates to over `variables` (lowercase name → ms, as stored).
-    public static func evaluate(_ text: String, variables: [String: Int]) throws(ExprError) -> Int {
+    /// `maxLength`: the length limit (the builder passes `GET /limits`' `max_expr_length`).
+    public static func evaluate(
+        _ text: String, variables: [String: Int], maxLength: Int = TimerExpr.maxLength
+    ) throws(ExprError) -> Int {
         let chars = Array(text.unicodeScalars)
         if chars.count > maxLength {
             throw ExprError(code: .tooLong, pos: maxLength, detail: "longer than \(maxLength) characters")

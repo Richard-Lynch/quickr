@@ -405,6 +405,26 @@ extension DraftIssues<DraftField> {
                 == .error(message: "Unknown_variable at 0: unknown variable 'x'", pos: 0))
     }
 
+    /// The expression length is `GET /limits`' `max_expr_length`, as the PWA's evaluator takes
+    /// it (Codex review).
+    @Test func theExpressionLengthLimitIsTheServers() {
+        var limits = Limits.serverDefaults
+        limits.maxExprLength = 10
+        let vars = [DraftVariable(name: "t", duration: "1:00")]
+        #expect(
+            TopicDraft.alertPreview("t+t+t+t+t+t", variables: vars, limits: limits)
+                == .error(message: "Too_long at 10: longer than 10 characters", pos: 10))
+        #expect(
+            TopicDraft.alertPreview("t+t+t+t+t", variables: vars, limits: limits) == .value(ms: 300_000, text: "5:00"))
+        let draft = TopicDraft(
+            questions: [], timed: true,
+            laps: [
+                DraftLapType(key: "run", label: "Run", alerts: [DraftAlert(key: "a", label: "A", at: "t+t+t+t+t+t")])
+            ],
+            variables: vars)
+        #expect(draft.timerIssues(limits: limits).map(\.field) == [.alert(.lap(0), 0, .at)])
+    }
+
     /// I1-BUILDER acceptance: a duplicate key across steps and lap types is refused before
     /// sending, at the server's path (`timer.laps.0.key` is the draft's `laps.0.key`).
     @Test func aKeySharedByAStepAndALapTypeIsRefusedAtTheServersPath() {

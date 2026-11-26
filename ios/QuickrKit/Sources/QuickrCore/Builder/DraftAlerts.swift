@@ -61,21 +61,22 @@ public enum AlertPreview: Sendable, Hashable {
 
 extension TopicDraft {
     /// Evaluates `at` over `variables` (the valid ones, the first of a repeated name), as the
-    /// server will (`alertPreview`). The expression's length limit is the evaluator's (64, the
-    /// server's `MAX_EXPR_LENGTH`).
+    /// server will (`alertPreview`), within `max_expr_length`.
     public static func alertPreview(
         _ at: String, variables: [DraftVariable], limits: Limits = .serverDefaults
     ) -> AlertPreview {
-        switch evaluate(at, DraftVariable.usable(variables, limits: limits)) {
+        switch evaluate(at, DraftVariable.usable(variables, limits: limits), limits: limits) {
         case .success(let ms): .value(ms: ms, text: DurationFormat.format(ms))
         case .failure(let error): .error(message: exprMessage(error), pos: error.pos)
         }
     }
 
-    static func evaluate(_ at: String, _ variables: [(name: String, ms: Int)]) -> Result<Int, TimerExpr.ExprError> {
+    static func evaluate(_ at: String, _ variables: [(name: String, ms: Int)], limits: Limits) -> Result<
+        Int, TimerExpr.ExprError
+    > {
         let table = Dictionary(variables.map { ($0.name, $0.ms) }, uniquingKeysWith: { first, _ in first })
         do {
-            return .success(try TimerExpr.evaluate(at, variables: table))
+            return .success(try TimerExpr.evaluate(at, variables: table, maxLength: limits.maxExprLength))
         } catch {
             return .failure(error)
         }

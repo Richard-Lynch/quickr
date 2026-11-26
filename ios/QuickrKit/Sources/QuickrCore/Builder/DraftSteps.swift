@@ -272,7 +272,7 @@ extension TopicDraft {
         let usable = DraftVariable.usable(variables, limits: limits)
         for (owner, alerts) in owners {
             for (j, alert) in alerts.enumerated() {
-                if case .failure(let error) = Self.evaluate(alert.at, usable) {
+                if case .failure(let error) = Self.evaluate(alert.at, usable, limits: limits) {
                     issues.append(.init(field: .alert(owner, j, .at), message: Self.exprMessage(error)))
                 }
             }
@@ -290,7 +290,7 @@ extension TopicDraft {
         let usable = DraftVariable.usable(variables, limits: limits)
         func alerts(_ list: [DraftAlert]) -> [TopicTimer.Alert] {
             list.map {
-                let ms = try? Self.evaluate($0.at, usable).get()
+                let ms = try? Self.evaluate($0.at, usable, limits: limits).get()
                 return .init(
                     key: BuilderText.strip($0.key), label: BuilderText.strip($0.label), at: $0.at, atMs: ms ?? 0)
             }
