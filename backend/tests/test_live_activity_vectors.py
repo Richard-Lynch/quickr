@@ -227,6 +227,10 @@ LARGEST_APPEARANCE = TopicAppearance.model_validate(
         "tags": [chr(0x1F400 + i) * 24 for i in range(10)],
     }
 )
+# The bytes `"appearance": {...}` adds to a start's attributes, comma included.
+APPEARANCE_KEY_BYTES = (
+    len(la.dump({"appearance": LARGEST_APPEARANCE.model_dump(mode="json")})) - len("{}") + len(",")
+)
 # end T2-M3
 
 
@@ -776,12 +780,30 @@ def test_budget_bound_holds_with_the_largest_appearance() -> None:
     """After the terminal step a start is at most :func:`fixed_bound` bytes plus its appearance,
     and the largest appearance leaves that well under 4 096: ``fit`` never raises for a topic
     §1.3 accepts."""
-    key = len(la.dump({"appearance": LARGEST_APPEARANCE.model_dump(mode="json")})) - len("{}") + len(",")
-    assert fixed_bound() + key <= MAX_PAYLOAD_BYTES
+    assert fixed_bound() + APPEARANCE_KEY_BYTES <= MAX_PAYLOAD_BYTES
     body = start_body("escapes", ESC * 200, LARGEST_APPEARANCE)
     for step in la.BUDGET_STEPS:
         body = la.shrink(body, step)
-    assert len(la.dump(body)) <= fixed_bound() + key
+        assert body["aps"]["attributes"]["appearance"] == LARGEST_APPEARANCE.model_dump(mode="json"), step
+    assert len(la.dump(body)) <= fixed_bound() + APPEARANCE_KEY_BYTES
+
+
+@pytest.mark.parametrize("name", ["payload_budget_truncation", "payload_budget_terminal"])
+def test_budget_vectors_rerun_with_the_largest_appearance(name: str) -> None:
+    """timers2.md §8.2: both budget vectors re-run with ``attributes.appearance`` set. At each
+    vector's limit plus the appearance's bytes the same steps fire, the body fits, and the
+    appearance is carried whole: it counts against the budget and no step touches it."""
+    vector = {c["name"]: c for c in json.loads(PATH.read_text())["cases"]}[name]
+    body = start_body(vector["timer"], vector["topic_name"], LARGEST_APPEARANCE)
+    limit = vector["budget"]["limit"] + APPEARANCE_KEY_BYTES
+    data, steps = la.fit(body, limit=limit)
+    assert list(steps) == vector["budget"]["steps"]
+    assert len(data) <= limit <= MAX_PAYLOAD_BYTES
+    sent = json.loads(data)["aps"]
+    assert sent["attributes"]["appearance"] == LARGEST_APPEARANCE.model_dump(mode="json")
+    without = {k: v for k, v in sent["attributes"].items() if k != "appearance"}
+    assert without == vector["payload"]["aps"]["attributes"]
+    assert sent["content-state"] == vector["payload"]["aps"]["content-state"]
 
 
 # end T2-M3

@@ -11,3 +11,10 @@ The optional Swift property uses synthesized `Codable` decoding, which accepts o
    - `test_budget_bound_holds_with_the_largest_appearance`: after the terminal step a start is at most `fixed_bound` (1261) plus the appearance (1130), 2391 bytes. So `fit` never raises for a topic §1.3 accepts.
    - The existing truncation and terminal vectors are left as M1 generated them: the step order doesn't touch `attributes.appearance`, which these two tests prove.
    - Spec note for the lead: §15's sentence calling the four-byte case "the worst case" undercounts; the six-byte-escape labels are larger. Proposed §15 wording: "…the four-byte case is what the vector pins; with six-byte-escape labels the body exceeds 4096 bytes and the budget's first step (`alert_label`) fits it, the appearance untouched (asserted in `test_live_activity_vectors.py`)."
+
+## Round 2 (Codex, on the fix)
+
+- **[P2] The terminal-step test doesn't check that the appearance survives; timers2.md §8.2 asks for both budget vectors to be re-run with the appearance set: fixed.**
+  - `test_budget_bound_holds_with_the_largest_appearance` now asserts the appearance is unchanged after every step.
+  - New `test_budget_vectors_rerun_with_the_largest_appearance[payload_budget_truncation|payload_budget_terminal]` rebuilds each budget vector's start with the largest appearance, at the vector's limit plus the appearance's bytes. It asserts the same steps, the fit, the appearance carried whole, and the rest of the attributes and content state identical to the vector.
+- The P1 justification held (#226).
