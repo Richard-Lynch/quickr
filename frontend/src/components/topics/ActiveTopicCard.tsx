@@ -12,6 +12,7 @@ import { topicStyle, type Appearance } from '../../lib/appearance';
 import type { LocalRun } from '../../lib/runs/localView';
 import type { Timer } from '../../lib/runs/types';
 import { activeMs, alertLine, headline as runHeadline, segmentMs } from '../runs/model';
+import { useRunControlsOnScreen } from '../runs/onScreen';
 import { Duration, useServerNow } from '../runs/RunClock';
 import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
@@ -97,6 +98,8 @@ export function ActiveTopicCard({
 }) {
   const paused = run.status === 'paused';
   const now = useServerNow(!paused);
+  // The card shows this run and its controls: the running bar leaves the run out (§6.3).
+  useRunControlsOnScreen(run.topic_id);
   const tint = cardTint(topic);
   const open = run.state.open;
   // With nothing open the headline is just "Running"/"Paused", which the badge already says.
