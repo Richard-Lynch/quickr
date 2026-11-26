@@ -402,6 +402,25 @@ describe('review fixes', () => {
       expect(run?.state.effects.s1).toEqual({ effect: 'void', reason: 'too_long' });
     });
 
+    it('a pause or lap more than 7 days after the start is void too_long, as the fold (P3-2)', () => {
+      const late = T0 + 8 * 24 * 3600 * S;
+      for (const item of [
+        blind(runItem('pause', { id: 'p1', run: 'r1', at: late })),
+        blind(runItem('lap', { id: 'l1', run: 'r1', at: late, seg: 1 })),
+      ]) {
+        const [run] = localRuns([server], [item]);
+        expect(run?.status).toBe('running');
+        expect(run?.state.effects[item.id]).toEqual({ effect: 'void', reason: 'too_long' });
+        expect(run?.state.open?.index).toBe(1);
+      }
+      // A tap before the start is before_start, as the fold has it.
+      const early = blind(runItem('pause', { id: 'p0', run: 'r1', at: T0 - S }));
+      expect(localRuns([server], [early])[0]?.state.effects.p0).toEqual({
+        effect: 'void',
+        reason: 'before_start',
+      });
+    });
+
     it('a tap the server lists already isn’t applied twice', () => {
       const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
       const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));

@@ -391,8 +391,15 @@ function overlay(
   }
   const rest = taps.filter((e) => e.type === 'pause' || e.type === 'resume' || e.type === 'lap');
   rest.sort(timeOrder(rest));
-  for (const e of rest)
-    decide(e, terminal !== null && e.at > terminal.at ? 'after_stop' : apply(e));
+  // The fold's range checks first (iOS `RunFold.overlay` `inRange`): before the start, after
+  // the terminal, more than 7 days after the start.
+  const inRange = (e: RunEvent): VoidReason | null => {
+    if (e.at < base.started_at) return 'before_start';
+    if (terminal !== null && e.at > terminal.at) return 'after_stop';
+    if (e.at > base.started_at + MAX_RUN_MS) return 'too_long';
+    return null;
+  };
+  for (const e of rest) decide(e, inRange(e) ?? apply(e));
   if (terminal !== null && open !== null) {
     if (terminal.type === 'stop') {
       if (pausedSince !== null) pauses.push({ start: pausedSince, end: terminal.at, id: pauseId });
