@@ -266,7 +266,9 @@ public struct ActivityStrip: Sendable, Hashable {
     /// The grid's columns, oldest first: each Monday and its entries (the last one up to today).
     public var columns: [Week] {
         stride(from: 0, to: cells.count, by: 7).map { index in
-            Week(firstDay: cells[index].day, count: cells[index..<Swift.min(index + 7, cells.count)].reduce(0) { $0 + $1.count })
+            Week(
+                firstDay: cells[index].day,
+                count: cells[index..<Swift.min(index + 7, cells.count)].reduce(0) { $0 + $1.count })
         }
     }
 
@@ -279,7 +281,8 @@ public struct ActivityStrip: Sendable, Hashable {
     /// A column's name: "Week of 3 Nov" (its Monday, a calendar date, so in no zone).
     public static func weekLabel(_ monday: String, locale: Locale = .autoupdatingCurrent) -> String {
         let utc = TimeZone(identifier: "UTC")!
-        return ChartFormat.bucket(localMidnight(monday, timeZone: utc), .week, style: .long, timeZone: utc, locale: locale)
+        return ChartFormat.bucket(
+            localMidnight(monday, timeZone: utc), .week, style: .long, timeZone: utc, locale: locale)
     }
 
     /// The caption: "12 entries in the last 12 weeks".
@@ -411,7 +414,9 @@ public struct SparklineModel: Sendable, Hashable {
         let t1 = LineChartModel.milliseconds(lastPoint.start)
         func x(_ t: Double) -> Double { t1 == t0 ? width - pad : pad + (t - t0) / (t1 - t0) * (width - 2 * pad) }
         func y(_ v: Double) -> Double { max == min ? height / 2 : pad + (max - v) / (max - min) * (height - 2 * pad) }
-        let path = data.map { Point(x: Self.round2(x(LineChartModel.milliseconds($0.start))), y: Self.round2(y($0.mean))) }
+        let path = data.map {
+            Point(x: Self.round2(x(LineChartModel.milliseconds($0.start))), y: Self.round2(y($0.mean)))
+        }
         self.path = path
         last = path[path.count - 1]
         lastValue = lastPoint.mean
