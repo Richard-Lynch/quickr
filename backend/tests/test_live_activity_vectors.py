@@ -43,6 +43,7 @@ import pytest
 from app.schemas.questions import Timer as TimerV2
 from app.services import run_fold
 from app.services.entries import fold_timer
+from app.services.notification import truncate
 from app.services.push import live_activity as la
 from app.services.push.apns import MAX_PAYLOAD_BYTES
 from app.services.push.base import PushFailed
@@ -235,7 +236,7 @@ def fixed_bound() -> int:
     ``status`` at 10, ``lap_type`` at 63), ``label`` (and the alert body, its copy) at 32
     six-byte escapes truncated, ``next_label`` and ``alert_label`` null, ``topic_name`` empty."""
     wide_int, wide_double = 9_999_999_999, 1234567890.1234567
-    label = la.truncate(ESC * 64, la.BUDGET_LABEL_LENGTH)
+    label = truncate(ESC * 64, la.BUDGET_LABEL_LENGTH)
     state = {
         "v": wide_int,
         "run_id": RUN,
@@ -656,7 +657,9 @@ def test_alert_at_ties_go_by_position() -> None:
 
 
 def test_no_timer_has_no_alert() -> None:
-    state = la.content_state(RUN, 1, state_of(TimerV2(steps=[]), [START]), None, now=T0)
+    state = la.content_state(
+        RUN, 1, state_of(TimerV2(steps=[], laps=[], variables=[]), [START]), None, now=T0
+    )
     assert (state["alert_at"], state["alert_label"], state["lap_type"], state["next_label"]) == (None,) * 4
     assert (state["step_count"], state["lap_count"]) == (0, 0)
 
@@ -680,13 +683,19 @@ def test_budget_stops_after_step(k: int) -> None:
         "label": state["label"],
         "topic_name": attrs["topic_name"],
     }
+    sent = body["aps"]
+    untruncated = (
+        *(sent["content-state"][f] for f in ("alert_label", "next_label", "label")),
+        sent["attributes"]["topic_name"],
+    )
+    assert all(len(text) == la.MAX_LABEL_LENGTH for text in untruncated)  # the payload's caps
     for i, name in enumerate(la.BUDGET_STEPS[:4]):
         if k == 5 and name != "label":
             assert fields[name] in (None, "")  # the terminal step
         elif i < k:
-            assert fields[name] == la.truncate(ESC * 64, 32), name
+            assert fields[name] == truncate(ESC * 64, la.BUDGET_LABEL_LENGTH), name
         else:
-            assert fields[name] == ESC * 64, name
+            assert len(fields[name]) == la.MAX_LABEL_LENGTH, name
     # The start's alert follows the fitted label and topic name.
     assert aps["alert"] == {"title": attrs["topic_name"], "body": state["label"] or attrs["topic_name"]}
 

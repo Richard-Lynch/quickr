@@ -543,15 +543,25 @@ against. Generator version 3.
 
 ## `live-activity-vectors.json`
 
-- `cases[]`: `{name, event, steps, run, payload, bytes}`: the exact APNs body the server sends
-  for a run whose events are folded as in `run-fold-vectors.json`
-  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `run` is that run: its `events` (in
-  `run-fold-vectors.json`'s event shape), the server's `status` when it isn't the fold's
-  (`finishing`), and its `revision`; the app builds the same content state from it for its
-  local updates. `payload.aps["content-state"]` is
-  `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
-  encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
-  `meta.apple` the documentation every `aps` key was checked against.
+- `timer_sets`: the normalised `Timer` v2 each case's run is pinned to: the run-fold vectors'
+  sets ([timers2.md](../../docs/specs/timers2.md) §3.1) with alerts and variables on top (the fold
+  ignores them; `alert_at` reads them), plus `long`, `budget` and `escapes` for the byte budget.
+- `cases[]`: `{name, event, timer, topic_name, run, payload, bytes, budget?}`: the exact APNs body
+  the server sends at `meta.timestamp` for a run whose events are folded as in
+  `run-fold-vectors.json` ([timers.md](../../docs/specs/timers.md) §10.3, §10.4; timers2.md §8).
+  `run` is that run: its `events` (in `run-fold-vectors.json`'s event shape), the server's
+  `status` when it isn't the fold's (`finishing`), and its `revision`; the app builds the same
+  content state from it, over `timer_sets[timer]` at `meta.timestamp`, for its local updates.
+  `payload.aps["content-state"]` is `RunActivityState`; a `start`'s `attributes` are
+  `RunActivityAttributes` (from `topic_name`). `bytes` is the encoded size (at most
+  `meta.max_bytes`). `meta.headers` are the request headers, and `meta.apple` the documentation
+  every `aps` key was checked against.
+- `budget` (the byte budget, timers2.md §8.2): `{limit, steps}`, the limit the body was fitted
+  to and the truncation steps that fired, in `meta.budget.steps` order (each label truncated to
+  `meta.budget.label_length` characters, then `terminal`). With the 64-character caps no M1 body
+  reaches 4 096 bytes, so the two budget cases use a lower `limit` to pin the order; the app
+  applies `steps` to the state it builds before comparing. `meta.budget.fixed_bound` is the
+  computed worst case after the terminal step.
 
 ## `timer-expr-vectors.json`
 

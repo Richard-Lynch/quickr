@@ -119,7 +119,10 @@ import Testing
             case "alert_label": state.alertLabel = state.alertLabel.map { RunActivityContent.truncate($0, length) }
             case "next_label": state.nextLabel = state.nextLabel.map { RunActivityContent.truncate($0, length) }
             case "label": state.label = RunActivityContent.truncate(state.label, length)
-            case "topic_name": attributes?.topicName = RunActivityContent.truncate(attributes?.topicName ?? "", length)
+            case "topic_name":
+                if let name = attributes?.topicName {
+                    attributes?.topicName = RunActivityContent.truncate(name, length)
+                }
             default:  // terminal
                 state.nextLabel = nil
                 state.alertLabel = nil

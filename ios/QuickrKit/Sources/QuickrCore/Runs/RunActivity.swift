@@ -4,7 +4,7 @@ import Foundation
 import ActivityKit
 #endif
 
-// The run's Live Activity (timers.md §10.3, §10.4): its attributes and content state, as the
+// The run's Live Activity (timers.md §10.3, §10.4; timers2.md §8): its attributes and content state, as the
 // server's pushes carry them (backend/app/services/push/live_activity.py), and the same content
 // built here from the local view of a run. Pinned by shared/fixtures/live-activity-vectors.json
 // (`LiveActivityVectorTests`).
@@ -28,7 +28,8 @@ public struct RunActivityState: Codable, Sendable, Hashable {
     /// The open step's 0-based position among the version's steps; nil in a lap.
     public var stepIndex: Int?
     public var stepCount: Int
-    /// What Next would start; nil on the last step and without steps.
+    /// What Next would start in a step (nil on the last step and without steps); in a lap, the
+    /// lap type the next lap would have (nil when laps are untyped).
     public var nextLabel: String?
     public var pausedAt: Double?
     /// Ended pauses before the segment started, and inside it.
@@ -37,6 +38,15 @@ public struct RunActivityState: Codable, Sendable, Hashable {
     /// What was saved, once `finishing` or `stopped`; nil otherwise (discarded included).
     public var endedAt: Double?
     public var activeMs: Int?
+    /// timers2.md §8.1, all optional so a v1 push decodes. The segment's lap type key (nil in a
+    /// step and for untyped laps).
+    public var lapType: String?
+    /// Closed laps.
+    public var lapCount: Int?
+    /// The open segment's next alert (Unix seconds, the server's clock) and its label; nil while
+    /// paused, once ended, or when none remain.
+    public var alertAt: Double?
+    public var alertLabel: String?
     /// This device's own: true when it built the state without the pinned version's steps (not
     /// stored here yet), so a step may remain whatever `next_label` says. Never in a push.
     public var stepsUnknown: Bool?
@@ -54,6 +64,10 @@ public struct RunActivityState: Codable, Sendable, Hashable {
         case pausedMsInSeg = "paused_ms_in_seg"
         case endedAt = "ended_at"
         case activeMs = "active_ms"
+        case lapType = "lap_type"
+        case lapCount = "lap_count"
+        case alertAt = "alert_at"
+        case alertLabel = "alert_label"
         case stepsUnknown = "steps_unknown"
     }
 
@@ -61,6 +75,7 @@ public struct RunActivityState: Codable, Sendable, Hashable {
         v: Int = RunActivityContent.version, runId: String, revision: Int, status: String, startedAt: Double,
         seg: Int, segStartedAt: Double, label: String, stepIndex: Int?, stepCount: Int, nextLabel: String?,
         pausedAt: Double?, pausedMsBeforeSeg: Int, pausedMsInSeg: Int, endedAt: Double?, activeMs: Int?,
+        lapType: String? = nil, lapCount: Int? = nil, alertAt: Double? = nil, alertLabel: String? = nil,
         stepsUnknown: Bool? = nil
     ) {
         self.v = v
@@ -79,7 +94,38 @@ public struct RunActivityState: Codable, Sendable, Hashable {
         self.pausedMsInSeg = pausedMsInSeg
         self.endedAt = endedAt
         self.activeMs = activeMs
+        self.lapType = lapType
+        self.lapCount = lapCount
+        self.alertAt = alertAt
+        self.alertLabel = alertLabel
         self.stepsUnknown = stepsUnknown
+    }
+
+    /// Every field the server sends, a null as `null` (as its pushes carry them), so what the
+    /// app encodes is the server's content state; `steps_unknown` only when set (never in a push).
+    public func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(v, forKey: .v)
+        try c.encode(runId, forKey: .runId)
+        try c.encode(revision, forKey: .revision)
+        try c.encode(status, forKey: .status)
+        try c.encode(startedAt, forKey: .startedAt)
+        try c.encode(seg, forKey: .seg)
+        try c.encode(segStartedAt, forKey: .segStartedAt)
+        try c.encode(label, forKey: .label)
+        try c.encode(stepIndex, forKey: .stepIndex)
+        try c.encode(stepCount, forKey: .stepCount)
+        try c.encode(nextLabel, forKey: .nextLabel)
+        try c.encode(pausedAt, forKey: .pausedAt)
+        try c.encode(pausedMsBeforeSeg, forKey: .pausedMsBeforeSeg)
+        try c.encode(pausedMsInSeg, forKey: .pausedMsInSeg)
+        try c.encode(endedAt, forKey: .endedAt)
+        try c.encode(activeMs, forKey: .activeMs)
+        try c.encode(lapType, forKey: .lapType)
+        try c.encode(lapCount, forKey: .lapCount)
+        try c.encode(alertAt, forKey: .alertAt)
+        try c.encode(alertLabel, forKey: .alertLabel)
+        try c.encodeIfPresent(stepsUnknown, forKey: .stepsUnknown)
     }
 
     /// The run's status, when it is one this build knows.
@@ -124,7 +170,7 @@ extension RunActivityAttributes: ActivityAttributes {}
 #endif
 
 /// The content state and attributes from a run: `content_state` and `attributes` of
-/// live_activity.py, over the fold's state (`RunState`) and the pinned version's steps.
+/// live_activity.py, over the fold's state (`RunState`) and the pinned version's timer.
 public enum RunActivityContent {
     public static let version = 1
     /// The topic name and step labels in an activity (§10.3).
@@ -150,33 +196,52 @@ public enum RunActivityContent {
             serverId: serverId.lowercased(), topicId: topicId.uuidString.lowercased(), topicName: truncate(topicName))
     }
 
-    /// `status` is the run's own (the server's `finishing` included), not the fold's.
+    /// v1 callers: the pinned version's steps only, and no instant, so no lap type labels and no
+    /// alert (`next_label` in a lap and `alert_at` stay nil).
+    public static func state(
+        runId: String, revision: Int, status: RunStatus, state: RunState, steps: [TopicTimer.Step]
+    ) -> RunActivityState {
+        Self.state(
+            runId: runId, revision: revision, status: status, state: state, timer: TopicTimer(steps: steps), now: nil)
+    }
+
+    /// `status` is the run's own (the server's `finishing` included), not the fold's; `now` is
+    /// the instant (epoch ms) `alert_at` is computed for, nil for none.
     ///
     /// While the run is open the segment fields describe the open segment; once closed, its last
     /// one (segment 0 from the start when it has none). `ended_at` and `active_ms` say what was
     /// saved, so only `finishing` and `stopped` carry them. The paused fields count ended pauses
-    /// only, split at the segment's start; an open pause is `paused_at`.
+    /// only, split at the segment's start; an open pause is `paused_at`. `next_label` is the next
+    /// step's label in a step and the next lap's type label in a lap (timers2.md §8.1).
     public static func state(
-        runId: String, revision: Int, status: RunStatus, state: RunState, steps: [TopicTimer.Step]
+        runId: String, revision: Int, status: RunStatus, state: RunState, timer: TopicTimer, now: Int?
     ) -> RunActivityState {
+        let steps = timer.steps
         let keys = steps.map(\.key)
         let seg: Int
         let kind: RunSegmentKind
         let step: String?
         let label: String
         let segStartedAt: Int
+        let lapType: String?
         if let open = state.open {
-            (seg, kind, step, label, segStartedAt) = (open.index, open.kind, open.step, open.label, open.startedAt)
+            (seg, kind, step, label, segStartedAt, lapType) = (
+                open.index, open.kind, open.step, open.label, open.startedAt, open.lapType
+            )
         } else if let last = state.segments.last {
-            (seg, kind, step, label, segStartedAt) = (
-                state.segments.count - 1, last.kind, last.step, last.label, last.startedAt
+            (seg, kind, step, label, segStartedAt, lapType) = (
+                state.segments.count - 1, last.kind, last.step, last.label, last.startedAt, last.lapType
             )
         } else {
-            (seg, kind, step, label, segStartedAt) = (0, .lap, nil, "", state.startedAt)
+            (seg, kind, step, label, segStartedAt, lapType) = (0, .lap, nil, "", state.startedAt, nil)
         }
         var nextLabel: String?
         if state.open != nil, let next = state.nextStep, let index = keys.firstIndex(of: next) {
             nextLabel = truncate(steps[index].label)
+        } else if state.open != nil, kind == .lap, let next = state.nextLapType,
+            let type = timer.laps.first(where: { $0.key == next })
+        {
+            nextLabel = truncate(type.label)
         }
         let closed = status == .finishing || status == .stopped
         let endedAt = closed ? state.endedAt : nil
@@ -186,6 +251,11 @@ public enum RunActivityContent {
             before += max(0, min(pause.end, segStartedAt) - pause.start)
             inside += max(0, pause.end - max(pause.start, segStartedAt))
         }
+        var alert: (at: Int, label: String)?
+        if state.open != nil, state.pausedSince == nil, let now {
+            let alerts = timer.alerts(step: kind == .step ? step : nil, lapType: kind == .lap ? lapType : nil)
+            alert = nextAlert(alerts, activeFrom: segStartedAt + inside, now: now)
+        }
         let stepIndex: Int? = kind == .step ? step.flatMap { keys.firstIndex(of: $0) } : nil
         let activeMs: Int? = endedAt == nil ? nil : state.segments.reduce(0) { $0 + $1.activeMs }
         return RunActivityState(
@@ -193,7 +263,25 @@ public enum RunActivityContent {
             startedAt: seconds(state.startedAt), seg: seg, segStartedAt: seconds(segStartedAt),
             label: truncate(label), stepIndex: stepIndex, stepCount: steps.count, nextLabel: nextLabel,
             pausedAt: state.pausedSince.map(seconds), pausedMsBeforeSeg: before, pausedMsInSeg: inside,
-            endedAt: endedAt.map(seconds), activeMs: activeMs)
+            endedAt: endedAt.map(seconds), activeMs: activeMs, lapType: lapType, lapCount: state.lapCount,
+            alertAt: alert.map { seconds($0.at) }, alertLabel: alert.map { truncate($0.label) })
+    }
+
+    /// The next alert of a running segment and its instant (epoch ms), timers2.md §8.1: the
+    /// first by `atMs`, then position, with `atMs` above the segment's active time at `now`.
+    /// `activeFrom` is the segment's start plus its ended pauses, so the instant is
+    /// `activeFrom + atMs`; nil when every alert has passed (or none is evaluated yet).
+    public static func nextAlert(
+        _ alerts: [TopicTimer.Alert], activeFrom: Int, now: Int
+    ) -> (at: Int, label: String)? {
+        let active = now - activeFrom
+        var best: (atMs: Int, label: String)?
+        for alert in alerts {
+            guard let atMs = alert.atMs, atMs > active else { continue }
+            if let current = best, current.atMs <= atMs { continue }  // a tie keeps the earlier
+            best = (atMs, alert.label)
+        }
+        return best.map { (activeFrom + $0.atMs, $0.label) }
     }
 
     /// Epoch milliseconds as Unix seconds.
