@@ -142,13 +142,12 @@ import Testing
         #expect(!added.isLapTyped)
     }
 
-    /// A typed lap names the lap it opens (§1.3): the display's `nextLabel` during a lap, as
-    /// `RunActivityDisplay` has it once I2-LA lands the §4.1 primary (today's v1 rule reads a
-    /// `next_label` as Next, so the display is built here as that WP leaves it).
+    /// A typed lap names the lap it opens (§1.3): the display's `nextLabel` during a lap, with Lap
+    /// the primary (§4.1: no step is open).
     @Test func aTypedLapNamesTheLapItOpens() {
-        var display = RunActivityDisplay(
+        let display = RunActivityDisplay(
             state: Self.state(label: "Lap 3", stepIndex: nil, next: "Rest"), topicName: "Smoke")
-        display.buttons = [.lap, .pause, .stop]
+        #expect(display.buttons == [.lap, .pause, .stop])
         #expect(WidgetTopic.runButtons(of: display, compact: false, lapTyped: true) == [.lap, .stop])
         #expect(WidgetTopic.runButtonTitle(.lap, of: display, lapTyped: true) == "Lap → Rest")
         #expect(WidgetTopic.runButtonLabel(.lap, of: display, lapTyped: true, topicName: "Smoke") == "Lap, then Rest")
@@ -162,9 +161,9 @@ import Testing
         #expect(WidgetTopic.runButtonTitle(.next, of: step, lapTyped: true) == "Next: Breakfast")
     }
 
-    /// The one-button rule (§5.3) on an open run: a lap-typed timer's Auto is its primary, so Lap
-    /// stays Lap; without lap types v1's Auto, Next while a named step remains (a lap with a step
-    /// still to come included: that is what `RunWrites.auto` presses), else Stop.
+    /// The one-button rule (§5.3) from the content state alone (no `runAuto`): a lap-typed
+    /// timer's Auto is its primary, so Lap stays Lap; without lap types v1's Auto, Next while the
+    /// primary is Next, else Stop.
     @Test func theSmallSizeFollowsTheOneButtonRule() {
         var lap = RunActivityDisplay(state: Self.state(label: "Lap 3", stepIndex: nil, next: nil), topicName: "Smoke")
         #expect(lap.buttons.first == .lap)
@@ -174,30 +173,37 @@ import Testing
         #expect(WidgetTopic.runButtonTitle(.lap, of: lap, lapTyped: true) == "Lap → Rest")
         #expect(WidgetTopic.runButtons(of: lap, compact: true, lapTyped: true) == [.lap])
 
-        // A lap open on a step timer with "Out" still to come (the §4.1 display, I2-LA): on-screen
-        // Lap, but v1's Auto is Next, not Stop; a lap-typed timer laps. The step Lap doesn't open
-        // is never its label: a plain "Lap", spoken "Lap".
-        var lapBeforeStep = RunActivityDisplay(
-            state: Self.state(label: "Lap 2", stepIndex: nil, next: "Out"), topicName: "Morning")
-        lapBeforeStep.buttons = [.lap, .pause, .stop]
-        #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: false, lapTyped: false) == [.lap, .stop])
-        #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: true, lapTyped: false) == [.next])
-        #expect(WidgetTopic.runButtonTitle(.next, of: lapBeforeStep, lapTyped: false) == "Next: Out")
-        #expect(WidgetTopic.runButtonTitle(.lap, of: lapBeforeStep, lapTyped: false) == "Lap")
-        #expect(WidgetTopic.runButtonLabel(.lap, of: lapBeforeStep, lapTyped: false, topicName: "Morning") == "Lap")
-        #expect(WidgetTopic.runButtons(of: lapBeforeStep, compact: true, lapTyped: true) == [.lap])
-
         let step = RunActivityDisplay(
             state: Self.state(label: "Shower", stepIndex: 0, next: "Breakfast"), topicName: "Morning")
         #expect(WidgetTopic.runButtons(of: step, compact: true, lapTyped: true) == [.next])
         #expect(WidgetTopic.runButtons(of: step, compact: true, lapTyped: false) == [.next])
 
-        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: nil, lapTyped: true) == .lap)
-        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: nil, lapTyped: false) == .stop)
-        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: "Out", lapTyped: false) == .next)
-        #expect(WidgetTopic.autoButton(primary: .lap, nextLabel: "Rest", lapTyped: true) == .lap)
-        #expect(WidgetTopic.autoButton(primary: .next, nextLabel: "Breakfast", lapTyped: true) == .next)
-        #expect(WidgetTopic.autoButton(primary: .next, nextLabel: nil, lapTyped: false) == .next, "steps unknown")
+        #expect(WidgetTopic.autoButton(primary: .lap, lapTyped: true) == .lap)
+        #expect(WidgetTopic.autoButton(primary: .lap, lapTyped: false) == .stop)
+        #expect(WidgetTopic.autoButton(primary: .next, lapTyped: true) == .next)
+        #expect(WidgetTopic.autoButton(primary: .next, lapTyped: false) == .next, "a step follows, or steps unknown")
+    }
+
+    /// M2-REVIEW: a lap opened mid-steps on a timer without lap types (§1.2 row 5, a Siri or
+    /// Lock Screen Lap). Its content state has no `next_label` (a lap never names the pending
+    /// step), so the display alone would say Stop; the press is Next (`RunWrites.autoTap`), and the
+    /// small size and the Control say Next, then do it.
+    @Test func aLapBeforeAPendingStepAutoIsNextAsThePressIs() async throws {
+        let h = try OutboxHarness()
+        try h.timed()
+        try await Self.tap(h)
+        try await Self.tap(h, .lap)
+        var topic = try await Self.shown(h)
+        #expect(topic.runDisplay?.buttons.first == .lap, "a lap is open: on-screen Lap (§4.1)")
+        #expect(topic.runDisplay?.nextLabel == nil)
+        #expect(!topic.isLapTyped)
+        #expect(topic.runButtons(compact: false) == [.lap, .stop])
+        #expect(topic.runAuto == .next)
+        #expect(topic.runButtons(compact: true) == [.next], "Auto presses Next while a step remains")
+
+        try await Self.tap(h)
+        topic = try await Self.shown(h)
+        #expect(topic.runTile == .open(paused: false), "Auto advanced; it didn't stop")
     }
 
     /// Paused: the same primary and Stop (widgets have no Pause chip); the Lock Screen's Resume
