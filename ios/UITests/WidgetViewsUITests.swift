@@ -80,7 +80,8 @@ final class WidgetViewsUITests: XCTestCase {
     /// The timed states (active-surfaces.md §5.1, §5.3) in light, dark, tinted and at an
     /// accessibility size: a stopwatch's Lap with Stop beside it, the small size's one Auto chip
     /// (Stop on a stopwatch without lap types, Next while a step remains), and a paused run. Each
-    /// widget is attached on its own (`widgets-timed-<mode>-<state>`).
+    /// widget is attached on its own (`widgets-timed-<mode>-<state>`). The alert state (a typed lap
+    /// with a pending alert) is checked for clipping too.
     @MainActor
     func testTimedWidgetsShowTheLapPrimary() {
         let modes: [(name: String, appearance: XCUIDevice.Appearance, extra: [String])] = [
@@ -108,6 +109,14 @@ final class WidgetViewsUITests: XCTestCase {
             XCTAssertEqual(buttons(step, "Next: Breakfast"), 1, "\(mode.name): Next while a step remains")
             XCTAssertEqual(buttons(step, "Stop"), 0)
             snapWidget(step, "widgets-timed-\(mode.name)-step")
+            // The typed lap's headline with the pending alert beside the total (§5.1): every
+            // labelled part inside the widget, nothing cut off at its edge.
+            let alert = reveal(app, "widget.medium.timed.alert")
+            XCTAssertTrue(shows(alert, "Go"), "\(mode.name): the alert's label")
+            XCTAssertEqual(buttons(alert, "Lap"), 1, "\(mode.name): the alert widget's primary")
+            XCTAssertEqual(buttons(alert, "Stop"), 1)
+            assertInside(alert, mode.name)
+            snapWidget(alert, "widgets-timed-\(mode.name)-alert")
             let paused = reveal(app, "widget.medium.timed.paused")
             XCTAssertTrue(shows(paused, "Paused"), "\(mode.name): paused")
             snapWidget(paused, "widgets-timed-\(mode.name)-paused")
@@ -128,6 +137,19 @@ final class WidgetViewsUITests: XCTestCase {
         }
         XCTAssertTrue(element.exists && window.contains(element.frame), "\(id) on screen")
         return element
+    }
+
+    /// Every labelled element of the widget lies wholly inside its frame (not clipped at an edge).
+    @MainActor
+    private func assertInside(_ widget: XCUIElement, _ mode: String) {
+        let bounds = widget.frame.insetBy(dx: -1, dy: -1)
+        let parts = widget.descendants(matching: .any).allElementsBoundByIndex.filter {
+            !$0.label.isEmpty && $0.frame.width > 0
+        }
+        XCTAssertFalse(parts.isEmpty, "\(mode): the widget's parts")
+        for part in parts where !bounds.contains(part.frame) {
+            XCTFail("\(mode): \"\(part.label)\" \(part.frame) runs outside \(widget.identifier) \(widget.frame)")
+        }
     }
 
     /// How many of the widget's controls (links, buttons) are labelled starting with `title`.
