@@ -347,6 +347,49 @@ extension TopicSettingsModelTests {
         #expect(model.name == "Feelings" && model.appearance.tags == ["run"])
     }
 
+    /// Codex rvfix #1: the store brings a newer copy (the colour changed again) while the latest
+    /// is read; the conflict moves the base to the newer one, so the next Save sends its revision.
+    @Test func aConflictMovesTheBaseToTheNewestCopy() async {
+        let model = themed()
+        var read = model.topic
+        read.revision = 4
+        read.appearance.color = .indigo
+        read.description = "Read"
+        var newest = read
+        newest.revision = 5
+        newest.appearance.color = .orange
+        newest.description = "Synced"
+        writer.server = newest
+        writer.latestResult = .done(read)
+        writer.whileReading = { [model] in model.topicChanged(newest) }
+        model.appearance.color = .pink
+        await model.saveDetails()
+        #expect(model.detailsBanner == TopicWriteMessage.conflict(["colour"]))
+        #expect(model.description == "Synced")
+        writer.whileReading = nil
+        writer.latestResult = nil
+        await model.saveDetails()
+        #expect(writer.calls.last?.expectedRevision == 5)
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved"])
+    }
+
+    /// Codex rvfix #2: a field that differs only in the raw form (a name that gained a space) isn't
+    /// sent, so its change elsewhere is no conflict: the colour goes again.
+    @Test func aFieldNotSentIsNoConflict() async {
+        let model = themed()
+        writer.server.revision = 4
+        writer.server.name = "Renamed"
+        model.name = "Mood "
+        model.appearance.color = .pink
+        await model.saveDetails()
+        let change = TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.pink)))
+        #expect(writer.calls == [.details(change, expectedRevision: 3), .details(change, expectedRevision: 4)])
+        #expect(model.detailsBanner == nil)
+        #expect(titles == ["Saved"])
+        #expect(model.topic.name == "Renamed")
+    }
+
     /// An edited field changed elsewhere to the same value is no conflict: the change goes again.
     @Test func theSameChangeFromElsewhereIsNoConflict() async {
         let model = themed()

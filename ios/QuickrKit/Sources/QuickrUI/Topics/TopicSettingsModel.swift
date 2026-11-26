@@ -144,16 +144,13 @@ public final class TopicSettingsModel {
     static let maxSaveAttempts = 3
 
     /// The fields the user has edited since `detailsBase`.
-    private var editedFields: [DetailsField] { fields(differingFrom: detailsBase) }
-
-    /// The fields whose value on screen differs from `topic`'s.
-    private func fields(differingFrom topic: Topic) -> [DetailsField] {
-        let parts = appearance.edited(from: topic.appearance)
+    private var editedFields: [DetailsField] {
+        let parts = appearance.edited(from: detailsBase.appearance)
         return DetailsField.allCases.filter { field in
             switch field {
-            case .name: name != topic.name
-            case .slug: slug != topic.slug
-            case .description: description != topic.description
+            case .name: name != detailsBase.name
+            case .slug: slug != detailsBase.slug
+            case .description: description != detailsBase.description
             case .appearance(let part): parts.contains(part)
             }
         }
@@ -168,6 +165,27 @@ public final class TopicSettingsModel {
             case .slug: a.slug != b.slug
             case .description: a.description != b.description
             case .appearance(let part): parts.contains(part)
+            }
+        }
+    }
+
+    /// The fields `change` sends with a value `topic` doesn't hold (code point by code point for
+    /// the tags), in the form's order.
+    private static func fields(_ change: TopicDetailsChange, differingFrom topic: Topic) -> [DetailsField] {
+        DetailsField.allCases.filter { field in
+            switch field {
+            case .name: change.name.map { $0 != topic.name } ?? false
+            case .slug: change.slug.map { $0 != topic.slug } ?? false
+            case .description: change.description.map { $0 != topic.description } ?? false
+            case .appearance(.color): change.appearance?.color.map { $0 != topic.appearance.color } ?? false
+            case .appearance(.icon): change.appearance?.icon.map { $0 != topic.appearance.icon } ?? false
+            case .appearance(.tags):
+                change.appearance?.tags.map { tags in
+                    tags.count != topic.appearance.tags.count
+                        || !zip(tags, topic.appearance.tags).allSatisfy {
+                            $0.unicodeScalars.elementsEqual($1.unicodeScalars)
+                        }
+                } ?? false
             }
         }
     }
@@ -240,21 +258,24 @@ public final class TopicSettingsModel {
             toasts.show(Toast("Nothing to save", tone: .info))
             return
         }
-        // The fields this save sends, fixed now: copies arriving meanwhile don't move the base.
-        let edited = editedFields
+        // The fields this save sends (not the raw form's: a name that only gained spaces isn't
+        // sent), fixed now: copies arriving meanwhile don't move the base.
+        let sent = Self.fields(change, differingFrom: base)
         isSavingDetails = true
         let oldSlug = base.slug
         var outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: base.revision)
         var attempts = 1
-        var conflict: (fields: [DetailsField], fresh: Topic)?
+        var conflict: (fields: [DetailsField], latest: Topic)?
         var contended = false
         while case .staleRevision = outcome, case .done(let fresh) = await writer.latestTopic(topicId: base.id) {
             adopt(fresh)
-            // An edited field changed elsewhere to the value on screen is no conflict.
-            let differing = fields(differingFrom: fresh)
-            let changed = Self.changed(edited, from: base, to: fresh).filter(differing.contains)
-            if !changed.isEmpty {
-                conflict = (changed, fresh)
+            // The fetched copy, or a newer one the store brought while it was read.
+            let latest = topic
+            // A sent field changed elsewhere to the value being sent is no conflict.
+            let conflicting = Self.changed(sent, from: base, to: latest)
+                .filter(Self.fields(change, differingFrom: latest).contains)
+            if !conflicting.isEmpty {
+                conflict = (conflicting, latest)
                 break
             }
             guard attempts < Self.maxSaveAttempts else {
@@ -262,13 +283,13 @@ public final class TopicSettingsModel {
                 break
             }
             attempts += 1
-            outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: fresh.revision)
+            outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: latest.revision)
         }
         let saved = detailsSaved(outcome)
         isSavingDetails = false
         guard saved else {
             if let conflict {
-                moveDetailsBase(to: conflict.fresh)
+                moveDetailsBase(to: conflict.latest)
                 detailsBanner = TopicWriteMessage.conflict(conflict.fields.map(\.label))
             } else if contended {
                 detailsBanner = TopicWriteMessage.contention

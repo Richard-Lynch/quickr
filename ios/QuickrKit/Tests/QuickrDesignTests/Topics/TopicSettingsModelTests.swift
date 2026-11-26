@@ -76,9 +76,13 @@ final class FakeTopicWriter: TopicWriter {
     /// What reading the latest copy answers (the server's copy when nil).
     var latestResult: TopicWriteOutcome<Topic>?
 
+    /// Runs while the latest copy is read, before it answers (a sync landing meanwhile).
+    var whileReading: (@MainActor () -> Void)?
+
     func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
         latestCalls += 1
         latestIds.append(topicId)
+        whileReading?()
         return latestResult ?? .done(server)
     }
 
