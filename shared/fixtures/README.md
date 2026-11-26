@@ -473,22 +473,34 @@ What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), e
 ## `run-fold-vectors.json`
 
 The run fold ([docs/specs/timers.md](../../docs/specs/timers.md) §4) and the
-timing projection (§2.3). Every client folds a run's events with its own port
-and must reach the same state, effects and timing.
+timing projection (§2.3), as changed by fold v4
+([timers2.md](../../docs/specs/timers2.md) §3: lap types, `reopen`, `remove`;
+its §3.4 pseudocode is normative). Every client folds a run's events with its
+own port and must reach the same state, effects and timing. Generator version
+4; the case list is timers2.md §12.1, read from the spec by the generator's
+coverage test.
 
 - `meta`: `run_id` (every case's run), `max_run_ms` (7 days) and `semantics`:
   the rules in prose.
-- `step_sets`: `id -> [{key, label}]`, the run version's steps. Cases refer to
-  them by id.
-- `cases[]`: `{name, steps, events, frozen, expected}`. `events` are
-  `{id, type, at, seg, step, pause_id}` in server arrival order. `frozen` is
+- `timer_sets`: `id -> {steps: [{key, label}], laps: [{key, label}]}`, what the
+  fold reads of the run version's timer (timers2.md §3.1). Cases refer to them
+  by id.
+- `cases[]`: `{name, timer, events, frozen, expected}`. `events` are
+  `{id, type, at, seg, step, pause_id, target}` in server arrival order
+  (`target` names the stop a `reopen` reopens or the event a `remove` removes). `frozen` is
   `null` or `{after, reason}`: events from arrival index `after` on are void
   with `reason` (`run_edited`, `entry_deleted` or `already_closed`) and not
   folded, as the server does once a run is edited, its entry deleted or the run
   discarded. `expected` is `{state, timing}`: `state` is `RunState` (§4.3) plus
   `started_at` and `ended_at`; `effects` maps each lowercase event id to
   `{effect, reason}` (`finish` events have none: the server decides them).
-  `timing` is the entry's `Timing` for a stopped run, else `null`.
+  `timing` is the entry's `Timing` for a stopped run, else `null`. v4 adds
+  `terminal_id`, `next_lap_type` and `lap_count` to the state, `lap_type`,
+  `event_id` and `opened_by` to segments (`lap_type` to `open`), `id` to
+  pauses and `terminal_id` to the timing (timers2.md §3.3).
+- `timings[]`: `{name, stored, expected}`: a stored entry timing as every client
+  decodes it; a pre-v2 timing's ids and lap types read `null`
+  (`timing-pre-v2-null-ids`).
 
 Input `at` values are wire strings, some with sub-millisecond digits or a
 non-UTC offset: parse each to integer epoch milliseconds, truncating, and do
@@ -501,25 +513,28 @@ Notes for the ports:
 - An open pause covers a closed segment up to that segment's end. Measure it to
   the segment's end; don't stand in a large number for "not resumed" (`2**62`
   is past JavaScript's `Number.MAX_SAFE_INTEGER`).
-- Time order is `(at, lowercase id)`, except that a resume with the same `at`
-  as the pause it names sorts right after that pause
+- Time order is `(at, rank, lowercase id)`: a reopened stop's gap pause ranks 0,
+  user events 1 and a reopen's gap resume 2. Among user events a resume with the
+  same `at` as the pause it names sorts right after that pause
   (`resume-at-the-pause-instant`).
 
 ## `timing-stats-vectors.json`
 
-Timing stats ([timers.md](../../docs/specs/timers.md) §9.1): what
-`getTopicTiming` answers for a set of entries, and what the clients' timing
-chart models are checked against.
+Timing stats ([timers.md](../../docs/specs/timers.md) §9.1, with lap types per
+[timers2.md](../../docs/specs/timers2.md) §7.4): what `getTopicTiming` answers
+for a set of entries, and what the clients' timing chart models are checked
+against. Generator version 3.
 
 - `cases[]`: `{name, versions, current_version, entries, expected}`. `versions`
-  maps a version number (a string) to its steps, or `null` for an untimed
-  version. `entries` are `{entry_id, captured_at, timing}`, with `timing` in
+  maps a version number (a string) to its timer (`{steps, laps}`), or `null`
+  for an untimed version. `entries` are `{entry_id, captured_at, timing}`, with `timing` in
   the `run-fold-vectors.json` form or `null` for an untimed entry. `expected`
-  is `TopicTiming` (§9.2): `runs`, `complete_runs`, `total`, `steps`, `laps`,
-  `paused` and `series`, in integer milliseconds.
+  is `TopicTiming` (§9.2): `runs`, `complete_runs`, `total`, `steps`,
+  `lap_types`, `laps`, `paused` and `series` (each point with `steps` and
+  `lap_types`), in integer milliseconds.
 - `meta.semantics`: the rules in prose: complete runs only for `total`; floored
-  medians and means; which step keys are listed, in which order, with which
-  label.
+  medians and means; which step and lap-type keys are listed, in which order,
+  with which label; step and lap-type buckets are keyed separately.
 
 ## `duration-format-vectors.json`
 
@@ -529,15 +544,25 @@ chart models are checked against.
 
 ## `live-activity-vectors.json`
 
-- `cases[]`: `{name, event, steps, run, payload, bytes}`: the exact APNs body the server sends
-  for a run whose events are folded as in `run-fold-vectors.json`
-  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `run` is that run: its `events` (in
-  `run-fold-vectors.json`'s event shape), the server's `status` when it isn't the fold's
-  (`finishing`), and its `revision`; the app builds the same content state from it for its
-  local updates. `payload.aps["content-state"]` is
-  `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
-  encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
-  `meta.apple` the documentation every `aps` key was checked against.
+- `timer_sets`: the normalised `Timer` v2 each case's run is pinned to: the run-fold vectors'
+  sets ([timers2.md](../../docs/specs/timers2.md) §3.1) with alerts and variables on top (the fold
+  ignores them; `alert_at` reads them), plus `long`, `budget` and `escapes` for the byte budget.
+- `cases[]`: `{name, event, timer, topic_name, run, payload, bytes, budget?}`: the exact APNs body
+  the server sends at `meta.timestamp` for a run whose events are folded as in
+  `run-fold-vectors.json` ([timers.md](../../docs/specs/timers.md) §10.3, §10.4; timers2.md §8).
+  `run` is that run: its `events` (in `run-fold-vectors.json`'s event shape), the server's
+  `status` when it isn't the fold's (`finishing`), and its `revision`; the app builds the same
+  content state from it, over `timer_sets[timer]` at `meta.timestamp`, for its local updates.
+  `payload.aps["content-state"]` is `RunActivityState`; a `start`'s `attributes` are
+  `RunActivityAttributes` (from `topic_name`). `bytes` is the encoded size (at most
+  `meta.max_bytes`). `meta.headers` are the request headers, and `meta.apple` the documentation
+  every `aps` key was checked against.
+- `budget` (the byte budget, timers2.md §8.2): `{limit, steps}`, the limit the body was fitted
+  to and the truncation steps that fired, in `meta.budget.steps` order (each label truncated to
+  `meta.budget.label_length` characters, then `terminal`). With the 64-character caps no M1 body
+  reaches 4 096 bytes, so the two budget cases use a lower `limit` to pin the order; the app
+  applies `steps` to the state it builds before comparing. `meta.budget.fixed_bound` is the
+  computed worst case after the terminal step.
 
 ## `timer-expr-vectors.json`
 

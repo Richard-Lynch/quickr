@@ -2017,6 +2017,12 @@ export type RunOpenSegment = {
      * Started At
      */
     started_at: string;
+    /**
+     * Lap Type
+     *
+     * The lap type's key; null for a step or an untyped lap.
+     */
+    lap_type: string | null;
 };
 
 /**
@@ -2136,6 +2142,24 @@ export type RunState = {
     effects: {
         [key: string]: RunEventEffect;
     };
+    /**
+     * Terminal Id
+     *
+     * The applied stop that closed the run; null while open, after a reopen and for a discarded run (timers2.md §3.3).
+     */
+    terminal_id: string | null;
+    /**
+     * Next Lap Type
+     *
+     * The type of the lap a `lap` tap would open now; null when untyped or the run is closed.
+     */
+    next_lap_type: string | null;
+    /**
+     * Lap Count
+     *
+     * Closed lap segments.
+     */
+    lap_count: number;
 };
 
 /**
@@ -2461,6 +2485,12 @@ export type Timing = {
      * Pauses
      */
     pauses: Array<TimingPause>;
+    /**
+     * Terminal Id
+     *
+     * The applied stop that closed the run (a reopen names it); null on a pre-v2 stored timing. Kept by an edit.
+     */
+    terminal_id: string | null;
 };
 
 /**
@@ -2569,6 +2599,12 @@ export type TimingPause = {
      * End
      */
     end: string;
+    /**
+     * Id
+     *
+     * The pause event's id (a gap pause carries its stop's id); null on a pre-v2 stored timing and after an edit.
+     */
+    id: string | null;
 };
 
 /**
@@ -2590,7 +2626,7 @@ export type TimingPaused = {
 /**
  * TimingSegment
  *
- * One segment of a finished run: a named step's time, or an unnamed lap's.
+ * One segment of a finished run: a named step's time, or a lap's (typed or not).
  */
 export type TimingSegment = {
     /**
@@ -2606,7 +2642,7 @@ export type TimingSegment = {
     /**
      * Label
      *
-     * The step's label in the run's version, or 'Lap n'.
+     * The step's label in the run's version, or the lap's ('Lap n', 'Run 2').
      */
     label: string;
     /**
@@ -2627,6 +2663,24 @@ export type TimingSegment = {
      * Its overlap with the run's pauses.
      */
     paused_ms: number;
+    /**
+     * Lap Type
+     *
+     * The lap type's key (timers2.md §3.2); null for a step or an untyped lap.
+     */
+    lap_type: string | null;
+    /**
+     * Event Id
+     *
+     * The next or lap event that opened the segment; null for the first segment (the start opened it), on a pre-v2 stored timing and after an edit (timers2.md §3.3).
+     */
+    event_id: string | null;
+    /**
+     * Opened By
+     *
+     * The type of the event named by event_id ('start' for the first segment); null on a pre-v2 stored timing and after an edit.
+     */
+    opened_by: 'start' | 'next' | 'lap' | 'skip' | null;
 };
 
 /**
