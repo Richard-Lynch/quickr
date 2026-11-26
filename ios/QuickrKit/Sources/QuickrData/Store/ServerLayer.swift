@@ -248,8 +248,12 @@ enum StoreJSON {
         String(decoding: try WireCoding.encoder().encode(value), as: UTF8.self)
     }
 
+    /// Store JSON may predate a wire field (a run cached before fold v4): decoders that know
+    /// such a field read it leniently here (`CodingUserInfoKey.storedJSON`), never off the wire.
     static func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
-        try WireCoding.decoder().decode(type, from: Data(json.utf8))
+        let decoder = WireCoding.decoder()
+        decoder.userInfo[.storedJSON] = true
+        return try decoder.decode(type, from: Data(json.utf8))
     }
 }
 

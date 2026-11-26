@@ -86,16 +86,20 @@
         }
       ],
       "timer": {
+        "laps": [],
         "steps": [
           {
+            "alerts": [],
             "key": "pour",
             "label": "Pour"
           },
           {
+            "alerts": [],
             "key": "drink",
             "label": "Drink"
           }
-        ]
+        ],
+        "variables": []
       }
     },
     "headers": {

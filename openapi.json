@@ -8079,6 +8079,18 @@
             "type": "string",
             "format": "date-time",
             "title": "Started At"
+          },
+          "lap_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lap Type",
+            "description": "The lap type's key; null for a step or an untyped lap."
           }
         },
         "additionalProperties": false,
@@ -8088,7 +8100,8 @@
           "kind",
           "step",
           "label",
-          "started_at"
+          "started_at",
+          "lap_type"
         ],
         "title": "RunOpenSegment"
       },
@@ -8281,6 +8294,37 @@
             "type": "object",
             "title": "Effects",
             "description": "Each event's effect, by lowercase event id."
+          },
+          "terminal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Id",
+            "description": "The applied stop that closed the run; null while open, after a reopen and for a discarded run (timers2.md \u00a73.3)."
+          },
+          "next_lap_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Lap Type",
+            "description": "The type of the lap a `lap` tap would open now; null when untyped or the run is closed."
+          },
+          "lap_count": {
+            "type": "integer",
+            "title": "Lap Count",
+            "description": "Closed lap segments.",
+            "default": 0
           }
         },
         "additionalProperties": false,
@@ -8295,7 +8339,10 @@
           "segments",
           "skipped",
           "pauses",
-          "effects"
+          "effects",
+          "terminal_id",
+          "next_lap_type",
+          "lap_count"
         ],
         "title": "RunState",
         "description": "The fold's output (timers.md \u00a74.3). For a stopped run, ``segments``, ``skipped`` and\n``pauses`` are exactly its entry's ``timing``, until the times are edited: an edited run\n(``RunOut.edited``) keeps its last fold, and its entry holds the edited times."
@@ -8788,6 +8835,19 @@
             },
             "type": "array",
             "title": "Pauses"
+          },
+          "terminal_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Id",
+            "description": "The applied stop that closed the run (a reopen names it); null on a pre-v2 stored timing. Kept by an edit."
           }
         },
         "additionalProperties": false,
@@ -8801,7 +8861,8 @@
           "edited",
           "segments",
           "skipped",
-          "pauses"
+          "pauses",
+          "terminal_id"
         ],
         "title": "Timing",
         "description": "A finished run's times (timers.md \u00a72.3). Every instant is a whole millisecond;\n``ended_at`` equals the entry's ``captured_at``."
@@ -8974,13 +9035,27 @@
             "type": "string",
             "format": "date-time",
             "title": "End"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id",
+            "description": "The pause event's id (a gap pause carries its stop's id); null on a pre-v2 stored timing and after an edit."
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "start",
-          "end"
+          "end",
+          "id"
         ],
         "title": "TimingPause"
       },
@@ -9036,7 +9111,7 @@
           "label": {
             "type": "string",
             "title": "Label",
-            "description": "The step's label in the run's version, or 'Lap n'."
+            "description": "The step's label in the run's version, or the lap's ('Lap n', 'Run 2')."
           },
           "started_at": {
             "type": "string",
@@ -9056,6 +9131,49 @@
             "type": "integer",
             "title": "Paused Ms",
             "description": "Its overlap with the run's pauses."
+          },
+          "lap_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lap Type",
+            "description": "The lap type's key (timers2.md \u00a73.2); null for a step or an untyped lap."
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id",
+            "description": "The next or lap event that opened the segment; null for the first segment (the start opened it), on a pre-v2 stored timing and after an edit (timers2.md \u00a73.3)."
+          },
+          "opened_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "start",
+                  "next",
+                  "lap",
+                  "skip"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened By",
+            "description": "The type of the event named by event_id ('start' for the first segment); null on a pre-v2 stored timing and after an edit."
           }
         },
         "additionalProperties": false,
@@ -9067,10 +9185,13 @@
           "started_at",
           "ended_at",
           "active_ms",
-          "paused_ms"
+          "paused_ms",
+          "lap_type",
+          "event_id",
+          "opened_by"
         ],
         "title": "TimingSegment",
-        "description": "One segment of a finished run: a named step's time, or an unnamed lap's."
+        "description": "One segment of a finished run: a named step's time, or a lap's (typed or not)."
       },
       "TimingSeriesPoint": {
         "properties": {

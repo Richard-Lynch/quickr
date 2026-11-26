@@ -799,7 +799,8 @@ export const zRunOpenSegment = z.object({
     kind: z.enum(['step', 'lap']),
     step: z.string().nullable(),
     label: z.string(),
-    started_at: z.iso.datetime({ offset: true })
+    started_at: z.iso.datetime({ offset: true }),
+    lap_type: z.string().nullable()
 });
 
 /**
@@ -960,7 +961,8 @@ export const zTimingLaps = z.object({
  */
 export const zTimingPause = z.object({
     start: z.iso.datetime({ offset: true }),
-    end: z.iso.datetime({ offset: true })
+    end: z.iso.datetime({ offset: true }),
+    id: z.uuid().nullable()
 });
 
 /**
@@ -974,7 +976,7 @@ export const zTimingPaused = z.object({
 /**
  * TimingSegment
  *
- * One segment of a finished run: a named step's time, or an unnamed lap's.
+ * One segment of a finished run: a named step's time, or a lap's (typed or not).
  */
 export const zTimingSegment = z.object({
     kind: z.enum(['step', 'lap']),
@@ -983,7 +985,15 @@ export const zTimingSegment = z.object({
     started_at: z.iso.datetime({ offset: true }),
     ended_at: z.iso.datetime({ offset: true }),
     active_ms: z.int(),
-    paused_ms: z.int()
+    paused_ms: z.int(),
+    lap_type: z.string().nullable(),
+    event_id: z.uuid().nullable(),
+    opened_by: z.enum([
+        'start',
+        'next',
+        'lap',
+        'skip'
+    ]).nullable()
 });
 
 /**
@@ -1009,7 +1019,10 @@ export const zRunState = z.object({
     segments: z.array(zTimingSegment),
     skipped: z.array(z.string()),
     pauses: z.array(zTimingPause),
-    effects: z.record(z.string(), zRunEventEffect)
+    effects: z.record(z.string(), zRunEventEffect),
+    terminal_id: z.uuid().nullable(),
+    next_lap_type: z.string().nullable(),
+    lap_count: z.int().default(0)
 });
 
 /**
@@ -1064,7 +1077,8 @@ export const zTiming = z.object({
     edited: z.boolean(),
     segments: z.array(zTimingSegment),
     skipped: z.array(z.string()),
-    pauses: z.array(zTimingPause)
+    pauses: z.array(zTimingPause),
+    terminal_id: z.uuid().nullable()
 });
 
 /**

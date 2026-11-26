@@ -204,12 +204,10 @@ import Testing
         let sent = try JSONSerialization.jsonObject(with: try #require(request.body)) as? [String: Any]
         #expect(sent?["change_note"] as? String == "add energy")
         #expect(sent?["base_version"] as? Int == 1)
-        // The draft's timer (timers.md §2.1).
+        // The draft's timer (timers.md §2.1), normalised (timers2.md §1.4).
         let timer = try #require(sent?["timer"] as? [String: Any])
-        #expect(
-            (timer["steps"] as? [[String: String]]) == [
-                ["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"],
-            ])
+        #expect(Self.stepLabels(timer) == [["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"]])
+        #expect(Self.isNormalised(timer))
     }
 
     @Test func aPublishOfAnUntimedVersionSendsANullTimer() async throws {
@@ -232,8 +230,21 @@ import Testing
         let sent = try JSONSerialization.jsonObject(with: try #require(harness.server.requests.last?.body))
         let object = try #require(sent as? [String: Any])
         let timer = try #require(object["timer"] as? [String: Any])
-        let steps = timer["steps"] as? [[String: String]]
-        #expect(steps == [["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"]])
+        #expect(Self.stepLabels(timer) == [["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"]])
+        #expect(Self.isNormalised(timer))
+    }
+
+    /// Each sent step's key and label.
+    static func stepLabels(_ timer: [String: Any]) -> [[String: String]]? {
+        (timer["steps"] as? [[String: Any]])?.map {
+            ["key": $0["key"] as? String ?? "", "label": $0["label"] as? String ?? ""]
+        }
+    }
+
+    /// Every list of the normalised `Timer` is sent (timers2.md §1.4): laps, variables, alerts.
+    static func isNormalised(_ timer: [String: Any]) -> Bool {
+        let steps = timer["steps"] as? [[String: Any]] ?? []
+        return timer["laps"] is [Any] && timer["variables"] is [Any] && steps.allSatisfy { $0["alerts"] is [Any] }
     }
 
     @Test func aStalePublishIsAConflictAndNothingChanges() async throws {

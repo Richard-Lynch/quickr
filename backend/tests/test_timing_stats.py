@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from app.services import run_fold, timing_stats
-from app.services.run_fold import Pause, Step
+from app.services.run_fold import Pause, Step, Timer
 from app.services.timing_stats import TimedEntry
 
 A, B = Step("a", "Alpha"), Step("b", "Beta")
@@ -29,13 +29,13 @@ def entry(
         at += seconds * S
         ends.append((step, at))
     t = run_fold.make_timing(
-        start, ends, skipped, [] if pauses is None else [Pause(start, start + pauses * S)], steps=steps
+        start, ends, skipped, [] if pauses is None else [Pause(start, start + pauses * S)], timer=Timer(steps)
     )
     return TimedEntry(entry_id=f"e{n}", captured_at=t.ended_at, timing=t)
 
 
 def stats(*entries: TimedEntry, steps: list[Step] | None = None) -> timing_stats.TopicTiming:
-    return timing_stats.timing_stats(entries, {1: [A, B] if steps is None else steps}, 1)
+    return timing_stats.timing_stats(entries, {1: Timer([A, B] if steps is None else steps)}, 1)
 
 
 def test_median_takes_the_middle_or_floors_the_two_middle_values() -> None:
@@ -64,8 +64,10 @@ def test_a_run_stopped_before_its_last_step_is_not_complete() -> None:
 
 
 def test_versions_order_as_numbers() -> None:
-    t = run_fold.make_timing(0, [(A, S)], (), [], steps=[A])
-    result = timing_stats.timing_stats([TimedEntry("e", S, t)], {2: [A], 10: [Step("a", "Ten")]}, 10)
+    t = run_fold.make_timing(0, [(A, S)], (), [], timer=Timer([A]))
+    result = timing_stats.timing_stats(
+        [TimedEntry("e", S, t)], {2: Timer([A]), 10: Timer([Step("a", "Ten")])}, 10
+    )
     assert result.steps[0].label == "Ten"
 
 
@@ -113,12 +115,12 @@ def test_series_points_are_by_end_with_step_times() -> None:
 
 
 def test_labels_come_from_the_latest_version_with_the_key() -> None:
-    versions: dict[int, list[Step] | None] = {
-        1: [Step("a", "Old"), Step("z", "Zed")],
-        2: [Step("a", "New")],
+    versions: dict[int, Timer | None] = {
+        1: Timer([Step("a", "Old"), Step("z", "Zed")]),
+        2: Timer([Step("a", "New")]),
         3: None,
     }
     old_steps = [Step("a", "Old"), Step("z", "Zed")]
-    old = run_fold.make_timing(0, [(old_steps[0], S), (old_steps[1], 2 * S)], (), [], steps=old_steps)
+    old = run_fold.make_timing(0, [(old_steps[0], S), (old_steps[1], 2 * S)], (), [], timer=Timer(old_steps))
     result = timing_stats.timing_stats([TimedEntry("e", old.ended_at, old)], versions, 2)
     assert [(s.key, s.label, s.current) for s in result.steps] == [("a", "New", True), ("z", "Zed", False)]
