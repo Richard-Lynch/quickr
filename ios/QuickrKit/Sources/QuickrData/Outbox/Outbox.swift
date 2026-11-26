@@ -673,7 +673,8 @@ public struct Outbox: Sendable {
                 wall: wall)
             // The notice is kept with the ack (timers.md §11.4), whichever process flushed it.
             guard applied == .acked, case .ack(.runEvent(let result)) = resolution,
-                let void = RunVoid(item, result, mine: { id in (try? OutboxStorage.item(db, id: id.lowercased())) != nil })
+                let void = RunVoid(
+                    item, result, mine: { id in (try? OutboxStorage.item(db, id: id.lowercased())) != nil })
             else { return (applied, nil) }
             try RunNoticeStorage.record(db, void, wall: wall)
             return (applied, void)

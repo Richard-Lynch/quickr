@@ -180,7 +180,8 @@ extension RunOverlay {
             arguments: StatementArguments(topicId.map { [$0] } ?? [])
         ).map(OutboxItem.init(row:)).compactMap { item -> (String, String)? in
             guard let payload = try? item.runEventPayload(), payload.type == .remove,
-                let target = payload.event.target?.lowercased(), !runs.contains(where: { $0.answers(to: item.entityId) })
+                let target = payload.event.target?.lowercased(),
+                !runs.contains(where: { $0.answers(to: item.entityId) })
             else { return nil }
             return (item.entityId.lowercased(), target)
         }

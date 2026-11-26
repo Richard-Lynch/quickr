@@ -211,7 +211,8 @@ public enum RunOverlay {
         aliases.remove(id)
         let entry =
             isReopened(state, events)
-            ? try hasEntry(db, id: id, server: server, events: events, mine: mine, requiresAnswers: info.requiresAnswers)
+            ? try hasEntry(
+                db, id: id, server: server, events: events, mine: mine, requiresAnswers: info.requiresAnswers)
             : false
         return LocalRun(
             id: id, topicId: topicId, topic: mine.last?.1.topic, version: version,
@@ -239,7 +240,8 @@ public enum RunOverlay {
         server: Run?, state: RunState, events: [RunEvent], mine: [(OutboxItem, RunEventPayload)],
         requiresAnswers: Bool?, entry: Bool
     ) -> RunStatus {
-        if !state.status.isOpen, isReverted(state, events) || (state.status == .discarded && isReopened(state, events)) {
+        if !state.status.isOpen, isReverted(state, events) || (state.status == .discarded && isReopened(state, events))
+        {
             return entry ? .stopped : .discarded
         }
         guard state.status == .stopped else { return state.status }
