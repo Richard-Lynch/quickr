@@ -281,3 +281,216 @@ extension DraftIssues<DraftField> {
         return Dictionary(e.issues.map { ($0.field.path, $0.message) }, uniquingKeysWith: { $1 })
     }
 }
+
+/// Timer v2 in the builder (timers2.md §1.1, §1.3, §1.6): lap types, variables and alerts, keyed
+/// in one namespace with the steps, validated at the server's paths and published normalised.
+@Suite struct TimerDraftEditingTests {
+    static let base = TopicTimer(
+        steps: [.init(key: "warm", label: "Warm up")],
+        laps: [
+            .init(key: "run", label: "Run", alerts: [.init(key: "half", label: "Half", at: "t/2", atMs: 30_000)]),
+            .init(key: "rest", label: "Rest"),
+        ],
+        variables: [.init(name: "t", ms: 60_000)])
+
+    @Test func aPublishedTimerOpensLockedWithItsVariablesAsText() {
+        let opened = TopicDraft.timerDraft(from: Self.base)
+        #expect(opened.timed)
+        #expect(opened.laps.map(\.key) == ["run", "rest"])
+        let lapsLocked = opened.laps.allSatisfy(\.locked)
+        #expect(lapsLocked)
+        #expect(opened.laps[0].alerts.map(\.key) == ["half"])
+        let alertsLocked = opened.laps[0].alerts.allSatisfy(\.locked)
+        #expect(alertsLocked)
+        #expect(opened.variables.map(\.name) == ["t"])
+        #expect(opened.variables.map(\.duration) == ["1:00"])
+        let draft = TopicDraft.editing(name: "Run", slug: "run", description: "", questions: [], timer: Self.base)
+        #expect(draft.laps.map(\.key) == ["run", "rest"])
+        #expect(draft.variables.count == 1)
+    }
+
+    @Test func lapTypeKeysAvoidStepsAndBothHistories() {
+        var draft = TopicDraft(questions: [], timed: true, steps: [DraftStep(key: "run", label: "Run")])
+        let history = TimerHistory(
+            steps: [HistoricStep(key: "prep", label: "Prep")], laps: [HistoricStep(key: "jog", label: "Jog")])
+        let id = draft.addLapType()
+        draft.setLapTypeLabel(id, "Run", history: history)
+        #expect(draft.laps[0].key == "run_2", "a step has run")
+        draft.setLapTypeLabel(id, "Prep", history: history)
+        #expect(draft.laps[0].key == "prep_2", "a retired step's key is never a lap type's")
+        draft.setLapTypeLabel(id, " JOG ", history: history)
+        #expect(draft.laps[0].key == "jog", "a retired lap type takes its key back")
+    }
+
+    @Test func stepKeysAvoidLapTypesAndTheirHistory() {
+        var draft = TopicDraft(questions: [], timed: true, laps: [DraftLapType(key: "rest", label: "Rest")])
+        let history = TimerHistory(steps: [], laps: [HistoricStep(key: "cig", label: "Cig")])
+        let id = draft.addStep()
+        draft.setStepLabel(id, "Rest", history: history)
+        #expect(draft.steps[0].key == "rest_2")
+        draft.setStepLabel(id, "Cig", history: history)
+        #expect(draft.steps[0].key == "cig_2", "never a retired lap type's key")
+    }
+
+    @Test func aPublishedLapTypeKeepsItsKeyWhenRenamed() {
+        var draft = TopicDraft.editing(name: "Run", slug: "run", description: "", questions: [], timer: Self.base)
+        draft.setLapTypeLabel(draft.laps[0].id, "Jog")
+        #expect(draft.laps[0].key == "run")
+        #expect(draft.laps[0].label == "Jog")
+    }
+
+    @Test func lapTypesMoveAndRemoveUpToTheLimit() {
+        var draft = TopicDraft(questions: [], timed: true)
+        for _ in 0..<Limits.serverDefaults.maxLapTypes { draft.addLapType() }
+        #expect(!draft.canAddLapType())
+        draft.laps = [DraftLapType(key: "a", label: "A"), DraftLapType(key: "b", label: "B")]
+        draft.moveLapType(draft.laps[1].id, to: 0)
+        #expect(draft.laps.map(\.key) == ["b", "a"])
+        draft.removeLapType(draft.laps[0].id)
+        #expect(draft.laps.map(\.key) == ["a"])
+        #expect(draft.canAddLapType())
+    }
+
+    @Test func variableNamesAreLowercasedOnEntry() {
+        var draft = TopicDraft(questions: [], timed: true)
+        let id = draft.addVariable()
+        draft.setVariableName(id, "Rest")
+        draft.setVariableDuration(id, "0:30")
+        #expect(draft.variables[0].name == "rest")
+        #expect(draft.variables[0].duration == "0:30")
+        draft.removeVariable(id)
+        #expect(draft.variables.isEmpty)
+    }
+
+    @Test func durationTextRoundTrips() {
+        #expect(DurationText.parse("1:00") == 60_000)
+        #expect(DurationText.parse(" 1:30:00 ") == 5_400_000)
+        #expect(DurationText.parse("0:01.5") == 1_500)
+        #expect(DurationText.parse("90") == nil)
+        #expect(DurationText.parse("1:60") == nil)
+        #expect(DurationText.format(90_500) == "1:30.500")
+        #expect(DurationText.format(5_400_000) == "1:30:00")
+    }
+
+    @Test func alertsOnStepsAndLapTypesKeyWithinTheirOwner() throws {
+        var draft = TopicDraft(
+            questions: [], timed: true, steps: [DraftStep(key: "warm", label: "Warm")],
+            laps: [DraftLapType(key: "run", label: "Run")])
+        let step = TimerItemID.step(draft.steps[0].id)
+        let lap = TimerItemID.lapType(draft.laps[0].id)
+        let aAdded = draft.addAlert(to: lap)
+        let a = try #require(aAdded)
+        draft.setAlertLabel(lap, a, "Half")
+        draft.setAlertAt(lap, a, "t/2")
+        let bAdded = draft.addAlert(to: lap)
+        let b = try #require(bAdded)
+        draft.setAlertLabel(lap, b, "half")
+        let cAdded = draft.addAlert(to: step)
+        let c = try #require(cAdded)
+        draft.setAlertLabel(step, c, "Half")
+        #expect(draft.laps[0].alerts.map(\.key) == ["half", "half_2"])
+        #expect(draft.steps[0].alerts.map(\.key) == ["half"], "alert keys are unique within their owner only")
+        draft.removeAlert(lap, b)
+        #expect(draft.laps[0].alerts.map(\.key) == ["half"])
+        #expect(draft.laps[0].alerts[0].at == "t/2")
+    }
+
+    @Test func anAlertPreviewEvaluatesWithTheDraftsVariables() {
+        let vars = [DraftVariable(name: "t", duration: "1:00")]
+        #expect(TopicDraft.alertPreview("t/2", variables: vars) == .value(ms: 30_000, text: "0:30"))
+        #expect(
+            TopicDraft.alertPreview("t+", variables: vars) == .error(message: "Syntax at 2: unexpected end", pos: 2))
+        #expect(
+            TopicDraft.alertPreview("x", variables: vars)
+                == .error(message: "Unknown_variable at 0: unknown variable 'x'", pos: 0))
+    }
+
+    /// The expression length is `GET /limits`' `max_expr_length`, as the PWA's evaluator takes
+    /// it (Codex review).
+    @Test func theExpressionLengthLimitIsTheServers() {
+        var limits = Limits.serverDefaults
+        limits.maxExprLength = 10
+        let vars = [DraftVariable(name: "t", duration: "1:00")]
+        #expect(
+            TopicDraft.alertPreview("t+t+t+t+t+t", variables: vars, limits: limits)
+                == .error(message: "Too_long at 10: longer than 10 characters", pos: 10))
+        #expect(
+            TopicDraft.alertPreview("t+t+t+t+t", variables: vars, limits: limits) == .value(ms: 300_000, text: "5:00"))
+        let draft = TopicDraft(
+            questions: [], timed: true,
+            laps: [
+                DraftLapType(key: "run", label: "Run", alerts: [DraftAlert(key: "a", label: "A", at: "t+t+t+t+t+t")])
+            ],
+            variables: vars)
+        #expect(draft.timerIssues(limits: limits).map(\.field) == [.alert(.lap(0), 0, .at)])
+    }
+
+    /// I1-BUILDER acceptance: a duplicate key across steps and lap types is refused before
+    /// sending, at the server's path (`timer.laps.0.key` is the draft's `laps.0.key`).
+    @Test func aKeySharedByAStepAndALapTypeIsRefusedAtTheServersPath() {
+        let draft = TopicDraft(
+            questions: [], timed: true, steps: [DraftStep(key: "run", label: "Run")],
+            laps: [DraftLapType(key: "run", label: "Run")])
+        guard case .failure(let issues) = draft.validatedForVersion() else {
+            Issue.record("a shared key must not validate")
+            return
+        }
+        #expect(issues.issues.map(\.field) == [.lap(0, .key)])
+        #expect(issues.issues.map(\.field.path) == ["laps.0.key"])
+        #expect(issues.issues.map(\.message) == ["A step has this key"])
+        #expect(BuilderProblemMapping.field(for: "timer.laps.0.key", in: draft) == .lap(0, .key))
+    }
+
+    @Test func serverTimerPathsLandOnTheirFields() {
+        var draft = TopicDraft.editing(name: "Run", slug: "run", description: "", questions: [], timer: Self.base)
+        #expect(BuilderProblemMapping.field(for: "timer.laps", in: draft) == .laps)
+        #expect(BuilderProblemMapping.field(for: "timer.laps.1.label", in: draft) == .lap(1, .label))
+        #expect(BuilderProblemMapping.field(for: "timer.laps.5.key", in: draft) == .laps)
+        #expect(BuilderProblemMapping.field(for: "timer.variables", in: draft) == .variables)
+        #expect(BuilderProblemMapping.field(for: "timer.variables.0.ms", in: draft) == .variable(0, .duration))
+        #expect(BuilderProblemMapping.field(for: "timer.variables.0.name", in: draft) == .variable(0, .name))
+        #expect(BuilderProblemMapping.field(for: "timer.variables.3.ms", in: draft) == .variables)
+        #expect(
+            BuilderProblemMapping.field(for: "timer.laps.0.alerts.0.at", in: draft) == .alert(.lap(0), 0, .at))
+        #expect(
+            BuilderProblemMapping.field(for: "timer.laps.0.alerts.0.at_ms", in: draft) == .alert(.lap(0), 0, .at))
+        #expect(BuilderProblemMapping.field(for: "timer.laps.0.alerts.4.key", in: draft) == .alerts(.lap(0)))
+        #expect(BuilderProblemMapping.field(for: "timer.steps.0.alerts", in: draft) == .alerts(.step(0)))
+        #expect(BuilderProblemMapping.field(for: "timer.steps.0.key", in: draft) == .step(0, .key))
+        draft.timed = false
+        #expect(BuilderProblemMapping.field(for: "timer.laps.0.key", in: draft) == nil)
+    }
+
+    @Test func publishingSendsTheNormalisedTimer() throws {
+        var draft = TopicDraft.editing(name: "Run", slug: "run", description: "", questions: [], timer: Self.base)
+        let id = draft.addVariable()
+        draft.setVariableName(id, "Rest")
+        draft.setVariableDuration(id, "0:30")
+        let rest = TimerItemID.lapType(draft.laps[1].id)
+        let alertAdded = draft.addAlert(to: rest)
+        let alert = try #require(alertAdded)
+        draft.setAlertLabel(rest, alert, " Up ")
+        draft.setAlertAt(rest, alert, "rest - 10s")
+        let timer = try draft.validatedForVersion().get().timer
+        #expect(
+            timer
+                == TopicTimer(
+                    steps: [.init(key: "warm", label: "Warm up")],
+                    laps: [
+                        .init(
+                            key: "run", label: "Run",
+                            alerts: [.init(key: "half", label: "Half", at: "t/2", atMs: 30_000)]),
+                        .init(
+                            key: "rest", label: "Rest",
+                            alerts: [.init(key: "up", label: "Up", at: "rest - 10s", atMs: 20_000)]),
+                    ],
+                    variables: [.init(name: "t", ms: 60_000), .init(name: "rest", ms: 30_000)]))
+    }
+
+    @Test func notTimedPublishesNoTimerWhateverTheLists() throws {
+        var draft = TopicDraft.editing(name: "Run", slug: "run", description: "", questions: [], timer: Self.base)
+        draft.laps.append(DraftLapType(key: "", label: ""))
+        draft.timed = false
+        #expect(try draft.validatedForVersion().get().timer == nil)
+    }
+}

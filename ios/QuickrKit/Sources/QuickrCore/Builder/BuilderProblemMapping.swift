@@ -14,7 +14,7 @@ public enum BuilderProblemMapping {
         default: break
         }
         let parts = path.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
-        if parts.first == "timer" { return stepField(Array(parts.dropFirst()), in: draft) }
+        if parts.first == "timer" { return draft.timed ? timerField(Array(parts.dropFirst()), in: draft) : nil }
         guard parts.count >= 2, parts[0] == "questions", let i = Int(parts[1]) else { return nil }
         guard draft.questions.indices.contains(i) else { return .questions }
         let rest = Array(parts.dropFirst(2))
@@ -26,14 +26,33 @@ public enum BuilderProblemMapping {
         return .question(i, .key)
     }
 
-    /// `timer.steps.N.key`, else that step's label (`serverErrors.ts`); the timer or its step
-    /// list is the list's while timed (nil, the banner, otherwise), as is a step not in the draft.
-    private static func stepField(_ parts: [String], in draft: TopicDraft) -> DraftField? {
-        guard parts.count >= 2, parts[0] == "steps", let i = Int(parts[1]) else {
-            return parts.count <= 1 && (parts.first ?? "steps") == "steps" && draft.timed ? .steps : nil
+    /// A `timer.…` path (timers2.md §1.3) on the draft, which keeps the timer's lists at the top
+    /// level (`timerFieldFor`): `timer.steps.N.key` → `.step(N, .key)`, `timer.laps.N.alerts.M.at`
+    /// → `.alert(.lap(N), M, .at)`, `timer.variables.N.ms` → the variable's duration (the draft
+    /// types one). An index the draft doesn't have lights up its list; another sub-field, the label
+    /// (a variable's name); `at_ms`, the expression. Only called while timed (else the banner).
+    private static func timerField(_ parts: [String], in draft: TopicDraft) -> DraftField {
+        guard let list = parts.first else { return .steps }
+        if list == "variables" {
+            guard parts.count >= 2, let i = Int(parts[1]), draft.variables.indices.contains(i) else {
+                return .variables
+            }
+            return .variable(i, parts.count >= 3 && parts[2] == "ms" ? .duration : .name)
         }
-        guard draft.steps.indices.contains(i) else { return .steps }
-        return .step(i, parts.count >= 3 && parts[2] == "key" ? .key : .label)
+        guard list == "steps" || list == "laps" else { return .steps }
+        let isLap = list == "laps"
+        let whole: DraftField = isLap ? .laps : .steps
+        guard parts.count >= 2, let i = Int(parts[1]) else { return whole }
+        let alertCounts = isLap ? draft.laps.map(\.alerts.count) : draft.steps.map(\.alerts.count)
+        guard alertCounts.indices.contains(i) else { return whole }
+        let owner: AlertOwner = isLap ? .lap(i) : .step(i)
+        let field = parts.count >= 3 ? parts[2] : ""
+        if field == "key" { return isLap ? .lap(i, .key) : .step(i, .key) }
+        guard field == "alerts" else { return isLap ? .lap(i, .label) : .step(i, .label) }
+        guard parts.count >= 4, let j = Int(parts[3]), (0..<alertCounts[i]).contains(j) else { return .alerts(owner) }
+        let sub = parts.count >= 5 ? parts[4] : ""
+        let alertField: AlertField = sub == "key" ? .key : sub == "at" || sub == "at_ms" ? .at : .label
+        return .alert(owner, j, alertField)
     }
 
     private static let fields: [String: QuestionField] = [
