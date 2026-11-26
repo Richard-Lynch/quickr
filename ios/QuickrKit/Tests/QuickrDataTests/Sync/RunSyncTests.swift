@@ -40,7 +40,9 @@ import Testing
             kind: .run, seq: 40, id: UUID(uuidString: id)!, topicId: topicId, deletedAt: Make.t0, revision: revision)
     }
 
-    static func applyDeletion(_ db: Database, _ deletion: Deletion, wall: Date = Make.t0, layer: ServerLayer.Layer = .live)
+    static func applyDeletion(
+        _ db: Database, _ deletion: Deletion, wall: Date = Make.t0, layer: ServerLayer.Layer = .live
+    )
         throws
     {
         try ServerLayer.applyDeletion(
@@ -64,7 +66,8 @@ import Testing
 
     /// A `run` deletion with `revision` writes the run's marker at it and ∞ for its aliases, deletes
     /// the run and alias rows, and tombstones nothing.
-    @Test func R14_aRunDeletionWritesAMarkerAndNoTombstone() throws {
+    @Test("R14 · a run deletion writes a marker and no tombstone") func aRunDeletionWritesAMarkerAndNoTombstone() throws
+    {
         let s = try TestStore()
         try s.write { (db: Database) throws in
             #expect(try ServerLayer.upsert(db, run: try Self.openA(revision: 3)) == .applied)
@@ -80,7 +83,8 @@ import Testing
     /// A feed upsert applies only above the marker: at or below it the run stays closed; above it
     /// (a reopen) it applies, clears the marker and re-inserts the aliases as rows. The alias
     /// itself never becomes a run.
-    @Test func R14_aFeedUpsertAppliesOnlyAboveTheMarkerAndClearsIt() throws {
+    @Test("R14 · a feed upsert applies only above the marker and clears it")
+    func aFeedUpsertAppliesOnlyAboveTheMarkerAndClearsIt() throws {
         let s = try TestStore()
         try s.write { (db: Database) throws in
             try Self.applyDeletion(db, Self.feedDeletion(Self.runA, revision: 4))
@@ -106,7 +110,7 @@ import Testing
 
     /// Markers are per layer: a staged deletion writes `stage_run_closed` and fences staged
     /// upserts only.
-    @Test func R14_stagedDeletionsWriteStagedMarkers() throws {
+    @Test("R14 · staged deletions write staged markers") func stagedDeletionsWriteStagedMarkers() throws {
         let s = try TestStore()
         try s.write { (db: Database) throws in
             try Self.applyDeletion(db, Self.feedDeletion(Self.runA, revision: 4), layer: .stage)
@@ -121,7 +125,7 @@ import Testing
 
     /// The topic cascade still tombstones its runs and aliases (they are deleted, not closed): no
     /// upsert brings them back at any revision.
-    @Test func R14_aTopicTombstoneStillTombstonesItsRuns() throws {
+    @Test("R14 · a topic tombstone still tombstones its runs") func aTopicTombstoneStillTombstonesItsRuns() throws {
         let s = try TestStore()
         let topic = SyncRunTests.everything
         try s.write { (db: Database) throws in
@@ -136,7 +140,7 @@ import Testing
     }
 
     /// Markers prune 30 days after their latest write, the ∞ ones too; a younger one stays.
-    @Test func R14_markersPruneAfterThirtyDays() throws {
+    @Test("R14 · markers prune after thirty days") func markersPruneAfterThirtyDays() throws {
         let s = try TestStore()
         let day: TimeInterval = 24 * 3600
         try s.write { (db: Database) throws in
@@ -153,7 +157,7 @@ import Testing
     }
 
     /// A live page prunes with its own wall clock: a marker 31 days old is gone after the next pull.
-    @Test func R14_aLivePagePrunesOldMarkers() async throws {
+    @Test("R14 · a live page prunes old markers") func aLivePagePrunesOldMarkers() async throws {
         let env = try SyncEnv()
         defer { env.cleanup() }
         let coordinator = env.coordinator()
@@ -174,7 +178,8 @@ import Testing
     /// A delayed **pre-close** ack (lower revision) for a run the feed has since closed leaves it
     /// closed; so does a higher-revision ack that is not an applied `reopen`. An applied reopen's
     /// ack reopens it and clears the marker.
-    @Test func R24_onlyAnAppliedReopenAckReopensAClosedRun() throws {
+    @Test("R24 · only an applied reopen ack reopens a closed run") func onlyAnAppliedReopenAckReopensAClosedRun() throws
+    {
         let s = try TestStore()
         let reopen = try Self.result("recordRunEvent.reopen")
         let runId = reopen.run.id
@@ -192,7 +197,8 @@ import Testing
             #expect(try Self.count(db, "run") == 0)
             #expect(try Self.marker(db, Self.runC) == 2)
 
-            #expect(try ServerLayer.apply(db, runEvent: reopen, sentTo: runId, type: .reopen, wall: Make.t0) == .applied)
+            #expect(
+                try ServerLayer.apply(db, runEvent: reopen, sentTo: runId, type: .reopen, wall: Make.t0) == .applied)
             #expect(try Self.runRevision(db, Self.runC) == 3)
             #expect(try Self.marker(db, Self.runC) == nil)
         }
@@ -200,7 +206,9 @@ import Testing
 
     /// A closing ack writes the marker from `response.run.revision`, against a row (older) or
     /// with none; its aliases and the id it was sent to close at ∞.
-    @Test func R24_aClosingAckWritesTheMarkerFromTheResponse() throws {
+    @Test("R24 · a closing ack writes the marker from the response") func aClosingAckWritesTheMarkerFromTheResponse()
+        throws
+    {
         let s = try TestStore()
         let stop = try Self.result("recordRunEvent.stop")
         let sentTo = UUID(uuidString: "0a000000-0000-4000-8000-0000000000c3")!
@@ -222,7 +230,8 @@ import Testing
 
     /// A delayed stop ack arriving after a reopen upsert with a higher revision is a no-op apart
     /// from acking the item: the row stays, no marker is written.
-    @Test func R24_aDelayedStopAckAfterAReopenIsANoOpApartFromTheAck() async throws {
+    @Test("R24 · a delayed stop ack after a reopen is a no op apart from the ack")
+    func aDelayedStopAckAfterAReopenIsANoOpApartFromTheAck() async throws {
         let f = try await RunAckFixture(type: .stop)
         let reopen = try Self.result("recordRunEvent.reopen")
         try f.s.write { (db: Database) throws in _ = try ServerLayer.upsert(db, run: reopen.run) }
@@ -237,11 +246,30 @@ import Testing
         }
     }
 
+    /// The same when the stop was sent to an alias (a merged start): the stale close changes no
+    /// alias row, so nothing re-routes this device's queued events.
+    @Test("R24 · a delayed stop ack to an alias changes no alias") func aDelayedStopAckToAnAliasChangesNoAlias() throws
+    {
+        let s = try TestStore()
+        let reopen = try Self.result("recordRunEvent.reopen")
+        let stop = try Self.result("recordRunEvent.stop")
+        let sentTo = UUID(uuidString: "0a000000-0000-4000-8000-0000000000c3")!
+        try s.write { (db: Database) throws in
+            _ = try ServerLayer.upsert(db, run: reopen.run)
+            let aliases = try String.fetchAll(db, sql: "SELECT id FROM run_alias ORDER BY id")
+            #expect(try ServerLayer.apply(db, runEvent: stop, sentTo: sentTo, type: .stop, wall: Make.t0) == nil)
+            #expect(try String.fetchAll(db, sql: "SELECT id FROM run_alias ORDER BY id") == aliases)
+            #expect(try Self.runRevision(db, Self.runC) == reopen.run.revision)
+            #expect(try Self.count(db, "run_closed") == 0)
+        }
+    }
+
     /// The same through the outbox ack: the acked item's own type decides. A queued lap whose ack
     /// carries an open run never reopens the closed run; a queued reopen's applied ack does.
-    @Test func R24_theAckedItemsTypeDecides() async throws {
+    @Test("R24 · the acked items type decides") func theAckedItemsTypeDecides() async throws {
         let lap = try await RunAckFixture(type: .lap)
-        try lap.s.write { (db: Database) throws in try Self.applyDeletion(db, Self.feedDeletion(Self.runC, revision: 2)) }
+        try lap.s.write { (db: Database) throws in try Self.applyDeletion(db, Self.feedDeletion(Self.runC, revision: 2))
+        }
         let reopen = try Self.result("recordRunEvent.reopen")
         #expect(
             try await lap.s.store.ack(
@@ -264,7 +292,9 @@ import Testing
 
     /// A run deletion with `revision` on one page and its reopen upsert (higher revision) on the
     /// next apply in turn: closed, then open again with the marker cleared.
-    @Test func R25_aDeletionThenAReopenAcrossPagesApplyInTurn() async throws {
+    @Test("R25 · a deletion then a reopen across pages apply in turn") func aDeletionThenAReopenAcrossPagesApplyInTurn()
+        async throws
+    {
         let env = try SyncEnv()
         defer { env.cleanup() }
         let coordinator = env.coordinator()
@@ -288,7 +318,8 @@ import Testing
 
     /// Stop, then reopen, in one pull over pages of one row: the page with the delete row emits
     /// the run as it is at read time (open), so both pages apply and the run ends open.
-    @Test func R25_aReopenReadThroughItsDeleteRowsPageEndsOpen() async throws {
+    @Test("R25 · a reopen read through its delete rows page ends open")
+    func aReopenReadThroughItsDeleteRowsPageEndsOpen() async throws {
         let env = try SyncEnv()
         defer { env.cleanup() }
         let coordinator = env.coordinator(pageLimit: 1)
@@ -306,7 +337,9 @@ import Testing
 
     /// A deletion received with no local row still fences a delayed older upsert (a page or an
     /// ack from before the close).
-    @Test func R25_aDeletionWithNoLocalRowFencesAnOlderUpsert() async throws {
+    @Test("R25 · a deletion with no local row fences an older upsert") func aDeletionWithNoLocalRowFencesAnOlderUpsert()
+        async throws
+    {
         let env = try SyncEnv()
         defer { env.cleanup() }
         env.server.putRun(try SyncRunTests.openRun())
@@ -315,9 +348,11 @@ import Testing
         let store = try await env.connect(coordinator)
         #expect(try await store.ids("run").isEmpty)
         #expect(try await SyncRunTests.markers(store)[Self.runA] == 4)
-        let outcome = try await store.writer.write { db in try ServerLayer.upsert(db, run: try Self.openA(revision: 3)) }
+        let outcome = try await store.writer.write { db in try ServerLayer.upsert(db, run: try Self.openA(revision: 3))
+        }
         #expect(outcome == .closed)
-        let ack = RunEventResult(eventId: UUID().wireString, effect: .applied, run: try Self.openA(revision: 3), entry: nil)
+        let ack = RunEventResult(
+            eventId: UUID().wireString, effect: .applied, run: try Self.openA(revision: 3), entry: nil)
         let acked = try await store.writer.write { db in
             try ServerLayer.apply(db, runEvent: ack, sentTo: UUID(uuidString: Self.runA)!, type: .lap, wall: Make.t0)
         }
@@ -326,7 +361,9 @@ import Testing
     }
 
     /// An older feed deletion applied after a newer ack is a no-op: the reopen ack's row stays.
-    @Test func R25_anOlderFeedDeletionAfterANewerAckIsANoOp() throws {
+    @Test("R25 · an older feed deletion after a newer ack is a no op") func anOlderFeedDeletionAfterANewerAckIsANoOp()
+        throws
+    {
         let s = try TestStore()
         let reopen = try Self.result("recordRunEvent.reopen")
         try s.write { (db: Database) throws in
@@ -347,7 +384,7 @@ import Testing
 
     /// Every marker write is `max(existing, new)`, whatever its source: a lower feed deletion or
     /// closing ack never lowers it; ∞ stays ∞.
-    @Test func R25_markersAreOnlyEverRaised() throws {
+    @Test("R25 · markers are only ever raised") func markersAreOnlyEverRaised() throws {
         let s = try TestStore()
         let stop = try Self.result("recordRunEvent.stop")
         try s.write { (db: Database) throws in
@@ -366,7 +403,7 @@ import Testing
 
     /// A deletion with `revision: null` (a topic cascade's run, listed by a bootstrap) is
     /// permanent: no revision reopens it.
-    @Test func R25_aNullRevisionDeletionIsPermanent() throws {
+    @Test("R25 · a null revision deletion is permanent") func aNullRevisionDeletionIsPermanent() throws {
         let s = try TestStore()
         try s.write { (db: Database) throws in
             try Self.applyDeletion(db, Self.feedDeletion(Self.runA, revision: nil))
@@ -377,7 +414,9 @@ import Testing
 
     /// A bootstrap after a reopen lists the run as an item (no marker), and a bootstrap of a
     /// closed run carries its deletion's `revision` (the marker fences what came before it).
-    @Test func R25_aBootstrapCarriesTheRunsStateAndRevision() async throws {
+    @Test("R25 · a bootstrap carries the runs state and revision") func aBootstrapCarriesTheRunsStateAndRevision()
+        async throws
+    {
         let env = try SyncEnv()
         defer { env.cleanup() }
         env.server.putRun(try SyncRunTests.openRun())
@@ -402,7 +441,8 @@ import Testing
     /// page: staging fences each state by revision, and the swap replaces the live markers with
     /// the staged bootstrap's (the run closed at the re-stop's revision; a live marker the new
     /// epoch doesn't list is gone).
-    @Test func R25_anEpochRebuildWithStopReopenRestopInStagedPages() async throws {
+    @Test("R25 · an epoch rebuild with stop reopen restop in staged pages")
+    func anEpochRebuildWithStopReopenRestopInStagedPages() async throws {
         let env = try SyncEnv()
         defer { env.cleanup() }
         let coordinator = env.coordinator(pageLimit: 1)
@@ -433,9 +473,84 @@ import Testing
         #expect(try await SyncRunTests.tombstones(store, kind: "run").isEmpty)
     }
 
+    /// Staged pages that carry stop → reopen → re-stop of a run as three states in turn (each page
+    /// read while the run was in that state): the stage marker is written, cleared by the reopen's
+    /// higher revision, and written again by the re-stop; the live layer is untouched until the
+    /// swap, which replaces the live markers and row with the staged ones.
+    @Test("R25 · staged pages apply stop reopen restop in turn") func stagedPagesApplyStopReopenRestopInTurn()
+        async throws
+    {
+        let s = try TestStore()
+        let sync = try #require(try await s.store.leases.tryAcquire(.sync, owner: "app:1"))
+        let flush = try #require(try await s.store.leases.tryAcquire(.flush, owner: "app:1"))
+        let stray = "0a000000-0000-4000-8000-0000000000d1"
+        let layerGen = try s.read { db in try SyncTransactions.syncState(db).layerGen }
+        try s.write { (db: Database) throws in
+            _ = try ServerLayer.upsert(db, run: try Self.openA(revision: 3))
+            try ServerLayer.raiseMarker(db, id: stray, revision: 7, wall: Make.t0, layer: .live)
+            #expect(
+                try SyncTransactions.startRebuild(db, target: "E2", layerGen: layerGen, claim: sync, now: s.clock.now())
+                    == .started)
+        }
+        var cursor = 0
+        func stage(next: Int, items: [ChangeItem] = [], deleted: [Deletion] = []) throws {
+            let page = ChangePage(
+                serverId: "server-1", epoch: "E2", head: 12, next: next, hasMore: next < 12, serverTime: Make.t0,
+                items: items, deleted: deleted)
+            let context = StageContext(layerGen: layerGen, targetEpoch: "E2", cursor: cursor, claim: sync)
+            let result = try s.write { db in
+                try SyncTransactions.applyStagedPage(
+                    db, page: page, context: context, now: s.clock.now(), wallNow: Make.t0, timing: nil)
+            }
+            #expect(result == .applied(deletedTopics: []))
+            cursor = next
+        }
+        func staged() throws -> (row: Int?, marker: Int?) {
+            try s.read { db in
+                (
+                    try Int.fetchOne(db, sql: "SELECT revision FROM stage_run WHERE id = ?", arguments: [Self.runA]),
+                    try Self.marker(db, Self.runA, layer: .stage)
+                )
+            }
+        }
+
+        try stage(next: 10, deleted: [Self.feedDeletion(Self.runA, revision: 4)])
+        #expect(try staged() == (nil, 4))
+        try stage(next: 11, items: [.run(seq: 11, run: try Self.openA(revision: 5))])
+        #expect(try staged() == (5, nil))
+        try stage(next: 12, deleted: [Self.feedDeletion(Self.runA, revision: 6)])
+        #expect(try staged() == (nil, 6))
+        // Live is untouched until the swap.
+        try s.read { (db: Database) throws in
+            #expect(try Self.runRevision(db, Self.runA) == 3)
+            #expect(try Self.marker(db, stray) == 7)
+        }
+
+        let context = StageContext(layerGen: layerGen, targetEpoch: "E2", cursor: cursor, claim: sync)
+        let swapped = try s.write { db in
+            try SyncTransactions.swap(
+                db, context: context, flush: flush, head: 12, now: s.clock.now(), wallNow: Make.t0)
+        }
+        guard case .swapped = swapped else {
+            Issue.record("not swapped: \(swapped)")
+            return
+        }
+        try s.write { (db: Database) throws in
+            #expect(try Self.runRevision(db, Self.runA) == nil)
+            #expect(try Self.marker(db, Self.runA) == 6)
+            #expect(try Self.marker(db, stray) == nil)
+            #expect(try Self.count(db, "stage_run_closed") == 0)
+            // The swapped-in marker fences what the old generation could still deliver.
+            #expect(try ServerLayer.upsert(db, run: try Self.openA(revision: 5)) == .closed)
+            #expect(try ServerLayer.upsert(db, run: try Self.openA(revision: 7)) == .applied)
+        }
+    }
+
     /// The same rebuild with the run open again at the end: the swap brings it back open, with no
     /// marker, though the live layer had it closed.
-    @Test func R25_anEpochRebuildEndingOpenReopensTheRun() async throws {
+    @Test("R25 · an epoch rebuild ending open reopens the run") func anEpochRebuildEndingOpenReopensTheRun()
+        async throws
+    {
         let env = try SyncEnv()
         defer { env.cleanup() }
         let coordinator = env.coordinator(pageLimit: 1)

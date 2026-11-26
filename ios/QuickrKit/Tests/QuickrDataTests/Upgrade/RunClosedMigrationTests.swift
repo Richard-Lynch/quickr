@@ -55,12 +55,14 @@ import Testing
                         """,
                     arguments: [runLive, liveTopic, aliasLive, liveTopic, runDead, deadTopic])
                 try db.execute(
-                    sql: "INSERT INTO stage_tombstone (kind, id, topic_id, seq) VALUES ('run', ?, ?, 5), ('run', ?, ?, 6)",
+                    sql:
+                        "INSERT INTO stage_tombstone (kind, id, topic_id, seq) VALUES ('run', ?, ?, 5), ('run', ?, ?, 6)",
                     arguments: [stagedLive, liveTopic, stagedDead, deadTopic])
             }
             wall = FakeClock(Make.t0)
             store = LocalStore(
-                serverId: "server-1", storeGen: 1, url: nil, writer: queue, leaseClock: FakeLeaseClock(), wallClock: wall)
+                serverId: "server-1", storeGen: 1, url: nil, writer: queue, leaseClock: FakeLeaseClock(),
+                wallClock: wall)
             let flush = try #require(try await store.leases.tryAcquire(.flush, owner: "app:1"))
             let topic = TopicRef(id: UUID(uuidString: liveTopic)!, slug: "walk", name: "Walk")
             let event = RunEventInDTO(id: UUID().wireString, type: "lap", at: "2026-03-04T12:00:00.000000Z", seg: 0)
@@ -93,7 +95,8 @@ import Testing
         func markers(_ prefix: String = "") throws -> [String: Int] {
             try store.writer.read { db in
                 Dictionary(
-                    uniqueKeysWithValues: try Row.fetchAll(db, sql: "SELECT id, revision FROM \(prefix)run_closed").map {
+                    uniqueKeysWithValues: try Row.fetchAll(db, sql: "SELECT id, revision FROM \(prefix)run_closed").map
+                    {
                         ($0["id"] as String, $0["revision"] as Int)
                     })
             }
@@ -212,7 +215,9 @@ import Testing
         try SharedDatabase.migrate(queue, Self.shipped + StoreSchema.t2m1Migrations)
         try queue.read { (db: Database) throws in
             #expect(try db.tableExists("run_closed") && db.tableExists("stage_run_closed"))
-            #expect(try Int.fetchOne(db, sql: "SELECT revision FROM run_closed WHERE id = ?", arguments: [Self.runLive]) == 0)
+            #expect(
+                try Int.fetchOne(db, sql: "SELECT revision FROM run_closed WHERE id = ?", arguments: [Self.runLive])
+                    == 0)
             #expect(try Int.fetchOne(db, sql: "SELECT layer_gen FROM sync_state") == 2)
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM tombstone") == 0)
         }

@@ -200,7 +200,8 @@ import Testing
         let run = try h.seedServerRun()
         let sentTo = UUID()
         let result = RunEventResult(eventId: sentTo.wireString, effect: .void(.merged), run: run, entry: nil)
-        try h.write { db in _ = try ServerLayer.apply(db, runEvent: result, sentTo: sentTo, type: .start, wall: Make.t0) }
+        try h.write { db in _ = try ServerLayer.apply(db, runEvent: result, sentTo: sentTo, type: .start, wall: Make.t0)
+        }
         let stored = try h.read { db in try StoreView.run(db, id: sentTo.wireString) }
         let target = try #require(stored)
         #expect(target.id == run.id)

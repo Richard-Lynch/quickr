@@ -153,7 +153,10 @@ public enum ServerLayer {
         let topicId = run.topicId.wireString
         if try isTombstoned(db, kind: .topic, id: topicId) { return outcome }
         let alias = sentTo.wireString
-        if sentTo != run.id, try revision(db, table: "run", id: id) != nil, try !isTombstoned(db, kind: .run, id: alias)
+        // A close records no alias row: if it applies, `sentTo` closes at ∞ with the run's aliases;
+        // if it doesn't (a newer reopen), it is a no-op apart from the ack.
+        if !closed, sentTo != run.id, try revision(db, table: "run", id: id) != nil,
+            try !isTombstoned(db, kind: .run, id: alias)
         {
             try db.execute(
                 sql: "INSERT OR REPLACE INTO run_alias (id, run_id, topic_id) VALUES (?, ?, ?)",
