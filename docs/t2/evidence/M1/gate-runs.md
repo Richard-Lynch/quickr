@@ -44,6 +44,29 @@ first, through `heavy.sh`. The clone was shut down straight after the run.
 | --- | --- | --- | --- | --- | --- |
 | SettingsUITests after #232 | `IOS_RESULT_BUNDLE=… heavy.sh ios/scripts/test.sh UI 899113D3… -only-testing:QuickRUITests/SettingsUITests` | 2026-11-26 14:32–14:33 | `evidence-settings-ui-20261126-143211` | **5 / 0 / 0** (5 total) | Passed. `testOnboardingWithAServiceToken` and `testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain` both passed; these are the two #89 failures in the gate runs above. The other three passed too: `testCancellingTheTokenSheetSavesNothing`, `testOnboardingConnectsAndEndsAtTheTopicList` and `testOnboardingWorksAtAnAccessibilityTextSize`. Load averages at start: 32.95 / 10.64 / 7.75; at end: 18.45 / 13.44 / 9.27. |
 
+## Final, at b6b1471a
+
+These runs were made on `t2/m1` at `b6b1471a2cb62e3ae2fab55a48620ae2b11b2fdf`
+(`Merge #264: T2 M1 M1-REVIEW: milestone evidence`), the head of PR #267, on
+2026-11-26, from the worktree `quickr-worktrees/t2-m1-final` (t2-m1-final-sim).
+That head includes the review fixes (#248, #262, #263) and #232. Each run ran
+**once, with no retries**. `make ios-gen` and build-for-testing ran first,
+through `heavy.sh`, and both returned rc=0. The exports are slimmed the same way
+as above.
+
+Simulators: this worktree's clones `quickR iOS-26-0 t2-m1-final-85cd14`
+(`C8A570D6-187A-4D47-A28E-39805608364B`, iPhone 17, iOS 26.0) and
+`quickR iOS27 t2-m1-final-85cd14` (`F8BBAD5B-8F43-4AC3-B6FA-ADE48B127470`, iPhone
+17, iOS 27.0). No base devices were used. Each clone was shut down straight
+after its run (`simctl shutdown` rc=0).
+
+| Run | Command | Date (UTC) | xcresult | Passed / failed / skipped | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Final UI, iOS 26.0 | `IOS_RESULT_BUNDLE=… ios/scripts/test.sh UI C8A570D6…` | 2026-11-26 14:44–15:23 | `final-ios26-UI-20261126-144456` | 104 / **1** / 20 (125 total) | **Failed: `TopicUITests/testCreateATopicOpensItsRecordScreen()`**, "XCTAssertTrue failed" at `TopicUITests.swift:278` (`addNumberQuestion`): `newTopic.q0.label` never appeared after `newTopic.addQuestion.int` was tapped. The failure-time tree has no question card, `newTopic.name` still `Keyboard Focused`, a `Keyboard` and a leftover `AdditionalDimmingOverlay`. This is the #225/#235 signature: the `dismissKeyboard` helper bug whose fix, #238 (`d1b29181`), is only on `t2/m3a`, not in `t2/m1` or `feat/t2`. It isn't caused by load; recorded on #235. The 20 skips are the same as in the gate run above: 17 e2e (EndToEnd 7, EntriesEndToEnd 4, TapCount 6; see the e2e row), PerfLaunchUITests (2) and SyncUITests (1). Load averages at start: 42.52 / 13.48 / 9.22; at end: 3.93 / 4.63 / 4.75. |
+| Final UI, iOS 27 | `IOS_RESULT_BUNDLE=… ios/scripts/test.sh UI F8BBAD5B…` | 2026-11-26 15:23–16:05 | `final-ios27-UI-20261126-152337` | 104 / **1** / 20 (125 total) | **Failed: `RecordUITests/testFixModeFromALink()`**, "XCTAssertTrue failed" at `RecordUITests.swift:66`: `record.fixBanner` was missing after 30 s. The screen showed "Nothing to fix: This entry has already been synced or discarded." about 4 s after launch, so the seeded rejected entry (`-QuickrSeedRejectedEntry`) wasn't a fixable failed item when `RecordScreen` looked it up. The cause isn't pinned down: `UITestLaunch.prepare` can return silently, swallow a `createEntry` error, or accept a non-fixable `.failed`, and the bundle has no app logs. This test passed on iOS 26.0 in this gate and in the earlier gate at `4eac3ef6`, and the code involved is unchanged since `4eac3ef6`. Filed as #271. Same 20 skips as on iOS 26.0. Load averages at start: 21.56 / 8.37 / 6.07; at end: 4.97 / 4.26 / 5.29. |
+| Final Unit, iOS 27 | `IOS_RESULT_BUNDLE=… heavy.sh ios/scripts/test.sh Unit F8BBAD5B…` | 2026-11-26 16:05–16:16 | `final-ios27-Unit-20261126-160543` | 1580 / 0 / 28 (1608 total) | Passed. The 28 skips are the perf and real-time timing suites, which the Unit plan skips by design. There are 10 more tests than at `4eac3ef6` (1598), from the review fixes. Load averages at start: 8.10 / 4.92 / 5.52; at end: 4.01 / 5.23 / 6.63. |
+| Final e2e UI | `IOS_RESULT_BUNDLE=… heavy.sh ios/scripts/uitest-e2e.sh C8A570D6… -collect-test-diagnostics never`, then `make ios-integration-down` | 2026-11-26 16:16–16:20 | `final-e2e-ios26-UI-20261126-161650` | **14 executed, 14 passed** / 0 / 3 (17 total) | Passed against the run's own stack `quickr-it-t2-m1-final-85cd14`, which came up and went down; `ios-integration-down` rc=0 ("integration: quickr-it-t2-m1-final-85cd14 down"). EndToEnd ran 4 and skipped 3; EntriesEndToEnd ran 4; TapCount ran 6. The 3 skipped tests are the demo scenarios ("Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)"). Load averages at start: 18.37 / 8.17 / 7.65; at end: 4.79 / 8.54 / 8.27. |
+
 ## Earlier M1 bundles (exported here so they outlive cleanup)
 
 These come from the WP PRs. Their context, including the red-before-green runs,
