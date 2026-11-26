@@ -272,13 +272,20 @@ import Testing
         }
         let holding = try await Self.eventually(seconds: 20) { held.withLock { $0 } }
         try #require(holding, "the holder took the lock")
-        // The runner's clock moves 1 ms each time it is read, so the deadline 50 ms away passes
-        // after a fixed number of reads: the few before the lock, then the lock's polls.
-        let clock = TestClock(step: 1_000_000)
+        // The runner's clock stands still until the runner is polling the lock: its third read is
+        // the first poll's deadline check (the two before are the step's own). Then the deadline
+        // passes, so the next poll gives up. Waiting for a number of polls instead (a clock that
+        // moved with each read) needed ~50 turns of a starved pool within the wait, which CI's
+        // one-thread pool didn't always give it.
+        let clock = TestClock()
         var runner = w.runner(.nse, FakeNotificationCenter())
         runner.now = clock.now
         let deadline = clock.now() + 50_000_000
+        let readsBefore = clock.reads
         let run = Task { await runner.run(request, until: deadline) }
+        let polling = try await Self.eventually(seconds: 20) { clock.reads >= readsBefore + 3 }
+        try #require(polling, "the runner reached the lock")
+        clock.advance(by: 50_000_000)
         // It gives up while the lock is still held: the timeout comes before the release.
         let gaveUp = try await Self.eventually(seconds: 20) { !w.records("timeout").isEmpty }
         release.withLock { $0 = true }
@@ -524,13 +531,18 @@ private final class HookCenter: NotificationCenterProtocol {
 /// moves it that far, so time passes with the runner's progress rather than with the machine.
 private final class TestClock: Sendable {
     private let value = Mutex<UInt64>(1_000_000_000_000)
+    private let readCount = Mutex(0)
     private let step: UInt64
 
     init(step: UInt64 = 0) { self.step = step }
 
+    /// How many times `now` has been read.
+    var reads: Int { readCount.withLock { $0 } }
+
     var now: @Sendable () -> UInt64 {
         { [self] in
-            value.withLock { current in
+            readCount.withLock { $0 += 1 }
+            return value.withLock { current in
                 // A named parameter: Xcode 26 rejects `$0` inside `defer`.
                 defer { current += step }
                 return current

@@ -20,7 +20,9 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root" # repo-relative paths, for the annotations
 oasdiff="${OASDIFF:-oasdiff}"
 if (($# == 0)); then
-  tag="$(git tag --list 'v*' --sort=-creatordate | head -n 1)"
+  # The newest v* tag in this checkout's own history, not the newest anywhere: a release candidate
+  # tagged on an integration branch (v0.4.0-rc1 on feat/t2) must not become main's baseline.
+  tag="$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
   [[ -n "$tag" ]] || { echo "compat: no v* tag to compare openapi.json with" >&2; exit 1; }
   # Captured first: a failing command in a process substitution or for-list wouldn't stop the
   # script (set -e ignores it), and would leave no clients to check.
