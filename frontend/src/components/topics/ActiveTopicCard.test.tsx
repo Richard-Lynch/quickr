@@ -27,6 +27,7 @@ function runOf(opts: { paused?: boolean; open?: OpenSegment | null } = {}): Loca
           step: 'shower',
           label: 'Shower',
           started_at: start + 20_000,
+          lap_type: null,
         }
       : opts.open;
   return {
@@ -46,6 +47,9 @@ function runOf(opts: { paused?: boolean; open?: OpenSegment | null } = {}): Loca
       skipped: [],
       pauses: [],
       effects: {},
+      terminal_id: null,
+      next_lap_type: null,
+      lap_count: 0,
     },
     events: [],
     aliases: [],

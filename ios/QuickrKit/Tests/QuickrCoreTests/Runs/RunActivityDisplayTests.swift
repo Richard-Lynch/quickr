@@ -204,7 +204,10 @@ import Testing
             #expect(alert == nil, "\(c.name)")
             #expect(d.headline == state.label, "\(c.name)")
         }
-        #expect(open == 7)
+        // The 7 open cases of I2-LA, M1-LA-STATE's 5 lap and alert cases (`start_renamed_laps`,
+        // `update_tiktok_lap`, `update_alert_pending`, `update_alert_paused`, `update_reopened`)
+        // and its 2 running payload-budget cases.
+        #expect(open == 14)
     }
 
     /// A content state folded from `events` over steps A, B, C.

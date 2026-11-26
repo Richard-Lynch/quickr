@@ -56,7 +56,7 @@ function folded(
   timer: Timer | null,
   opts: { steps?: TimerStep[]; status?: RunStatus } = {},
 ): RunAction[] {
-  const state = fold('r1', opts.steps ?? STEPS, [start, ...events]);
+  const state = fold('r1', { steps: opts.steps ?? STEPS }, [start, ...events]);
   return actions(state, opts.status ?? state.status, timer, T0);
 }
 
