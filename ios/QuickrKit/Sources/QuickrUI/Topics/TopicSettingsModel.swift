@@ -12,13 +12,18 @@ import QuickrCore
 @MainActor @Observable
 public final class TopicSettingsModel {
     public private(set) var topic: Topic
+    /// The copy the Details edits started from: a save diffs against it and sends its revision.
+    private var detailsBase: Topic
 
     // MARK: Details
 
     public var name: String
     public var slug: String
     public var description: String
+    /// The colour, emoji and tags (`AppearanceEditorView`), saved with the details.
+    public var appearance: AppearanceDraft
     public private(set) var detailErrors: [DraftField: String] = [:]
+    public private(set) var appearanceErrors: [AppearanceField: String] = [:]
     public private(set) var detailsBanner: String?
     /// Counts "Save details" taps: a repeated identical banner is announced again (`qrAnnouncesError`).
     public private(set) var detailsAttempts = 0
@@ -60,9 +65,11 @@ public final class TopicSettingsModel {
         topic: Topic, writer: any TopicWriter, toasts: ToastCenter, limits: Limits = .serverDefaults,
         deviceTimeZone: String = TimeZone.current.identifier,
         isKnownTimeZone: @escaping (String) -> Bool = ScheduleDraft.isKnownTimeZone,
-        onSlugChanged: @escaping @MainActor (String) -> Void = { _ in }, onDeleted: @escaping @MainActor () -> Void = {}
+        onSlugChanged: @escaping @MainActor (String) -> Void = { _ in },
+        onDeleted: @escaping @MainActor () -> Void = {}
     ) {
         self.topic = topic
+        detailsBase = topic
         self.writer = writer
         self.toasts = toasts
         self.limits = limits
@@ -73,19 +80,37 @@ public final class TopicSettingsModel {
         name = topic.name
         slug = topic.slug
         description = topic.description
+        appearance = AppearanceDraft(topic.appearance)
         schedule = ScheduleDraft(schedule: topic.schedule, timezone: deviceTimeZone)
     }
 
     public var isArchived: Bool { topic.status == .archived }
 
-    /// The store has a newer copy of the topic (a sync, an archive). Like the PWA's forms, which
-    /// are keyed by the saved values, a section whose saved values changed starts over from them.
+    /// A save's answer, unless the store already brought a newer copy while it was in flight
+    /// (that copy includes this save). The Details edits rebase on it as on a synced copy, except
+    /// while a Details save is in flight (it rebases when that ends).
+    private func adopt(_ updated: Topic) {
+        guard updated.revision >= topic.revision else { return }
+        topic = updated
+        if !isSavingDetails { rebaseDetails(on: updated) }
+    }
+
+    /// The store has a newer copy of the topic (a sync, an archive, this screen's own save).
+    ///
+    /// - **Details** compare field by field, as the PWA's `MetaForm` does: when the newer copy
+    ///   changed none of the fields being edited, it becomes the base (the next save sends its
+    ///   revision) and the untouched fields take its values; the edits stay. When it changed an
+    ///   edited field, the base stays, so the save answers `staleRevision` instead of overwriting
+    ///   the other change.
+    /// - **Schedule** starts over from the saved schedule when that changed.
+    ///
+    /// A copy older than the one on screen is ignored: an observation already in flight when this
+    /// screen's own save returned would otherwise put the old revision back.
     public func topicChanged(_ newer: Topic) {
+        guard newer.revision >= topic.revision else { return }
         let old = topic
         topic = newer
-        if (old.name, old.slug, old.description) != (newer.name, newer.slug, newer.description) {
-            resetDetails()
-        }
+        if !isSavingDetails { rebaseDetails(on: newer) }
         if old.scheduleUpdatedAt != newer.scheduleUpdatedAt || old.schedule != newer.schedule {
             resetSchedule()
         }
@@ -93,55 +118,153 @@ public final class TopicSettingsModel {
 
     // MARK: - Details
 
-    public var detailsDirty: Bool {
-        name != topic.name || slug != topic.slug || description != topic.description
+    /// A Details field, compared on its own.
+    enum DetailsField: CaseIterable, Hashable {
+        case name, slug, description
+        case appearance(AppearanceDraft.Part)
+
+        static let allCases: [DetailsField] =
+            [.name, .slug, .description] + AppearanceDraft.Part.allCases.map(DetailsField.appearance)
     }
 
+    /// The fields the user has edited since `detailsBase`.
+    private var editedFields: [DetailsField] {
+        let parts = appearance.edited(from: detailsBase.appearance)
+        return DetailsField.allCases.filter { field in
+            switch field {
+            case .name: name != detailsBase.name
+            case .slug: slug != detailsBase.slug
+            case .description: description != detailsBase.description
+            case .appearance(let part): parts.contains(part)
+            }
+        }
+    }
+
+    /// Whether any of `fields` differs between two copies of the topic.
+    private static func changed(_ fields: [DetailsField], from a: Topic, to b: Topic) -> Bool {
+        let parts = AppearanceDraft(a.appearance).edited(from: b.appearance)
+        return fields.contains { field in
+            switch field {
+            case .name: a.name != b.name
+            case .slug: a.slug != b.slug
+            case .description: a.description != b.description
+            case .appearance(let part): parts.contains(part)
+            }
+        }
+    }
+
+    /// `newer` becomes the base unless it changed an edited field; the fields not edited take its
+    /// values.
+    private func rebaseDetails(on newer: Topic) {
+        let edited = editedFields
+        guard !Self.changed(edited, from: detailsBase, to: newer) else { return }
+        detailsBase = newer
+        for field in DetailsField.allCases where !edited.contains(field) {
+            switch field {
+            case .name: name = newer.name
+            case .slug: slug = newer.slug
+            case .description: description = newer.description
+            case .appearance(let part): appearance.take(part, from: newer.appearance)
+            }
+        }
+    }
+
+    public var detailsDirty: Bool { !editedFields.isEmpty }
+
     public func resetDetails() {
+        detailsBase = topic
         name = topic.name
         slug = topic.slug
         description = topic.description
+        appearance = AppearanceDraft(topic.appearance)
         detailErrors = [:]
+        appearanceErrors = [:]
         detailsBanner = nil
     }
 
-    /// "Save details": validates like the form, sends only the changed fields.
+    /// "Save details": validates like the form, sends only the changed fields (the appearance's
+    /// among them) in one PATCH, with the base's revision. A `staleRevision` from a change made
+    /// elsewhere that left the edited fields alone is sent again once, on a fresh copy's revision
+    /// (the PWA's `MetaForm`); only an edited field changed elsewhere shows the conflict.
     public func saveDetails() async {
         guard !isSavingDetails else { return }
         detailsAttempts += 1
         detailsBanner = nil
-        let draft = TopicDraft.editing(name: name, slug: slug, description: description, questions: topic.questions)
-        let details: TopicDraft.Details
-        switch draft.validatedDetails(limits: limits) {
-        case .failure(let issues):
-            detailErrors = issues.byField
-            return
-        case .success(let valid):
-            details = valid
-            detailErrors = [:]
+        let draft = TopicDraft.editing(
+            name: name, slug: slug, description: description, questions: detailsBase.questions)
+        let validDetails = draft.validatedDetails(limits: limits)
+        let validAppearance = appearance.validated(limits: limits)
+        switch validDetails {
+        case .failure(let issues): detailErrors = issues.byField
+        case .success: detailErrors = [:]
         }
-        guard let change = TopicDetailsChange(details, from: topic) else {
+        appearanceErrors = validAppearance.failureFields
+        guard case .success(let details) = validDetails, case .success(let newAppearance) = validAppearance else {
+            return
+        }
+        let base = detailsBase
+        var change = TopicDetailsChange(details, from: base) ?? TopicDetailsChange()
+        change.appearance = AppearanceUpdate(newAppearance, from: base.appearance)
+        guard change != TopicDetailsChange() else {
             toasts.show(Toast("Nothing to save", tone: .info))
             return
         }
+        // The fields this save sends, fixed now: copies arriving meanwhile don't move the base.
+        let edited = editedFields
         isSavingDetails = true
-        defer { isSavingDetails = false }
-        let outcome = await writer.saveDetails(change, topicId: topic.id)
+        let oldSlug = base.slug
+        var outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: base.revision)
+        if case .staleRevision = outcome, case .done(let fresh) = await writer.latestTopic(topicId: base.id) {
+            if Self.changed(edited, from: base, to: fresh) {
+                // An edited field changed elsewhere: the conflict shows, the edits stay.
+                adopt(fresh)
+            } else {
+                outcome = await writer.saveDetails(change, topicId: base.id, expectedRevision: fresh.revision)
+            }
+        }
+        let saved = detailsSaved(outcome)
+        isSavingDetails = false
+        guard saved else {
+            // Copies that arrived during the save are considered now.
+            rebaseDetails(on: topic)
+            return
+        }
+        resetDetails()
+        toasts.show(Toast("Saved"))
+        if topic.slug != oldSlug { onSlugChanged(topic.slug) }
+    }
+
+    /// Takes the server's copy, or puts its errors on the fields; false when it wasn't saved.
+    private func detailsSaved(_ outcome: TopicWriteOutcome<Topic>) -> Bool {
         switch outcome {
         case .done(let updated):
-            let slugChanged = updated.slug != topic.slug
-            topic = updated
-            resetDetails()
-            toasts.show(Toast("Saved"))
-            if slugChanged { onSlugChanged(updated.slug) }
-        case .rejected(let problem?):
+            adopt(updated)
+            return true
+        case .rejected(var problem?):
+            // The `appearance.*` issues go on the editor's fields; the rest map as before.
+            var rest: [FieldIssue] = []
+            for issue in problem.errors {
+                if let field = appearance.field(serverPath: ProblemMapping.path(issue.location)) {
+                    appearanceErrors[field] = ProblemMapping.cleanMessage(issue.message)
+                } else {
+                    rest.append(issue)
+                }
+            }
+            let placedAppearance = rest.count < problem.errors.count
+            problem.errors = rest
             let mapped = TopicProblemMapping.details(problem)
             detailErrors = Dictionary(uniqueKeysWithValues: mapped.fields.map { (DraftField($0.key), $0.value) })
-            detailsBanner = mapped.banner
+            // Every issue on a field: no banner, as for the details' own fields.
+            detailsBanner = placedAppearance && rest.isEmpty ? nil : mapped.banner
         default:
             detailsBanner = outcome.message ?? "The server refused the change."
         }
+        return false
     }
+
+    // MARK: - Appearance
+
+    public var appearanceDirty: Bool { appearance.differs(from: detailsBase.appearance) }
 
     // MARK: - Schedule
 
@@ -191,7 +314,7 @@ public final class TopicSettingsModel {
         switch outcome {
         case .done(let updated):
             // The PWA's form is keyed by `schedule_updated_at`: it reopens from the saved schedule.
-            topic = updated
+            adopt(updated)
             resetSchedule()
             toasts.show(Toast(value == nil ? "Schedule removed" : "Schedule saved"))
         case .rejected(let problem?):
@@ -304,4 +427,12 @@ extension DraftField {
         case .description: self = .description
         }
     }
+}
+
+extension TopicSettingsModel: AppearanceEditingModel {
+    public func setAppearanceError(_ message: String?, for field: AppearanceField) {
+        appearanceErrors[field] = message
+    }
+
+    public func setAppearanceErrors(_ errors: [AppearanceField: String]) { appearanceErrors = errors }
 }

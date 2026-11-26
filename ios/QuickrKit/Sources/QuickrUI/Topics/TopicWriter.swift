@@ -69,8 +69,16 @@ public enum TopicWriteError: Error, Sendable, Hashable, CustomStringConvertible 
 /// outcome; archive and unarchive are queued, so they work offline.
 @MainActor
 public protocol TopicWriter: AnyObject {
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?) async -> TopicWriteOutcome<Topic>
-    func saveDetails(_ change: TopicDetailsChange, topicId: UUID) async -> TopicWriteOutcome<Topic>
+    /// "Create topic", with the appearance the topic starts with (`.empty`: the server's defaults).
+    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
+        -> TopicWriteOutcome<Topic>
+    /// "Save details": one PATCH of the changed fields with `expected_revision: expectedRevision`
+    /// (the Details base's), so a topic changed elsewhere meanwhile answers `staleRevision`
+    /// instead of being overwritten.
+    func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
+        -> TopicWriteOutcome<Topic>
+    /// The server's topic now: the fresh copy a `staleRevision` details save is checked against.
+    func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic>
     /// Sets the schedule, or removes it (nil).
     func saveSchedule(_ schedule: Schedule?, topicId: UUID) async -> TopicWriteOutcome<Topic>
     /// Deletes an archived topic.

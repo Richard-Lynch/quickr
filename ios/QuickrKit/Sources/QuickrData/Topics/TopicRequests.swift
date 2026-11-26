@@ -1,8 +1,8 @@
 import QuickrCore
 
 /// The bodies the topic screens send, as the PWA builds them (`NewTopicPage`, `SettingsPage`).
-/// None carries `expected_revision` (the PWA's create, details and schedule saves don't either)
-/// but a Details save that changes the appearance (``details(_:expectedRevision:)``).
+/// Only the Details save carries `expected_revision` (``details(_:expectedRevision:)``), as the
+/// PWA's `MetaForm` does; create and schedule saves don't.
 public enum TopicRequests {
     /// `TopicCreate` (`makeTopicDraftSchema`'s output): BUILDER's validated draft plus the schedule
     /// (nil: none) and the appearance (left out when empty: the server's defaults). An empty slug

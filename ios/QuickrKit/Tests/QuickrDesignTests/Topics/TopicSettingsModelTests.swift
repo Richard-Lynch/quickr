@@ -7,8 +7,8 @@ import Testing
 @MainActor
 final class FakeTopicWriter: TopicWriter {
     enum Call: Equatable {
-        case create(name: String, schedule: Schedule?)
-        case details(TopicDetailsChange)
+        case create(name: String, schedule: Schedule?, appearance: TopicAppearance = .empty)
+        case details(TopicDetailsChange, expectedRevision: Int)
         case schedule(Schedule?)
         case delete
         case archive(Bool, baseRevision: Int)
@@ -24,17 +24,32 @@ final class FakeTopicWriter: TopicWriter {
 
     init(server: Topic) { self.server = server }
 
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?) async -> TopicWriteOutcome<Topic> {
-        calls.append(.create(name: creation.name, schedule: schedule))
+    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
+        -> TopicWriteOutcome<Topic>
+    {
+        calls.append(.create(name: creation.name, schedule: schedule, appearance: appearance))
         return topicResult ?? .done(server)
     }
 
-    func saveDetails(_ change: TopicDetailsChange, topicId: UUID) async -> TopicWriteOutcome<Topic> {
-        calls.append(.details(change))
+    /// Runs while a save is in flight, before it answers (a sync landing meanwhile).
+    var whileSaving: (@MainActor () -> Void)?
+
+    func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
+        -> TopicWriteOutcome<Topic>
+    {
+        calls.append(.details(change, expectedRevision: expectedRevision))
+        whileSaving?()
         if let topicResult { return topicResult }
+        // The server's `expected_revision` check (`SessionTopicWriter` always sends it).
+        if expectedRevision != server.revision { return .staleRevision }
         server.name = change.name ?? server.name
         server.slug = change.slug ?? server.slug
         server.description = change.description ?? server.description
+        if let update = change.appearance {
+            if let color = update.color { server.appearance.color = color }
+            if let icon = update.icon { server.appearance.icon = icon }
+            if let tags = update.tags { server.appearance.tags = tags }
+        }
         server.revision += 1
         return .done(server)
     }
@@ -54,6 +69,13 @@ final class FakeTopicWriter: TopicWriter {
     }
 
     func unsyncedChanges(topicId: UUID) async -> Int { unsynced }
+
+    var latestCalls = 0
+
+    func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic> {
+        latestCalls += 1
+        return .done(server)
+    }
 
     func setArchived(_ archived: Bool, topicId: UUID, baseRevision: Int) async throws {
         calls.append(.archive(archived, baseRevision: baseRevision))
@@ -116,7 +138,7 @@ final class FakeTopicWriter: TopicWriter {
         model.description = "Feelings, daily"
         #expect(model.detailsDirty)
         await model.saveDetails()
-        #expect(writer.calls == [.details(TopicDetailsChange(description: "Feelings, daily"))])
+        #expect(writer.calls == [.details(TopicDetailsChange(description: "Feelings, daily"), expectedRevision: 3)])
         #expect(titles == ["Saved"])
         #expect(!model.detailsDirty)
         #expect(model.topic.description == "Feelings, daily")
@@ -164,16 +186,19 @@ final class FakeTopicWriter: TopicWriter {
         #expect(titles.isEmpty)
     }
 
-    @Test func aNewerTopicResetsCleanSectionsOnlyWhenTheirValuesChanged() {
+    /// Field by field (the PWA's `MetaForm`, #220): a newer copy that changed no edited field
+    /// gives the untouched fields its values and keeps the edits.
+    @Test func aNewerTopicUpdatesTheUntouchedFieldsAndKeepsTheEdits() {
         model.description = "editing"
         var newer = Self.topic
         newer.status = .archived  // an archive: details untouched
         model.topicChanged(newer)
         #expect(model.description == "editing")
         newer.name = "Renamed elsewhere"
+        newer.revision = 4
         model.topicChanged(newer)
         #expect(model.name == "Renamed elsewhere")
-        #expect(model.description == "How do you feel", "the form starts over from the new values")
+        #expect(model.description == "editing", "the edit stays")
     }
 
     // MARK: Schedule

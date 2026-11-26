@@ -167,6 +167,7 @@ struct NewTopicView: View {
                     .accessibilityLabel("Description")
                     .accessibilityIdentifier("newTopic.description")
             }
+            AppearanceRow(model: model, name: model.draft.name, id: "newTopic")
         } header: {
             Text("Topic")
         }

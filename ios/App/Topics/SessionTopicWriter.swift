@@ -19,12 +19,18 @@ final class SessionTopicWriter: TopicWriter, VersionWriter, EntryTimingWriting {
         self.binding = binding
     }
 
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?) async -> TopicWriteOutcome<Topic> {
-        await perform { await $0.create(TopicRequests.create(creation, schedule: schedule)) }
+    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
+        -> TopicWriteOutcome<Topic>
+    {
+        await perform { await $0.create(TopicRequests.create(creation, schedule: schedule, appearance: appearance)) }
     }
 
-    func saveDetails(_ change: TopicDetailsChange, topicId: UUID) async -> TopicWriteOutcome<Topic> {
-        await perform { await $0.update(topicId: topicId, TopicRequests.details(change)) }
+    /// Always with `expected_revision` (`TopicWrites.updateAppearance` sends the Details body with
+    /// it), as the PWA's `MetaForm` does: a field changed elsewhere answers `staleRevision`.
+    func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
+        -> TopicWriteOutcome<Topic>
+    {
+        await perform { await $0.updateAppearance(topicId: topicId, change, expectedRevision: expectedRevision) }
     }
 
     func saveSchedule(_ schedule: Schedule?, topicId: UUID) async -> TopicWriteOutcome<Topic> {

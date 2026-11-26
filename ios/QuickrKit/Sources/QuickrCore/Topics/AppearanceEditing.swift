@@ -1,25 +1,5 @@
 import Foundation
 
-// MARK: - Limits
-
-/// The appearance limits of appearance.md §1.3 (`MAX_TAGS`, `MAX_TAG_LENGTH`, `MAX_ICON_LENGTH`).
-///
-/// T2-M3 seam: replaced by the `Limits` fields `maxTags`, `maxTagLength`, `maxIconLength` (from
-/// `GET /limits`) when M3-DB lands; until then the server's defaults.
-public struct AppearanceLimits: Sendable, Hashable {
-    public var maxTags: Int
-    public var maxTagLength: Int
-    public var maxIconLength: Int
-
-    public init(maxTags: Int, maxTagLength: Int, maxIconLength: Int) {
-        self.maxTags = maxTags
-        self.maxTagLength = maxTagLength
-        self.maxIconLength = maxIconLength
-    }
-
-    public static let serverDefaults = AppearanceLimits(maxTags: 10, maxTagLength: 24, maxIconLength: 16)
-}
-
 // MARK: - Validation (appearance.md §2, §1.3, §5)
 
 /// What is wrong with an icon or the tags, and where: `index` is the offending tag (the server's
@@ -52,29 +32,30 @@ extension TopicAppearance {
 
     /// One emoji, in its stored form (appearance.md §2, the iOS row of the predicate table):
     ///
-    /// 1. NFC; refused when empty or longer than `maxIconLength` code points.
+    /// 1. NFC; refused when empty.
     /// 2. A text-presentation pictograph not followed by U+FE0F gets one ("☺" → "☺️"). Swift has no
     ///    `Extended_Pictographic`: `isEmoji && !isEmojiPresentation && !isASCII` stands in, which
-    ///    leaves the keycap bases `0–9 # *` (ASCII) alone.
+    ///    leaves the keycap bases `0–9 # *` (ASCII) alone. Then refused when longer than
+    ///    `maxIconLength` code points: the limit is on the stored form (`too_long_after_vs16`).
     /// 3. Exactly one `Character`.
     /// 4. It starts as an emoji: `s0.isEmojiPresentation`; or `s0.isEmoji && !s0.isASCII` and
     ///    `s1 == U+FE0F` (the `!isASCII` refuses a digit + VS16); or two regional indicators (a flag);
     ///    or a keycap `[0-9#*] U+FE0F U+20E3`. The first two exclude a regional indicator and a skin
     ///    tone modifier as `s0`: both are `Emoji_Presentation` but not `Extended_Pictographic`, so the
     ///    server (and the PWA) refuse a lone "🇮" or "🏽", and so does this.
-    public static func checkIcon(_ value: String, limits: AppearanceLimits = .serverDefaults)
+    public static func checkIcon(_ value: String, limits: Limits = .serverDefaults)
         -> Result<String, AppearanceIssue>
     {
         var scalars = Array(value.precomposedStringWithCanonicalMapping.unicodeScalars)
         if scalars.isEmpty { return .failure(AppearanceIssue(message: AppearanceMessage.iconEmpty)) }
-        if scalars.count > limits.maxIconLength {
-            return .failure(AppearanceIssue(message: AppearanceMessage.iconNotOne))
-        }
         let first = scalars[0]
         if first.properties.isEmoji && !first.properties.isEmojiPresentation && !first.isASCII
             && scalars.dropFirst().first != vs16
         {
             scalars.insert(vs16, at: 1)
+        }
+        if scalars.count > limits.maxIconLength {
+            return .failure(AppearanceIssue(message: AppearanceMessage.iconNotOne))
         }
         var stored = ""
         stored.unicodeScalars.append(contentsOf: scalars)
@@ -99,7 +80,7 @@ extension TopicAppearance {
     /// points, unique by case folding (a duplicate is an error, not dropped: the later one is
     /// refused); then at most `maxTags`. Order kept. The same order of checks as the PWA's
     /// `checkTags`.
-    public static func checkTags(_ tags: [String], limits: AppearanceLimits = .serverDefaults)
+    public static func checkTags(_ tags: [String], limits: Limits = .serverDefaults)
         -> Result<[String], AppearanceIssue>
     {
         var out: [String] = []
@@ -238,7 +219,7 @@ public struct AppearanceDraft: Sendable, Hashable {
     }
 
     /// The emoji field's error as it is typed: nil when empty (no icon) or valid.
-    public func iconError(limits: AppearanceLimits = .serverDefaults) -> String? {
+    public func iconError(limits: Limits = .serverDefaults) -> String? {
         guard !icon.isEmpty, case .failure(let issue) = TopicAppearance.checkIcon(icon, limits: limits) else {
             return nil
         }
@@ -247,7 +228,7 @@ public struct AppearanceDraft: Sendable, Hashable {
 
     /// "Add" (or Return) in the tag field: the tag joins the list in its stored form, or the
     /// field's error comes back and nothing changes (a duplicate, an eleventh tag, too long).
-    public mutating func addTag(limits: AppearanceLimits = .serverDefaults) -> String? {
+    public mutating func addTag(limits: Limits = .serverDefaults) -> String? {
         switch TopicAppearance.checkTags(tags + [newTag], limits: limits) {
         case .success(let value):
             tags = value
@@ -266,6 +247,36 @@ public struct AppearanceDraft: Sendable, Hashable {
             || !AppearanceUpdate.sameSpelling(tags, opened.tags) || !ServerText.strip(newTag).isEmpty
     }
 
+    /// The appearance's parts, each compared on its own (a conflict is per field, appearance.md §7).
+    public enum Part: CaseIterable, Sendable, Hashable {
+        case color
+        case icon
+        case tags
+    }
+
+    /// The parts that differ from `saved`, code point by code point; tag text not added yet counts
+    /// as editing the tags.
+    public func edited(from saved: TopicAppearance) -> Set<Part> {
+        let opened = AppearanceDraft(saved)
+        var out: Set<Part> = []
+        if color != opened.color { out.insert(.color) }
+        if !icon.unicodeScalars.elementsEqual(opened.icon.unicodeScalars) { out.insert(.icon) }
+        if !AppearanceUpdate.sameSpelling(tags, opened.tags) || !ServerText.strip(newTag).isEmpty {
+            out.insert(.tags)
+        }
+        return out
+    }
+
+    /// Takes `part` from `saved` (a newer copy), leaving the other parts as edited.
+    public mutating func take(_ part: Part, from saved: TopicAppearance) {
+        let opened = AppearanceDraft(saved)
+        switch part {
+        case .color: color = opened.color
+        case .icon: icon = opened.icon
+        case .tags: tags = opened.tags
+        }
+    }
+
     public mutating func removeTag(at index: Int) {
         guard tags.indices.contains(index) else { return }
         tags.remove(at: index)
@@ -274,7 +285,7 @@ public struct AppearanceDraft: Sendable, Hashable {
     /// The appearance to send, or the errors by field. Tag text typed but not added yet is added
     /// as if "Add" had been tapped (so a Create or Save never drops it); when it can't be, the
     /// error is on the "Add a tag" field.
-    public func validated(limits: AppearanceLimits = .serverDefaults)
+    public func validated(limits: Limits = .serverDefaults)
         -> Result<TopicAppearance, AppearanceErrors>
     {
         var errors: [AppearanceField: String] = [:]

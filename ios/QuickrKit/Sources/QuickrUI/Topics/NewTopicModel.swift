@@ -17,6 +17,10 @@ public final class NewTopicModel: BuilderEditing {
     public var schedule: ScheduleDraft {
         didSet { if submitted { revalidate() } }
     }
+    /// The colour, emoji and tags (`AppearanceEditorView`, appearance.md §7).
+    public var appearance = AppearanceDraft() {
+        didSet { if submitted { revalidate() } }
+    }
     /// Every card starts open (`defaultExpanded="all"`).
     public var expansion: QuestionExpansion
     public let preview = BuilderPreview()
@@ -24,6 +28,7 @@ public final class NewTopicModel: BuilderEditing {
     public var newOptionLabels: [DraftQuestion.ID: String] = [:]
     public private(set) var draftErrors: [DraftField: String] = [:]
     public private(set) var scheduleErrors: [ScheduleField: String] = [:]
+    public private(set) var appearanceErrors: [AppearanceField: String] = [:]
     /// The banner over the form, and the issues no field shows (listed under it).
     public private(set) var banner: String?
     public private(set) var bannerDetails: [String] = []
@@ -66,13 +71,16 @@ public final class NewTopicModel: BuilderEditing {
     /// Leaving asks first once anything was edited.
     public var hasUnsavedChanges: Bool {
         draft != initialDraft || schedule != initialSchedule || hasPendingOptionText
+            || appearance != AppearanceDraft()
     }
 
     /// The banner shows a server error always, and "Fix the highlighted fields" only while some
     /// field still shows an error.
     public var visibleBanner: String? {
         guard let banner else { return nil }
-        if banner == Self.clientInvalid && draftErrors.isEmpty && scheduleErrors.isEmpty { return nil }
+        if banner == Self.clientInvalid && draftErrors.isEmpty && scheduleErrors.isEmpty && appearanceErrors.isEmpty {
+            return nil
+        }
         return banner
     }
 
@@ -81,6 +89,7 @@ public final class NewTopicModel: BuilderEditing {
     private struct Valid {
         var creation: TopicDraft.Creation
         var schedule: Schedule?
+        var appearance: TopicAppearance
     }
 
     /// Validates everything, setting each field's message; nil when something is wrong.
@@ -93,8 +102,12 @@ public final class NewTopicModel: BuilderEditing {
         case .failure(let issues): draftErrors = issues.byField
         }
         scheduleErrors = schedule.failureIssues
-        guard case .success(let valid) = creation, case .success(let value) = schedule else { return nil }
-        return Valid(creation: valid, schedule: value)
+        let appearance = appearance.validated(limits: limits)
+        appearanceErrors = appearance.failureFields
+        guard case .success(let valid) = creation, case .success(let value) = schedule,
+            case .success(let appearance) = appearance
+        else { return nil }
+        return Valid(creation: valid, schedule: value, appearance: appearance)
     }
 
     /// "Create topic".
@@ -110,7 +123,7 @@ public final class NewTopicModel: BuilderEditing {
         }
         isCreating = true
         defer { isCreating = false }
-        let outcome = await writer.create(valid.creation, schedule: valid.schedule)
+        let outcome = await writer.create(valid.creation, schedule: valid.schedule, appearance: valid.appearance)
         switch outcome {
         case .done(let topic):
             toasts.show(Toast("Topic created", message: "Log your first entry."))
@@ -130,6 +143,10 @@ public final class NewTopicModel: BuilderEditing {
         var unplaced: [String] = []
         for issue in mapped.unplaced {
             let path = ProblemMapping.path(issue.location)
+            if let field = appearance.field(serverPath: path) {
+                appearanceErrors[field] = issue.message
+                continue
+            }
             guard path == "schedule" || path.hasPrefix("schedule."), var field = ScheduleField(serverPath: path)
             else {
                 unplaced.append(issue.message)
@@ -142,6 +159,16 @@ public final class NewTopicModel: BuilderEditing {
         banner = mapped.banner
         bannerDetails = unplaced
     }
+}
+
+// MARK: - Appearance
+
+extension NewTopicModel: AppearanceEditingModel {
+    public func setAppearanceError(_ message: String?, for field: AppearanceField) {
+        appearanceErrors[field] = message
+    }
+
+    public func setAppearanceErrors(_ errors: [AppearanceField: String]) { appearanceErrors = errors }
 }
 
 extension QuestionType {
