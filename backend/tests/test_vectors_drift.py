@@ -58,6 +58,10 @@ def test_the_report_is_compact() -> None:
     report = drift_diff(old, new)
     assert report.count("\n") <= vectors.DRIFT_MAX_LINES + 2
     assert "more changed lines" in report
+    # Both sides of the first changes survive the cut, next to each other.
+    assert '-    {"name":"case 0","v":0},' in report
+    assert '+    {"name":"case 0","v":1},' in report
+    assert report.index('"case 0","v":1') < report.index('"case 1","v":1')
     long_old = '    {"name":"long","v":[' + ",".join(["1"] * 2000) + "]}\n"
     long_new = long_old.replace("1]", "2]")
     report = drift_diff(long_old, long_new)

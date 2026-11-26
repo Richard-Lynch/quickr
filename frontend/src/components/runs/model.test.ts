@@ -555,6 +555,12 @@ describe('resumable (timers2.md glossary "Resumable", OQ-1, A15; R18)', () => {
         [],
       );
       expect(resumableInView(entry, [entry], elsewhere, later)).toBe(true);
+      // The same topic, its id cased differently: still the topic's open run.
+      const upper = localRuns(
+        [serverRun('r2', [ev('r2', 'start', later)], { topic_id: 'TOPIC-1' })],
+        [],
+      );
+      expect(resumableInView(entry, [entry], upper, later)).toBe(false);
     });
 
     it('A15: false once its own run is open again here (reopened), or finishing', () => {
@@ -581,6 +587,8 @@ describe('resumable (timers2.md glossary "Resumable", OQ-1, A15; R18)', () => {
       // Another topic's later entry doesn't count.
       const elsewhere = { ...newer, topic_id: 'topic-2' };
       expect(resumableInView(older, [older, elsewhere], [], now)).toBe(true);
+      const cased = { ...newer, id: 'E2', topic_id: 'TOPIC-1' };
+      expect(resumableInView(older, [older, cased], [], now)).toBe(false);
       // An untimed later entry doesn't count either.
       const untimed: EntryOut = { ...newer, id: 'e3', timing: null };
       expect(resumableInView(older, [older, untimed], [], now)).toBe(true);

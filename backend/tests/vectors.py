@@ -60,18 +60,22 @@ def _clip(line: str, at: int) -> str:
 def drift_diff(committed: str, generated: str) -> str:
     """A compact unified diff (no context) of the committed file and the generated content:
     the first ``DRIFT_MAX_LINES`` lines of it, a long line clipped around the column where it
-    differs from its counterpart (the n-th removed and the n-th added line of a hunk)."""
+    differs from its counterpart (the n-th removed and the n-th added line of a hunk, shown
+    next to each other)."""
     out: list[str] = []
     removed: list[str] = []
     added: list[str] = []
 
     def flush() -> None:
-        for i, line in enumerate(removed):
-            other = added[i] if i < len(added) else line
-            out.append("-" + _clip(line, _first_difference(line, other)))
-        for i, line in enumerate(added):
-            other = removed[i] if i < len(removed) else line
-            out.append("+" + _clip(line, _first_difference(line, other)))
+        # Interleaved (-1, +1, -2, +2, ...), so a truncated report still shows both sides.
+        for i in range(max(len(removed), len(added))):
+            old = removed[i] if i < len(removed) else None
+            new = added[i] if i < len(added) else None
+            at = _first_difference(old, new) if old is not None and new is not None else 0
+            if old is not None:
+                out.append("-" + _clip(old, at))
+            if new is not None:
+                out.append("+" + _clip(new, at))
         removed.clear()
         added.clear()
 

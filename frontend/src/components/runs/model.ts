@@ -233,7 +233,7 @@ export function resumableFromDetail(entry: Pick<EntryOut, 'timing'>, now: number
  * later stop of a run in the view: a finishing run has no entry yet), and the topic has no
  * locally open run (a reopen would be refused with 409 `conflict`), the entry's own run
  * included (already reopened here). A later stop on the same instant is broken by id, as
- * iOS does. `entries` are the ones this device has for the topic (others are ignored).
+ * iOS does; ids compare case-insensitively. `entries` are the ones this device has for the topic (others are ignored).
  * iOS: `RunOverlay.resumable(_:entryId:now:)`.
  */
 export function resumableInView(
@@ -245,8 +245,8 @@ export function resumableInView(
   const end = timingOf(entry)?.ended_at;
   if (end === undefined || !resumable(entry, now)) return false;
   const id = entry.id.toLowerCase();
-  const topicId = entry.topic_id;
-  const topicRuns = runs.filter((r) => r.topic_id === topicId);
+  const topicId = entry.topic_id.toLowerCase();
+  const topicRuns = runs.filter((r) => r.topic_id.toLowerCase() === topicId);
   const answers = (r: LocalRun) => r.id === id || r.aliases.includes(id);
   if (topicRuns.some((r) => isOpen(r) || (answers(r) && r.status === 'finishing'))) return false;
   const later = (otherId: string, otherEnd: number) =>
@@ -262,7 +262,7 @@ export function resumableInView(
   )
     return false;
   return !entries.some((e) => {
-    if (e.topic_id !== topicId || e.id.toLowerCase() === id) return false;
+    if (e.topic_id.toLowerCase() !== topicId || e.id.toLowerCase() === id) return false;
     const otherEnd = timingOf(e)?.ended_at;
     return otherEnd !== undefined && later(e.id, otherEnd);
   });
