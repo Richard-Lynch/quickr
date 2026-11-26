@@ -30,8 +30,15 @@ public struct SystemNotificationCenter: NotificationCenterProtocol {
     }
 
     public func pendingNotificationRequests() async -> [NotificationSnapshot] {
-        await center.pendingNotificationRequests().map {
-            Self.snapshot($0, date: ($0.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate())
+        await center.pendingNotificationRequests().map { request in
+            // T2-M1: an interval trigger's `nextTriggerDate()` counts from now, not from when it was
+            // added; a run alert carries its instant (`fire_at_ms`).
+            let fireAt = Self.quickr(request.content.userInfo)?.fireAtMs.map {
+                Date(timeIntervalSince1970: TimeInterval($0) / 1000)
+            }
+            return Self.snapshot(
+                request, date: fireAt ?? (request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate())
+            // end T2-M1
         }
     }
 
@@ -51,14 +58,47 @@ public struct SystemNotificationCenter: NotificationCenterProtocol {
         {
             content.userInfo = ["quickr": object]
         }
-        let trigger = request.fireDate.map {
+        // T2-M1 (timers2.md §9.1, OQ-6)
+        content.interruptionLevel = Self.level(request.interruptionLevel)
+        let trigger = Self.trigger(request, now: Date())
+        try await center.add(UNNotificationRequest(identifier: request.id, content: content, trigger: trigger))
+        // end T2-M1
+    }
+
+    // T2-M1 (timers2.md §9.1)
+    /// `fireAt`: an interval trigger, at least 1 s (the system's minimum). Otherwise `fireDate`'s
+    /// calendar trigger, or none (delivered now).
+    static func trigger(_ request: LocalNotificationRequest, now: Date) -> UNNotificationTrigger? {
+        if let fireAt = request.fireAt {
+            return UNTimeIntervalNotificationTrigger(
+                timeInterval: max(1, fireAt.timeIntervalSince(now)), repeats: false)
+        }
+        return request.fireDate.map {
             UNCalendarNotificationTrigger(
                 dateMatching: Calendar.current.dateComponents(
                     [.year, .month, .day, .hour, .minute, .second], from: $0),
                 repeats: false)
         }
-        try await center.add(UNNotificationRequest(identifier: request.id, content: content, trigger: trigger))
     }
+
+    static func level(_ level: NotificationInterruptionLevel) -> UNNotificationInterruptionLevel {
+        switch level {
+        case .passive: .passive
+        case .active: .active
+        case .timeSensitive: .timeSensitive
+        case .critical: .critical
+        }
+    }
+
+    static func level(_ level: UNNotificationInterruptionLevel) -> NotificationInterruptionLevel {
+        switch level {
+        case .passive: .passive
+        case .timeSensitive: .timeSensitive
+        case .critical: .critical
+        default: .active
+        }
+    }
+    // end T2-M1
 
     public func setBadgeCount(_ count: Int) async throws {
         try await center.setBadgeCount(count)
@@ -129,9 +169,11 @@ public struct SystemNotificationCenter: NotificationCenterProtocol {
 
     static func snapshot(_ request: UNNotificationRequest, date: Date?) -> NotificationSnapshot {
         let quickr = quickr(request.content.userInfo)
+        let content = request.content
         return NotificationSnapshot(
-            id: request.identifier, categoryIdentifier: request.content.categoryIdentifier,
-            threadIdentifier: request.content.threadIdentifier, date: date, quickr: quickr)
+            id: request.identifier, categoryIdentifier: content.categoryIdentifier,
+            threadIdentifier: content.threadIdentifier, date: date, quickr: quickr, title: content.title,
+            body: content.body, sound: content.sound != nil, interruptionLevel: level(content.interruptionLevel))
     }
 }
 #endif
