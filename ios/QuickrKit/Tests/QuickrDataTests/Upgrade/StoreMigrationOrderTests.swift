@@ -16,6 +16,8 @@ import Testing
     static let t2m3 = "t2m3_topic_appearance"
     static let everything = SyncRunTests.everything
     static let runA = SyncRunTests.runA
+    /// The server-layer tables before T2 (the `v` series'), each with a `stage_` copy.
+    static let preT2Tables = ["topic", "topic_version", "entry", "tombstone", "run", "run_alias"]
 
     static func tables(_ db: Database) throws -> Set<String> {
         Set(
@@ -74,20 +76,26 @@ import Testing
         defer { env.cleanup() }
         let coordinator = env.coordinator()
         let synced = try await env.connect(coordinator)
-        // M1's data on the server: a run, stopped (its entry, then the run's delete row).
+        // M1's data on the server: run A, stopped (its entry, then the run's delete row), and run B
+        // open with its alias.
         env.server.putRun(try SyncRunTests.openRun())
+        env.server.putRun(try SyncRunTests.otherRun())
         #expect(await coordinator.sync(reason: .requested) == .synced)
         env.server.closeRun(Self.runA, entry: try SyncRunTests.stoppedEntry())
         #expect(await coordinator.sync(reason: .requested) == .synced)
         let markers = try await SyncRunTests.markers(synced)
         #expect(markers == [Self.runA: 4, SyncRunTests.aliasA: StoreSchema.closedForever])
+        #expect(try await synced.ids("run") == [SyncRunTests.runB])
+        let aliases = try await synced.ids("run_alias")
+        #expect(!aliases.isEmpty)
         let entries = try await Self.entryRevisions(synced)
         let versions = try await synced.count("topic_version")
         let before = try await synced.state()
         let head = env.server.head
 
         // As the old build left it: run tombstones instead of markers, no appearance columns, and
-        // staging under way (a staged topic, entry and run tombstone, the stage cursor moved).
+        // staging under way in every table it had (a copy of the live layer, its run tombstones
+        // too, which t2m1 turns into `stage_run_closed` markers), the stage cursor moved.
         try await synced.writer.write { db in
             for (id, _) in markers {
                 try db.execute(
@@ -100,11 +108,11 @@ import Testing
                     try db.execute(sql: "ALTER TABLE \(prefix)topic DROP COLUMN \(column)")
                 }
             }
-            try db.execute(sql: "INSERT INTO stage_topic SELECT * FROM topic")
-            try db.execute(sql: "INSERT INTO stage_entry SELECT * FROM entry")
-            try db.execute(
-                sql: "INSERT INTO stage_tombstone (kind, id, topic_id, seq) VALUES ('run', ?, ?, ?)",
-                arguments: [Self.runA, Self.everything.wireString, head])
+            for table in Self.preT2Tables {
+                try db.execute(sql: "INSERT INTO stage_\(table) SELECT * FROM \(table)")
+                let staged = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM stage_\(table)") ?? 0
+                #expect(staged > 0, "stage_\(table) has rows before the update")
+            }
             try db.execute(sql: "UPDATE stage_state SET cursor = ? WHERE id = 1", arguments: [head])
             try db.execute(
                 sql: "DELETE FROM grdb_migrations WHERE identifier IN (?, ?)", arguments: [Self.t2m1, Self.t2m3])
@@ -140,9 +148,36 @@ import Testing
         // does not: a feed deletion names no aliases and the rebuilt layer never saw the run's
         // alias rows, as in any rebuild from cursor 0 (issue #274).
         #expect(try await SyncRunTests.markers(store) == [Self.runA: try #require(markers[Self.runA])])
-        #expect(try await store.count("run") == 0)
+        #expect(try await store.ids("run") == [SyncRunTests.runB])
+        #expect(try await store.ids("run_alias") == aliases)
         #expect(try await Self.entryRevisions(store) == entries)
         #expect(try await store.count("topic_version") == versions)
+    }
+
+    /// A store migrated mid-rebuild (a rebuild to `E2` staging, the live layer at `E1`): staging
+    /// starts over in every table, M1's too, and the rebuild keeps its target.
+    @Test func midRebuildStagingRestartsEverywhereAndTheTargetStays() throws {
+        let queue = try DatabaseQueue()
+        try SharedDatabase.migrate(queue, StoreSchema.migrations.filter { $0.identifier.hasPrefix("v") })
+        try queue.write { db in
+            try LocalStore.createSyncState(db, serverId: "s", baseURL: "https://q.example")
+            try db.execute(sql: "UPDATE sync_state SET epoch = 'E1', rebuilding = 'E2', cursor = 30 WHERE id = 1")
+            try db.execute(sql: "UPDATE stage_state SET cursor = 12 WHERE id = 1")
+            try db.execute(
+                sql: "INSERT INTO stage_tombstone (kind, id, topic_id, seq) VALUES ('run', ?, ?, 5)",
+                arguments: [Self.runA, Self.everything.wireString])
+        }
+        try SharedDatabase.migrate(queue, StoreSchema.migrations)
+        try queue.read { db in
+            for table in StoreSchema.stageTables {
+                #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM \(table)") == 0, "\(table)")
+            }
+            #expect(try Int.fetchOne(db, sql: "SELECT cursor FROM stage_state") == 0)
+            let state = try #require(try Row.fetchOne(db, sql: "SELECT rebuilding, epoch, cursor FROM sync_state"))
+            #expect(state["rebuilding"] as String? == "E2")
+            #expect(state["epoch"] as String? == "E1")
+            #expect(state["cursor"] as Int == 30)
+        }
     }
 
     static func entryRevisions(_ store: LocalStore) async throws -> [String: Int] {
