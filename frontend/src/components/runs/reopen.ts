@@ -143,17 +143,22 @@ export function useReopenOffer(
   };
 }
 
-/** The server's entry of the run: the latest-entry cache, else `getEntry`; none offline or yet. */
+/**
+ * The server's entry of the run, as of the stop `stopId` when it can be: the latest-entry
+ * cache when it ends with that stop, else `getEntry` (the cache may predate a re-stop); the
+ * cached one when that fails (offline); none when neither has it.
+ */
 async function entryOfRun(
   qc: QueryClient,
   slug: string,
   runId: string,
+  stopId: string,
 ): Promise<EntryOut | undefined> {
   const id = runId.toLowerCase();
   const cached = qc
     .getQueryData(lastEntryOptions(slug).queryKey)
     ?.items.find((e) => e.id.toLowerCase() === id);
-  if (cached) return cached;
+  if (cached?.timing?.terminal_id?.toLowerCase() === stopId) return cached;
   try {
     return await qc.query({
       ...getEntryOptions({ path: { entry_id: id } }),
@@ -161,30 +166,52 @@ async function entryOfRun(
       retry: false,
     });
   } catch {
-    return undefined;
+    return cached;
   }
 }
 
-/** Whether a stop of the run other than `stopId` is queued here (a re-stop since). */
-async function restoppedHere(runId: string, stopId: string): Promise<boolean> {
+/** The ids (lowercase) of the run's stops queued here, not yet sent. */
+async function queuedStops(runId: string): Promise<string[]> {
   const run = runId.toLowerCase();
-  return (await outbox.list()).some(
-    (i) =>
-      isRunEvent(i) &&
-      i.status === 'pending' &&
-      i.payload.event.type === 'stop' &&
-      i.id.toLowerCase() !== stopId &&
-      [i.payload.run_id, ...(i.payload.run_aliases ?? [])].some((id) => id.toLowerCase() === run),
-  );
+  return (await outbox.list())
+    .filter(
+      (i) =>
+        isRunEvent(i) &&
+        i.status === 'pending' &&
+        i.payload.event.type === 'stop' &&
+        [i.payload.run_id, ...(i.payload.run_aliases ?? [])].some((id) => id.toLowerCase() === run),
+    )
+    .map((i) => i.id.toLowerCase());
+}
+
+/**
+ * Send the reopen of the stop `stopId` of `run`, or nothing (null) when that stop is no longer
+ * the run's to resume: another stop of the run is queued here (a re-stop since); or, the stop
+ * sent, the run's entry doesn't end with it unedited (re-stopped elsewhere or since, or
+ * edited), or isn't known. While the stop is queued the run row is local and its terminal
+ * is that stop.
+ */
+async function reopenStop(
+  qc: QueryClient,
+  taps: RunActions,
+  slug: string,
+  runId: string,
+  stopId: string,
+  ctx: RunContext,
+): Promise<unknown> {
+  const stops = await queuedStops(runId);
+  if (stops.some((id) => id !== stopId)) return null;
+  if (stops.includes(stopId)) return taps.tap(runId, ctx, 'reopen');
+  const entry = await entryOfRun(qc, slug, runId, stopId);
+  const t = entry?.timing;
+  if (!entry || !t || t.edited || t.terminal_id?.toLowerCase() !== stopId) return null;
+  return sendReopen(taps, ctx, entry);
 }
 
 /**
  * The stop toast's Resume (§3.2, §6.3): the reopen of the stop `stopId` just made, for as long
- * as the toast is up (`REOPEN_WINDOW_MS`). At the tap it is checked again: the run's entry
- * (cached, or fetched), when there is one, must still end with that stop, unedited, and no
- * later stop of the run may be queued here; without an entry (the stop is still queued) the
- * run row is local. Otherwise, or when `tapRun` refuses (another open run, A15), the toast
- * says it can't.
+ * as the toast is up (`REOPEN_WINDOW_MS`), checked again at the tap (`reopenStop`). When it
+ * can't be (or `tapRun` refuses: another open run, A15), the toast says so.
  */
 export function useReopenAfterStop(): (
   topic: Pick<TopicRef, 'slug'>,
@@ -197,18 +224,9 @@ export function useReopenAfterStop(): (
   const { toast } = useToast();
   return useCallback(
     (topic, run, stopId, ctx) => () => {
-      const stop = stopId.toLowerCase();
-      void (async () => {
-        const entry = await entryOfRun(qc, topic.slug, run.id);
-        const t = entry?.timing;
-        // The entry, when there is one, still ends with this stop, unedited; and no later
-        // stop of the run is queued here (its run row would aim the reopen at that one).
-        const current = t ? !t.edited && t.terminal_id?.toLowerCase() === stop : true;
-        let sent: unknown = null;
-        if (current && !(await restoppedHere(run.id, stop)))
-          sent = entry ? await sendReopen(taps, ctx, entry) : await taps.tap(run.id, ctx, 'reopen');
+      void reopenStop(qc, taps, topic.slug, run.id, stopId.toLowerCase(), ctx).then((sent) => {
         if (sent === null) toast({ title: 'That run can’t be resumed now', tone: 'info' });
-      })();
+      });
     },
     [qc, taps, toast],
   );

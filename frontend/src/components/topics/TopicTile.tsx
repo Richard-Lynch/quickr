@@ -242,7 +242,7 @@ function ResumeButton({ offer }: { offer: ReopenOffer }) {
       data-testid="run-reopen"
       aria-label={actionLabel(kind, offer.topic)}
       onClick={offer.onReopen}
-      className="relative z-10 -my-1 -ml-3 inline-flex min-h-11 items-center gap-1.5 self-start rounded-full px-3 text-sm font-semibold text-accent-strong transition-colors hover:bg-accent-soft active:scale-[0.97] motion-reduce:transform-none"
+      className="relative z-10 -my-1 -ml-3 inline-flex min-h-11 items-center gap-1.5 self-start rounded-full px-3 text-sm font-semibold text-accent-strong transition-colors hover:bg-accent-soft active:scale-[0.97] motion-reduce:active:scale-none"
     >
       <Icon name={actionIcon(kind)} className="size-4" strokeWidth={2.4} />
       Resume · <span className="font-mono tabular">{fmtDuration(offer.totalMs)}</span>

@@ -188,7 +188,8 @@ describe('the stop toast, checked again at the tap', () => {
     );
     const second = server().events().at(-1);
     await waitFor(() => expect(server().entries[0]?.timing?.terminal_id).toBe(second?.id));
-    const [older, newer] = await screen.findAllByRole('button', { name: 'Resume' });
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(2));
+    const [older, newer] = screen.getAllByRole('button', { name: 'Resume' });
     if (!older || !newer) throw new Error('two stop toasts, each with its Resume');
 
     await user.click(older);
@@ -200,7 +201,7 @@ describe('the stop toast, checked again at the tap', () => {
     await waitFor(() => expect(reopens(server())).toHaveLength(2), { timeout: 4000 });
     expect(reopens(server())[1]?.target).toBe(second?.id);
   });
-  it('an older toast whose stop was resumed and stopped again, the re-stop still queued, does nothing', async () => {
+  it('an older toast whose stop was resumed and stopped again, the re-stop still queued, does nothing; the newer one resumes the re-stop', async () => {
     h = renderRunApp('/t/morning/record', lapTopic(), withGetEntry);
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Start' }));
@@ -215,13 +216,26 @@ describe('the stop toast, checked again at the tap', () => {
     server().override = (body) =>
       body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
     await user.click(await screen.findByTestId('card-stop'));
-    const [older] = await screen.findAllByRole('button', { name: 'Resume' });
-    if (!older) throw new Error('the first stop’s toast');
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Resume' })).toHaveLength(2));
+    const [older, newer] = screen.getAllByRole('button', { name: 'Resume' });
+    if (!older || !newer) throw new Error('two stop toasts, each with its Resume');
     expect(server().entries[0]?.timing?.terminal_id).toBe(first?.id);
 
     await user.click(older);
     expect(await screen.findByText('That run can’t be resumed now')).toBeInTheDocument();
     expect(reopens(server())).toHaveLength(1);
+
+    // The newer toast's stop is the queued one: the run row is local, its terminal that stop.
+    const queued = async (type: string) =>
+      (await outbox.list()).filter(
+        (i) => (i.payload as { event: { type: string } }).event.type === type,
+      );
+    const [restop] = await queued('stop');
+    await user.click(newer);
+    await waitFor(async () => expect(await queued('reopen')).toHaveLength(1));
+    const [reopen] = await queued('reopen');
+    expect((reopen?.payload as { event: { target: string } }).event.target).toBe(restop?.id);
+    expect(screen.getAllByText('That run can’t be resumed now')).toHaveLength(1);
   });
 });
 
