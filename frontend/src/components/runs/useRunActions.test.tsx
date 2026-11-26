@@ -129,7 +129,10 @@ describe('the tap cooldown’s clock (#188)', () => {
 
   it('runs on monotonic time: the device clock moving changes nothing', async () => {
     const { result } = setup();
-    // The app's own clock, on a short cooldown so the test can wait it out for real.
+    // The app's own clock (no injected one), with monotonic time held still by hand, so a
+    // slow machine can't end the cooldown before the double tap below.
+    let mono = 1_000;
+    vi.spyOn(performance, 'now').mockImplementation(() => mono);
     setRunTapCooldown(50);
     const before = new Set((await outbox.list()).map((i) => i.id));
     await act(async () => {
@@ -143,8 +146,9 @@ describe('the tap cooldown’s clock (#188)', () => {
     await act(async () => {
       expect(await result.current.tap('r1', CTX, 'lap')).toBeNull();
     });
-    // Set back an hour: the cooldown still ends on time.
+    // Set back an hour, and the cooldown's time passes: it ends on time.
     now.mockImplementation(() => wall - 3_600_000);
+    mono += 50;
     // The cooldown's own timer re-enables the controls: nothing else re-renders the hook.
     await waitFor(() => expect(result.current.cooling).toBe(false));
     await act(async () => {
