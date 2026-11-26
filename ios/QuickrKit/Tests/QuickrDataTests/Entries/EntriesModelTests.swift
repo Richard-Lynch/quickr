@@ -3,6 +3,7 @@ import GRDB
 import QuickrCore
 import QuickrData
 import QuickrTestSupport
+import Synchronization
 import Testing
 
 /// `EntriesModel` over a real `AppSession` and store (offline: every request fails): the server's
@@ -286,6 +287,105 @@ import Testing
         let (missing, b) = try await w.model("nope")
         defer { b.cancel() }
         #expect(missing.phase == .missing)
+    }
+
+    // MARK: - Summary and timing chip (content-display.md §3.1)
+
+    nonisolated static let runId = UUID(uuidString: "00000000-0000-4000-8000-0000000000bb")!
+    /// Optional, so a stop ends the run (no finishing step) and its entry is projected at once.
+    nonisolated static let effort = Question(
+        key: "effort", label: "Effort", required: false, kind: .int(.init(min: 0)))
+    /// A lap timer.
+    nonisolated static let laps = TopicTimer(steps: [])
+
+    nonisolated static func lap(_ n: Int, _ start: Int, _ end: Int) -> RunSegment {
+        RunSegment(
+            kind: .lap, step: nil, label: "Lap \(n)", startedAt: start, endedAt: end, activeMs: end - start, pausedMs: 0
+        )
+    }
+
+    /// A timed topic "run": a timed entry (3 laps, 12:40 active) and an untimed one.
+    nonisolated static func seedTimed(_ store: LocalStore) async throws {
+        let run = Topic(
+            id: runId, slug: "run", name: "Run", currentVersion: 1, revision: 1, questionCount: 1,
+            createdAt: now.addingTimeInterval(-86_400 * 100), updatedAt: now.addingTimeInterval(-86_400 * 100),
+            timer: laps, questions: [effort])
+        let start = RunInstant.milliseconds(now.addingTimeInterval(-3_600))
+        let timing = Timing(
+            startedAt: start, endedAt: start + 780_000, activeMs: 760_000, pausedMs: 20_000, complete: true,
+            edited: false,
+            segments: [
+                lap(1, start, start + 200_000), lap(2, start + 200_000, start + 520_000),
+                lap(3, start + 520_000, start + 780_000),
+            ],
+            skipped: [], pauses: [RunPause(start: start + 300_000, end: start + 320_000)])
+        @Sendable func entry(_ n: Int, effort: Int, timing: Timing?) -> Entry {
+            let at = timing.map { RunInstant.date($0.endedAt) } ?? now.addingTimeInterval(-7_200)
+            return Entry(
+                id: UUID(uuidString: String(format: "00000000-0000-4000-8000-%012d", n))!, topicId: runId, version: 1,
+                revision: 1, source: "ios", channel: .ios, capturedAt: at, createdAt: at, updatedAt: at,
+                answers: ["effort": .int(effort)], timing: timing)
+        }
+        try await store.writer.write { db in
+            _ = try ServerLayer.upsert(db, topic: run)
+            _ = try ServerLayer.insert(
+                db, version: TopicVersion(version: 1, questions: [effort], timer: laps, createdAt: now), id: UUID(),
+                topicId: runId)
+            _ = try ServerLayer.upsert(db, entry: entry(21, effort: 7, timing: timing))
+            _ = try ServerLayer.upsert(db, entry: entry(22, effort: 4, timing: nil))
+        }
+    }
+
+    /// Each row carries its summary line and, when timed, its chip; a queued run's entry (pinned,
+    /// pending) has the same chip; an untimed entry of a timed topic has none.
+    @Test func rowsCarryTheSummaryAndTheTimingChip() async throws {
+        let w = try await World()
+        defer { w.cleanup() }
+        let store = try #require(w.session.store)
+        try await Self.seedTimed(store)
+        let (model, observing) = try await w.model("run")
+        defer { observing.cancel() }
+
+        #expect(Self.ids(model.rows) == [21, 22])
+        let timed = try #require(model.rows.first)
+        #expect(timed.summary == "12:40 · 3 laps · Effort: 7")
+        #expect(
+            timed.timing
+                == EntryTimingModel.Chip(text: "12:40 · 3 laps", accessibilityLabel: "12 minutes 40 seconds, 3 laps"))
+        let untimed = try #require(model.rows.last)
+        #expect(untimed.summary == "Effort: 4")
+        #expect(untimed.timing == nil, "an untimed entry of a timed topic has no chip")
+
+        // A run stopped here, not yet sent: its entry pins, pending, with the same chip.
+        let clock = Mutex(RunInstant.milliseconds(Self.now.addingTimeInterval(-600)))
+        let writes = RunWrites(store: store, origin: .app, now: { clock.withLock { $0 } })
+        let started = try await writes.start(topic: TopicRef(id: Self.runId, slug: "run", name: "Run"), version: 1)
+        clock.withLock { $0 += 60_000 }
+        _ = try await writes.lap(runId: started.runId)
+        clock.withLock { $0 += 75_000 }
+        _ = try await writes.stop(runId: started.runId)
+        w.session.refresh.poke()
+        try await eventually("the run's entry pins") { await MainActor.run { model.pinned.count == 1 } }
+        let pending = try #require(model.pinned.first)
+        #expect(pending.syncState == .pending)
+        #expect(pending.summary == "2:15 · 2 laps", "no answers yet: the timing part alone")
+        #expect(
+            pending.timing
+                == EntryTimingModel.Chip(text: "2:15 · 2 laps", accessibilityLabel: "2 minutes 15 seconds, 2 laps"))
+    }
+
+    /// The summary uses the entry's own version's questions: an answer only an older version
+    /// asked is labelled from that version.
+    @Test func theSummaryUsesTheEntrysVersion() async throws {
+        let w = try await World()
+        defer { w.cleanup() }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+
+        model.filters.range = .all
+        #expect(model.rows.first { $0.id == Self.entries[5].id }?.summary == "Note: old")
+        #expect(model.rows.first { $0.id == Self.entries[0].id }?.summary == "Glasses: 3 glasses")
+        #expect(model.rows.allSatisfy { $0.timing == nil })
     }
 
     @Test func withoutAServer() async throws {

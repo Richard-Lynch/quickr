@@ -90,7 +90,7 @@ struct EntriesView: View {
     @ViewBuilder private var ready: some View {
         row { header }
         ForEach(model.pinned) { pinned in
-            row { PendingEntryRow(entry: pinned.entry, columns: model.columns) }
+            row { PendingEntryRow(row: pinned, columns: model.columns) }
                 .onTapGesture { openFix(pinned.entry) }
         }
         if model.rows.isEmpty && model.pinned.isEmpty {
@@ -99,7 +99,7 @@ struct EntriesView: View {
         ForEach(model.rows) { listed in
             row {
                 EntryRow(
-                    entry: listed.entry, columns: model.columns, currentVersion: model.topic?.topic.currentVersion ?? 1)
+                    row: listed, columns: model.columns, currentVersion: model.topic?.topic.currentVersion ?? 1)
             }
             .contentShape(Rectangle())
             .onTapGesture { environment.router.open(.entry(ref, entryId: listed.id)) }
@@ -281,12 +281,15 @@ struct EntryDeleter {
 
 // MARK: - Rows
 
-/// One entry the server has: when, the answers, notes, then source, channel and how long ago.
+/// One entry the server has: when, its summary line, the timing chip (timed entries), the
+/// answers, notes, then source, channel and how long ago (content-display.md §3.1).
 private struct EntryRow: View {
-    let entry: ViewEntry
+    let row: EntriesModel.Row
     let columns: [Question]
     let currentVersion: Int
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var entry: ViewEntry { row.entry }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -302,6 +305,8 @@ private struct EntryRow: View {
                 SyncBadge(state: entry.syncState)
                 QIcon.chevronRight.view(size: 14).foregroundStyle(.qr.muted).accessibilityHidden(true)
             }
+            EntrySummaryLine(row: row)
+            TimingChip(row: row)
             AnswerGrid(entry: entry.entry, columns: columns, oneColumn: typeSize.isAccessibilitySize)
             if !entry.entry.notes.isEmpty {
                 Divider().overlay(Color.qr.line)
@@ -324,9 +329,11 @@ private struct EntryRow: View {
 /// An entry only this device has: dashed while it waits to sync; red, with its error, when the
 /// server refused it (tap to fix).
 private struct PendingEntryRow: View {
-    let entry: ViewEntry
+    let row: EntriesModel.Row
     let columns: [Question]
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var entry: ViewEntry { row.entry }
 
     private var failed: Bool {
         if case .failed = entry.syncState { return true }
@@ -339,6 +346,8 @@ private struct PendingEntryRow: View {
                 .font(.qr(.label))
                 .foregroundStyle(.qr.ink)
                 .fixedSize(horizontal: false, vertical: true)
+            // A queued run's entry shows its chip like a synced one (content-display.md §3.1).
+            TimingChip(row: row)
             AnswerGrid(entry: entry.entry, columns: columns, oneColumn: typeSize.isAccessibilitySize)
             if failed {
                 QuickrBadge("Failed — tap to fix", icon: .alert, tone: .danger)
@@ -366,6 +375,37 @@ private struct PendingEntryRow: View {
         .accessibilityAddTraits(failed ? .isButton : [])
         .accessibilityHint(failed ? "Opens the entry to fix it" : "")
         .accessibilityIdentifier("pending.\(entry.id.wireString)")
+    }
+}
+
+/// The entry's summary line (`EntrySummary`): one line, tail-truncated; nothing when it's empty.
+private struct EntrySummaryLine: View {
+    let row: EntriesModel.Row
+
+    var body: some View {
+        if !row.summary.isEmpty {
+            Text(row.summary)
+                .font(.qr(.callout))
+                .foregroundStyle(.qr.ink)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("entry.\(row.id.wireString).summary")
+        }
+    }
+}
+
+/// A timed entry's chip, "12:40 · 3 laps", spoken with the segment count; none when untimed.
+private struct TimingChip: View {
+    let row: EntriesModel.Row
+
+    var body: some View {
+        if let timing = row.timing {
+            QuickrBadge(timing.text, icon: .timer)
+                // One element: the icon's symbol name isn't read, the spoken duration is.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(timing.accessibilityLabel)
+                .accessibilityIdentifier("entry.\(row.id.wireString).timing")
+        }
     }
 }
 

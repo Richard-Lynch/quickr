@@ -3,7 +3,9 @@ import QuickrUI
 import SwiftUI
 
 /// A timed entry's times, read-only (timers.md §11.2 "Entry details"): the total, then each
-/// segment with its active time, the skipped steps and the pauses. Nothing for an untimed entry.
+/// segment with its active time and, in the same list, the pauses between the segments they fall
+/// in (content-display.md §3.2, `EntryTimingModel.rows`), then the skipped steps. Nothing for an
+/// untimed entry.
 ///
 /// Accessibility identifiers: `entry.timing`, `entry.timing.total`, and 0-based in order
 /// `entry.timing.segment.<i>`, `entry.timing.skipped.<i>` and `entry.timing.pause.<i>`.
@@ -31,18 +33,35 @@ struct EntryTimingSection: View {
                         .accessibilityIdentifier("entry.timing.total")
                 }
                 VStack(spacing: 0) {
-                    ForEach(Array(timing.segments.enumerated()), id: \.offset) { index, segment in
-                        if index > 0 { Divider() }
-                        HStack {
-                            Text(segment.label).font(.qr(.body)).foregroundStyle(.qr.ink)
-                            Spacer()
-                            RunDuration(ms: segment.activeMs).foregroundStyle(.qr.muted)
+                    let rows = EntryTimingModel.rows(timing)
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { position, row in
+                        if position > 0 { Divider() }
+                        switch row {
+                        case .segment(let index, let segment):
+                            HStack {
+                                Text(segment.label).font(.qr(.body)).foregroundStyle(.qr.ink)
+                                Spacer()
+                                RunDuration(ms: segment.activeMs).foregroundStyle(.qr.muted)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: QuickrMetrics.tapTarget)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("\(segment.label), \(RunPresentation.spoken(segment.activeMs))")
+                            .accessibilityIdentifier("entry.timing.segment.\(index)")
+                        case .pause(let index, let pause):
+                            let ms = pause.end - pause.start
+                            HStack {
+                                Text("Paused · \(DurationFormat.format(ms))")
+                                    .font(.qr(.footnote))
+                                    .foregroundStyle(.qr.muted)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(minHeight: QuickrMetrics.tapTarget)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("Paused, \(RunPresentation.spoken(ms))")
+                            .accessibilityIdentifier("entry.timing.pause.\(index)")
                         }
-                        .padding(.horizontal, 14)
-                        .frame(minHeight: QuickrMetrics.tapTarget)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(segment.label), \(RunPresentation.spoken(segment.activeMs))")
-                        .accessibilityIdentifier("entry.timing.segment.\(index)")
                     }
                 }
                 .qrCard()
@@ -51,14 +70,6 @@ struct EntryTimingSection: View {
                         .font(.qr(.footnote))
                         .foregroundStyle(.qr.muted)
                         .accessibilityIdentifier("entry.timing.skipped.\(index)")
-                }
-                ForEach(Array(timing.pauses.enumerated()), id: \.offset) { index, pause in
-                    let ms = pause.end - pause.start
-                    Text("Paused · \(DurationFormat.format(ms))")
-                        .font(.qr(.footnote))
-                        .foregroundStyle(.qr.muted)
-                        .accessibilityLabel("Paused, \(RunPresentation.spoken(ms))")
-                        .accessibilityIdentifier("entry.timing.pause.\(index)")
                 }
                 if let onEdit {
                     Button("Edit times", action: onEdit)
