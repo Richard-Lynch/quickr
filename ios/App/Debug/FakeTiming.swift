@@ -44,19 +44,18 @@ enum FakeTiming {
         ).timing(steps: steps)
     }
 
-    /// The feed items the server starts with: the run's entry (Morning and its version are
-    /// `FakeServer`'s seeded page), then `FakeLapTypes`'s.
-    static func seedFeed() -> [String] {
-        var items: [String] = []
-        if isEnabled {
-            let entry: [String: Any] = ["kind": "entry", "seq": FakeServer.seededHead + 1, "entry": entryJSON()]
-            items = [entry].compactMap(json)
-        }
-        // T2-M4: `-QuickrSeedTypedTopic`'s topic and runs (`FakeLapTypes`), next in the feed
-        items += FakeLapTypes.seedFeed(firstSeq: FakeServer.seededHead + 1 + items.count)
-        // end T2-M4
-        return items
+    // T2-M4: the feed is this file's own items (M1's body, unchanged, in `timedSeedFeed`), then
+    // `-QuickrSeedTypedTopic`'s topic and runs, through one hook call into `FakeLapTypes`.
+    /// The feed items the server starts with: `timedSeedFeed()`, then `FakeLapTypes`'s.
+    static func seedFeed() -> [String] { FakeLapTypes.seedFeed(after: timedSeedFeed()) }
+
+    /// The run's entry (Morning and its version are `FakeServer`'s seeded page).
+    static func timedSeedFeed() -> [String] {
+        guard isEnabled else { return [] }
+        let entry: [String: Any] = ["kind": "entry", "seq": FakeServer.seededHead + 1, "entry": entryJSON()]
+        return [entry].compactMap(json)
     }
+    // end T2-M4
 
     /// The run's entry as `EntryOut`.
     static func entryJSON() -> [String: Any] {

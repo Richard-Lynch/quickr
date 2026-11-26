@@ -74,6 +74,8 @@ extension EntriesModelTests {
     /// `RunActions` over the store's `RunWrites`, recording each tap (type, run id, target).
     final class Recorder: Sendable {
         let taps = Mutex<[(RunTapType, String, RunTapTarget)]>([])
+        /// Runs inside each tap, before it is written (the enqueue in flight).
+        let duringTap = Mutex<(@Sendable () async -> Void)?>(nil)
 
         @MainActor func actions(_ store: LocalStore) -> RunActions {
             let writes = RunWrites(store: store, origin: .app)
@@ -83,6 +85,7 @@ extension EntriesModelTests {
                         start: { topic, version in try await writes.start(topic: topic, version: version) },
                         tap: { [self] type, runId, target in
                             self.taps.withLock { $0.append((type, runId, target)) }
+                            if let during = self.duringTap.withLock({ $0 }) { await during() }
                             return try await writes.tap(type, runId: runId, target: target)
                         })
                 }, cooldown: .zero)
@@ -160,6 +163,68 @@ extension EntriesModelTests {
         #expect(await model.remove(pause))
         #expect(try await Self.queued(store).map(\.1) == [Self.lapEvent, Self.pauseEvent])
         #expect(recorder.count == 2)
+    }
+
+    /// Review R1: a queued Remove is seen (`removeQueued`), so the screen holds Edit times back
+    /// until its ack; a refused one lets it go again.
+    @Test func aQueuedRemoveIsSeen() async throws {
+        let w = try await World()
+        defer { w.cleanup() }
+        let store = try #require(w.session.store)
+        try await Self.seedIntervals(store)
+        let recorder = Recorder()
+        let (model, observing) = try await actionsModel(w, 31, recorder: recorder)
+        defer { observing.cancel() }
+        try await eventually("the outbox is read") { await MainActor.run { !model.removeQueued } }
+
+        // Held from the tap: while the remove is being enqueued (Codex r3), then queued.
+        let heldInFlight = Mutex<Bool?>(nil)
+        recorder.duringTap.withLock {
+            $0 = { [model] in
+                let held = await MainActor.run { model.holdsEditTimes && !model.removeQueued }
+                heldInFlight.withLock { $0 = held }
+            }
+        }
+        let rows = EntryTimingModel.rows(try #require(model.entry.entry.timing))
+        #expect(!model.holdsEditTimes)
+        #expect(await model.remove(try #require(model.removeAction(rows[1]))))
+        #expect(heldInFlight.withLock { $0 } == true, "held while the enqueue is in flight")
+        #expect(model.removeQueued && model.holdsEditTimes, "held at once, before the observation catches up")
+        w.session.refresh.poke()
+        try await eventually("the queued remove is seen") { await MainActor.run { model.removeQueued } }
+        // A detail opened later reads it before it shows (no Edit times before the first
+        // observation, Codex).
+        let reopened = EntryActionsModel(
+            entry: model.entry, store: store, refresh: w.session.refresh, runActions: recorder.actions(store))
+        #expect(!reopened.removeQueued)
+        try await reopened.readQueuedRemove()
+        #expect(reopened.removeQueued)
+
+        // Refused (terminal): the server's timing stands, Edit times is free again.
+        try await store.writer.write { db in try db.execute(sql: "UPDATE outbox_item SET state = 'failed'") }
+        w.session.refresh.poke()
+        try await eventually("not while refused") { await MainActor.run { !model.removeQueued } }
+        #expect(!model.holdsEditTimes)
+    }
+
+    /// Review R8: a Remove or Resume run that isn't enqueued says so, in the PWA's words.
+    @Test func aRefusedActionSaysSo() async throws {
+        let w = try await World()
+        defer { w.cleanup() }
+        let store = try #require(w.session.store)
+        try await Self.seedIntervals(store)
+        let recorder = Recorder()
+        let (model, observing) = try await actionsModel(w, 32, recorder: recorder)  // edited
+        defer { observing.cancel() }
+        let said = Mutex<[String]>([])
+        model.onRefused = { message in said.withLock { $0.append(message) } }
+
+        let forged = EntryTimingModel.Remove(
+            target: Self.lapEvent, enabled: true, title: "", message: "", identifier: "")
+        #expect(await model.remove(forged) == false)
+        #expect(await model.resume(now: Self.now) == false)
+        #expect(said.withLock { $0 } == ["That can’t be removed now", "This run can’t be resumed now"])
+        #expect(recorder.count == 0)
     }
 
     /// The lap a `next` opened has Remove, disabled: nothing is sent (its remove is `no_target`).

@@ -16,7 +16,11 @@ import QuickrCore
 ///   and hides the entry (OQ-14): the screen goes to the run.
 /// - **The topic's local runs** (`observe()`): Resume is hidden while the topic has a locally open
 ///   or finishing run (A15), and `isOpenHere` says the entry is itself such a run (OQ-14: the
-///   detail redirects to the run).
+///   detail redirects to the run). `holdsEditTimes` says one of the entry's removes is being
+///   enqueued or still queued: Edit times waits for it, since a timing edit would void it
+///   (`run_edited`).
+/// - **Refused here** (nothing enqueued): `onRefused` gets what to tell the user, the PWA's
+///   words ("That can’t be removed now", "This run can’t be resumed now").
 @MainActor @Observable
 public final class EntryActionsModel {
     public let topicId: UUID
@@ -28,6 +32,18 @@ public final class EntryActionsModel {
     public private(set) var isOpenHere = false
     /// The topic's local runs have been read once (until then Resume stays hidden).
     public private(set) var runsRead = false
+    /// A remove of the entry's run is queued (pending, in flight or uncertain): Edit times waits
+    /// for its ack, as saving times over the projection would void it (`run_edited`).
+    public private(set) var removeQueued = false
+    /// A Remove tapped here is being enqueued.
+    public private(set) var removing = false
+    /// Edit times waits: a remove is being enqueued or is queued (an edit would void it).
+    public var holdsEditTimes: Bool { removing || removeQueued }
+    /// Told what to say when a Remove or Resume run wasn't enqueued (the screen shows a toast).
+    @ObservationIgnored public var onRefused: (@MainActor (String) -> Void)?
+
+    public static let removeRefused = "That can’t be removed now"
+    public static let resumeRefused = "This run can’t be resumed now"
 
     @ObservationIgnored private let store: LocalStore
     @ObservationIgnored private let refresh: RefreshSignal?
@@ -71,8 +87,15 @@ public final class EntryActionsModel {
                 entry.entry, pending: isPending, topicHasLocalRun: topicHasLocalRun, now: now)
     }
 
-    /// Reads the topic's local runs until cancelled.
+    /// Reads the topic's local runs and the outbox (the entry's queued removes) until cancelled.
     public func observe() async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.observeRuns() }
+            group.addTask { await self.observeRemoves() }
+        }
+    }
+
+    private func observeRuns() async {
         let entryId = entry.entry.id.wireString
         do {
             for try await runs in store.observeLocalRuns(topicId: topicId, refresh: refresh?.stream()) {
@@ -84,22 +107,56 @@ public final class EntryActionsModel {
         } catch {}
     }
 
-    /// Sends the row's remove, after its confirmation. True when it was enqueued.
+    /// Reads `removeQueued` once: call it before the screen shows, so Edit times is never offered
+    /// over a remove queued earlier while `observe()` hasn't read the outbox yet.
+    public func readQueuedRemove() async throws {
+        removeQueued = queuesRemove(try await store.outbox.items(topicId: topicId.wireString))
+    }
+
+    private func observeRemoves() async {
+        do {
+            for try await snapshot in store.observeOutbox(refresh: refresh?.stream()) {
+                removeQueued = queuesRemove(snapshot.items)
+            }
+        } catch {}
+    }
+
+    /// `items` hold an active `remove` of the entry's run.
+    private func queuesRemove(_ items: [OutboxItem]) -> Bool {
+        let runId = entry.entry.id.wireString
+        return items.contains { item in
+            item.kind == .runEvent && item.state.isActive && item.entityId.lowercased() == runId
+                && (try? item.runEventPayload())??.type == .remove
+        }
+    }
+
+    /// Sends the row's remove, after its confirmation. True when it was enqueued; otherwise
+    /// `onRefused` hears ``removeRefused``.
     @discardableResult
     public func remove(_ remove: EntryTimingModel.Remove) async -> Bool {
-        guard remove.enabled, entry.entry.timing.map({ Self.targets($0).contains(remove.target) }) == true else {
-            return false
+        var sent = false
+        if remove.enabled, entry.entry.timing.map({ Self.targets($0).contains(remove.target) }) == true {
+            removing = true
+            defer { removing = false }
+            sent =
+                await runActions.remove(runId: entry.entry.id.wireString, topicId: topicId, target: remove.target)
+                != nil
         }
-        return await runActions.remove(runId: entry.entry.id.wireString, topicId: topicId, target: remove.target)
-            != nil
+        // Held at once, not only when the outbox observation catches up.
+        if sent { removeQueued = true } else { onRefused?(Self.removeRefused) }
+        return sent
     }
 
     /// Sends Resume run's reopen. True when it was enqueued: go to the run, which shows
-    /// "Resuming…" without controls until the ack.
+    /// "Resuming…" without controls until the ack. Otherwise `onRefused` hears ``resumeRefused``.
     @discardableResult
     public func resume(now: Date) async -> Bool {
-        guard offersResume(now: now) else { return false }
-        return await runActions.reopen(runId: entry.entry.id.wireString, topicId: topicId) != nil
+        var sent = false
+        if offersResume(now: now) {
+            sent = await runActions.reopen(runId: entry.entry.id.wireString, topicId: topicId) != nil
+        }
+        if !sent { onRefused?(Self.resumeRefused) }
+        return sent
     }
 
     /// Every target the timing's rows offer an enabled Remove for.

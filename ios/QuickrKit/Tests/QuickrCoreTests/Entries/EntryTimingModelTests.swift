@@ -146,15 +146,29 @@ import Testing
             removes[1]
                 == EntryTimingModel.Remove(
                     target: "e-next", enabled: false, title: "Remove this lap?",
-                    message: "Its time joins the previous segment.", identifier: "entry.timing.remove.1"))
+                    message: "Its time joins the previous segment.", identifier: "entry.timing.remove.1",
+                    label: "Remove Run 1", hint: "Starts at a step boundary: change it with Edit times"))
         #expect(removes[2]?.target == "e-lap" && removes[2]?.enabled == true)
         #expect(
             removes[3]
                 == EntryTimingModel.Remove(
                     target: "p-1", enabled: true, title: "Remove this pause?", message: "Its time becomes active.",
-                    identifier: "entry.timing.pause.remove.0"))
+                    identifier: "entry.timing.pause.remove.0", label: "Remove pause, 10 seconds"))
         #expect(removes[4] == nil, "a lap without an event id")
         #expect(removes[5] == nil, "a pause without an id")
+    }
+
+    /// Review R5: each Remove names its row for VoiceOver ("Remove Rest 1", "Remove pause, 10
+    /// seconds"), and a disabled one says why, for both step-boundary openers (`next`, `skip`).
+    @Test func removeNamesItsRowAndSaysWhyItIsDisabled() throws {
+        let removes = EntryTimingModel.rows(Self.typed).map { EntryTimingModel.remove($0, in: Self.typed) }
+        #expect(removes[2]?.label == "Remove Rest 1" && removes[2]?.hint == nil)
+        #expect(removes[3]?.label == "Remove pause, 10 seconds" && removes[3]?.hint == nil)
+        #expect(removes[1]?.hint == EntryTimingModel.stepBoundaryHint)
+        var skipped = Self.typed
+        skipped.segments[1].openedBy = .skip
+        let skip = try #require(EntryTimingModel.remove(EntryTimingModel.rows(skipped)[1], in: skipped))
+        #expect(!skip.enabled && skip.hint == "Starts at a step boundary: change it with Edit times")
     }
 
     @Test func theFirstSegmentNeverHasRemoveEvenAsALap() {
