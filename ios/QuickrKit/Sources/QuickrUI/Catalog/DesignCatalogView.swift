@@ -1,4 +1,5 @@
 #if os(iOS)
+import QuickrCore
 import SwiftUI
 
 /// Every token and component on four pages, with local sample values. A debug aid and the
@@ -89,6 +90,16 @@ private struct ColorsPage: View {
                     QuickrBadge(String(describing: tone), tone: tone)
                 }
             }
+            SectionHeader("Topic colours")
+            VStack(spacing: 8) {
+                TopicThemeRow(theme: TopicTheme(appearance: .init(icon: .emoji("🚬")), name: "Smoking"), label: "none")
+                ForEach(ColorName.allCases, id: \.self) { name in
+                    TopicThemeRow(
+                        theme: TopicTheme(appearance: .init(color: name), name: name.rawValue), label: name.rawValue)
+                }
+            }
+            .padding(12)
+            .qrCard()
             SectionHeader("Surfaces")
             HStack(spacing: 12) {
                 Card { Text("Card · 18 pt").font(.qr(.callout)) }
@@ -124,6 +135,34 @@ private struct Swatch: View {
         let c = color.resolve(in: environment)
         let v = [c.red, c.green, c.blue].map { Int(($0 * 255).rounded()) }
         return String(format: "#%02x%02x%02x", v[0], v[1], v[2])
+    }
+}
+
+/// One palette entry: the glyph, the name, then `tint`, `tintSoft` (ink on it) and `onTint` on `tint`
+/// (appearance.md §4.3's two text rules).
+private struct TopicThemeRow: View {
+    let theme: TopicTheme
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TopicGlyphView(theme: theme, size: 28)
+            Text(label).font(.qr(.caption)).foregroundStyle(.qr.ink)
+            Spacer()
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(theme.tint)
+                .frame(width: 44, height: 28)
+            Text("Aa")
+                .font(.qr(.caption))
+                .foregroundStyle(.qr.ink)
+                .frame(width: 44, height: 28)
+                .background(theme.tintSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            Text("Aa")
+                .font(.qr(.caption))
+                .foregroundStyle(theme.onTint)
+                .frame(width: 44, height: 28)
+                .background(theme.tint, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
     }
 }
 
