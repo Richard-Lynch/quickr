@@ -9,10 +9,13 @@ public struct TopicCreateDTO: Codable, Sendable, Hashable {
     public var schedule: ScheduleInputDTO?
     /// Makes the topic timed (timers.md §2.1); left out (untimed) when nil.
     public var timer: TopicTimer?
+    /// The appearance the topic starts with (appearance.md §1.1), all three keys; left out (the
+    /// defaults) when nil.
+    public var appearance: TopicAppearance?
 
     public init(
         name: String, slug: String? = nil, description: String? = nil, questions: [Question],
-        schedule: Schedule? = nil, timer: TopicTimer? = nil
+        schedule: Schedule? = nil, timer: TopicTimer? = nil, appearance: TopicAppearance? = nil
     ) {
         self.name = name
         self.slug = slug
@@ -20,30 +23,35 @@ public struct TopicCreateDTO: Codable, Sendable, Hashable {
         self.questions = questions.map(QuestionInputDTO.init)
         self.schedule = schedule.map(ScheduleInputDTO.init)
         self.timer = timer
+        self.appearance = appearance
     }
 }
 
 /// `TopicUpdate` (updateTopic). `schedule` is three-state: absent keeps it, `null` removes it.
+/// `appearance` is left out when nil (`appearance: null` is a 422, appearance.md §1.1).
 public struct TopicUpdateDTO: Codable, Sendable, Hashable {
     public var name: String?
     public var slug: String?
     public var description: String?
     public var schedule: Nullable<ScheduleInputDTO>
+    public var appearance: AppearanceUpdateDTO?
     public var expectedRevision: Int?
 
     enum CodingKeys: String, CodingKey {
-        case name, slug, description, schedule
+        case name, slug, description, schedule, appearance
         case expectedRevision = "expected_revision"
     }
 
     public init(
         name: String? = nil, slug: String? = nil, description: String? = nil,
-        schedule: Nullable<ScheduleInputDTO> = .absent, expectedRevision: Int? = nil
+        schedule: Nullable<ScheduleInputDTO> = .absent, appearance: AppearanceUpdateDTO? = nil,
+        expectedRevision: Int? = nil
     ) {
         self.name = name
         self.slug = slug
         self.description = description
         self.schedule = schedule
+        self.appearance = appearance
         self.expectedRevision = expectedRevision
     }
 
@@ -53,6 +61,7 @@ public struct TopicUpdateDTO: Codable, Sendable, Hashable {
         slug = try container.decodeIfPresent(String.self, forKey: .slug)
         description = try container.decodeIfPresent(String.self, forKey: .description)
         schedule = try container.decodeNullable(ScheduleInputDTO.self, forKey: .schedule)
+        appearance = try container.decodeIfPresent(AppearanceUpdateDTO.self, forKey: .appearance)
         expectedRevision = try container.decodeIfPresent(Int.self, forKey: .expectedRevision)
     }
 
@@ -62,6 +71,7 @@ public struct TopicUpdateDTO: Codable, Sendable, Hashable {
         try container.encodeIfPresent(slug, forKey: .slug)
         try container.encodeIfPresent(description, forKey: .description)
         try container.encode(schedule, forKey: .schedule)
+        try container.encodeIfPresent(appearance, forKey: .appearance)
         try container.encodeIfPresent(expectedRevision, forKey: .expectedRevision)
     }
 }

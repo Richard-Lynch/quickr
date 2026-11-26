@@ -21,7 +21,7 @@ import Testing
             try pool.read { (db: Database) throws in
                 #expect(
                     try String.fetchAll(db, sql: "SELECT identifier FROM grdb_migrations ORDER BY identifier")
-                        == StoreSchema.migrations.map(\.identifier))
+                        == StoreSchema.migrations.map(\.identifier).sorted())
                 #expect(try StoreSchema.migrator().hasCompletedMigrations(db))
                 #expect(try db.tableExists("outbox_item"))
                 #expect(try String.fetchAll(db, sql: "SELECT name FROM lease ORDER BY name") == ["flush", "sync"])
