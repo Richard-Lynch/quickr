@@ -122,7 +122,13 @@ public actor RunAlertScheduler {
         let stale = pending.filter { wanted[$0.id] == nil }.map(\.id)
         if !stale.isEmpty { center.removePendingNotificationRequests(withIdentifiers: stale) }
         let current = Dictionary(pending.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        // M1-REVIEW P2-2: one that came due while the pending list was awaited (planned ahead of
+        // `now`, not pending now) was delivered meanwhile; added again, it would fire a second time
+        // about 1 s later. The clock is read after the fetch. Not a window ahead of it: an alert
+        // planned less than a second out is a real one still to schedule.
+        let due = now()
         for request in desired where !(current[request.id].map { Self.matches($0, request) } ?? false) {
+            if current[request.id] == nil, let fireAt = request.fireAt, fireAt <= due { continue }
             // Same identifier: the system replaces the pending request.
             try? await center.add(request)
         }

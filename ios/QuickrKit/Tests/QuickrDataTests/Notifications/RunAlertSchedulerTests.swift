@@ -262,6 +262,39 @@ import Testing
             ])
     }
 
+    @Test("M1-REVIEW P2-2: an alert delivered while a pass awaits the pending list isn't added again")
+    func deliveredDuringAPassIsNotRescheduled() async throws {
+        let scheduler = scheduler
+        await scheduler.reconcile(input([try K.resting()]))
+        #expect(pendingMs() == [Self.half: K.at(40), Self.go: K.at(70)])
+        let gated = HeldPendingCenter(center)
+        let racing = RunAlertScheduler(center: gated, now: { [clock] in clock.now() })
+        // The pass plans at 39.5 s (half still ahead), then waits on the pending list; meanwhile
+        // the system delivers half (it leaves the pending list) and the clock passes 40 s.
+        now(39.5)
+        let resting = input([try K.resting()])
+        let pass = Task { await racing.reconcile(resting) }
+        await gated.waitForQuery(1)
+        center.withState { $0.pending.removeAll { $0.id == Self.half } }
+        now(40.2)
+        await gated.open()
+        await pass.value
+        #expect(added.count == 2, "half isn't re-added to fire a second time: \(added.map(\.id))")
+        #expect(pendingMs() == [Self.go: K.at(70)])
+        #expect(removed.isEmpty, "the go alert, still pending, is kept")
+    }
+
+    @Test("M1-REVIEW P2-2: a due-now alert that is still pending is kept, not cancelled")
+    func dueNowStillPendingIsKept() async throws {
+        let scheduler = scheduler
+        await scheduler.reconcile(input([try K.resting()]))
+        now(39.6)
+        await scheduler.reconcile(input([try K.resting()]))
+        #expect(pendingMs() == [Self.half: K.at(40), Self.go: K.at(70)])
+        #expect(removed.isEmpty)
+        #expect(added.count == 2)
+    }
+
     // MARK: - The store's input
 
     @Test("the store's input: open runs with their pinned timer, topic name and server offset; a lap re-emits")
