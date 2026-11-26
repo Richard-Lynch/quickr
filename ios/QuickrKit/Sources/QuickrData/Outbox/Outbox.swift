@@ -67,10 +67,14 @@ public struct OutboxFlushReport: Sendable, Hashable {
 }
 
 /// A run event of this device that the server voided with a reason worth a notice (timers.md
-/// §11.4): `after_stop`, `run_edited`, `entry_deleted` or `already_closed`. Double taps (`stale`,
-/// `merged`, `already_paused`, `not_paused`) are silent and never reported.
+/// §11.4, timers2.md §9.3): `after_stop`, `run_edited`, `entry_deleted`, `already_closed`,
+/// `reverted`, `not_stopped` or `no_target`. Double taps (`stale`, `merged`, `already_paused`,
+/// `not_paused`) and `deleted` (the removed tap was removed on purpose) are silent and never
+/// reported.
 public struct RunVoid: Sendable, Hashable {
-    public static let noticed: Set<VoidReason> = [.afterStop, .runEdited, .entryDeleted, .alreadyClosed]
+    public static let noticed: Set<VoidReason> = [
+        .afterStop, .runEdited, .entryDeleted, .alreadyClosed, .reverted, .notStopped, .noTarget,
+    ]
 
     public var eventId: String
     public var runId: String
@@ -82,10 +86,24 @@ public struct RunVoid: Sendable, Hashable {
     /// The run's end (epoch ms), when the server says it stopped: `after_stop`'s "at {time}".
     public var stoppedAt: Int?
 
-    init?(_ item: OutboxItem, _ result: RunEventResult) {
+    /// - Parameter mine: whether an event id is this device's (an outbox item here). `reverted` is
+    ///   told only when the discard that undid this device's reopen was another device's;
+    ///   `not_stopped` is silent when this device had reopened the run already (a double tap).
+    init?(_ item: OutboxItem, _ result: RunEventResult, mine: (String) -> Bool = { _ in false }) {
         guard let reason = result.effect.reason, Self.noticed.contains(reason),
             let payload = try? item.runEventPayload(), let type = payload.type
         else { return nil }
+        func own(_ type: RunEventType) -> Bool {
+            result.run.events.contains { stored in
+                stored.event.type == type && stored.effect == .applied
+                    && stored.event.id.lowercased() != item.id.lowercased() && mine(stored.event.id)
+            }
+        }
+        switch reason {
+        case .reverted where own(.discard): return nil
+        case .notStopped where result.run.status.isOpen && own(.reopen): return nil
+        default: break
+        }
         self.init(
             eventId: item.id, runId: payload.runId, topic: payload.topic, type: type, reason: reason,
             origin: item.origin, stoppedAt: result.run.endedAt)
@@ -649,24 +667,23 @@ public struct Outbox: Sendable {
     ) async throws -> OutboxFlushReport.Ending? {
         let (itemId, sender, jitter) = (claim.item.id, claim.sender, random())
         let item = claim.item
-        let applied = try await uncancellable { db, now, wall in
+        let (applied, void) = try await uncancellable { db, now, wall -> (OutboxApplied, RunVoid?) in
             let applied = try OutboxFlush.apply(
                 db, itemId: itemId, sender: sender, resolution: resolution, error: error, random: jitter, now: now,
                 wall: wall)
             // The notice is kept with the ack (timers.md §11.4), whichever process flushed it.
-            if applied == .acked, case .ack(.runEvent(let result)) = resolution, let void = RunVoid(item, result) {
-                try RunNoticeStorage.record(db, void, wall: wall)
-            }
-            return applied
+            guard applied == .acked, case .ack(.runEvent(let result)) = resolution,
+                let void = RunVoid(item, result, mine: { id in (try? OutboxStorage.item(db, id: id.lowercased())) != nil })
+            else { return (applied, nil) }
+            try RunNoticeStorage.record(db, void, wall: wall)
+            return (applied, void)
         }
         switch applied {
         case .fenced: return .superseded
         case .acked:
             run.report.acked += 1
             if pullOnAck { run.signal(.pullRequested) }
-            if case .ack(.runEvent(let result)) = resolution, let void = RunVoid(claim.item, result) {
-                run.report.runVoids.append(void)
-            }
+            if let void { run.report.runVoids.append(void) }
         case .failed: run.report.failed += 1
         case .retried: run.report.retried += 1
         case .restored where resolution.isHold: run.report.held += 1

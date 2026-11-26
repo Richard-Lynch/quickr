@@ -18,6 +18,11 @@ import QuickrCore
 ///   can't overtake a retrying stop and be merged into the run still open on the server (§4.5). A
 ///   failed one doesn't hold it (the server merges if it must), nor does one of a run whose own
 ///   start failed (that run never existed on the server).
+/// - A `reopen` or `remove` waits for the earlier active item its `target` names (timers2.md §5.5):
+///   a reopen for its stop, a remove for the pause or lap it removes. A failed one holds nothing
+///   (the server answers `no_target`).
+/// - Every event of a run but its start waits for the run's earlier active `reopen` (A7), so a lap
+///   can't reach a run still stopped on the server and come back `after_stop`.
 ///
 /// Run ids are resolved through `run_alias` first: an event sent to a merged id is its target's.
 struct OutboxScope {
@@ -33,6 +38,11 @@ struct OutboxScope {
     /// By topic id: the active `stop`s and `discard`s that can hold another run's start, with
     /// their run ids, in `seq` order.
     private var activeEndsOfTopic: [String: [(run: String, item: OutboxItem)]] = [:]
+    /// By lowercase item id: the active `run.event` items, which a reopen's or remove's `target`
+    /// may name.
+    private var activeRunEvent: [String: OutboxItem] = [:]
+    /// By run id: the run's first active `reopen`.
+    private var activeReopenOfRun: [String: OutboxItem] = [:]
 
     init(aliases: [String: String] = [:]) { self.aliases = aliases }
 
@@ -56,14 +66,18 @@ struct OutboxScope {
         case .run:
             let run = run(item)
             var blockers = [firstTopicItem[item.topicId], startOfRun[run]]
-            switch (try? item.runEventPayload())?.type {
+            let payload = try? item.runEventPayload()
+            switch payload?.type {
             case .finish:
                 blockers.append(activeStopOfRun[run])
             case .start:
                 blockers.append(activeEndsOfTopic[item.topicId]?.first { $0.run != run }?.item)
+            case .reopen, .remove:
+                blockers.append(payload?.event.target.flatMap { activeRunEvent[$0.lowercased()] })
             default:
                 break
             }
+            if payload?.type != .start { blockers.append(activeReopenOfRun[run]) }
             return blockers.compactMap { $0 }.min { $0.seq < $1.seq }
         }
     }
@@ -76,6 +90,8 @@ struct OutboxScope {
         let run = run(item)
         if type == .start, item.id == item.entityId, startOfRun[run] == nil { startOfRun[run] = item }
         guard item.state.isActive else { return }
+        activeRunEvent[item.id.lowercased()] = item
+        if type == .reopen, activeReopenOfRun[run] == nil { activeReopenOfRun[run] = item }
         if type == .stop, activeStopOfRun[run] == nil { activeStopOfRun[run] = item }
         if type == .stop || type == .discard, startOfRun[run]?.state != .failed {
             activeEndsOfTopic[item.topicId, default: []].append((run, item))

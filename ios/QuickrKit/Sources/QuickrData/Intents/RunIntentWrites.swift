@@ -5,8 +5,9 @@ import QuickrCore
 /// What a run intent asks for (timers.md §11.3): a timed widget's button, the timer Control, the
 /// Action button (`AdvanceRunIntent`) or Siri (`RunActionIntent`).
 public enum RunIntentAction: String, Sendable, Hashable, CaseIterable {
-    /// §11.1: no open run → Start; a named step remains, or the steps aren't known → Next;
-    /// otherwise → Stop. A finishing run isn't open, so Auto starts a new run then.
+    /// No open run → Start; then the Auto rule (timers2.md §10, `RunWrites.autoTap`): with lap
+    /// types the on-screen primary (Next, then Lap), without v1's (Next, then Stop); unknown steps
+    /// → Next. A finishing run isn't open, so Auto starts a new run then.
     case auto
     case start, next, lap, stop, pause, resume
 }
@@ -172,7 +173,17 @@ extension RunWrites {
             let finishing = runs.contains { $0.status == .finishing }
 
             var action = request.action
-            if action == .auto { action = open.map { Self.autoTap($0) == .next ? .next : .stop } ?? .start }
+            if action == .auto {
+                // The Auto rule (timers2.md §10): `autoTap` decides Next, Lap or Stop.
+                action =
+                    open.map { run in
+                        switch Self.autoTap(run) {
+                        case .next: .next
+                        case .lap: .lap
+                        default: .stop
+                        }
+                    } ?? .start
+            }
             if action == .start {
                 guard open == nil else { return result(.alreadyRunning(topic: name)) }
                 guard topic.status != .archived else { return result(.archived(topic: name)) }

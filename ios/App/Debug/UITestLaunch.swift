@@ -872,5 +872,39 @@ extension FakeServer {
         return object
     }
 }
+
+// T2-M1: another device's reopen or remove (timers2.md §3.4, §6.2, §6.6), naming its `target`
+extension FakeServerState {
+    /// Another device reopens the run `runId` routes to (its terminal stop, or `target`): recorded
+    /// on the fake server, and the run, open again, logged in the feed as a `run` item (a reopen
+    /// upsert above this device's closed marker). False when the server refused it or has no
+    /// such run.
+    @discardableResult
+    func reopenElsewhere(runId: String, target: String? = nil) -> Bool {
+        elsewhere(.reopen, runId: runId, target: target)
+    }
+
+    /// Another device removes `target` (a pause, a lap boundary or a reopened stop) of the run
+    /// `runId` routes to: an open run is logged in the feed as a `run` item; a stopped run's late
+    /// merge logs its entry.
+    @discardableResult
+    func removeElsewhere(runId: String, target: String) -> Bool {
+        elsewhere(.remove, runId: runId, target: target)
+    }
+
+    private func elsewhere(_ type: RunEventType, runId: String, target: String?) -> Bool {
+        var openRun: [String: Any]?
+        let outcome = recordRun { book in
+            guard let (outcome, run) = book.elsewhere(type, runId: runId, target: target) else {
+                return FakeRunOutcome(result: .problem(status: 404, code: "not_found", detail: "run not found"))
+            }
+            openRun = run
+            return outcome
+        }
+        if let openRun { appendItem(kind: "run", key: "run", openRun) }
+        guard case .answer(let status, _) = outcome.result else { return false }
+        return status == 200
+    }
+}
 // end T2-M1
 #endif
