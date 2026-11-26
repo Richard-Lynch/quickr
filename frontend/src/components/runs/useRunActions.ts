@@ -4,7 +4,7 @@
  * the server's answer, like the record screen, so a rejected answer lands on its field.
  */
 import { useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 
 import { RECORD_WAIT_MS } from '../../api/entries';
 import { invalidateOperations } from '../../api/queryClient';
@@ -53,20 +53,50 @@ let cooldownMs = RUN_TAP_COOLDOWN_MS;
 /** When each topic's run controls were last tapped (device ms), by lowercase topic id. */
 const lastTap = new Map<string, number>();
 
+/** Who re-reads `isCooling`: told when a cooldown starts and when it ends. */
+const coolListeners = new Set<() => void>();
+const notifyCooling = () => {
+  for (const l of coolListeners) l();
+};
+
 /** Tests: another cooldown (0 turns it off), and forget earlier taps. */
 export function setRunTapCooldown(ms: number): void {
   cooldownMs = ms;
   lastTap.clear();
+  notifyCooling();
+}
+
+/** Whether `topicId`'s controls are inside a cooldown now. */
+function isCooling(topicId: string): boolean {
+  const last = lastTap.get(topicId.toLowerCase());
+  return last !== undefined && Date.now() - last < cooldownMs;
 }
 
 /** Whether a tap on `topicId`'s controls now is inside its cooldown; if not, it starts one. */
 function coolingDown(topicId: string): boolean {
-  const id = topicId.toLowerCase();
-  const now = Date.now();
-  const last = lastTap.get(id);
-  if (last !== undefined && now - last < cooldownMs) return true;
-  lastTap.set(id, now);
+  if (isCooling(topicId)) return true;
+  lastTap.set(topicId.toLowerCase(), Date.now());
+  if (cooldownMs > 0) {
+    notifyCooling();
+    window.setTimeout(notifyCooling, cooldownMs);
+  }
   return false;
+}
+
+const subscribeCooling = (onChange: () => void) => {
+  coolListeners.add(onChange);
+  return () => {
+    coolListeners.delete(onChange);
+  };
+};
+
+/**
+ * Whether `topicId`'s run controls are inside the tap cooldown, from whichever surface tapped
+ * (a tile's Start, then the panel): the run panel shows its controls disabled meanwhile
+ * (active-surfaces.md §2.2, §9).
+ */
+export function useRunCooldown(topicId: string): boolean {
+  return useSyncExternalStore(subscribeCooling, () => isCooling(topicId));
 }
 
 export interface RunActions {

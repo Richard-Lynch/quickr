@@ -53,8 +53,8 @@ struct RunDuration: View {
     }
 }
 
-/// The tile's run line (§11.1): "Running · 4:12" (or "Paused · …") and the open segment with its
-/// time; "Add details" for a finishing run.
+/// The tile's run line (§11.1): "Running · 4:12" (or "Paused · …") and the headline with the
+/// segment's time ("Rest 2 · lap 4 0:41"); "Add details" for a finishing run.
 struct RunStatusLine: View {
     let run: LocalRun
     @Environment(AppEnvironment.self) private var environment
@@ -76,9 +76,9 @@ struct RunStatusLine: View {
                     .accessibilityLabel(
                         "\(paused ? "Paused" : "Running"), \(RunPresentation.spoken(RunPresentation.activeMs(run.state, now: now)))"
                     )
-                    if let open = run.state.open {
+                    if let headline = RunHeadline.text(run) {
                         HStack(spacing: 4) {
-                            Text(open.label).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)
+                            Text(headline).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)
                             RunDuration(
                                 ms: RunPresentation.segmentMs(run.state, now: now), font: .qr(.footnote),
                                 ticking: !paused)
@@ -91,6 +91,41 @@ struct RunStatusLine: View {
         }
         .runTicking(run.status == .running)
         .accessibilityIdentifier("run.status")
+    }
+}
+
+/// The open segment's headline (active-surfaces.md §2.1): M1's `RunPresentation.headline`, its
+/// label with the counter ("Rest 2 · lap 4", "Shower · 2 of 5"); nil when nothing is open (the
+/// badge already says Running or Paused).
+enum RunHeadline {
+    static func text(_ run: LocalRun) -> String? {
+        guard run.state.open != nil else { return nil }
+        return RunPresentation.headline(run.state, status: run.status, timer: run.timer).text
+    }
+}
+
+extension LocalRun {
+    /// The pinned version's timer, for M1's presentation model; nil when its steps aren't known
+    /// here (the v1 fallback: a plain Next, no Skip).
+    var timer: TopicTimer? { steps.map(TopicTimer.init(steps:)) }
+}
+
+/// The next alert and its countdown ("Half way · in 0:12"), under the headline; nothing when
+/// there is none.
+///
+/// The text is M1's `RunPresentation.alertLine`, which also keeps a fired alert's label for 10 s
+/// (timers2.md §9) and is nil while paused.
+struct RunAlertLine: View {
+    let text: String?
+
+    var body: some View {
+        if let text {
+            Label(text, systemImage: "bell")
+                .font(.qr(.subheadline))
+                .foregroundStyle(.qr.inkSoft)
+                .monospacedDigit()
+                .accessibilityIdentifier("run.alert")
+        }
     }
 }
 

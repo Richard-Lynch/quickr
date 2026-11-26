@@ -1,38 +1,46 @@
 /**
- * The run panel on a timed topic's Record page (timers.md §11.5, as the iOS run screen of
- * §11.2): total and segment timers, the step checklist, the primary button, Lap, Skip,
- * Pause or Resume, Stop, and Discard behind a confirmation. Idle, it offers Start.
+ * The run panel on a timed topic's Record page (active-surfaces.md §6.1, as the iOS run screen
+ * of §2.1): the header (badge, total clock, headline with the segment clock, alert line), then
+ * `RunControls` (the primary, Stop and Pause or Resume, a "More" sheet with Skip and Discard
+ * run…), then the step and lap table, which has no buttons (D-3). Idle, it offers Start.
  */
 import { useState } from 'react';
 
 import type { RunEventPayload } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import type { RunContext } from '../../lib/runs/actions';
+import { fmtDuration } from '../../lib/runs/format';
 import { parseInstant } from '../../lib/runs/instant';
 import type { LocalRun } from '../../lib/runs/localView';
-import type { TimerStep } from '../../lib/runs/types';
+import type { Timer, TimerStep } from '../../lib/runs/types';
 import { StickyActions } from '../AppShell';
 import { Button } from '../ui/Button';
 import { Badge, Card } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
 import { ConfirmSheet } from '../ui/Sheet';
+import { runTimer } from './context';
 import { Duration, useServerNow } from './RunClock';
+import { actionLabel, RunControls } from './RunControls';
 import {
+  actions as runActions,
   activeMs,
+  alertLine,
   checklist,
   expectOf,
+  headline,
   laps,
-  primaryActionV1,
   segmentMs,
-  skipTarget,
   type ChecklistRow,
+  type RunAction,
 } from './model';
-import type { RunActions } from './useRunActions';
+import { useRunCooldown, type RunActions } from './useRunActions';
 
 export function RunPanel({
   run,
   ctx,
+  timer: pinned,
+  topic,
   actions,
   onStopped,
   onDiscarded,
@@ -40,6 +48,13 @@ export function RunPanel({
   run: LocalRun;
   /** The run's own version's context; null while it isn't known (controls wait). */
   ctx: RunContext | null;
+  /**
+   * The run's pinned version's timer, when its versions are known (lap types and alerts read
+   * it); otherwise one is made from the steps the run knows, or none when those are unknown.
+   */
+  timer?: Timer | null | undefined;
+  /** The topic's name, for the controls' accessible names. */
+  topic: string;
   actions: RunActions;
   /** The stop is queued. `totalMs` is the run's active time at the tap. */
   onStopped: (run: LocalRun, item: OutboxItem<RunEventPayload>, totalMs: number) => void;
@@ -49,13 +64,18 @@ export function RunPanel({
   const now = useServerNow(!paused);
   // Null: the steps aren't known here yet (no step list, no Skip; the clock still runs).
   const steps: readonly TimerStep[] | null = ctx ? ctx.steps : run.steps;
+  const timer = runTimer(pinned, steps);
   const total = activeMs(run.state, now);
   const segment = segmentMs(run.state, now);
-  const primary = primaryActionV1(run, steps);
-  const skip = skipTarget(run, steps);
   const open = run.state.open;
+  const head = headline(run.state, run.status, timer);
+  const alert = alertLine(run.state, timer, now);
+  const list = runActions(run.state, run.status, timer, now);
+  // An open run with no actions is a queued reopen before its ack (§1.2 row 11, timers2.md
+  // §5.3): the header says so and there are no controls until the server answers.
+  const resuming = list.length === 0;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const disabled = ctx === null || actions.busy;
+  const cooling = useRunCooldown(run.topic_id);
 
   // Captured at render: a second tap before the screen catches up targets what it saw.
   const expect = expectOf(run, steps);
@@ -64,6 +84,31 @@ export function RunPanel({
   const stop = async () => {
     const item = await tap('stop');
     if (item) onStopped(run, item, activeMs(run.state, parseInstant(item.payload.event.at)));
+  };
+  const onAction = (a: RunAction) => {
+    switch (a.kind.type) {
+      case 'next':
+      case 'lap':
+      case 'skip':
+      case 'pause':
+      case 'resume':
+        void tap(a.kind.type);
+        return;
+      case 'stop':
+        void stop();
+        return;
+      case 'discard':
+        setConfirmDiscard(true);
+        return;
+      // Not an open run's (§1.2 rows 2, 12, 13). `revert` (row 10) is pending T2-M1
+      // (F1-OUTBOX): `actions` never returns it until the reopen event and its revert tap
+      // exist; its "Undo resume…" confirmation lands with them.
+      case 'start':
+      case 'addDetails':
+      case 'reopen':
+      case 'revert':
+        return;
+    }
   };
 
   return (
@@ -79,7 +124,7 @@ export function RunPanel({
                 <span className="relative inline-flex size-2 rounded-full bg-accent" />
               </span>
             )}
-            {paused ? 'Paused' : 'Running'}
+            {resuming ? 'Resuming…' : paused ? 'Paused' : 'Running'}
           </Badge>
           {run.queued.length > 0 ? (
             <span className="text-xs text-muted">Saved on this device</span>
@@ -98,77 +143,28 @@ export function RunPanel({
           {open ? (
             <p className="flex items-center gap-2 text-[0.95rem] text-ink-soft">
               <span className="font-semibold text-ink" data-testid="segment-label">
-                {open.label}
+                {head.text}
               </span>
-              <Duration ms={segment} label={open.label} className="text-muted" />
+              <Duration ms={segment} label={head.text} className="text-muted" />
+            </p>
+          ) : null}
+          {alert !== null ? (
+            <p className="flex items-center gap-1.5 text-sm text-ink-soft" data-testid="alert-line">
+              <Icon name="bell" className="size-3.5" />
+              {alert}
             </p>
           ) : null}
         </div>
 
+        <RunControls
+          actions={list}
+          busy={ctx === null || actions.busy || cooling}
+          topic={topic}
+          onAction={onAction}
+        />
+
         <Steps run={run} steps={steps} segmentMs={segment} />
-
-        <div className="grid grid-cols-3 gap-2">
-          <Button
-            variant="secondary"
-            icon={<Icon name="flag" className="size-4" />}
-            disabled={disabled || !open}
-            onClick={() => void tap('lap')}
-          >
-            Lap
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<Icon name="skip" className="size-4" />}
-            disabled={disabled || skip === null}
-            onClick={() => void tap('skip')}
-            className="min-w-0"
-            aria-label={skip ? `Skip ${skip.label}` : 'Skip'}
-          >
-            <span className="truncate">{skip ? `Skip ${skip.label}` : 'Skip'}</span>
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<Icon name={paused ? 'play' : 'pause'} className="size-4" />}
-            disabled={disabled}
-            onClick={() => void tap(paused ? 'resume' : 'pause')}
-          >
-            {paused ? 'Resume' : 'Pause'}
-          </Button>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setConfirmDiscard(true)}
-          disabled={disabled}
-          className="self-center text-sm font-semibold text-danger underline-offset-2 hover:underline disabled:opacity-50"
-        >
-          Discard
-        </button>
       </Card>
-
-      <StickyActions>
-        {primary.type === 'next' ? (
-          <Button
-            size="lg"
-            variant="secondary"
-            icon={<Icon name="stop" className="size-4.5" />}
-            disabled={disabled}
-            onClick={() => void stop()}
-          >
-            Stop
-          </Button>
-        ) : null}
-        <Button
-          size="lg"
-          variant="primary"
-          className="min-w-0 flex-1 sm:flex-none"
-          disabled={disabled}
-          icon={<Icon name={primary.type === 'next' ? 'chevronRight' : 'stop'} strokeWidth={2.6} />}
-          onClick={() => void (primary.type === 'next' ? tap('next') : stop())}
-        >
-          <span className="truncate">{primary.label}</span>
-        </Button>
-      </StickyActions>
 
       <ConfirmSheet
         open={confirmDiscard}
@@ -213,7 +209,10 @@ function Steps({
   const lapOpen = open?.kind === 'lap';
   if (rows.length === 0 && done.length === 0 && !lapOpen) return null;
   return (
-    <ol className="flex flex-col divide-y divide-dashed divide-line rounded-2xl border border-line">
+    <ol
+      aria-label="Steps"
+      className="flex flex-col divide-y divide-dashed divide-line rounded-2xl border border-line"
+    >
       {rows.map((r) => (
         <Row
           key={r.key}
@@ -292,18 +291,31 @@ function Row({
   );
 }
 
-/** Idle: the topic's steps, and Start. */
+/**
+ * Resume of the topic's last stop, offered under Start while that entry is `resumable`
+ * (active-surfaces.md §6.3): its active time, and the tap that reopens it.
+ */
+export interface ReopenOffer {
+  /** The topic's name, for the accessible name (§1.3). */
+  topic: string;
+  totalMs: number;
+  onReopen: () => void;
+}
+
+/** Idle: the topic's steps, and Start (with Resume under it while the last stop is resumable). */
 export function RunStart({
   steps,
   disabled,
   busy,
   onStart,
+  reopen = null,
   note,
 }: {
   steps: readonly TimerStep[];
   disabled: boolean;
   busy: boolean;
   onStart: () => void;
+  reopen?: ReopenOffer | null;
   note?: React.ReactNode;
 }) {
   return (
@@ -330,17 +342,32 @@ export function RunStart({
         {note}
       </Card>
       <StickyActions>
-        <Button
-          size="lg"
-          variant="primary"
-          className="flex-1 sm:flex-none"
-          disabled={disabled}
-          loading={busy}
-          icon={<Icon name="play" strokeWidth={2.4} />}
-          onClick={onStart}
-        >
-          Start
-        </Button>
+        <div className="flex flex-1 flex-col gap-2 sm:flex-none sm:flex-row-reverse">
+          <Button
+            size="lg"
+            variant="primary"
+            className="flex-1 sm:flex-none"
+            disabled={disabled}
+            loading={busy}
+            icon={<Icon name="play" strokeWidth={2.4} />}
+            onClick={onStart}
+          >
+            Start
+          </Button>
+          {reopen ? (
+            <Button
+              size="lg"
+              variant="secondary"
+              data-testid="run-reopen"
+              aria-label={actionLabel({ type: 'reopen', target: '' }, reopen.topic)}
+              disabled={disabled || busy}
+              icon={<Icon name="restore" className="size-4.5" strokeWidth={2.4} />}
+              onClick={reopen.onReopen}
+            >
+              Resume · {fmtDuration(reopen.totalMs)}
+            </Button>
+          ) : null}
+        </div>
       </StickyActions>
     </>
   );
