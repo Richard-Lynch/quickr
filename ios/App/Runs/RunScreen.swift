@@ -290,12 +290,12 @@ struct RunPanel: View {
     }
 
     /// Undo resume… (§1.2 row 10), after its confirmation: the reopen is undone and the stop kept,
-    /// so the run is back in its entry.
+    /// so the run is back in its entry. The screen stays: idle, with that stop's "Resume · 1:44"
+    /// again while its window lasts (§2.4).
     private func revert() {
         guard let run else { return }
-        Task {
-            if await environment.runActions.revert(run: run) { dismiss() }
-        }
+        let actions = environment.runActions
+        Task { await actions.revert(run: run) }
     }
 
     /// The topic's latest stop while the store offers it "Resume" (M2's `observeResumable`).

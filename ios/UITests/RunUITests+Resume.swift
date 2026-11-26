@@ -71,11 +71,14 @@ extension RunUITests {
     }
 
     /// Undo resume… (§1.2 row 10): from the run screen's menu, after its confirmation, the reopen
-    /// is undone and the stop kept: the screen closes, the tile is idle and offers Resume again,
-    /// and the entry has no gap pause.
+    /// is undone and the stop kept: the screen is idle with the stop's Resume under Start (§2.4),
+    /// which goes once the run clock is 16 minutes on (`-QuickrClockControl`); the entry has no
+    /// gap pause.
     func testUndoResumeKeepsTheStop() {
         let app = XCUIApplication()
-        app.launchArguments = ["-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrSeedTikTok"]
+        app.launchArguments = [
+            "-QuickrUITest", "-QuickrServer", "https://quickr.test", "-QuickrSeedTikTok", "-QuickrClockControl",
+        ]
         app.launch()
         let find = { (id: String) in app.descendants(matching: .any)[id].firstMatch }
         let tileButton = find("tile.tiktok.run")
@@ -102,8 +105,25 @@ extension RunUITests {
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), "it confirms")
         confirm.tap()
 
-        XCTAssertTrue(resumeWait(find("tile.tiktok.run"), containing: "Start", timeout: 15), "idle again")
-        XCTAssertTrue(find("tile.tiktok.reopen").waitForExistence(timeout: 10), "the stop is kept: Resume again")
+        // The screen stays, idle: Start, and the kept stop's Resume under it, not also in a menu.
+        let screenStart = find("run.start")
+        let screenReopen = app.buttons["run.reopen"].firstMatch
+        XCTAssertTrue(screenStart.waitForExistence(timeout: 15), "idle again")
+        XCTAssertTrue(screenReopen.waitForExistence(timeout: 10), "the stop is kept: Resume again")
+        XCTAssertEqual(screenReopen.label, "Resume the last run of TikTok")
+        XCTAssertLessThan(screenStart.frame.maxY, screenReopen.frame.minY + 1, "under Start")
+        XCTAssertFalse(find("run.menu").exists, "Resume shows once, not also in the menu")
+        resumeSnap(app, "resume-idle-run-screen")
+
+        // 16 minutes later on the run clock: the screen's Resume is gone, Start stays.
+        find("debug.clockForward").tap()
+        XCTAssertTrue(resumeWait(find("debug.clockAhead"), containing: "16 min"))
+        XCTAssertTrue(screenReopen.waitForNonExistence(timeout: 15), "gone after 15 minutes")
+        XCTAssertTrue(screenStart.exists)
+
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(resumeWait(find("tile.tiktok.run"), containing: "Start", timeout: 15))
+        XCTAssertFalse(find("tile.tiktok.reopen").exists, "nor on the tile")
         find("tile.tiktok").coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.2)).tap()
         selectTopicTab("Entries", in: app)
         let rows = app.descendants(matching: .any).matching(

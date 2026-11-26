@@ -67,24 +67,12 @@ extension TileUITests {
         XCTAssertTrue(reopen.waitForExistence(timeout: 10), "stopped again: Resume again")
         XCTAssertTrue(find("toast.text").waitForNonExistence(timeout: 10), "the toast went")
 
-        // The idle run screen offers the same Resume under Start (§2.4).
-        app.open(URL(string: "quickr://t/tiktok/run")!)
-        let screenStart = find("run.start")
-        let screenReopen = app.buttons["run.reopen"].firstMatch
-        XCTAssertTrue(screenStart.waitForExistence(timeout: 10), "the idle run screen")
-        XCTAssertTrue(screenReopen.waitForExistence(timeout: 10), "its Resume")
-        XCTAssertEqual(screenReopen.label, "Resume the last run of TikTok")
-        XCTAssertLessThan(screenStart.frame.maxY, screenReopen.frame.minY + 1, "under Start")
-        XCTAssertFalse(find("run.menu").exists, "Resume shows once, not also in the menu")
-
-        // 16 minutes later on the run clock: past the window, only Start, here and on the tile.
+        // 16 minutes later on the run clock: past the window, only Start. (The idle run screen's
+        // own Resume and its expiry: RunUITests.testUndoResumeKeepsTheStop.)
         find("debug.clockForward").tap()
         XCTAssertTrue(resumeWait(find("debug.clockAhead"), prefix: "16 min"))
-        XCTAssertTrue(screenReopen.waitForNonExistence(timeout: 15), "the screen's Resume is gone after 15 minutes")
-        XCTAssertTrue(screenStart.exists)
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(reopen.waitForNonExistence(timeout: 15), "Resume is gone after 15 minutes")
         XCTAssertTrue(resumeWait(start, prefix: "Start"), start.label)
-        XCTAssertFalse(reopen.exists, "the tile's Resume is gone too")
     }
 
     /// A reopen from the entry (the stop acked, so no run row is left here) queued offline: the
@@ -110,7 +98,7 @@ extension TileUITests {
         XCTAssertTrue(reopen.waitForExistence(timeout: 10))
 
         find("debug.offline").tap()
-        Thread.sleep(forTimeInterval: 0.6)
+        XCTAssertTrue(resumeWait(app.buttons["sync.pill"], prefix: "Offline", timeout: 10), "offline first")
         reopen.tap()
         let card = find("tile.tiktok")
         XCTAssertTrue(headline(card, "Resuming…").waitForExistence(timeout: 10), "Resuming… until the ack")

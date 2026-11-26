@@ -1,0 +1,63 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "FB902170-F048-4853-9805-4E53B478435E",
+        "deviceName" : "quickR iOS-26-0 t2-m2-resume-a862c9",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 2,
+      "passedTests" : 24,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 2,
+  "finishTime" : 1795697302.039,
+  "passedTests" : 24,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795696675.158,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertTrue failed - its Resume",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 22,
+      "testIdentifierString" : "TileUITests/testIdleTileOffersResumeWithin15Min()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TileUITests/testIdleTileOffersResumeWithin15Min",
+      "testName" : "testIdleTileOffersResumeWithin15Min()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed - Resuming… until the ack",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 24,
+      "testIdentifierString" : "TileUITests/testResumingCardHasNoControlsUntilTheAck()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TileUITests/testResumingCardHasNoControlsUntilTheAck",
+      "testName" : "testResumingCardHasNoControlsUntilTheAck()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 26
+}

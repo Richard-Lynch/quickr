@@ -1,0 +1,53 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "FB902170-F048-4853-9805-4E53B478435E",
+      "deviceName" : "quickR iOS-26-0 t2-m2-resume-a862c9",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "22s",
+                  "durationInSeconds" : 22.03966498374939,
+                  "name" : "testResumeShots()",
+                  "nodeIdentifier" : "ResumeShotsUITests/testResumeShots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ResumeShotsUITests/testResumeShots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "ResumeShotsUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ResumeShotsUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}
