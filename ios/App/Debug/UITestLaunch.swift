@@ -13,7 +13,8 @@ import Synchronization
 /// - `-QuickrServer <url>` presets the server (launch connects, skipping onboarding);
 /// - `-QuickrOpen <url>` opens a link once the root is up (screenshots, deep-link checks);
 /// - `-QuickrSeedRejectedEntry` first queues a Workout entry the server refuses (duration 900),
-///   with the id `rejectedEntryId`, and waits until it has failed (fix mode);
+///   with the id `rejectedEntryId`, and waits until it can be fixed (fix mode); a seed that can't
+///   be made crashes the app, naming why;
 /// - `-QuickrStalePublish`: someone else publishes a version of the topic just before this
 ///   device's first version check or publish, which therefore conflicts (409);
 /// - `-QuickrSecondServer` also registers a second server, "Other" (`secondServerId`), that isn't
@@ -77,7 +78,8 @@ enum UITestLaunch {
         return value(after: "-QuickrOpen").flatMap(URL.init(string:))
     }
 
-    /// Before `-QuickrOpen`: the seeds the launch asked for. Bounded: gives up after 20 s.
+    /// Before `-QuickrOpen`: the seeds the launch asked for. Bounded: 20 s, after which the second
+    /// server is left out and a rejected entry that isn't fixable yet crashes the app.
     @MainActor static func prepare(_ environment: AppEnvironment) async {
         let arguments = ProcessInfo.processInfo.arguments
         guard isActive, arguments.contains("-QuickrSecondServer") || arguments.contains("-QuickrSeedRejectedEntry")
@@ -97,18 +99,33 @@ enum UITestLaunch {
                 serverId: secondServerId, baseURL: "https://other.example", displayName: "Other", now: Date())
         }
         guard arguments.contains("-QuickrSeedRejectedEntry") else { return }
-        guard await waitFor({ environment.session?.outbox != nil }), let session = environment.session,
-            let outbox = session.outbox, let store = session.store
-        else { return }
+        // After the launch's connect has bound for good: it binds twice (the registry's signal, then
+        // its own forced rebind), and the second swap cancels the first outbox's flush, which leaves
+        // the entry maybe delivered (outbox.md S3), so never fixable (§11).
+        guard await waitFor({ environment.session?.outbox != nil && environment.session?.isBinding == false }),
+            let session = environment.session, let outbox = session.outbox, let store = session.store
+        else { fatalError("-QuickrSeedRejectedEntry: the session didn't bind within 20 s") }
         let body = EntryCreateDTO(
             id: nil, answers: ["type": .string("run"), "duration": .int(900)], source: nil,
             capturedAt: Date().addingTimeInterval(-3600), notes: "Long run", version: 1)
-        try? await outbox.createEntry(
-            id: rejectedEntryId, topic: TopicRef(id: FakeServer.workoutId, slug: "workout", name: "Workout"),
-            body: body,
-            origin: .app)
+        do {
+            try await outbox.createEntry(
+                id: rejectedEntryId, topic: TopicRef(id: FakeServer.workoutId, slug: "workout", name: "Workout"),
+                body: body,
+                origin: .app)
+        } catch {
+            fatalError("-QuickrSeedRejectedEntry: createEntry failed: \(error)")
+        }
         await session.scheduler?.requestFlush(reason: .enqueue)
-        _ = await waitFor { (try? await store.outbox.item(id: rejectedEntryId.wireString))?.state == .failed }
+        // Fixable, as the record screen will ask: failed `rejected`, never maybe delivered.
+        func item() async -> OutboxItem? { try? await store.outbox.item(id: rejectedEntryId.wireString) }
+        guard await waitFor({ await item()?.entryFixDraft(questions: []) != nil }) else {
+            let item = await item()
+            fatalError(
+                "-QuickrSeedRejectedEntry: not fixable within 20 s: state \(String(describing: item?.state)), "
+                    + "reason \(String(describing: item?.failureReason)), "
+                    + "maybe delivered \(String(describing: item?.maybeDelivered))")
+        }
     }
 
     private static func value(after flag: String) -> String? {
