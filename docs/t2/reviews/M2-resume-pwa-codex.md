@@ -74,3 +74,11 @@
 
 1. Stands. The idle surfaces' Resume (tile, record page) means "resume the topic's latest stop" (§3.3, §6.3: target `lastEntry.timing.terminal_id`), and its callback is rebuilt on every render from the current view (`useReopenOffer`), so once a re-stop is in the view the button offers that stop. In the render-latency gap Codex describes, `tapRun` aiming at the run row's current terminal is the latest stop, which is what the idle Resume offers. The stop toast differs: it names one stop for 15 minutes, hence its re-check.
 2. Fixed (`reopen.ts` `rowEntry`): with the re-stop still queued and no cached entry, the entry is the run row's own projection (`projectTiming`, `edited` from the server's run). Test: the queued re-stop test removes the latest-entry cache before the newer toast's tap (mutation: no fallback fails it).
+
+## Round 7 (m2-resume-pwa-2, after the round 6 fix)
+
+1. **[P2] Resume can be offered for an older entry after a newer untimed entry — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:107).** `latestOf` skips untimed entries, so a still-local optimistic stop can win even when the server’s latest entry is a newer untimed entry. This can happen when a stop remains queued locally and an untimed entry is recorded on another device. The tile and record page then offer Resume for the older stop, although the prior review’s resolution establishes that a newer untimed last entry ends the offer. Compare the optimistic stop with the actual latest entry, including untimed entries, and cover this mixed local/server state.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `laterUntimed`): the offer, and the toast's re-check, end when the topic's latest served entry is untimed and captured after the candidate's stop. Test: TopicTile "a just-stopped run, its stop queued, and a later entry logged without the timer: no Resume" (mutation: dropping the check fails it).

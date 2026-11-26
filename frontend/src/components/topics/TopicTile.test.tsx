@@ -201,6 +201,36 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
     expect(server().entries[0]?.timing?.terminal_id).toBe(STOP_ID);
   }, 10_000);
 
+  it('a just-stopped run, its stop queued, and a later entry logged without the timer: no Resume', async () => {
+    h = renderRunApp('/', lapTopic());
+    const user = userEvent.setup();
+    server().override = (body) =>
+      body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByRole('button', { name: 'Start Morning' }));
+    await user.click(await screen.findByTestId('card-stop'));
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    // Another device logs Morning without the timer, after the stop.
+    const logged = new Date(Date.now() + 1_000).toISOString();
+    server().entries.unshift({
+      id: '0d6c0000-0000-4000-8000-0000000000e1',
+      topic_id: lapTopic().topic.id,
+      version: 1,
+      captured_at: logged,
+      created_at: logged,
+      updated_at: logged,
+      answers: [],
+      notes: '',
+      meta: {},
+      timing: null,
+      revision: 1,
+      source: 'ios',
+      channel: 'ios',
+    });
+    await h.qc.invalidateQueries({ queryKey: [{ _id: 'listEntries' }] });
+    await waitFor(() => expect(screen.queryByTestId('run-reopen')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
+  });
+
   it('a just-stopped run’s tile offers it from the optimistic entry, before the server’s', async () => {
     h = renderRunApp('/', lapTopic());
     const user = userEvent.setup();

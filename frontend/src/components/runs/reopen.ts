@@ -99,6 +99,16 @@ function rowEntry(row: LocalRun): Candidate {
   };
 }
 
+/**
+ * Whether the topic's latest entry is an untimed one (logged without the timer) captured after
+ * `entry`'s stop: §6.3 keys Resume on the last entry, so it ends the offer. `latestOf` and
+ * `resumableInView` only weigh timed entries.
+ */
+function laterUntimed(served: EntryOut | undefined, entry: Pick<Candidate, 'timing'>): boolean {
+  if (!served || served.timing || !entry.timing) return false;
+  return parseInstant(served.captured_at) > parseInstant(entry.timing.ended_at);
+}
+
 /** The candidate whose stop is the latest (ties broken by id, as `resumableInView` does). */
 function latestOf(candidates: readonly Candidate[]): Candidate | undefined {
   let best: Candidate | undefined;
@@ -151,6 +161,7 @@ export function useReopenOffer(
   const latest = latestOf(candidates);
   const now = useServerNow(latest !== undefined);
   if (!latest?.timing || !resumableInView(latest, candidates, runs, now)) return null;
+  if (laterUntimed(served, latest)) return null;
   const ctx = contextFor(topic, versions, latest.version);
   if (!ctx) return null;
   return {
@@ -241,7 +252,8 @@ async function reopenStop(
     ? (optimistic.find((c) => c.id.toLowerCase() === runId.toLowerCase()) ??
       (ours ? withLocalStop(ours, runs) : rowEntry(row)))
     : ours;
-  if (entry?.timing?.terminal_id?.toLowerCase() !== stopId) return null;
+  if (entry?.timing?.terminal_id?.toLowerCase() !== stopId || laterUntimed(latest, entry))
+    return null;
   const now = serverNow(Date.now(), serverOffset());
   if (!resumableInView(entry, [...optimistic, ...(latest ? [latest] : [])], runs, now)) return null;
   return sendReopen(taps, ctx, entry);
