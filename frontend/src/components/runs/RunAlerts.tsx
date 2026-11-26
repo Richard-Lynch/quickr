@@ -63,7 +63,8 @@ function firedSet(): Set<string> {
 
 /**
  * Record `alert` as fired, unless another tab has since: false then, and it isn't fired here.
- * Read and write in one synchronous step, so the window between two tabs is tiny.
+ * Read and write in one synchronous step; {@link exclusive} makes that step a cross-tab
+ * critical section where the Web Locks API exists.
  */
 function claim(alert: PlannedAlert): boolean {
   const keys = alertKeys(alert);
@@ -129,8 +130,37 @@ async function notify(alert: PlannedAlert, src: AlertSource): Promise<void> {
   });
 }
 
+/**
+ * Run `fn` holding the fired-alerts lock (Web Locks, shared by every tab of the origin), so two
+ * tabs' claims never interleave; at once where the API is missing (the claim's read and write
+ * are then one synchronous step, a tiny window).
+ */
+function exclusive(fn: () => void): void {
+  let locks: LockManager | undefined;
+  try {
+    locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
+  } catch {
+    locks = undefined;
+  }
+  if (!locks) {
+    fn();
+    return;
+  }
+  locks
+    .request(FIRED_ALERTS_KEY, () => fn())
+    .catch((err: unknown) => {
+      console.warn('[runs] alert lock failed', err);
+      fn();
+    });
+}
+
 function fire(alert: PlannedAlert, src: AlertSource, toast: (t: ToastInput) => void): void {
-  if (!claim(alert)) return;
+  exclusive(() => {
+    if (claim(alert)) sound(alert, src, toast);
+  });
+}
+
+function sound(alert: PlannedAlert, src: AlertSource, toast: (t: ToastInput) => void): void {
   const muted = alertsMuted();
   toast({ title: `${alert.label} · ${alert.segment}`, tone: 'info', duration: 8000 });
   // Muted: the toast only (device checklist, "Mute toggle"); a notification would sound.

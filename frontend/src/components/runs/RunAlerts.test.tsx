@@ -300,6 +300,28 @@ describe('RunAlerts', () => {
     expect(stored).toContain(`r1.1.done@${String(REST_AT)}`);
   });
 
+  it('claims an alert under the cross-tab lock where Web Locks exist (P3-7)', async () => {
+    const held: string[] = [];
+    const request = vi.fn((name: string, cb: () => void) => {
+      held.push(name);
+      return Promise.resolve().then(cb);
+    });
+    Object.defineProperty(navigator, 'locks', { value: { request }, configurable: true });
+    try {
+      mount(source([start, lap]));
+      advance(30 * S);
+      // Nothing fires until the lock is held.
+      expect(vibrate).not.toHaveBeenCalled();
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(held).toEqual([FIRED_ALERTS_KEY]);
+      expect(vibrate).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
+  });
+
   it('fires from memory when storage throws', () => {
     const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('denied');
