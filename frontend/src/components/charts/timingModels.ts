@@ -1,12 +1,19 @@
-import type { SeriesPoint, TimingSeriesPoint, TimingStepStats } from '../../client';
+import type {
+  SeriesPoint,
+  TimingLapTypeStats,
+  TimingSeriesPoint,
+  TimingStepStats,
+} from '../../client';
 import { toOffsetIso } from '../../lib/dates';
+import { plural } from '../../lib/format';
+import { fmtDuration } from '../../lib/runs/format';
 import type { Bucket } from './chartUtils';
 
 /**
  * The Overview's Timing charts as pure functions (timers.md §9, §11.5): the run totals and
- * the per-step times bucketed by when each run ended, in the shapes `LineChart` and
+ * the per-step and per-lap-type times bucketed by when each run ended, in the shapes `LineChart` and
  * `StackedBars` draw (`SeriesPoint`), duration axis ticks, and the per-step bars. Every
- * value is active time in milliseconds.
+ * value is active time in milliseconds. And the lap-type cards' text (content-display.md §4.1).
  *
  * Also the Overview's activity strip and numeric sparklines (content-display.md §4.2, §4.3).
  * All of these are pinned in shared/fixtures/stats-chart-vectors.json for the iOS port.
@@ -58,18 +65,40 @@ export function totalsByBucket(
   });
 }
 
+/** Each key's floored mean per run in each bucket, a run without the key counting 0. */
+function meanPerRunByBucket(
+  series: readonly TimingSeriesPoint[],
+  bucket: Bucket,
+  times: (p: TimingSeriesPoint) => Record<string, number>,
+): SeriesPoint[] {
+  return groupByBucket(series, bucket).map(([start, points]) => {
+    const keys = new Set(points.flatMap((p) => Object.keys(times(p))));
+    const option_counts: Record<string, number> = {};
+    for (const key of keys) option_counts[key] = floorMean(points.map((p) => times(p)[key] ?? 0));
+    return { start, count: points.length, mean: null, min: null, max: null, option_counts };
+  });
+}
+
 /**
  * Each step's mean time per run in a bucket, stacked (`option_counts` keyed by step key): a
  * run that didn't time the step counts as 0, so a bar's height is the mean time per run spent
  * in steps. Laps aren't steps and aren't in the stack.
  */
 export function stepsByBucket(series: readonly TimingSeriesPoint[], bucket: Bucket): SeriesPoint[] {
-  return groupByBucket(series, bucket).map(([start, points]) => {
-    const keys = new Set(points.flatMap((p) => Object.keys(p.steps)));
-    const option_counts: Record<string, number> = {};
-    for (const key of keys) option_counts[key] = floorMean(points.map((p) => p.steps[key] ?? 0));
-    return { start, count: points.length, mean: null, min: null, max: null, option_counts };
-  });
+  return meanPerRunByBucket(series, bucket, (p) => p.steps);
+}
+
+/**
+ * Each lap type's mean time per run in a bucket, stacked (`option_counts` keyed by lap-type
+ * key), as `stepsByBucket` does for steps (content-display.md §4.1): a run's time in a type is
+ * the sum of its laps of that type, a run without one counts as 0. Untyped laps and steps
+ * aren't in the stack, and a lap-type key equal to a step key stays its own (timers2.md §7.4).
+ */
+export function lapTypesByBucket(
+  series: readonly TimingSeriesPoint[],
+  bucket: Bucket,
+): SeriesPoint[] {
+  return meanPerRunByBucket(series, bucket, (p) => p.lap_types);
 }
 
 const SECOND = 1000;
@@ -136,6 +165,31 @@ export function stepBars(steps: readonly TimingStepStats[]): StepBar[] {
     done: s.done,
     skipped: s.skipped,
     share: (s.median_ms ?? 0) / longest,
+  }));
+}
+
+/** A lap-type card's text (content-display.md §4.1): label, lap count, median, best, mean. */
+export interface LapTypeCard {
+  key: string;
+  label: string;
+  /** "4 laps". */
+  laps: string;
+  median: string;
+  best: string;
+  mean: string;
+}
+
+const dur = (ms: number | null): string => (ms === null ? '—' : fmtDuration(ms));
+
+/** One card per lap type, in the server's order (the current version's types first). */
+export function lapTypeCards(lapTypes: readonly TimingLapTypeStats[]): LapTypeCard[] {
+  return lapTypes.map((t) => ({
+    key: t.key,
+    label: t.label,
+    laps: plural(t.laps, 'lap'),
+    median: dur(t.median_ms),
+    best: dur(t.best_ms),
+    mean: dur(t.mean_ms),
   }));
 }
 

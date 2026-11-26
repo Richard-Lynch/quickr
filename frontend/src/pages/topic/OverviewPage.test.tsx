@@ -39,6 +39,8 @@ const seriesFixture = (JSON.parse(seriesRaw) as { body: QuestionSeries }).body;
 const enumSeriesFixture = (JSON.parse(enumSeriesRaw) as { body: QuestionSeries }).body;
 const vectors = JSON.parse(vectorsRaw) as { cases: { name: string; expected: TopicTiming }[] };
 const renamed = vectors.cases.find((c) => c.name === 'renamed-and-removed-steps')?.expected;
+/** A run/rest cycle (timers2.md's `tiktok` timer: no steps, lap types Run and Rest). */
+const tiktok = vectors.cases.find((c) => c.name === 'lap_types_cycle')?.expected;
 
 const topic: TopicDetail = {
   id: '6f1c0000-0000-4000-8000-000000000001',
@@ -182,6 +184,50 @@ describe('OverviewPage Timing', () => {
     renderPage();
     const section = await screen.findByRole('region', { name: 'Timing' });
     expect(within(section).getByText(/No runs in this range/)).toBeInTheDocument();
+  });
+
+  it('a topic with lap types gets one card per type and the stacked chart (tiktok)', async () => {
+    if (!tiktok) throw new Error('vector case missing');
+    stubServer(tiktok);
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    const list = within(section).getByRole('list', { name: 'Lap types' });
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((li) => li.dataset.testid),
+    ).toEqual(['laptype-run', 'laptype-rest']);
+    const runCard = within(section).getByTestId('laptype-run');
+    expect(runCard.textContent).toContain('Run');
+    expect(runCard.textContent).toContain('4 laps');
+    expect(within(runCard).getByTestId('laptype-median').textContent).toBe('1:02');
+    expect(within(runCard).getByTestId('laptype-best').textContent).toBe('0:50');
+    expect(within(runCard).getByTestId('laptype-mean').textContent).toBe('1:01');
+    const restCard = within(section).getByTestId('laptype-rest');
+    expect(restCard.textContent).toContain('3 laps');
+    expect(within(restCard).getByTestId('laptype-median').textContent).toBe('0:25');
+    expect(within(section).getByText('Time per lap type, per week')).toBeTruthy();
+    expect(within(section).getByRole('img', { name: 'Lap types: time per week' })).toBeTruthy();
+    // The cards replace the v1 lap tiles; the pause tiles stay.
+    expect(within(section).queryByText('Runs with laps')).toBeNull();
+    expect(within(section).queryByText('Lap time (median)')).toBeNull();
+    expect(within(section).getByText('Paused (median)').nextSibling?.textContent).toBe('0:05');
+  });
+
+  it('untyped laps keep the v1 lap tiles and nothing else', async () => {
+    const untyped = vectors.cases.find((c) => c.name === 'laps')?.expected;
+    if (!untyped) throw new Error('vector case missing');
+    expect(untyped.lap_types).toEqual([]);
+    stubServer(untyped);
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    expect(within(section).getByText('Runs with laps').nextSibling?.textContent).toBe(
+      untyped.laps.runs_with_laps.toLocaleString(),
+    );
+    expect(within(section).getByText('Lap time (median)')).toBeTruthy();
+    expect(within(section).queryByRole('list', { name: 'Lap types' })).toBeNull();
+    expect(within(section).queryByText(/Time per lap type/)).toBeNull();
+    expect(within(section).queryByRole('img', { name: /^Lap types/ })).toBeNull();
   });
 
   it('best, median and mean are told apart', async () => {

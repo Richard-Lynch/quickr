@@ -10,6 +10,8 @@ import {
   addDays,
   bucketStart,
   durationTicks,
+  lapTypeCards,
+  lapTypesByBucket,
   localDay,
   localMidnight,
   SPARK_LAYOUT,
@@ -25,6 +27,7 @@ function run(
   h: number,
   active: number,
   steps: Record<string, number> = {},
+  lapTypes: Record<string, number> = {},
 ): TimingSeriesPoint {
   const end = new Date(2026, 9, d, h).toISOString();
   return {
@@ -35,7 +38,7 @@ function run(
     paused_ms: 0,
     complete: true,
     steps,
-    lap_types: {},
+    lap_types: lapTypes,
   };
 }
 
@@ -95,6 +98,45 @@ describe('timing chart models', () => {
         max: null,
         option_counts: { pour: 150, drink: 150 },
       },
+    ]);
+  });
+
+  it('lap types: mean time per run in each bucket, a run without the type counting 0', () => {
+    const series = [
+      run(19, 8, 0, {}, { run: 100, rest: 300 }),
+      run(19, 9, 0, {}, { run: 201 }),
+      run(20, 8, 0),
+    ];
+    expect(lapTypesByBucket(series, 'day')).toEqual([
+      {
+        start: local(2026, 9, 19),
+        count: 2,
+        mean: null,
+        min: null,
+        max: null,
+        option_counts: { run: 150, rest: 150 },
+      },
+      // A run without typed laps still counts, with an empty stack.
+      { start: local(2026, 9, 20), count: 1, mean: null, min: null, max: null, option_counts: {} },
+    ]);
+    expect(lapTypesByBucket([], 'week')).toEqual([]);
+  });
+
+  it('lap types and steps sharing a key stay apart', () => {
+    const series = [run(19, 8, 0, { run: 90 }, { run: 30 })];
+    expect(lapTypesByBucket(series, 'day')[0]?.option_counts).toEqual({ run: 30 });
+    expect(stepsByBucket(series, 'day')[0]?.option_counts).toEqual({ run: 90 });
+  });
+
+  it('lap-type cards: label, lap count, median, best and mean', () => {
+    expect(
+      lapTypeCards([
+        { key: 'run', label: 'Run', laps: 4, best_ms: 50_000, median_ms: 62_500, mean_ms: 61_250 },
+        { key: 'rest', label: 'Rest', laps: 1, best_ms: null, median_ms: null, mean_ms: null },
+      ]),
+    ).toEqual([
+      { key: 'run', label: 'Run', laps: '4 laps', median: '1:02', best: '0:50', mean: '1:01' },
+      { key: 'rest', label: 'Rest', laps: '1 lap', median: '—', best: '—', mean: '—' },
     ]);
   });
 

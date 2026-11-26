@@ -5,7 +5,8 @@
  * code: the chart models (`chartModels.ts`), `niceTicks`, `formatBucket`, `formatTick`,
  * `formatNumber`, `formatPercent`, `plural` and `optionColors`; and (v2, content-display.md
  * §4.2, §4.3) the activity strip, the numeric sparklines and the timing chart models
- * (`timingModels.ts`), the last over shared/fixtures/timing-stats-vectors.json.
+ * (`timingModels.ts`), the last over shared/fixtures/timing-stats-vectors.json; and (v3,
+ * content-display.md §4.1) the lap-type cards and their stacked chart over the same file.
  *
  * Text is en-US (the generator checks the locale), and bucket labels are in each series'
  * `tz`, which the generator sets as the process zone before labelling it. Label positions
@@ -40,6 +41,8 @@ import { formatBucket, formatTick, niceTicks, pickLabels, type Bucket } from './
 import {
   activityLevel,
   activityStrip,
+  lapTypeCards,
+  lapTypesByBucket,
   localMidnight,
   sparkline,
   stepsByBucket,
@@ -73,7 +76,7 @@ const INPUT = `${DIR}/stats-vectors.json`;
 const TIMING_INPUT = `${DIR}/timing-stats-vectors.json`;
 const FILE = `${DIR}/stats-chart-vectors.json`;
 const FILE_LABEL = 'shared/fixtures/stats-chart-vectors.json';
-const GENERATOR_VERSION = 2;
+const GENERATOR_VERSION = 3;
 const WIDTHS = [320, 600];
 /** The zone the summaries' dates are shown in. */
 const SUMMARY_TZ = 'Europe/London';
@@ -378,6 +381,45 @@ function sparkCase(name: string, points: readonly SeriesPoint[], width: number, 
 const TIMING_TZ = 'Europe/London';
 const TIMING_BUCKETS: Bucket[] = ['day', 'week', 'month'];
 
+// The lap-type cards and chart (content-display.md §4.1) over the timing-stats-vectors.json
+// cases with lap types, and `laps` (untyped laps only: no cards, the v1 tiles).
+const isLapTypeCase = (c: { name: string; expected: TopicTiming }) =>
+  c.expected.lap_types.length > 0 || c.name === 'laps';
+
+function lapTypesCase(c: { name: string; expected: TopicTiming }) {
+  const timing = c.expected;
+  const options = timing.lap_types.map((t) => ({ value: t.key, label: t.label }));
+  const colorFor = optionColors(timing.lap_types.map((t) => t.key));
+  return {
+    name: c.name,
+    tz: TIMING_TZ,
+    cards: lapTypeCards(timing.lap_types).map((card) => ({ ...card, color: colorFor(card.key) })),
+    charts: TIMING_BUCKETS.map((bucket) =>
+      inZone(TIMING_TZ, () => {
+        const points = lapTypesByBucket(timing.series, bucket);
+        const models = WIDTHS.map((w) => stackedModel(points, options, w));
+        const model = models[0];
+        if (!model || options.length === 0) return { bucket, empty: true };
+        return {
+          bucket,
+          empty: false,
+          max: model.max,
+          totals: model.data.map(seriesTotal),
+          legend: model.legend.map((o) => [o.value, o.label]),
+          segments: model.data.map((p) =>
+            stackSegments(p, model.legend).map((s) => [s.value, s.n]),
+          ),
+          labelled: labelledByWidth(models),
+          labels: {
+            short: model.data.map((p) => formatBucket(p.start, bucket)),
+            long: model.data.map((p) => formatBucket(p.start, bucket, 'long')),
+          },
+        };
+      }),
+    ),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Builders
 // ---------------------------------------------------------------------------
@@ -527,7 +569,13 @@ function build(
         "first_day to today, 'from' the listEntries bound (first_day's local midnight, UTC). " +
         'sparklines[i] is sparkline(points, width) for the stats-vectors.json series case of the ' +
         "same name, or its inline 'points'. timing_models[i] is stepsByBucket(series, bucket) " +
-        "for the timing-stats-vectors.json case of the same name, bucketed in 'tz'.",
+        'and lapTypesByBucket(series, bucket) for the timing-stats-vectors.json case of the same ' +
+        "name, bucketed in 'tz'. lap_types[i] is the Overview's lap-type cards (cards: " +
+        'lapTypeCards(lap_types) plus optionColors over the lap-type keys) and the stacked ' +
+        "'Time per lap type' chart per bucket (charts: stackedModel(lapTypesByBucket(series, " +
+        'bucket), lap types as options) for the timing-stats-vectors.json case of the same name; ' +
+        "no cards means the v1 lap tiles, and a chart is 'empty' when there are no lap types or " +
+        'no runs.',
       spark_width: SPARK_WIDTH,
     },
     default_bucket: RANGE_PRESETS.map((r) => [r.value, defaultBucket(r.value)]),
@@ -568,8 +616,10 @@ function build(
         tz: TIMING_TZ,
         bucket,
         steps_by_bucket: inZone(TIMING_TZ, () => stepsByBucket(c.expected.series, bucket)),
+        lap_types_by_bucket: inZone(TIMING_TZ, () => lapTypesByBucket(c.expected.series, bucket)),
       })),
     ),
+    lap_types: timing.cases.filter(isLapTypeCase).map(lapTypesCase),
   };
 }
 
