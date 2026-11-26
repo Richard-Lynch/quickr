@@ -104,7 +104,7 @@ function TimingChip({ entry, timer }: { entry: EntryOut; timer: Timer | null }) 
     <span role="img" aria-label={chip.label} data-testid="entry-timing" className="inline-flex">
       <Badge tone="accent">
         <Icon name="timer" className="size-3.5" />
-        <span className="font-mono tabular">{chip.text}</span>
+        <span className="tabular">{chip.text}</span>
       </Badge>
     </span>
   );
