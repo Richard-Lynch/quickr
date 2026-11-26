@@ -114,4 +114,37 @@ import UserNotifications
         }
         #expect(back.first { $0.id == spec.id } == spec)
     }
+
+    // T2-M1 (timers2.md §9.1, §12.3 R23)
+    /// R23 through the system's centre (the mapping itself is `NotificationCenterProtocolTests`'
+    /// on the host): a run alert an hour ahead is pending with an interval trigger, time
+    /// sensitive, with sound; the snapshot reads its instant from `fire_at_ms`.
+    @Test func aRunAlertIsPendingAsATimeSensitiveIntervalRequest() async throws {
+        let center = SystemNotificationCenter()
+        let fireAtMs = (Int(Date().timeIntervalSince1970) + 3600) * 1000
+        let runId = UUID().wireString
+        let request = LocalNotificationRequest(
+            id: "\(RunAlerts.identifierPrefix(runId: runId))0.halfway", title: "TikTok", body: "Halfway · Run 1",
+            threadIdentifier: "topic-r23",
+            quickr: QuickrNotificationInfo(
+                kind: RunAlerts.kind, origin: .local, serverId: Self.server, topicId: UUID().wireString, runId: runId,
+                alertLabel: "Halfway", fireAtMs: fireAtMs, serverFireAtMs: fireAtMs),
+            sound: true, fireAt: Date(timeIntervalSince1970: TimeInterval(fireAtMs) / 1000),
+            interruptionLevel: RunAlerts.interruptionLevel)
+        try await center.add(request)
+        defer { center.removePendingNotificationRequests(withIdentifiers: [request.id]) }
+
+        let pending = await UNUserNotificationCenter.current().pendingNotificationRequests()
+        let system = try #require(pending.first { $0.identifier == request.id })
+        let trigger = try #require(system.trigger as? UNTimeIntervalNotificationTrigger)
+        #expect(abs(trigger.timeInterval - 3600) < 60)
+        #expect(!trigger.repeats)
+        #expect(system.content.interruptionLevel == .timeSensitive)
+        #expect(system.content.sound != nil)
+        let snapshot = try #require(await center.pendingNotificationRequests().first { $0.id == request.id })
+        #expect(snapshot.date == Date(timeIntervalSince1970: TimeInterval(fireAtMs) / 1000))
+        #expect(snapshot.interruptionLevel == .timeSensitive)
+        #expect(snapshot.quickr?.alertLabel == "Halfway")
+    }
+    // end T2-M1
 }
