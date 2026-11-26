@@ -8,6 +8,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { TopicSummary } from '../client';
+import { RUN_TAP_COOLDOWN_MS, setRunTapCooldown } from '../components/runs/useRunActions';
 import { renderRunApp, seedRun, timedTopic, type Harness } from '../test/runUi';
 
 let h: Harness | null = null;
@@ -136,6 +137,24 @@ describe('"Active now" on the topics page', () => {
     await userEvent.click(lap);
     await waitFor(() => expect(h?.server.events()).toHaveLength(1), { timeout: 4000 });
     expect(h.server.events()[0]).toMatchObject({ type: 'lap', seg: 2 });
+  });
+
+  it('honours the shared tap cooldown: the card’s controls are off just after a tap', async () => {
+    h = renderRunApp('/', dueMorning(), (s) => seedRun(s), [vitamins]);
+    const active = await screen.findByRole('region', { name: /Active now/ });
+    const next = within(active).getByTestId('card-primary');
+    await waitFor(() => expect(next).toBeEnabled());
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    await userEvent.click(next);
+    // Inside the cooldown every control of the topic is disabled, then they come back.
+    await waitFor(() =>
+      expect(within(section('Active now')).getByTestId('card-stop')).toBeDisabled(),
+    );
+    expect(within(section('Active now')).getByTestId('card-pause')).toBeDisabled();
+    await waitFor(() =>
+      expect(within(section('Active now')).getByTestId('card-stop')).toBeEnabled(),
+    );
+    expect(h.server.events().map((e) => e.type)).toEqual(['next']);
   });
 
   it('pauses and resumes from the title row', async () => {

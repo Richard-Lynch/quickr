@@ -2,7 +2,7 @@
  * The active card's controls (`CardControls`) for an open run: M1's
  * `actions(state, status, timer, now)` placed by `tileControls` (active-surfaces.md §1, §6.2)
  * — the primary (Lap or Next, never Stop) and Stop in the controls row, Pause or Resume in
- * the title row — with the titles, icons and accessible names of §1.3.
+ * the title row — with §1.3's titles, icons and names from `RunControls`' one table.
  */
 import { useNavigate } from 'react-router';
 
@@ -15,42 +15,11 @@ import { timerOf, useRunContext, useTopicVersions } from '../runs/context';
 import { tileControls } from '../runs/controlsLayout';
 import { actions as runActions, activeMs, expectOf, type RunAction } from '../runs/model';
 import { useServerNow } from '../runs/RunClock';
+import { actionIcon, actionLabel, actionTitle } from '../runs/RunControls';
 import { finishUrl, hasQuestions } from '../runs/RunTile';
-import { useRunActions } from '../runs/useRunActions';
-import type { IconName } from '../ui/Icon';
+import { useRunActions, useRunCooldown } from '../runs/useRunActions';
 import { useToast } from '../ui/Toast';
 import type { CardButton, CardControls } from './ActiveTopicCard';
-
-/** §1.3's title, icon and accessible name of a card control's kind. */
-function present(
-  kind: RunAction['kind'],
-  topicName: string,
-): { title: string; label: string; icon: IconName } | null {
-  switch (kind.type) {
-    case 'next': {
-      // Steps unknown (§1.2 row 9): `next("Next")` is a plain "Next", not "Next: Next".
-      const title = kind.label === 'Next' ? 'Next' : `Next: ${kind.label}`;
-      return { title, label: title, icon: 'chevronRight' };
-    }
-    case 'lap':
-      return kind.nextTypeLabel === null
-        ? { title: 'Lap', label: 'Lap', icon: 'flag' }
-        : {
-            title: `Lap → ${kind.nextTypeLabel}`,
-            label: `Lap, then ${kind.nextTypeLabel}`,
-            icon: 'flag',
-          };
-    case 'stop':
-      return { title: 'Stop', label: `Stop ${topicName}`, icon: 'stop' };
-    case 'pause':
-      return { title: 'Pause', label: 'Pause', icon: 'pause' };
-    case 'resume':
-      return { title: 'Resume', label: 'Resume', icon: 'play' };
-    default:
-      // `tileControls` places only these kinds on the card.
-      return null;
-  }
-}
 
 /** The run's pinned version's timer; null (steps unknown, the v1 fallback) until it's known. */
 function timerFor(versions: Parameters<typeof timerOf>[0], run: LocalRun): Timer | null {
@@ -89,13 +58,16 @@ export function useActiveCardControls(
       }
     });
   };
+  // The topic's shared tap cooldown, from whichever surface tapped (as the run panel, §2.2).
+  const cooling = useRunCooldown(run.topic_id);
   const button = (a: RunAction | null): CardButton | null => {
-    const shown = a && present(a.kind, topic.name);
-    if (!a || !shown) return null;
+    if (!a) return null;
     const type = a.kind.type;
     return {
-      ...shown,
-      disabled: runCtx === null || taps.busy || !a.enabled,
+      title: actionTitle(a.kind),
+      label: actionLabel(a.kind, topic.name),
+      icon: actionIcon(a.kind),
+      disabled: runCtx === null || taps.busy || cooling || !a.enabled,
       onTap: () => {
         if (type === 'stop') stop();
         else if (type === 'next' || type === 'lap' || type === 'pause' || type === 'resume')
