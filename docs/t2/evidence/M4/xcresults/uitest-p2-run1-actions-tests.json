@@ -1,0 +1,62 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "A871E8FD-5D6E-4864-A64F-AD2737409DED",
+      "deviceName" : "quickR iOS-26-0 t2-m4-uitest-36036f",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "15s",
+                  "durationInSeconds" : 15.055150985717773,
+                  "name" : "testRemovePauseFromEntryDetail()",
+                  "nodeIdentifier" : "EntriesTests/testRemovePauseFromEntryDetail()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testRemovePauseFromEntryDetail",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "14s",
+                  "durationInSeconds" : 14.323876023292542,
+                  "name" : "testResumeRunFromEntryDetail()",
+                  "nodeIdentifier" : "EntriesTests/testResumeRunFromEntryDetail()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests/testResumeRunFromEntryDetail",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "EntriesTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 import Foundation
 import QuickrCore
 import QuickrData
+import Synchronization
 
 /// `-QuickrSeedTypedTopic` (M4's UI tests and screenshots, content-display.md §3, §4): the fake
 /// server gains Intervals (`topicId`), timed with timers2.md §3.1's `tiktok` timer (no steps; lap
@@ -13,6 +14,11 @@ import QuickrData
 /// The figures the tests read: the newest run is 5:00 active (Run 3 · Rest 2, a 20 s pause in
 /// Rest 1) with Effort 7; over all five, Run has 12 laps (best 1:10, median and mean 1:40) and
 /// Rest 8 (best 0:30, median and mean 0:40).
+///
+/// The runs also take run events (`POST /runs/{id}/events`, M4-UITEST part 2): each is M1's
+/// `FakeServerRun` replaying its events (`events`) through the real fold, so a `remove` drops the
+/// pause or merges the lap, bumps the entry's revision and feeds it, and a `reopen` answers a
+/// running run.
 enum FakeLapTypes {
     static let flag = "-QuickrSeedTypedTopic"
     static let topicId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c4")!
@@ -162,17 +168,29 @@ enum FakeLapTypes {
 
     // MARK: - Routes
 
-    /// `GET /entries/{id}` for a run's entry, `GET /topics/{ref}` and `GET /topics/{ref}/timing`
-    /// (filtered by `captured_from`, as the backend's); nil for any other request. The stats and
-    /// series are `FakeStats`'s.
-    static func route(_ request: HTTPRequest, headers: HTTPHeaders) -> HTTPResponse? {
-        guard isEnabled, request.method == .get else { return nil }
-        let parts = request.url.path().split(separator: "/").map(String.init)  // api v1 entries|topics …
+    /// `GET /entries/{id}` for a run's entry (as its events left it, `changed`), `GET /topics/{ref}`
+    /// and `GET /topics/{ref}/timing` (filtered by `captured_from`, as the backend's), and
+    /// `POST /runs/{id}/events` (`record`); nil for any other request. The stats and series are
+    /// `FakeStats`'s, and stay the seeded runs'. `appendToFeed` puts a changed entry in the feed.
+    static func route(
+        _ request: HTTPRequest, headers: HTTPHeaders, appendToFeed: (_ kind: String, _ key: String, Any) -> Void
+    ) -> HTTPResponse? {
+        guard isEnabled else { return nil }
+        let parts = request.url.path().split(separator: "/").map(String.init)  // api v1 entries|topics|runs …
+        if request.method == .post, parts.count == 5, parts[2] == "runs", parts[4] == "events",
+            let run = runs.first(where: { $0.id.wireString == parts[3].lowercased() })
+        {
+            return record(run, request, headers: headers, appendToFeed: appendToFeed)
+        }
+        guard request.method == .get else { return nil }
         func ok(_ object: Any) -> HTTPResponse {
             HTTPResponse(
                 status: 200, headers: headers, body: (try? JSONSerialization.data(withJSONObject: object)) ?? Data())
         }
         if parts.count == 4, parts[2] == "entries", let run = runs.first(where: { $0.id.wireString == parts[3] }) {
+            if let entry = book.withLock({ $0.changed[run.id] }) {
+                return HTTPResponse(status: 200, headers: headers, body: entry)
+            }
             return ok(entryJSON(run))
         }
         guard parts.count >= 4, parts[2] == "topics", parts[3] == slug || parts[3] == topicId.wireString else {
@@ -198,6 +216,97 @@ enum FakeLapTypes {
         let stats = TimingStats.compute(
             entries, versions: [1: TopicTimer(steps: [], laps: lapTypes)], currentVersion: 1)
         return ok(FakeTiming.timingStatsJSON(stats))
+    }
+
+    // MARK: - Run events
+
+    /// The runs that have taken an event (M1's `FakeServerRun`, seeded from `events` on the
+    /// first), and each one's entry (`EntryOut`) once an event changed it.
+    private struct Book {
+        var runs: [UUID: FakeServerRun] = [:]
+        var changed: [UUID: Data] = [:]
+    }
+
+    private static let book = Mutex(Book())
+
+    /// The events that make `run`'s `timing`, in arrival order: the start (its id the run's), a
+    /// `lap` at each later lap (`seg` the laps closed before it), the pause and its resume, and
+    /// the stop (`terminal_id`), which carries the Effort answer.
+    static func events(_ run: Run, now: Date = Date()) -> [RunEvent] {
+        let timing = timing(run, now: now)
+        var events = [RunEvent(id: run.id.wireString, type: .start, at: timing.startedAt)]
+        for (i, segment) in timing.segments.enumerated() where i > 0 {
+            events.append(RunEvent(id: eventId(run, i), type: .lap, at: segment.startedAt, seg: i - 1))
+        }
+        for pause in timing.pauses {
+            guard let id = pause.id else { continue }
+            events.append(RunEvent(id: id, type: .pause, at: pause.start))
+            events.append(RunEvent(id: eventId(run, 91), type: .resume, at: pause.end, pauseId: id))
+        }
+        events.append(RunEvent(id: eventId(run, 99), type: .stop, at: timing.endedAt))
+        return events.sorted { $0.at < $1.at }
+    }
+
+    /// `run` on the fake server before any event from the app: stopped, with its entry.
+    private static func serverRun(_ run: Run) -> FakeServerRun {
+        let events = events(run)
+        var server = FakeServerRun(
+            id: run.id.wireString, topicId: topicId, version: 1, timer: TopicTimer(steps: [], laps: lapTypes),
+            required: ["effort"],
+            state: RunState(
+                status: .running, startedAt: events[0].at, endedAt: nil, open: nil, nextStep: nil, pausedSince: nil,
+                segments: [], skipped: [], pauses: [], effects: [:]),
+            status: .running, source: "ios")
+        let answers = try? JSONSerialization.data(withJSONObject: ["effort": run.effort])
+        for event in events {
+            let body = RunEventInDTO(
+                id: event.id, type: event.type.rawValue, at: RunInstant.format(event.at), seg: event.seg,
+                pauseId: event.pauseId)
+            server.append(event, body, answers: event.type == .stop ? answers : nil)
+        }
+        server.refold()
+        return server
+    }
+
+    /// `POST /runs/{id}/events` for one of the runs, as `FakeRunBook.record` answers an existing
+    /// run: a replay answers its stored result; any other event is appended and the run refolded.
+    private static func record(
+        _ run: Run, _ request: HTTPRequest, headers: HTTPHeaders,
+        appendToFeed: (_ kind: String, _ key: String, Any) -> Void
+    ) -> HTTPResponse {
+        guard let data = request.body, let body = try? WireCoding.decoder().decode(RunEventInDTO.self, from: data),
+            let type = RunEventType(rawValue: body.type), type != .start, let at = RunInstant.parse(body.at)
+        else {
+            let problem: [String: Any] = ["code": "invalid_request", "detail": "bad body", "errors": []]
+            return HTTPResponse(
+                status: 422, headers: headers, body: (try? JSONSerialization.data(withJSONObject: problem)) ?? Data())
+        }
+        let event = RunEvent(
+            id: body.id.lowercased(), type: type, at: at, seg: body.seg, step: body.step,
+            pauseId: body.pauseId?.lowercased(), target: body.target?.lowercased())
+        let outcome = book.withLock { book in
+            var server = book.runs[run.id] ?? serverRun(run)
+            if server.bodies[event.id] != nil { return server.outcome(event.id, status: 200, entryChanged: false) }
+            let before = server.entry
+            server.append(event, body, answers: nil)
+            server.refold()
+            book.runs[run.id] = server
+            let outcome = server.outcome(event.id, status: 200, entryChanged: server.entry != before)
+            if let entry = outcome.feedEntry { book.changed[run.id] = Data(entry.utf8) }
+            return outcome
+        }
+        if let entry = outcome.feedEntry, let object = try? JSONSerialization.jsonObject(with: Data(entry.utf8)) {
+            appendToFeed("entry", "entry", object)
+        }
+        switch outcome.result {
+        case .answer(let status, let json):
+            return HTTPResponse(status: status, headers: headers, body: json)
+        case .problem(let status, let code, let detail, _):
+            let problem: [String: Any] = ["code": code, "detail": detail, "errors": []]
+            return HTTPResponse(
+                status: status, headers: headers, body: (try? JSONSerialization.data(withJSONObject: problem)) ?? Data()
+            )
+        }
     }
 }
 #endif

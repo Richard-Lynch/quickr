@@ -96,8 +96,10 @@ enum FakeTiming {
     static func route(
         _ request: HTTPRequest, headers: HTTPHeaders, appendToFeed: (_ kind: String, _ key: String, Any) -> Void
     ) -> HTTPResponse? {
-        // T2-M4: `-QuickrSeedTypedTopic`'s reads (`FakeLapTypes`)
-        if let response = FakeLapTypes.route(request, headers: headers) { return response }
+        // T2-M4: `-QuickrSeedTypedTopic`'s reads and run events (`FakeLapTypes`)
+        if let response = FakeLapTypes.route(request, headers: headers, appendToFeed: appendToFeed) {
+            return response
+        }
         // end T2-M4
         guard isEnabled else { return nil }
         let path = request.url.path()
