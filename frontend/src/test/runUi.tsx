@@ -67,6 +67,7 @@ export function timedTopic(opts: { steps?: TimerStep[] | null; questions?: Quest
     schedule_updated_at: null,
     due: null,
     timer: steps === null ? null : { steps },
+    last_entry: null,
     questions,
   };
   const versions: TopicVersionOut[] = [

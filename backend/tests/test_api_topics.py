@@ -366,3 +366,84 @@ async def test_list_topics_loads_timers_without_a_query_per_topic(client: httpx.
         event.remove(engine, "before_cursor_execute", count)
     assert [t["timer"] for t in page["items"]] == [steps] * 4
     assert len(statements) == 1  # the page's one joined select
+
+
+# --- T2-M4: TopicSummary.last_entry (content-display.md §2) -----------------------------
+
+SLEEP = {"hours": 7.5, "wakeups": 1, "quality": "ok"}
+LOW_ID = "00000000-0000-4000-8000-000000000001"
+HIGH_ID = "00000000-0000-4000-8000-000000000002"
+
+
+async def test_last_entry_is_the_latest_counted_entry(client: httpx.AsyncClient) -> None:
+    t = await make_topic(client)
+    assert t["last_entry"] is None
+    assert (await client.get("/topics/sleep-log")).json()["last_entry"] is None
+    assert (await client.get("/topics")).json()["items"][0]["last_entry"] is None
+    before_entries = (await client.get("/changes", params={"after": 0})).json()["head"]
+
+    e1 = await record(client, "sleep-log", SLEEP, captured_at="2026-03-01T08:00:00Z")
+    # Latest by captured_at, then by id (descending): insertion order does not count.
+    high = await record(client, "sleep-log", SLEEP, id=HIGH_ID, captured_at="2026-03-02T08:00:00Z")
+    low = await record(client, "sleep-log", SLEEP, id=LOW_ID, captured_at="2026-03-02T08:00:00Z")
+    await record(client, "sleep-log", {**SLEEP, "dream": "earlier"}, captured_at="2026-02-01T08:00:00Z")
+    assert (await client.get("/topics/sleep-log")).json()["last_entry"] == high
+    assert (await client.get("/topics")).json()["items"][0]["last_entry"] == high
+    assert high["answers"]  # the whole EntryOut, answers included
+    # Creating entries does not re-send the topic either.
+    created = (await client.get("/changes", params={"after": before_entries})).json()
+    assert [i["kind"] for i in created["items"]] == ["entry"] * 4
+
+    # The feed's topic item carries it too.
+    feed = (await client.get("/changes", params={"after": 0})).json()
+    topic_items = [i for i in feed["items"] if i["kind"] == "topic"]
+    assert [i["topic"]["last_entry"] for i in topic_items] == [high]
+
+    # It follows updates and deletes, back to null...
+    r = await client.patch(f"/entries/{HIGH_ID}", json={"notes": "edited"})
+    assert r.status_code == 200, r.text
+    assert (await client.get("/topics/sleep-log")).json()["last_entry"] == r.json()
+    assert (await client.delete(f"/entries/{HIGH_ID}")).status_code == 204
+    assert (await client.get("/topics/sleep-log")).json()["last_entry"] == low
+    assert (await client.delete(f"/entries/{LOW_ID}")).status_code == 204
+    assert (await client.get("/topics")).json()["items"][0]["last_entry"] == e1
+    for entry in (await client.get("/topics/sleep-log/entries")).json()["items"]:
+        assert (await client.delete(f"/entries/{entry['id']}")).status_code == 204
+    assert (await client.get("/topics/sleep-log")).json()["last_entry"] is None
+    # ...but, like entry_count, it is derived: none of that re-sent the topic through the feed.
+    tail = (await client.get("/changes", params={"after": feed["head"]})).json()
+    assert tail["items"] == []  # the edited entry was deleted later on the page: latest seq wins
+    assert sorted(d["kind"] for d in tail["deleted"]) == ["entry"] * 4
+
+
+async def test_list_topics_loads_last_entries_without_a_query_per_topic(client: httpx.AsyncClient) -> None:
+    engine = get_engine().sync_engine
+
+    async def page_statements() -> tuple[list[dict[str, Any]], list[str]]:
+        statements: list[str] = []
+
+        def count(conn: Any, cursor: Any, statement: str, *_: Any) -> None:
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", count)
+        try:
+            page = (await client.get("/topics")).json()
+        finally:
+            event.remove(engine, "before_cursor_execute", count)
+        items: list[dict[str, Any]] = page["items"]
+        return items, statements
+
+    await make_topic(client, "Topic 0")
+    await record(client, "topic-0", SLEEP)
+    one_topic, for_one = await page_statements()
+    for i in range(1, 5):
+        await make_topic(client, f"Topic {i}")
+        await record(client, f"topic-{i}", SLEEP, notes=f"entry {i}")
+    five_topics, for_five = await page_statements()
+
+    assert [len(t["last_entry"]["answers"]) for t in one_topic] == [3]
+    notes = ["", "entry 1", "entry 2", "entry 3", "entry 4"]
+    assert sorted(t["last_entry"]["notes"] for t in five_topics) == notes
+    # One joined select for the page, then one answers load for all of its entries, whatever the page size.
+    assert len(for_five) == len(for_one)
+    assert sum("FROM answers" in s for s in for_five) == 1

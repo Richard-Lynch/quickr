@@ -30,6 +30,7 @@ const topic: TopicDetail = {
   schedule_updated_at: null,
   due: null,
   timer: null,
+  last_entry: null,
   questions: [
     { ...question, help_text: null, min: null, max: null, unit: null },
   ] as TopicDetail['questions'],
