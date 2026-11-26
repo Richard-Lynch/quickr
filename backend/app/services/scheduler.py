@@ -55,9 +55,10 @@ from app.models import Answer, Entry, PushSlotDelivery, Run, RunStatus, Topic, T
 from app.schemas.api import QuickLogDescriptor
 from app.schemas.questions import Question
 from app.services import push as push_svc
+from app.services.appearance import reminder_title
 from app.services.feed import feed_identity
-from app.services.notification import MAX_SHOWN_OPTIONS, descriptor
-from app.services.push import Notification
+from app.services.notification import MAX_SHOWN_OPTIONS, descriptor, truncate
+from app.services.push import Notification, apns
 from app.services.quicklog import QuickLogChips, QuickLogNumber, quick_log_for
 from app.services.schedule import compute_due, due_message, parse_schedule
 from app.services.topics import parse_questions
@@ -96,6 +97,7 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
                 Topic.id,
                 Topic.slug,
                 Topic.name,
+                Topic.icon,
                 Topic.current_version,
                 Topic.schedule,
                 func.coalesce(Topic.schedule_updated_at, Topic.created_at),
@@ -114,7 +116,7 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
         ).all()
     )
     due: list[tuple[datetime, UUID, str, str, int, str]] = []
-    for topic_id, slug, name, version, raw_schedule, since, last_notified, last_entry_at in rows:
+    for topic_id, slug, name, icon, version, raw_schedule, since, last_notified, last_entry_at in rows:
         if topic_id in timing:
             continue  # an open run: no reminder, and the slot stays unmarked (timers.md §10.1)
         schedule = parse_schedule(raw_schedule)
@@ -124,7 +126,7 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
         if not status.is_due or status.due_since is None or status.due_since == last_notified:
             continue
         message = due_message(schedule, status.due_since, now)
-        due.append((status.due_since, topic_id, slug, name, version, message))
+        due.append((status.due_since, topic_id, slug, reminder_title(name, icon), version, message))
     due.sort(key=lambda t: t[0])  # oldest slot first (stable: then creation order)
 
     # Every read happens before any send (no query may autoflush mid-tick), and before the
@@ -137,12 +139,12 @@ async def tick(db: AsyncSession, *, now: datetime | None = None) -> int:
             db, [(topic_id, version) for _, topic_id, _, _, version, _ in due]
         )
         quick_logs = await prepare_quick_logs(db, questions, timed=timed)
-        for due_since, topic_id, slug, name, version, message in due:
+        for due_since, topic_id, slug, title, version, message in due:
             notification = reminder(
                 server_id=server_id,
                 topic_id=topic_id,
                 slug=slug,
-                name=name,
+                title=title,
                 version=version,
                 due_since=due_since,
                 message=message,
@@ -187,16 +189,18 @@ def reminder(
     server_id: str,
     topic_id: UUID,
     slug: str,
-    name: str,
+    title: str,
     version: int,
     due_since: datetime,
     message: str,
     quick_log: QuickLogDescriptor | None,
 ) -> Notification:
-    """The due notification for one topic's slot (also sent by ``scripts/send_reminder.py``)."""
+    """The due notification for one topic's slot (also sent by ``scripts/send_reminder.py``).
+    ``title`` is ``appearance.reminder_title(name, icon)``, cut here to 120 scalars from the end
+    (so the emoji stays) for both channels: Web Push sends it as is, APNs would cut it the same."""
     return Notification(
         kind="due",
-        title=name,
+        title=truncate(title, apns.MAX_TITLE_LENGTH),
         body=message,
         url=f"/t/{slug}/record",
         tag=f"due-{topic_id}",

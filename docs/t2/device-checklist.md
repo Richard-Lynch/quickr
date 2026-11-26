@@ -34,6 +34,30 @@ signed in to the same server.
 
 ## M1 · timers v2
 
+- [ ] **Time Sensitive signing proof (I1-SIGNING, `v0.4.0-rc1`).** The
+      orchestrator asks for this once it has tagged `v0.4.0-rc1` from `feat/t2`
+      (after M1 merged there with all five checks green). Expected: the
+      `testflight.yml` run for the tag signs, exports and uploads; its log shows
+      automatic provisioning (`-allowProvisioningUpdates` with the App Store
+      Connect key) and no entitlement or profile error;
+      `codesign -d --entitlements - <QuickR.app>` on the exported app (or, when
+      the export uploads without a local copy, the build's Build Metadata →
+      Entitlements in App Store Connect) lists
+      `com.apple.developer.usernotifications.time-sensitive = true`. Install the
+      rc build (it shows the non-blocking "server is older" note against the
+      level-1 server; the T2 features don't work, which is expected) and confirm
+      that the Settings → Notifications → QuickR page offers **Time Sensitive
+      Notifications**. The lap alert under a Focus is the "Alert under a Focus"
+      item below: it needs T2 timers, so a level-2 server, so it runs on the
+      `v0.4.0` build. The rc bot PR `compat/testflight-<build>` merges into
+      `main` as usual.
+- [ ] **Fallback if rc1 fails to sign on the entitlement.** Flip the one
+      constant, `RunAlerts.interruptionLevel = .active`
+      (`ios/QuickrKit/Sources/QuickrData/Notifications/RunAlerts.swift`), and
+      remove the `com.apple.developer.usernotifications.time-sensitive` line
+      from the T2-M1 block of `ios/project.yml` (timers2.md §9.1: a TestFlight
+      build never fails on the entitlement), in a small PR on `feat/t2`; tell
+      the orchestrator; then the Apple portal step at the end of this section.
 - [ ] **Locked-screen lap alert, sound and haptic.** Start `Intervals`, tap Lap
       so the open lap is `Rest 1`, lock the phone. Expected: at 30 s a
       notification "Half way · Rest 1" with the default sound and the system
@@ -57,9 +81,12 @@ signed in to the same server.
       for `Smoke` reappears by push-to-start within a few seconds and shows
       Running with a pause row for the gap.
 - [ ] **Apple portal step (only if I1-SIGNING fell back).** In the developer
-      portal, enable Time Sensitive Notifications on the App ID, regenerate the
-      profile, re-run `testflight.yml`. Expected: the next build sounds under
-      Focus.
+      portal (Certificates, Identifiers & Profiles → Identifiers →
+      `com.bahumia.quickr` → Capabilities), enable Time Sensitive Notifications
+      on the App ID and save; automatic signing regenerates the profile on the
+      next archive. Then restore `.timeSensitive` and the entitlement line in
+      one PR, re-run `testflight.yml`. Expected: the build signs and the next
+      build sounds under Focus.
 
 ## M2 · active surfaces
 

@@ -1,5 +1,13 @@
 {
   "body": {
+    "appearance": {
+      "color": "amber",
+      "icon": null,
+      "tags": [
+        "Habit",
+        "health"
+      ]
+    },
     "archived_at": null,
     "created_at": "2026-06-01T12:00:00.123456Z",
     "current_version": 1,

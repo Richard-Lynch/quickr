@@ -6,69 +6,67 @@ import Testing
 @testable import QuickrUI
 
 /// The theme API of appearance.md §4.1 and the `TopicColors.xcassets` catalogue against the palette
-/// of §3.1. M3-TOKENS reads the table copied below; M3-DB repoints `palette` at
-/// `shared/fixtures/appearance-vectors.json` once the generator exists.
+/// in `shared/fixtures/appearance-vectors.json` (generated from the server's §3.1 table).
 @Suite(.timeLimit(.minutes(2))) struct TopicThemeTests {
     static let catalog = TokenDriftTests.repo.appending(
         path: "ios/QuickrKit/Sources/QuickrUI/Resources/TopicColors.xcassets")
 
-    struct Swatch {
+    struct Swatch: Decodable {
         let tint: String
         let tintSoft: String
         let onTint: String
+
+        enum CodingKeys: String, CodingKey {
+            case tint
+            case tintSoft = "tint_soft"
+            case onTint = "on_tint"
+        }
     }
 
-    /// appearance.md §3.1, in palette order: name, light, dark.
-    static let palette: [(ColorName, light: Swatch, dark: Swatch)] = [
-        (
-            .red, Swatch(tint: "#c2362b", tintSoft: "#f8dcd8", onTint: "#ffffff"),
-            Swatch(tint: "#ff7b6e", tintSoft: "#3b1714", onTint: "#1b0d04")
-        ),
-        (
-            .orange, Swatch(tint: "#c2470a", tintSoft: "#fde4d4", onTint: "#ffffff"),
-            Swatch(tint: "#ff7a2e", tintSoft: "#3a2214", onTint: "#1b0d04")
-        ),
-        (
-            .amber, Swatch(tint: "#9e5406", tintSoft: "#fbe7c6", onTint: "#ffffff"),
-            Swatch(tint: "#f0a63a", tintSoft: "#3a2a0e", onTint: "#1b1204")
-        ),
-        (
-            .yellow, Swatch(tint: "#f2c230", tintSoft: "#fbf0c4", onTint: "#1b1915"),
-            Swatch(tint: "#f5cf4f", tintSoft: "#3a3110", onTint: "#1b1804")
-        ),
-        (
-            .lime, Swatch(tint: "#4f7a0c", tintSoft: "#e6f2cc", onTint: "#ffffff"),
-            Swatch(tint: "#a9d64c", tintSoft: "#243410", onTint: "#101a04")
-        ),
-        (
-            .green, Swatch(tint: "#2f7d4f", tintSoft: "#dcefe2", onTint: "#ffffff"),
-            Swatch(tint: "#5cc28a", tintSoft: "#173323", onTint: "#04170c")
-        ),
-        (
-            .teal, Swatch(tint: "#19786f", tintSoft: "#d4eeea", onTint: "#ffffff"),
-            Swatch(tint: "#4fc4b7", tintSoft: "#113330", onTint: "#04201c")
-        ),
-        (
-            .cyan, Swatch(tint: "#1c7fa3", tintSoft: "#d6ecf5", onTint: "#ffffff"),
-            Swatch(tint: "#5cc0e8", tintSoft: "#113040", onTint: "#041a26")
-        ),
-        (
-            .blue, Swatch(tint: "#2f5f8f", tintSoft: "#dce7f2", onTint: "#ffffff"),
-            Swatch(tint: "#7fb1e3", tintSoft: "#16283a", onTint: "#071624")
-        ),
-        (
-            .indigo, Swatch(tint: "#4a3aa7", tintSoft: "#e3dff6", onTint: "#ffffff"),
-            Swatch(tint: "#9085e9", tintSoft: "#1f1a3d", onTint: "#0d0a24")
-        ),
-        (
-            .violet, Swatch(tint: "#7a3c9e", tintSoft: "#ecdff4", onTint: "#ffffff"),
-            Swatch(tint: "#c08ae0", tintSoft: "#2d1a3a", onTint: "#1b0a26")
-        ),
-        (
-            .pink, Swatch(tint: "#b8386e", tintSoft: "#f8dde9", onTint: "#ffffff"),
-            Swatch(tint: "#ec84b1", tintSoft: "#3a1728", onTint: "#260a18")
-        ),
-    ]
+    // T2-M3: the palette of appearance-vectors.json (appearance.md §3.2, §3.3)
+    struct Vectors: Decodable {
+        struct Meta: Decodable {
+            let colors: [String]
+            let minContrast: Double
+
+            enum CodingKeys: String, CodingKey {
+                case colors
+                case minContrast = "min_contrast"
+            }
+        }
+
+        struct Entry: Decodable {
+            let name: String
+            let light: Swatch
+            let dark: Swatch
+        }
+
+        let meta: Meta
+        let palette: [Entry]
+    }
+
+    static let vectors: Vectors = {
+        let url = TokenDriftTests.repo.appending(path: "shared/fixtures/appearance-vectors.json")
+        do {
+            return try JSONDecoder().decode(Vectors.self, from: Data(contentsOf: url))
+        } catch {
+            fatalError("appearance-vectors.json: \(error)")
+        }
+    }()
+
+    /// In palette order: name, light, dark. A name the app doesn't know stops the suite.
+    static let palette: [(ColorName, light: Swatch, dark: Swatch)] = vectors.palette.map { entry in
+        guard let name = ColorName(rawValue: entry.name) else { fatalError("unknown colour \(entry.name)") }
+        return (name, entry.light, entry.dark)
+    }
+
+    @Test func thePaletteIsTheVectorsTwelveNames() {
+        #expect(Self.vectors.meta.colors.count == 12)
+        #expect(Self.vectors.palette.map(\.name) == Self.vectors.meta.colors)
+        #expect(ColorName.allCases.map(\.rawValue) == Self.vectors.meta.colors)
+        #expect(Self.vectors.meta.minContrast == 4.5)
+    }
+    // end T2-M3
 
     @Test func nilAppearanceIsTheDefaultTheme() {
         let theme = TopicTheme(appearance: nil, name: "Water")
@@ -130,8 +128,8 @@ import Testing
 
     @Test func onTintOnTintReadsAt4Point5ToOne() {
         for (name, light, dark) in Self.palette {
-            #expect(Self.contrast(light.onTint, light.tint) >= 4.5, "\(name) light")
-            #expect(Self.contrast(dark.onTint, dark.tint) >= 4.5, "\(name) dark")
+            #expect(Self.contrast(light.onTint, light.tint) >= Self.vectors.meta.minContrast, "\(name) light")
+            #expect(Self.contrast(dark.onTint, dark.tint) >= Self.vectors.meta.minContrast, "\(name) dark")
         }
     }
 

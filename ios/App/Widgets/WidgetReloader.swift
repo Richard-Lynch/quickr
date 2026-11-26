@@ -15,18 +15,23 @@ final class WidgetReloader {
     private var controls = WidgetReloadGate<ControlFingerprint>()
     private let reloadTimelines: () -> Void
     private let reloadControls: () -> Void
+    private let checked: ([WidgetTopic]) -> Void
     private let settle: Duration
     private var pending: Task<Void, Never>?
 
-    /// Timelines and Controls reload separately, each only when what it shows changed.
+    /// Timelines and Controls reload separately, each only when what it shows changed. `checked`
+    /// gets what each completed check read, after its reloads (a test waits on the state it wrote,
+    /// not on the clock).
     init(
         settle: Duration = .seconds(1),
         reloadTimelines: @escaping () -> Void = { WidgetCenter.shared.reloadAllTimelines() },
-        reloadControls: @escaping () -> Void = { ControlCenter.shared.reloadAllControls() }
+        reloadControls: @escaping () -> Void = { ControlCenter.shared.reloadAllControls() },
+        checked: @escaping ([WidgetTopic]) -> Void = { _ in }
     ) {
         self.settle = settle
         self.reloadTimelines = reloadTimelines
         self.reloadControls = reloadControls
+        self.checked = checked
     }
 
     /// Follows `store` until it closes or the task is cancelled (the next binding follows its own).
@@ -69,6 +74,7 @@ final class WidgetReloader {
             guard !Task.isCancelled else { return }
             if timelines.shouldReload(WidgetFingerprint(shown)) { reloadTimelines() }
             if controls.shouldReload(ControlFingerprint(shown)) { reloadControls() }
+            checked(shown)
         } catch {
             WidgetReloader.log.error("widget state unreadable: \(String(describing: error), privacy: .public)")
         }

@@ -45,6 +45,9 @@ public enum ServerLayer {
                 topic.archivedAt?.unixSeconds, try topic.schedule.map { try StoreJSON.encode(ScheduleDTO($0)) },
                 topic.scheduleUpdatedAt?.unixSeconds, try StoreJSON.encode(topic.questions.map(QuestionDTO.init)),
             ])
+        // T2-M3
+        try TopicAppearance.write(db, topic.appearance, topicId: id, table: layer.table("topic"))
+        // end T2-M3
         return .applied
     }
 

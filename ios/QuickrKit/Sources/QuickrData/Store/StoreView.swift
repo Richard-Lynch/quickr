@@ -58,6 +58,7 @@ public enum StoreView {
             grouping: try OutboxStorage.items(db, entityKind: .topic, entityIds: ids), by: \.entityId)
         return try rows.map { row in
             var topic = try Topic(serverRow: row)
+            topic.appearance = try TopicAppearance(serverRow: row)  // T2-M3
             let id = topic.id.wireString
             let counts = derived[id] ?? Derived()
             topic.entryCount = counts.entryCount
@@ -103,6 +104,7 @@ public enum StoreView {
         let states = try queuedTopicStates(db)
         return try Row.fetchAll(db, sql: "\(topicRows) ORDER BY lower(name), topic.id").map { row in
             var topic = try Topic(serverRow: row)
+            topic.appearance = try TopicAppearance(serverRow: row)  // T2-M3
             let id = topic.id.wireString
             topic.entryCount = 0
             topic.lastCapturedAt = last[id]

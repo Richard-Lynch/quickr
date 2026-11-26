@@ -100,9 +100,11 @@ final class SyncController {
         self.timer = timer
         defer { timer.stop() }
         do {
-            for try await items in store.observeOutbox(refresh: session.refresh.stream()) {
-                self.items = items
-                summary = try? await outbox.summary()
+            // One snapshot for the sheet's rows and the pill's summary (issue #28: a fresh
+            // `outbox.summary()` after the rows could see a later state than they did).
+            for try await snapshot in store.observeOutbox(refresh: session.refresh.stream()) {
+                items = snapshot.items
+                summary = snapshot.summary
                 let topics = (try? await store.topics.topics()) ?? []
                 self.topics = Dictionary(
                     topics.map { ($0.topic.id.uuidString.lowercased(), SyncTopicInfo(name: $0.topic.name)) },
