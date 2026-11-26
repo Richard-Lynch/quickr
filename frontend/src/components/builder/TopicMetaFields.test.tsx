@@ -25,6 +25,7 @@ import {
 import type { TopicCreateBody } from '../../lib/topicAppearanceSeam';
 import { emptyScheduleDraft } from '../../lib/schedule';
 import { SettingsPage } from '../../pages/topic/SettingsPage';
+import { TopicLayout } from '../../pages/topic/TopicLayout';
 import { ToastProvider } from '../ui/Toast';
 import { CURATED_EMOJI } from './AppearanceFields';
 import { TopicMetaFields } from './TopicMetaFields';
@@ -55,6 +56,8 @@ const topic = {
   questions: [],
   appearance,
 } satisfies TopicDetail;
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -315,7 +318,7 @@ describe('SettingsPage appearance PATCH', () => {
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(patches()[0]).toEqual({
       method: 'PATCH',
-      path: '/api/v1/topics/gym',
+      path: `/api/v1/topics/${topic.id}`,
       body: { appearance: { color: 'blue', tags: ['sport'] }, expected_revision: 7 },
     });
   });
@@ -352,7 +355,10 @@ describe('SettingsPage appearance PATCH', () => {
     await user.click(screen.getByRole('button', { name: 'Save details' }));
     await waitFor(() => expect(patches()).toHaveLength(1));
     expect(patches()[0]?.body).toEqual({ appearance: { color: 'blue' }, expected_revision: 7 });
-    expect(await screen.findByText('Changed')).toBeInTheDocument();
+    // This stub can't be re-read (GET 404s).
+    expect(
+      await screen.findByText('This topic was changed elsewhere. Try again.'),
+    ).toBeInTheDocument();
   });
 
   it('puts the server’s 422 paths on the matching field', async () => {
@@ -379,21 +385,33 @@ describe('SettingsPage appearance PATCH', () => {
 
 describe('SettingsPage saves on one topic', () => {
   /**
-   * A server with the topic's revision: every PATCH bumps it, and a details PATCH whose
-   * `expected_revision` isn't current gets 409 `stale_revision`. `external` changes the topic as
-   * another device would.
+   * A server with the topic's revision, found by id or slug: every PATCH bumps it, and a details
+   * PATCH whose `expected_revision` isn't current gets 409 `stale_revision`. `external` changes the
+   * topic as another device would. `beforeDetails` queues one step per details PATCH, run before the
+   * server handles it: another device's write in between, or a reply that replaces the server's.
+   * `failIdLookups` makes lookups by id fail for a while.
    */
   function fakeServer() {
     let current: TopicDetail = { ...topic };
     const details: Record<string, unknown>[] = [];
+    const paths: string[] = [];
+    const steps: (() => Response | undefined)[] = [];
+    let failIdGets = 0;
+    const isCurrent = (path: string) =>
+      path === `/api/v1/topics/${current.id}` || path === `/api/v1/topics/${current.slug}`;
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: Request) => {
         const text = await input.text();
         const body = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-        if (input.method === 'GET' && new URL(input.url).pathname === '/api/v1/topics/gym')
-          return json(200, current);
-        if (input.method !== 'PATCH')
+        const path = new URL(input.url).pathname;
+        paths.push(`${input.method} ${path}`);
+        if (input.method === 'GET' && path === `/api/v1/topics/${current.id}` && failIdGets > 0) {
+          failIdGets--;
+          return json(500, { code: 'internal', detail: 'Server error', errors: [] });
+        }
+        if (input.method === 'GET' && isCurrent(path)) return json(200, current);
+        if (input.method !== 'PATCH' || !isCurrent(path))
           return json(404, { code: 'not_found', detail: 'not found', errors: [] });
         if ('schedule' in body) {
           const sch = body.schedule as { times: string[]; timezone: string };
@@ -413,13 +431,17 @@ describe('SettingsPage saves on one topic', () => {
           return json(200, current);
         }
         details.push(body);
+        const replaced = steps.shift()?.();
+        if (replaced) return replaced;
         if (body.expected_revision !== current.revision)
           return json(409, { code: 'stale_revision', detail: 'Changed elsewhere', errors: [] });
-        const a = (body.appearance ?? {}) as Partial<Appearance>;
+        const { appearance: a, ...meta } = body;
+        delete meta.expected_revision;
         current = {
           ...current,
+          ...(meta as Partial<TopicDetail>),
           revision: current.revision + 1,
-          appearance: { ...current.appearance, ...a },
+          appearance: { ...current.appearance, ...(a as Partial<Appearance> | undefined) },
         };
         return json(200, current);
       }),
@@ -427,7 +449,12 @@ describe('SettingsPage saves on one topic', () => {
     const external = (patch: Partial<TopicDetail>) => {
       current = { ...current, ...patch, revision: current.revision + 1 };
     };
-    return { details, external };
+    const beforeDetails = (...more: (() => Response | undefined)[]) => steps.push(...more);
+    /** The next `n` GETs by id answer 500. */
+    const failIdLookups = (n: number) => {
+      failIdGets = n;
+    };
+    return { details, paths, external, beforeDetails, failIdLookups };
   }
 
   /** The topic comes from the query cache, as in TopicLayout, so this page's own saves reach it. */
@@ -440,13 +467,14 @@ describe('SettingsPage saves on one topic', () => {
     return <Outlet context={{ topic: q.data }} />;
   }
 
-  function renderSettings() {
+  /** `layout: 'app'` uses the app's TopicLayout, which loads the topic by the route's slug. */
+  function renderSettings({ layout }: { layout?: 'app' } = {}) {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const router = createMemoryRouter(
       [
         {
           path: '/t/:ref',
-          element: <Layout />,
+          element: layout === 'app' ? <TopicLayout /> : <Layout />,
           children: [{ path: 'settings', element: <SettingsPage /> }],
         },
       ],
@@ -459,7 +487,7 @@ describe('SettingsPage saves on one topic', () => {
         </ToastProvider>
       </QueryClientProvider>,
     );
-    return { user: userEvent.setup(), qc };
+    return { user: userEvent.setup(), qc, router };
   }
 
   async function saveSchedule(user: ReturnType<typeof userEvent.setup>) {
@@ -508,7 +536,7 @@ describe('SettingsPage saves on one topic', () => {
     await act(() => qc.refetchQueries());
     expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Save details' }));
-    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    expect(await screen.findByText(/^The colour was changed elsewhere/)).toBeInTheDocument();
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
   });
 
@@ -525,7 +553,7 @@ describe('SettingsPage saves on one topic', () => {
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 8 }]);
   });
 
-  it('retries once on the newer revision when an unseen change left the edits alone', async () => {
+  it('re-sends on the newer revision when an unseen change left the edits alone', async () => {
     const server = fakeServer();
     const { user } = renderSettings();
     await user.click(await screen.findByRole('radio', { name: 'Blue' }));
@@ -539,14 +567,212 @@ describe('SettingsPage saves on one topic', () => {
     expect(screen.queryByText('Changed elsewhere')).toBeNull();
   });
 
-  it('shows the conflict when an unseen change touched the edited field', async () => {
+  it('shows the conflict naming the field, then a second save overwrites it', async () => {
     const server = fakeServer();
     const { user } = renderSettings();
     await user.click(await screen.findByRole('radio', { name: 'Blue' }));
-    server.external({ appearance: { ...appearance, color: 'green' } });
+    // Unseen: another device sets the colour and renames the topic.
+    server.external({ name: 'Lifting', appearance: { ...appearance, color: 'green' } });
     await user.click(screen.getByRole('button', { name: 'Save details' }));
-    expect(await screen.findByText('Changed elsewhere')).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        'The colour was changed elsewhere. Your edit is still here; save again to keep it.',
+      ),
+    ).toBeInTheDocument();
     expect(server.details).toEqual([{ appearance: { color: 'blue' }, expected_revision: 7 }]);
+    // The form now stands on the other device's topic, with the colour edit on top.
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Lifting'));
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+  });
+
+  it('re-sends by id over a slug changed elsewhere while only the colour was edited', async () => {
+    const server = fakeServer();
+    const { user, router } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ slug: 'lifting' }); // unseen: /topics/gym is gone
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+    const topicCalls = server.paths.filter((p) => p.startsWith('PATCH') || p.endsWith(topic.id));
+    expect(topicCalls).toEqual([
+      `PATCH /api/v1/topics/${topic.id}`,
+      `GET /api/v1/topics/${topic.id}`,
+      `PATCH /api/v1/topics/${topic.id}`,
+    ]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+    await waitFor(() => expect(router.state.location.pathname).toBe('/t/lifting/settings'));
+  });
+
+  it('follows a slug changed elsewhere in the app layout, keeping the form through a conflict', async () => {
+    const server = fakeServer();
+    const { user, router } = renderSettings({ layout: 'app' });
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    // Another device renames the slug and sets the colour; the 409's invalidation refetches
+    // /topics/gym, which is gone.
+    server.external({ slug: 'lifting', appearance: { ...appearance, color: 'green' } });
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText(/^The colour was changed elsewhere/)).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe('/t/lifting/settings'));
+    expect(screen.queryByText('Topic not found')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    await waitFor(() => expect(screen.getByLabelText('URL slug')).toHaveValue('lifting'));
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+  });
+
+  it('keeps the form when the app layout can’t look up a renamed topic by id', async () => {
+    const server = fakeServer();
+    const { user, router } = renderSettings({ layout: 'app' });
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ slug: 'lifting' });
+    server.failIdLookups(2); // the form's refetch and the layout's lookup
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(
+      await screen.findByText('This topic was changed elsewhere. Try again.'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(server.paths.filter((p) => p.endsWith(topic.id))).toHaveLength(3));
+    expect(screen.queryByText('Topic not found')).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+    expect(router.state.location.pathname).toBe('/t/gym/settings');
+  });
+
+  it('names every field changed elsewhere, in form order', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('button', { name: 'Remove tag morning' }));
+    await user.click(screen.getByRole('button', { name: 'Remove emoji' }));
+    await user.clear(screen.getByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Gymnasium');
+    server.external({
+      name: 'Lifting',
+      appearance: { color: 'red', icon: { kind: 'emoji', value: '🏋️' }, tags: ['strength'] },
+    });
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(
+      await screen.findByText(
+        'The name, emoji and tags were changed elsewhere. Your edits are still here; save again to keep them.',
+      ),
+    ).toBeInTheDocument();
+    expect(server.details).toHaveLength(1);
+  });
+
+  it('re-sends when a field was changed elsewhere to the value being sent', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ appearance: { ...appearance, color: 'blue' } }); // unseen, same colour
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+  });
+
+  it('counts only the fields the save sends: an edit that trims away is no conflict', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.type(await screen.findByLabelText('Name'), ' '); // "Gym " is sent as nothing
+    await user.click(screen.getByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' }); // unseen
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details).toEqual([
+      { appearance: { color: 'blue' }, expected_revision: 7 },
+      { appearance: { color: 'blue' }, expected_revision: 8 },
+    ]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+  });
+
+  it('says so when the topic can’t be re-read after a 409', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' });
+    server.failIdLookups(1);
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(
+      await screen.findByText('This topic was changed elsewhere. Try again.'),
+    ).toBeInTheDocument();
+    expect(server.details).toHaveLength(1);
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+  });
+
+  it('keeps re-sending over two unrelated writes in a row', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    server.external({ name: 'Lifting' });
+    server.beforeDetails(
+      () => undefined,
+      () => {
+        server.external({ description: 'Twice a week' }); // after the refetch
+        return undefined;
+      },
+    );
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(server.details.map((d) => d.expected_revision)).toEqual([7, 8, 9]);
+    expect(server.details.every((d) => sameJson(d.appearance, { color: 'blue' }))).toBe(true);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+  });
+
+  it('gives up after three attempts on a busy topic, with the busy error', async () => {
+    const server = fakeServer();
+    const { user } = renderSettings();
+    await user.click(await screen.findByRole('radio', { name: 'Blue' }));
+    const write = (n: number) => () => {
+      server.external({ description: `Write ${String(n)}` });
+      return undefined;
+    };
+    server.beforeDetails(write(1), write(2), write(3), write(4));
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(
+      await screen.findByText('This topic keeps changing elsewhere. Try again in a moment.'),
+    ).toBeInTheDocument();
+    expect(server.details.map((d) => d.expected_revision)).toEqual([7, 8, 9]);
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+    expect(screen.getByRole('radio', { name: 'Blue' })).toBeChecked();
+  });
+
+  it('keeps tag text not added yet and the 422 field errors over a rebase', async () => {
+    const server = fakeServer();
+    const { user, qc } = renderSettings();
+    await user.clear(await screen.findByLabelText('Name'));
+    await user.type(screen.getByLabelText('Name'), 'Gymnasium');
+    server.beforeDetails(() =>
+      json(422, {
+        code: 'invalid_request',
+        detail: 'Invalid request',
+        errors: [{ loc: ['body', 'name'], message: 'Value error, name is reserved' }],
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Save details' }));
+    expect(await screen.findByText('Name is reserved')).toBeInTheDocument();
+    await user.type(tagInput(), 'yoga'); // typed, not added
+    server.external({ description: 'Twice a week' });
+    await act(() => qc.refetchQueries());
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: /^Description/ })).toHaveValue('Twice a week'),
+    );
+    expect(tagInput()).toHaveValue('yoga');
+    expect(screen.getByLabelText('Name')).toHaveValue('Gymnasium');
+    expect(screen.getByText('Name is reserved')).toBeInTheDocument();
+    expect(screen.getByLabelText('Name')).toHaveAttribute('aria-invalid', 'true');
   });
 
   it('rebases over a change from elsewhere that leaves the details alone', async () => {

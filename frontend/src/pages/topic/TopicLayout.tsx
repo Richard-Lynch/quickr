@@ -1,16 +1,18 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import {
   Link,
   NavLink,
   Outlet,
   useLocation,
+  useNavigate,
   useOutletContext,
   useParams,
   useSearchParams,
 } from 'react-router';
 
 import { errorMessage } from '../../api/errors';
-import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
+import { getTopicOptions, getTopicQueryKey } from '../../client/@tanstack/react-query.gen';
 import type { TopicDetail } from '../../client';
 import { Page, TopBar } from '../../components/AppShell';
 import { Button, ButtonLink } from '../../components/ui/Button';
@@ -20,6 +22,7 @@ import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
 import { TopicGlyph } from '../../components/ui/TopicGlyph';
 import { topicStyle } from '../../lib/appearance';
+import { navigateKeepingPage } from '../../lib/unsavedChanges';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { describeSchedule, dueView } from '../../lib/schedule';
@@ -40,10 +43,50 @@ export function useTopicRef(): string {
   return ref ?? '';
 }
 
+const isNotFound = (error: unknown) => {
+  const p = zProblem.safeParse(error);
+  return p.success && p.data.code === 'not_found';
+};
+
+/**
+ * A slug changed elsewhere makes a refetch of `/t/<old slug>` 404 while the query still holds the
+ * topic. Look it up by its id and move the route to the new slug (seeding its cache, so the page
+ * stays mounted); meanwhile, and while the lookup fails, return the topic last loaded. `null` when
+ * there's nothing to follow, or the topic is gone by id too (deleted): the caller shows the error.
+ */
+function useFollowRename(
+  ref: string,
+  query: { isError: boolean; error: unknown; data: TopicDetail | undefined },
+): TopicDetail | null {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const last = query.data;
+  const lost = query.isError && isNotFound(query.error) && last !== undefined && last.id !== ref;
+  const byId = useQuery({
+    ...getTopicOptions({ path: { ref: last?.id ?? '' } }),
+    enabled: lost,
+    staleTime: 0,
+  });
+  const found = lost && byId.data && byId.data.slug !== ref ? byId.data : null;
+  useEffect(() => {
+    if (!found) return;
+    qc.setQueryData(getTopicQueryKey({ path: { ref: found.slug } }), found);
+    const rest = location.pathname.slice(`/t/${ref}`.length);
+    void navigateKeepingPage(navigate, `/t/${found.slug}${rest}${location.search}`);
+  }, [found, qc, navigate, location.pathname, location.search, ref]);
+  // Only a 404 by id too means it's gone; a failed lookup keeps the page as it was.
+  if (!lost || (byId.isError && isNotFound(byId.error))) return null;
+  return found ?? last;
+}
+
 /** Loads the topic for every /t/:ref route and hands it down via outlet context. */
 export function TopicLayout() {
   const ref = useTopicRef();
   const query = useQuery(getTopicOptions({ path: { ref } }));
+  const moved = useFollowRename(ref, query);
+  // Keep the page (and any unsaved form in it) while a rename elsewhere is being followed.
+  if (moved) return <Outlet context={{ topic: moved } satisfies TopicContext} />;
 
   if (query.isPending && query.fetchStatus === 'paused') {
     return (
