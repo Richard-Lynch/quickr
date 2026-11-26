@@ -203,4 +203,14 @@ extension TopicSettingsModelTests {
         #expect(model.appearance.newTag.isEmpty)
         #expect(model.appearance.tags == ["Gym", "run", "swim"])
     }
+
+    /// Codex phase 2 #2: a sync that only respells a tag reopens the editor from the new spelling.
+    @Test func aRespelledTagFromASyncResetsTheEditor() {
+        let model = themed(saved: TopicAppearance(tags: ["caf\u{E9}"]))
+        var newer = model.topic
+        newer.appearance.tags = ["cafe\u{301}"]
+        model.topicChanged(newer)
+        #expect(Array(model.appearance.tags[0].unicodeScalars) == Array("cafe\u{301}".unicodeScalars))
+        #expect(!model.detailsDirty)
+    }
 }

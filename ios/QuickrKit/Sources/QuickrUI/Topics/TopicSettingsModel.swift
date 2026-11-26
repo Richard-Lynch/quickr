@@ -89,7 +89,8 @@ public final class TopicSettingsModel {
         let old = topic
         topic = newer
         if (old.name, old.slug, old.description) != (newer.name, newer.slug, newer.description)
-            || old.appearance != newer.appearance
+            // Code point by code point: a respelled tag is a change (the filter matches spelling).
+            || AppearanceDraft(old.appearance).differs(from: newer.appearance)
         {
             resetDetails()
         }
