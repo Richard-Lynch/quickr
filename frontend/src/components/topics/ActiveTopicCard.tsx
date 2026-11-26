@@ -72,10 +72,12 @@ export const isResuming: (run: LocalRun) => boolean = () => false;
 
 /**
  * The controls row's buttons: 56 px, as `Button size="lg"`, tinted or semantic per §6.2. A long
- * label ("Next: {long step}") wraps to a second line rather than being cut off.
+ * label ("Next: {long step}") wraps to a second line rather than being cut off. A disabled
+ * button still takes the tap (no `pointer-events-none`), so a tap in the cooldown never falls
+ * through to the card's link.
  */
 const CONTROL =
-  'inline-flex min-h-14 select-none items-center justify-center gap-2 rounded-full py-2 text-center text-base leading-tight font-semibold transition-[background-color,filter,transform] duration-150 active:scale-[0.97] motion-reduce:transform-none disabled:pointer-events-none disabled:opacity-50';
+  'inline-flex min-h-14 select-none items-center justify-center gap-2 rounded-full py-2 text-center text-base leading-tight font-semibold transition-[background-color,filter,transform] duration-150 active:scale-[0.97] motion-reduce:transform-none disabled:cursor-not-allowed disabled:opacity-50';
 
 export function ActiveTopicCard({
   topic,
@@ -188,7 +190,7 @@ export function ActiveTopicCard({
                 )}
               >
                 <Icon name={primary.icon} className="size-5 shrink-0" strokeWidth={2.6} />
-                <span className="min-w-0">{primary.title}</span>
+                <span className="min-w-0 [overflow-wrap:anywhere]">{primary.title}</span>
               </button>
             ) : null}
             {stop ? (

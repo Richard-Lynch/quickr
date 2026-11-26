@@ -157,6 +157,18 @@ describe('the active card', () => {
     expect(within(card).getAllByRole('button', { name: /^Stop/ })).toHaveLength(1);
   });
 
+  it('a disabled control still takes the tap: it never falls through to the card’s link', () => {
+    const controls = controlsOf();
+    const card = renderCard(runOf(), {
+      ...controls,
+      primary: controls.primary && { ...controls.primary, disabled: true },
+    });
+    const primary = within(card).getByTestId('card-primary');
+    expect(primary.className).not.toMatch(/pointer-events-none/);
+    // A long unbroken label breaks inside the button rather than being clipped.
+    expect(within(primary).getByText('Next: Breakfast')).toHaveClass('[overflow-wrap:anywhere]');
+  });
+
   it('shows no controls row without controls', () => {
     const card = renderCard(runOf(), { primary: null, stop: null, pauseResume: null });
     expect(within(card).queryAllByRole('button')).toEqual([]);

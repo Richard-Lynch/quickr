@@ -157,6 +157,23 @@ describe('"Active now" on the topics page', () => {
     expect(h.server.events().map((e) => e.type)).toEqual(['next']);
   });
 
+  it('shares the cooldown across surfaces: a tap on the running bar disables the card', async () => {
+    h = renderRunApp('/', dueMorning(), (s) => seedRun(s), [vitamins]);
+    const active = await screen.findByRole('region', { name: /Active now/ });
+    await waitFor(() => expect(within(active).getByTestId('card-primary')).toBeEnabled());
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    const bar = screen.getByRole('region', { name: 'Running' });
+    await userEvent.click(within(bar).getByRole('button', { name: 'Next: Breakfast · Morning' }));
+    // Enqueued and sent, and the card still holds off for the rest of the cooldown.
+    await waitFor(() => expect(h?.server.events()).toHaveLength(1), { timeout: 4000 });
+    const card = section('Active now');
+    expect(within(card).getByTestId('card-primary')).toBeDisabled();
+    expect(within(card).getByTestId('card-stop')).toBeDisabled();
+    await waitFor(() =>
+      expect(within(section('Active now')).getByTestId('card-stop')).toBeEnabled(),
+    );
+  });
+
   it('pauses and resumes from the title row', async () => {
     h = renderRunApp('/', dueMorning(), (s) => seedRun(s), [vitamins]);
     const active = await screen.findByRole('region', { name: /Active now/ });
