@@ -1,0 +1,92 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "4D2AB48C-DD75-481D-AF43-207ACA0D9FB8",
+        "deviceName" : "quickR iOS-26-0 t2-m3a-i3edit-db8e01",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 6,
+      "passedTests" : 16,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 6,
+  "finishTime" : 1795678399.713,
+  "passedTests" : 16,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795677577.025,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 14,
+      "testIdentifierString" : "TopicUITests/testANewSlugKeepsAnUnsavedSchedule()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+      "testName" : "testANewSlugKeepsAnUnsavedSchedule()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 17,
+      "testIdentifierString" : "TopicUITests/testCreateATopicOpensItsRecordScreen()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+      "testName" : "testCreateATopicOpensItsRecordScreen()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 19,
+      "testIdentifierString" : "TopicUITests/testOfflineSaysItNeedsAConnection()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+      "testName" : "testOfflineSaysItNeedsAConnection()"
+    },
+    {
+      "failureText" : "Failed to not hittable: Button, {{24.0, 394.0}, {354.0, 56.0}}, identifier: 'onboarding.done', label: 'Not now'",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 11,
+      "testIdentifierString" : "SettingsUITests/testOnboardingWithAServiceToken()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testOnboardingWithAServiceToken",
+      "testName" : "testOnboardingWithAServiceToken()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 22,
+      "testIdentifierString" : "TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+      "testName" : "testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()"
+    },
+    {
+      "failureText" : "Failed to not hittable: Button, {{16.0, 554.3}, {370.0, 52.0}}, identifier: 'settings.removeToken', label: 'Remove token'",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 13,
+      "testIdentifierString" : "SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain",
+      "testName" : "testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 22
+}
