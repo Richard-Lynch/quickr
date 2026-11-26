@@ -254,11 +254,14 @@ append-only. Each milestone registers its migrations in **its own file**
 (M2 and M4 have none) with identifiers `t2m1_*`, `t2m3_*`, `t2m3b_*`, and the
 registration line in `StoreSchema.swift` is added **at merge time by whoever
 merges** the milestone into `feat/t2` (an integration step of the merge ritual,
-review E4), never on a WP branch. Identifiers are independent: no migration
-reads another milestone's columns, so either merge order is valid; the first iOS
-WP that merges second (I3-STORE if M1 lands first, else I1-SYNC) adds
-`StoreMigrationOrderTests`, which upgrades a fresh store with both registration
-orders and asserts the same schema.
+review E4), never on a WP branch. Migrations run M1 first:
+`migrations = … + t2m1Migrations + t2m3Migrations`. `t2m3_topic_appearance`
+restarts staging in every server-layer table, including M1's
+`t2m1ServerLayerTables`, so it needs M1's tables to exist (found at the M3a
+merge; the registration lines also landed on `t2/m3a` before the merge, since a
+branch whose store reads new columns can't sync without them).
+`StoreMigrationOrderTests` asserts the order, a fresh store's schema, and the
+upgrade re-pull.
 
 **Shared files.** `ios/App/AppEnvironment.swift`, `ios/App/RootView.swift`,
 `ios/project.yml`, `ios/App/Debug/UITestLaunch.swift` (fake server routes),
