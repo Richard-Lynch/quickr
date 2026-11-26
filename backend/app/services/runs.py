@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -69,6 +69,7 @@ from app.schemas.api import (
     FieldIssue,
     RunDevice,
     RunEventIn,
+    RunEventKind,
     RunEventOut,
     RunEventResult,
     RunEventResultEvent,
@@ -138,7 +139,8 @@ async def run_out(db: AsyncSession, run: Run) -> RunOut:
         events=[
             RunEventOut(
                 id=e.id,
-                type=e.type.value,
+                # `reopen`/`remove` rows can't exist until fold v4 accepts them (M1-FOLD).
+                type=cast("RunEventKind", e.type.value),
                 at=e.at,
                 seg=e.seg,
                 step=e.step,
@@ -437,7 +439,7 @@ def _fold(run: Run, version: TopicVersion, events: Sequence[RunEvent]) -> run_fo
         [
             run_fold.Event(
                 id=str(e.id),
-                type=e.type.value,
+                type=cast("run_fold.EventType", e.type.value),  # as above (M1-FOLD)
                 at=run_fold.to_ms(e.at),
                 seg=e.seg,
                 step=e.step,

@@ -11,7 +11,7 @@ from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from app.mcp_server import mcp
-from tests.helpers import backdate_schedule, sleep_questions
+from tests.helpers import backdate_schedule, normal_timer, sleep_questions
 from tests.test_api_runs import frozen_clock
 
 
@@ -135,9 +135,31 @@ async def test_topic_outputs_carry_the_current_versions_timer(mcp_client: Client
     steps = {"steps": [{"key": "pour", "label": "Pour"}]}
     await call(mcp_client, "create_topic", name="Coffee", questions=[], timer=steps)
     await call(mcp_client, "create_topic", name="Plain", questions=[])
+    steps = normal_timer(steps)
     assert (await call(mcp_client, "get_topic", ref="coffee"))["timer"] == steps
     listed = await call(mcp_client, "list_topics", sort="name")
     assert [(t["slug"], t["timer"]) for t in listed["items"]] == [("coffee", steps), ("plain", None)]
+
+    # The v2 Timer (timers2.md §7.3, T28): lap types, variables and alerts, normalised.
+    v2 = {
+        "steps": [],
+        "laps": [{"key": "run", "label": "Run", "alerts": [{"key": "half", "label": "Half", "at": "T/2"}]}],
+        "variables": [{"name": "T", "ms": 60_000}],
+    }
+    created = await call(mcp_client, "create_topic", name="Intervals", questions=[], timer=v2)
+    assert created["timer"] == normal_timer(v2)
+    assert created["timer"]["laps"][0]["alerts"][0]["at_ms"] == 30_000
+    assert created["timer"]["variables"] == [{"name": "t", "ms": 60_000}]
+    with pytest.raises(ToolError, match="unknown_variable at 0"):
+        await mcp_client.call_tool(
+            "publish_topic_version",
+            {
+                "ref": "intervals",
+                "questions": [],
+                "base_version": 1,
+                "timer": {**v2, "variables": [{"name": "u", "ms": 1}]},
+            },
+        )
 
 
 async def test_record_entry_errors_include_field_details(mcp_client: Client[Any]) -> None:
@@ -317,6 +339,7 @@ async def test_publish_requires_timer(mcp_client: Client[Any]) -> None:
         mcp_client, "publish_topic_version", ref="dishwasher", questions=qs, base_version=2, timer=None
     )
     versions = (await mcp_client.call_tool("list_topic_versions", {"ref": "dishwasher"})).structured_content
+    timer = normal_timer(timer)
     assert [v["timer"] for v in versions["result"]] == [None, timer, timer]  # type: ignore[index]
 
 

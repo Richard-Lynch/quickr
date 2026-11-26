@@ -23,7 +23,7 @@ import {
   type DraftQuestion,
   type DraftStep,
 } from './builder';
-import type { Timer } from '../client';
+import type { TimerInput as Timer } from '../client';
 import { QUESTION_TYPES, type Question } from './questions';
 import { constraintText } from './questionSummary';
 

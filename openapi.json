@@ -4388,6 +4388,95 @@
   },
   "components": {
     "schemas": {
+      "Alert-Input": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "at": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "At",
+            "description": "An alert time over the timer's variables (timers2.md \u00a72): `t/2`, `t+30s`, `1.5m`. 1..64 characters.",
+            "examples": [
+              "t/2"
+            ]
+          },
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Output only: ``at`` evaluated over the timer's variables, in ms. A sent value is ignored.",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "at"
+        ],
+        "title": "Alert",
+        "description": "A cue that fires when its segment's active time reaches ``at_ms``."
+      },
+      "Alert-Output": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "at": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "At",
+            "description": "An alert time over the timer's variables (timers2.md \u00a72): `t/2`, `t+30s`, `1.5m`. 1..64 characters.",
+            "examples": [
+              "t/2"
+            ]
+          },
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Output only: ``at`` evaluated over the timer's variables, in ms. A sent value is ignored.",
+            "default": 0
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "at",
+          "at_ms"
+        ],
+        "title": "Alert",
+        "description": "A cue that fires when its segment's active time reaches ``at_ms``."
+      },
       "ApnsDeviceIn": {
         "properties": {
           "token": {
@@ -6527,6 +6616,77 @@
         "title": "IntervalSchedule",
         "description": "Due ``every_minutes`` after the latest entry."
       },
+      "LapType-Input": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/Alert-Input"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Alerts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "LapType",
+        "description": "A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two\nor more alternate). Its key is its identity across versions, as a step's is."
+      },
+      "LapType-Output": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/Alert-Output"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Alerts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "alerts"
+        ],
+        "title": "LapType",
+        "description": "A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two\nor more alternate). Its key is its identity across versions, as a step's is."
+      },
       "Limits": {
         "properties": {
           "key_pattern": {
@@ -6644,6 +6804,41 @@
             "type": "integer",
             "title": "Interval Max Minutes",
             "default": 129600
+          },
+          "max_steps": {
+            "type": "integer",
+            "title": "Max Steps",
+            "default": 30
+          },
+          "max_lap_types": {
+            "type": "integer",
+            "title": "Max Lap Types",
+            "default": 8
+          },
+          "max_variables": {
+            "type": "integer",
+            "title": "Max Variables",
+            "default": 16
+          },
+          "max_alerts": {
+            "type": "integer",
+            "title": "Max Alerts",
+            "default": 8
+          },
+          "max_expr_length": {
+            "type": "integer",
+            "title": "Max Expr Length",
+            "default": 64
+          },
+          "max_var_name_length": {
+            "type": "integer",
+            "title": "Max Var Name Length",
+            "default": 16
+          },
+          "max_short_label_length": {
+            "type": "integer",
+            "title": "Max Short Label Length",
+            "default": 64
           }
         },
         "additionalProperties": false,
@@ -6671,7 +6866,14 @@
           "captured_at_max_future_hours",
           "schedule_max_times",
           "interval_min_minutes",
-          "interval_max_minutes"
+          "interval_max_minutes",
+          "max_steps",
+          "max_lap_types",
+          "max_variables",
+          "max_alerts",
+          "max_expr_length",
+          "max_var_name_length",
+          "max_short_label_length"
         ],
         "title": "Limits",
         "description": "Validation ceilings, so clients can mirror server-side validation without hard-coding."
@@ -8051,7 +8253,7 @@
         ],
         "title": "SeriesPoint"
       },
-      "Step": {
+      "Step-Input": {
         "properties": {
           "key": {
             "type": "string",
@@ -8067,6 +8269,14 @@
             "maxLength": 200,
             "minLength": 1,
             "title": "Label"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/Alert-Input"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Alerts"
           }
         },
         "additionalProperties": false,
@@ -8076,7 +8286,43 @@
           "label"
         ],
         "title": "Step",
-        "description": "A named checkpoint of a timed topic. Its key is its identity across versions, in a\nnamespace of its own (a step and a question may share a key)."
+        "description": "A named checkpoint of a timed topic. Its key is its identity across versions, in a\nnamespace of its own (a step and a question may share a key) that it shares with the\ntimer's lap types."
+      },
+      "Step-Output": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{0,62}$",
+            "title": "Key",
+            "description": "Stable machine key (lower snake_case); the identity of a question across versions.",
+            "examples": [
+              "hours_slept"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/Alert-Output"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Alerts"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "alerts"
+        ],
+        "title": "Step",
+        "description": "A named checkpoint of a timed topic. Its key is its identity across versions, in a\nnamespace of its own (a step and a question may share a key) that it shares with the\ntimer's lap types."
       },
       "StrAnswer": {
         "properties": {
@@ -8302,15 +8548,32 @@
         ],
         "title": "StrStats"
       },
-      "Timer": {
+      "Timer-Input": {
         "properties": {
           "steps": {
             "items": {
-              "$ref": "#/components/schemas/Step"
+              "$ref": "#/components/schemas/Step-Input"
             },
             "type": "array",
             "maxItems": 30,
             "title": "Steps"
+          },
+          "laps": {
+            "items": {
+              "$ref": "#/components/schemas/LapType-Input"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Laps",
+            "description": "None: laps are untyped."
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/Variable"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Variables"
           }
         },
         "additionalProperties": false,
@@ -8319,7 +8582,45 @@
           "steps"
         ],
         "title": "Timer",
-        "description": "A version's timing: its steps, timed in this order. No steps makes a plain stopwatch."
+        "description": "A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),\nits lap types, and the variables its alerts refer to (timers2.md \u00a71).\n\nOutput is normalised: every list is present and each alert's ``at_ms`` is filled. The v1\nshape ``{steps: [{key, label}]}`` is accepted, stored ones included."
+      },
+      "Timer-Output": {
+        "properties": {
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/Step-Output"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Steps"
+          },
+          "laps": {
+            "items": {
+              "$ref": "#/components/schemas/LapType-Output"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "title": "Laps",
+            "description": "None: laps are untyped."
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/Variable"
+            },
+            "type": "array",
+            "maxItems": 16,
+            "title": "Variables"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "steps",
+          "laps",
+          "variables"
+        ],
+        "title": "Timer",
+        "description": "A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),\nits lap types, and the variables its alerts refer to (timers2.md \u00a71).\n\nOutput is normalised: every list is present and each alert's ``at_ms`` is filled. The v1\nshape ``{steps: [{key, label}]}`` is accepted, stored ones included."
       },
       "Timing": {
         "properties": {
@@ -8921,7 +9222,7 @@
           "timer": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Timer"
+                "$ref": "#/components/schemas/Timer-Input"
               },
               {
                 "type": "null"
@@ -9063,7 +9364,7 @@
           "timer": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Timer"
+                "$ref": "#/components/schemas/Timer-Output"
               },
               {
                 "type": "null"
@@ -9372,7 +9673,7 @@
           "timer": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Timer"
+                "$ref": "#/components/schemas/Timer-Output"
               },
               {
                 "type": "null"
@@ -9579,7 +9880,7 @@
           "timer": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Timer"
+                "$ref": "#/components/schemas/Timer-Output"
               },
               {
                 "type": "null"
@@ -9647,6 +9948,33 @@
         ],
         "title": "ValueCount"
       },
+      "Variable": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,15}$",
+            "title": "Name",
+            "description": "Case-insensitive on input, stored and returned lowercase; not a unit (ms, s, m, h).",
+            "examples": [
+              "t"
+            ]
+          },
+          "ms": {
+            "type": "integer",
+            "maximum": 604800000.0,
+            "minimum": 0.0,
+            "title": "Ms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "ms"
+        ],
+        "title": "Variable",
+        "description": "A named duration that alert expressions refer to (``t``, ``rest``)."
+      },
       "VersionCreate": {
         "properties": {
           "questions": {
@@ -9689,7 +10017,7 @@
           "timer": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Timer"
+                "$ref": "#/components/schemas/Timer-Input"
               },
               {
                 "type": "null"
@@ -9762,7 +10090,7 @@
           "timer": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/Timer"
+                "$ref": "#/components/schemas/Timer-Input"
               },
               {
                 "type": "null"
