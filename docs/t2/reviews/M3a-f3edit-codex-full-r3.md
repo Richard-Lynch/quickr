@@ -1,0 +1,3 @@
+- **P2 — Tag uniqueness can disagree with the backend’s casefolding.** [appearance.ts:184](/Users/richie/code/quickr-worktrees/t2-m3a-f3edit/frontend/src/lib/appearance.ts:184) approximates Python `str.casefold()` with JavaScript upper- then lower-casing. For example, the client treats U+A7CE and U+A7CF as duplicates while Python treats them as distinct, so the editor can refuse a pair the server accepts. The shared vectors do not establish equivalence across Unicode.
+
+The two fixes address the previously reported stale-value overwrite and edits during a pending save: the form retains its base revision while dirty, and its fields are disabled during submission. I did not run tests in this read-only review.
