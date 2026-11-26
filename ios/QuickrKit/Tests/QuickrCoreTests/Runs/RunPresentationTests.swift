@@ -140,4 +140,167 @@ import Testing
         let coldFinishing = RunTileState(timed: false, run: .finishing)
         #expect(coldFinishing.isTimed)
     }
+
+    // MARK: - RunAction (timers2.md §10, R18 stub half; fixture: active-surfaces.md §1.2)
+
+    /// One row of the active-surfaces.md §1.2 table, as far as today's types express it (T2-M1
+    /// stub half). Rows 1–3 (idle: no `RunState` exists for an idle topic), 10 (after a reopen),
+    /// 11 (queued reopen) and 14 (busy) need v2 state and are not expressible yet; row 13 is
+    /// pinned as today's model yields it (`resumable` is false until I1-CORE: `[]`).
+    struct ActionRow: Sendable, CustomTestStringConvertible {
+        var row: String
+        var events: [RunEvent]
+        var steps: [TopicTimer.Step]
+        /// nil: the fold's status.
+        var status: RunStatus?
+        var timer: TopicTimer?
+        var expected: [RunAction]
+        var testDescription: String { row }
+    }
+
+    private static func action(_ kind: RunAction.Kind, _ role: RunAction.Role) -> RunAction {
+        RunAction(kind: kind, role: role, enabled: true)
+    }
+
+    static let actionRows: [ActionRow] = {
+        let timer = TopicTimer(steps: steps)
+        let lapsOnly = TopicTimer(steps: [])
+        let n1 = RunEvent(id: "n1", type: .next, at: 1, seg: 0)
+        let n2 = RunEvent(id: "n2", type: .next, at: 2, seg: 1)
+        let n3 = RunEvent(id: "n3", type: .next, at: 3, seg: 2)
+        let l1 = RunEvent(id: "l1", type: .lap, at: 1, seg: 0)
+        let p = RunEvent(id: "p", type: .pause, at: 4)
+        let stop = RunEvent(id: "x", type: .stop, at: 5)
+        let stopS = action(.stop, .secondary)
+        let pause = action(.pause, .secondary)
+        let resume = action(.resume, .secondary)
+        let discard = action(.discard, .destructive)
+        let lap = action(.lap(nextTypeLabel: nil), .primary)
+        return [
+            ActionRow(
+                row: "4 step open, a step remains, running", events: [], steps: steps, status: nil, timer: timer,
+                expected: [
+                    action(.next(label: "Dress"), .primary), stopS, pause, action(.skip(label: "Shower"), .overflow),
+                    discard,
+                ]),
+            ActionRow(
+                row: "5 lap open, a step still pending, running", events: [l1], steps: steps, status: nil,
+                timer: timer, expected: [lap, stopS, pause, action(.skip(label: "Dress"), .overflow), discard]),
+            ActionRow(
+                row: "5 lap open, no step pending, running", events: [n1, n2, n3], steps: steps, status: nil,
+                timer: timer, expected: [lap, stopS, pause, discard]),
+            ActionRow(
+                row: "6 last step open, running", events: [n1, n2], steps: steps, status: nil, timer: timer,
+                expected: [lap, stopS, pause, action(.skip(label: "Teeth"), .overflow), discard]),
+            ActionRow(
+                row: "7 no steps, running (the stopwatch)", events: [], steps: [], status: nil, timer: lapsOnly,
+                expected: [lap, stopS, pause, discard]),
+            ActionRow(
+                row: "8 paused, step open", events: [p], steps: steps, status: nil, timer: timer,
+                expected: [
+                    action(.next(label: "Dress"), .primary), stopS, resume, action(.skip(label: "Shower"), .overflow),
+                    discard,
+                ]),
+            ActionRow(
+                row: "8 paused, lap open", events: [l1, p], steps: steps, status: nil, timer: timer,
+                expected: [lap, stopS, resume, action(.skip(label: "Dress"), .overflow), discard]),
+            ActionRow(
+                row: "8 paused, last step open", events: [n1, n2, p], steps: steps, status: nil, timer: timer,
+                expected: [lap, stopS, resume, action(.skip(label: "Teeth"), .overflow), discard]),
+            ActionRow(
+                row: "8 paused, no steps", events: [p], steps: [], status: nil, timer: lapsOnly,
+                expected: [lap, stopS, resume, discard]),
+            ActionRow(
+                row: "9 timer nil, running", events: [], steps: steps, status: nil, timer: nil,
+                expected: [action(.next(label: "Next"), .primary), stopS, pause, discard]),
+            ActionRow(
+                row: "9 timer nil, paused", events: [p], steps: steps, status: nil, timer: nil,
+                expected: [action(.next(label: "Next"), .primary), stopS, resume, discard]),
+            ActionRow(
+                row: "12 finishing", events: [stop], steps: steps, status: .finishing, timer: timer,
+                expected: [action(.addDetails, .primary), discard]),
+            ActionRow(
+                row: "13 stopped, not resumable today (stub half)", events: [stop], steps: steps, status: .stopped,
+                timer: timer, expected: []),
+            ActionRow(
+                row: "13 discarded", events: [stop], steps: steps, status: .discarded, timer: timer, expected: []),
+        ]
+    }()
+
+    @Test("actions: the §1.2 table row by row (display order, roles, ids)", arguments: actionRows)
+    func actionsTable(_ row: ActionRow) throws {
+        let state = try fold(row.events, steps: row.steps)
+        let actions = RunPresentation.actions(state, status: row.status ?? state.status, timer: row.timer, now: Date())
+        #expect(actions == row.expected)
+        #expect(actions.map(\.id) == row.expected.map(\.id))
+        #expect(actions.allSatisfy { $0.enabled })
+    }
+
+    @Test("Exactly one primary while a run is open or finishing; Stop is never primary")
+    func onePrimary() throws {
+        for row in Self.actionRows where row.status != .stopped && row.status != .discarded {
+            let state = try fold(row.events, steps: row.steps)
+            let actions = RunPresentation.actions(
+                state, status: row.status ?? state.status, timer: row.timer, now: Date())
+            #expect(actions.count { $0.role == .primary } == 1, "\(row.row)")
+            #expect(!actions.contains { $0.kind == .stop && $0.role == .primary }, "\(row.row)")
+            let order = actions.map(\.role)
+            let ranks = order.map { role -> Int in
+                switch role {
+                case .primary: 0
+                case .secondary: 1
+                case .overflow: 2
+                case .destructive: 3
+                }
+            }
+            #expect(ranks == ranks.sorted(), "\(row.row): display order is primary, secondaries, overflow, destructive")
+        }
+    }
+
+    @Test("Kind is complete from day one; ids are stable per kind")
+    func actionIds() {
+        let target = UUID()
+        let kinds: [(RunAction.Kind, String)] = [
+            (.start, "start"), (.next(label: "Dress"), "next"), (.lap(nextTypeLabel: "Rest"), "lap"),
+            (.skip(label: "Shower"), "skip"), (.pause, "pause"), (.resume, "resume"), (.stop, "stop"),
+            (.addDetails, "addDetails"), (.reopen(target: target), "reopen"), (.revert, "revert"),
+            (.discard, "discard"),
+        ]
+        for (kind, id) in kinds {
+            let action = RunAction(kind: kind, role: .overflow, enabled: false)
+            #expect(action.id == id)
+            #expect(action.enabled == false)
+        }
+    }
+
+    @Test("headline: the open segment's label today; Running/Paused when nothing is open; no counter yet")
+    func headlineStub() throws {
+        let timer = TopicTimer(steps: Self.steps)
+        let step = try fold([])
+        let a = RunPresentation.headline(step, status: .running, timer: timer)
+        #expect(a == Headline(text: "Shower", counter: nil))
+        let lap = try fold([RunEvent(id: "l1", type: .lap, at: 1, seg: 0)])
+        let b = RunPresentation.headline(lap, status: .running, timer: nil)
+        #expect(b == Headline(text: "Lap 1", counter: nil))
+        let stopped = try fold([RunEvent(id: "x", type: .stop, at: 5)])
+        let c = RunPresentation.headline(stopped, status: .finishing, timer: timer)
+        #expect(c == Headline(text: "Running", counter: nil))
+        let paused = try fold([RunEvent(id: "x", type: .stop, at: 5)])
+        let d = RunPresentation.headline(paused, status: .paused, timer: timer)
+        #expect(d == Headline(text: "Paused", counter: nil))
+    }
+
+    @Test("alertLine is nil and resumable false until I1-CORE / I1-WRITES fill them")
+    func stubs() throws {
+        let state = try fold([])
+        #expect(RunPresentation.alertLine(state, timer: TopicTimer(steps: Self.steps), now: Date()) == nil)
+        let now = Date()
+        let entry = Entry(
+            id: UUID(), topicId: UUID(), version: 1, revision: 1, source: "ios", channel: .ios, capturedAt: now,
+            createdAt: now, updatedAt: now, answers: [:],
+            timing: Timing(
+                startedAt: 0, endedAt: 5, activeMs: 5, pausedMs: 0, complete: true, edited: false, segments: [],
+                skipped: [], pauses: []))
+        #expect(RunPresentation.resumable(entry, now: now) == false)
+    }
 }
