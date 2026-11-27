@@ -203,3 +203,227 @@ extension EntryRange {
         }
     }
 }
+
+// MARK: - Activity strip (content-display.md §4.2)
+
+/// The Overview's activity strip (`activityStrip` in the PWA's `charts/timingModels.ts`):
+/// entries per **local calendar day** over the last 12 Monday-started weeks, today last. The
+/// first cell is the Monday 11 weeks before this week's Monday (calendar arithmetic on dates,
+/// never `now − 84 days`); the grid's slots after today are blank and not listed. An entry counts
+/// in the day of its `captured_at` in `timeZone`; entries outside the grid aren't counted. The
+/// entries are read from `localMidnight(firstDay)` on, so the query bound and the cells derive
+/// from the same date. Checked against `stats-chart-vectors.json` `activity[]`.
+public struct ActivityStrip: Sendable, Hashable {
+    /// Weeks in the strip (`ACTIVITY_WEEKS`).
+    public static let weeks = 12
+
+    public struct Cell: Sendable, Hashable {
+        /// The local date, "YYYY-MM-DD".
+        public var day: String
+        public var count: Int
+        /// The intensity step (``ActivityStrip/level(_:)``).
+        public var level: Int { ActivityStrip.level(count) }
+    }
+
+    /// One column of the grid: a Monday and the entries of its days up to today.
+    public struct Week: Sendable, Hashable {
+        /// The Monday, "YYYY-MM-DD".
+        public var firstDay: String
+        public var count: Int
+
+        public init(firstDay: String, count: Int) {
+            self.firstDay = firstDay
+            self.count = count
+        }
+    }
+
+    /// The first cell: the Monday 11 weeks before this week's Monday.
+    public let firstDay: String
+    /// One cell per day from `firstDay` to today, in order (78–84 of them).
+    public let cells: [Cell]
+    /// The largest cell count (0 when empty).
+    public let max: Int
+    /// The entries that fell in a cell.
+    public let total: Int
+
+    /// `today` is the local date in `timeZone` (``localDay(_:timeZone:)`` of now).
+    public init(capturedAt: [Date], today: String, timeZone: TimeZone) {
+        let end = Self.dayNumber(today)
+        let start = Self.firstDayNumber(end)
+        let calendar = Self.calendar(timeZone)
+        var counts: [String: Int] = [:]
+        for date in capturedAt { counts[Self.localDay(date, calendar: calendar), default: 0] += 1 }
+        let cells = (start...end).map { n in
+            let day = Self.dayString(n)
+            return Cell(day: day, count: counts[day] ?? 0)
+        }
+        firstDay = Self.dayString(start)
+        self.cells = cells
+        max = cells.map(\.count).max() ?? 0
+        total = cells.reduce(0) { $0 + $1.count }
+    }
+
+    /// The grid's columns, oldest first: each Monday and its entries (the last one up to today).
+    public var columns: [Week] {
+        stride(from: 0, to: cells.count, by: 7).map { index in
+            Week(
+                firstDay: cells[index].day,
+                count: cells[index..<Swift.min(index + 7, cells.count)].reduce(0) { $0 + $1.count })
+        }
+    }
+
+    /// A column as VoiceOver reads it: "Week of 3 Nov: 5 entries" (en-GB; "Week of Nov 3" in
+    /// en-US).
+    public static func spokenWeek(_ week: Week, locale: Locale = .autoupdatingCurrent) -> String {
+        "\(weekLabel(week.firstDay, locale: locale)): \(ChartFormat.plural(week.count, "entry", "entries", locale: locale))"
+    }
+
+    /// A column's name: "Week of 3 Nov" (its Monday, a calendar date, so in no zone).
+    public static func weekLabel(_ monday: String, locale: Locale = .autoupdatingCurrent) -> String {
+        let utc = TimeZone(identifier: "UTC")!
+        return ChartFormat.bucket(
+            localMidnight(monday, timeZone: utc), .week, style: .long, timeZone: utc, locale: locale)
+    }
+
+    /// The caption: "12 entries in the last 12 weeks".
+    public func caption(locale: Locale = .autoupdatingCurrent) -> String {
+        "\(ChartFormat.plural(total, "entry", "entries", locale: locale)) in the last \(Self.weeks) weeks"
+    }
+
+    /// The first cell for `today` (the query bound's date), without counting anything.
+    public static func firstDay(today: String) -> String { dayString(firstDayNumber(dayNumber(today))) }
+
+    /// `activityLevel`: 0, 1, 2–3, 4+ → 0–3 (`sunken`, then the tint at 35/65/100 %).
+    public static func level(_ count: Int) -> Int {
+        count <= 0 ? 0 : count == 1 ? 1 : count <= 3 ? 2 : 3
+    }
+
+    /// `localDay`: `date`'s local calendar date in `timeZone`, "YYYY-MM-DD".
+    public static func localDay(_ date: Date, timeZone: TimeZone) -> String {
+        localDay(date, calendar: calendar(timeZone))
+    }
+
+    /// `localMidnight`: the first instant of `day` in `timeZone`: local midnight, or the end of
+    /// the gap when the clocks skip midnight (America/Santiago). Searched to the millisecond like
+    /// the PWA, so both send the same `captured_from`.
+    public static func localMidnight(_ day: String, timeZone: TimeZone) -> Date {
+        let calendar = calendar(timeZone)
+        // Every zone's offset is within ±14 h, so the answer is within 15 h of UTC midnight.
+        let utc = Int64(dayNumber(day)) * dayMs
+        var lo = utc - 15 * 3_600_000
+        var hi = utc + 15 * 3_600_000
+        while hi - lo > 1 {
+            let mid = lo + (hi - lo) / 2
+            if localDay(date(ms: mid), calendar: calendar) >= day { hi = mid } else { lo = mid }
+        }
+        return date(ms: hi)
+    }
+
+    private static let dayMs: Int64 = 86_400_000
+
+    private static func date(ms: Int64) -> Date { Date(timeIntervalSince1970: Double(ms) / 1000) }
+
+    private static func calendar(_ timeZone: TimeZone) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
+    private static func localDay(_ date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return dayString(year: parts.year ?? 1970, month: parts.month ?? 1, day: parts.day ?? 1)
+    }
+
+    /// The Monday 11 weeks before the Monday of day number `end`'s week.
+    private static func firstDayNumber(_ end: Int) -> Int {
+        // 1970-01-01 was a Thursday: Monday is 0 here.
+        let weekday = ((end + 3) % 7 + 7) % 7
+        return end - weekday - 7 * (weeks - 1)
+    }
+
+    /// `addDays`: `day` plus `n` calendar days.
+    public static func addDays(_ day: String, _ n: Int) -> String { dayString(dayNumber(day) + n) }
+
+    /// Days since 1970-01-01 of a "YYYY-MM-DD" date (proleptic Gregorian, no zone).
+    private static func dayNumber(_ day: String) -> Int {
+        let parts = day.split(separator: "-").map { Int($0) ?? 0 }
+        guard parts.count == 3 else { return 0 }
+        // Howard Hinnant's days_from_civil.
+        let (m, d) = (parts[1], parts[2])
+        let y = m <= 2 ? parts[0] - 1 : parts[0]
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yoe = y - era * 400
+        let doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+        return era * 146_097 + doe - 719_468
+    }
+
+    /// The "YYYY-MM-DD" date of day number `n` (`civil_from_days`).
+    private static func dayString(_ n: Int) -> String {
+        let z = n + 719_468
+        let era = (z >= 0 ? z : z - 146_096) / 146_097
+        let doe = z - era * 146_097
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+        let mp = (5 * doy + 2) / 153
+        let d = doy - (153 * mp + 2) / 5 + 1
+        let m = mp < 10 ? mp + 3 : mp - 9
+        return dayString(year: yoe + era * 400 + (m <= 2 ? 1 : 0), month: m, day: d)
+    }
+
+    private static func dayString(year: Int, month: Int, day: Int) -> String {
+        String(format: "%04d-%02d-%02d", year, month, day)
+    }
+}
+
+// MARK: - Sparklines (content-display.md §4.3)
+
+/// A numeric card's trend (`sparkline` in the PWA's `charts/timingModels.ts`): the bucket means
+/// as a small line `width` × 48 pt. x by bucket start (the first drawn point at the inset, the
+/// last at `width − inset`; one point sits at the right edge), y from the smallest mean (bottom)
+/// to the largest (top), a flat line in the middle. Buckets without a mean are skipped; nil when
+/// none has one. Coordinates are rounded half up to 0.01 like the PWA's. Checked against
+/// `stats-chart-vectors.json` `sparklines[]`.
+public struct SparklineModel: Sendable, Hashable {
+    /// `SPARK_LAYOUT`: the height and the inset (room for the last point's dot).
+    public static let height: Double = 48
+    public static let pad: Double = 4
+
+    public struct Point: Sendable, Hashable {
+        public var x: Double
+        public var y: Double
+    }
+
+    /// One point per bucket with a mean, in time order; y grows downward.
+    public let path: [Point]
+    /// The marked point (the last one) and its unrounded mean.
+    public let last: Point
+    public let lastValue: Double
+    /// The smallest and largest mean drawn (the end labels).
+    public let min: Double
+    public let max: Double
+
+    public init?(series points: [QuestionSeries.Point], width: Double) {
+        let data = points.compactMap { point in point.mean.map { (start: point.start, mean: $0) } }
+        guard let lastPoint = data.last, let first = data.first else { return nil }
+        let (height, pad) = (Self.height, Self.pad)
+        let means = data.map(\.mean)
+        let min = means.min() ?? 0
+        let max = means.max() ?? 0
+        let t0 = LineChartModel.milliseconds(first.start)
+        let t1 = LineChartModel.milliseconds(lastPoint.start)
+        func x(_ t: Double) -> Double { t1 == t0 ? width - pad : pad + (t - t0) / (t1 - t0) * (width - 2 * pad) }
+        func y(_ v: Double) -> Double { max == min ? height / 2 : pad + (max - v) / (max - min) * (height - 2 * pad) }
+        let path = data.map {
+            Point(x: Self.round2(x(LineChartModel.milliseconds($0.start))), y: Self.round2(y($0.mean)))
+        }
+        self.path = path
+        last = path[path.count - 1]
+        lastValue = lastPoint.mean
+        self.min = min
+        self.max = max
+    }
+
+    /// `Math.round(v * 100) / 100`: a half toward +∞.
+    static func round2(_ value: Double) -> Double { Double(ChartFormat.jsRound(value * 100)) / 100 }
+}

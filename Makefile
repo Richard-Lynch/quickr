@@ -75,13 +75,14 @@ api-level: ## Copy shared/api-level.json into each component that reads it (docs
 	python3 ios/scripts/gen-api-level.py
 
 .PHONY: vectors
-vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, APNs payload, action-entry-id, home, entries, stats, builder, schedule, builder-UI, run-fold, timing-stats, duration-format, Live Activity, timer-expression and appearance vectors, API response fixtures) and the iOS casefold table
+vectors: ## Regenerate shared/fixtures (due, quick-log, answer-text, notification, APNs payload, action-entry-id, home, entries, stats, builder, schedule, builder-UI, run-fold, timing-stats, duration-format, Live Activity, timer-expression, appearance and entry-summary vectors, API response fixtures) and the iOS casefold table
 	$(BACKEND) QUICKR_UPDATE_VECTORS=1 uv run pytest -q tests/test_due_vectors.py tests/test_quicklog_vectors.py \
 		tests/test_answer_text_vectors.py tests/test_notification_vectors.py tests/test_apns_payload_vectors.py \
 		tests/test_action_entry_id_vectors.py \
 		tests/test_home_vectors.py tests/test_entries_vectors.py tests/test_stats_vectors.py tests/test_builder_vectors.py \
 		tests/test_run_fold_vectors.py tests/test_timing_stats_vectors.py tests/test_duration_vectors.py \
 		tests/test_live_activity_vectors.py tests/test_timer_expr_vectors.py tests/test_appearance_vectors.py \
+		tests/test_entry_summary_vectors.py \
 		tests/test_api_fixtures.py
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/home.vectors.test.ts
 	$(FRONTEND) QUICKR_UPDATE_VECTORS=1 pnpm exec vitest run src/lib/entries.vectors.test.ts

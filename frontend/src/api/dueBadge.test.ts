@@ -38,6 +38,7 @@ const due = (id: string): TopicSummary => ({
   schedule_updated_at: null,
   due: { is_due: true, due_since: null, next_due_at: null, last_entry_at: null },
   timer: null,
+  last_entry: null,
   appearance: { color: null, icon: null, tags: [] }, // T2-M3
 });
 

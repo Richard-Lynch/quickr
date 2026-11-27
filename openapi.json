@@ -359,25 +359,6 @@
             "description": "Only topics that are due now."
           },
           {
-            "name": "tag",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "maxLength": 24
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only topics with this tag, spelled exactly as stored (tags are unique ignoring case, so the stored spelling is the one the topic shows).",
-              "title": "Tag"
-            },
-            "description": "Only topics with this tag, spelled exactly as stored (tags are unique ignoring case, so the stored spelling is the one the topic shows)."
-          },
-          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -4653,59 +4634,6 @@
         "title": "ApnsDeviceRef",
         "description": "One device, by token (unregister, test)."
       },
-      "AppearanceUpdate": {
-        "properties": {
-          "color": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "red",
-                  "orange",
-                  "amber",
-                  "yellow",
-                  "lime",
-                  "green",
-                  "teal",
-                  "cyan",
-                  "blue",
-                  "indigo",
-                  "violet",
-                  "pink"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Color",
-            "description": "null clears the colour."
-          },
-          "icon": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TopicIcon"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "null clears the icon."
-          },
-          "tags": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Tags",
-            "description": "At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept."
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "AppearanceUpdate",
-        "description": "Partial appearance update: an omitted field is unchanged; ``color: null`` and ``icon: null``\nclear; ``tags: []`` clears the tags."
-      },
       "ChangesPage": {
         "properties": {
           "items": {
@@ -6324,7 +6252,7 @@
           "topic"
         ],
         "title": "FeedTopic",
-        "description": "A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,\n``due``) are not re-sent when entries change: clients recompute them from entries."
+        "description": "A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,\n``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries."
       },
       "FeedVersion": {
         "properties": {
@@ -6924,43 +6852,6 @@
             "type": "integer",
             "title": "Max Short Label Length",
             "default": 64
-          },
-          "max_tags": {
-            "type": "integer",
-            "title": "Max Tags",
-            "default": 10
-          },
-          "max_tag_length": {
-            "type": "integer",
-            "title": "Max Tag Length",
-            "default": 24
-          },
-          "max_icon_length": {
-            "type": "integer",
-            "title": "Max Icon Length",
-            "default": 16
-          },
-          "color_names": {
-            "items": {
-              "type": "string",
-              "enum": [
-                "red",
-                "orange",
-                "amber",
-                "yellow",
-                "lime",
-                "green",
-                "teal",
-                "cyan",
-                "blue",
-                "indigo",
-                "violet",
-                "pink"
-              ]
-            },
-            "type": "array",
-            "title": "Color Names",
-            "description": "The palette's names, in palette order."
           }
         },
         "additionalProperties": false,
@@ -6995,11 +6886,7 @@
           "max_alerts",
           "max_expr_length",
           "max_var_name_length",
-          "max_short_label_length",
-          "max_tags",
-          "max_tag_length",
-          "max_icon_length",
-          "color_names"
+          "max_short_label_length"
         ],
         "title": "Limits",
         "description": "Validation ceilings, so clients can mirror server-side validation without hard-coding."
@@ -9494,117 +9381,6 @@
         "title": "TimingSummary",
         "description": "Best, median and mean of active times in milliseconds; null when there are none."
       },
-      "TopicAppearance-Input": {
-        "properties": {
-          "color": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "red",
-                  "orange",
-                  "amber",
-                  "yellow",
-                  "lime",
-                  "green",
-                  "teal",
-                  "cyan",
-                  "blue",
-                  "indigo",
-                  "violet",
-                  "pink"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Color",
-            "description": "One of the palette's names: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink."
-          },
-          "icon": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TopicIcon"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tags": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Tags",
-            "description": "At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.",
-            "default": []
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "title": "TopicAppearance",
-        "description": "A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, [])."
-      },
-      "TopicAppearance-Output": {
-        "properties": {
-          "color": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "red",
-                  "orange",
-                  "amber",
-                  "yellow",
-                  "lime",
-                  "green",
-                  "teal",
-                  "cyan",
-                  "blue",
-                  "indigo",
-                  "violet",
-                  "pink"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Color",
-            "description": "One of the palette's names: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink."
-          },
-          "icon": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TopicIcon"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "tags": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Tags",
-            "description": "At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.",
-            "default": []
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "color",
-          "icon",
-          "tags"
-        ],
-        "title": "TopicAppearance",
-        "description": "A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, [])."
-      },
       "TopicCreate": {
         "properties": {
           "name": {
@@ -9702,17 +9478,6 @@
               }
             ],
             "description": "Makes the topic timed (optional; null: not timed)."
-          },
-          "appearance": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TopicAppearance-Input"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Colour, emoji and tags (optional; null: none of them)."
           }
         },
         "additionalProperties": false,
@@ -9856,9 +9621,16 @@
             ],
             "description": "The current version's timer; null when the topic is not timed."
           },
-          "appearance": {
-            "$ref": "#/components/schemas/TopicAppearance-Output",
-            "description": "Colour, emoji and tags; every key always present."
+          "last_entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change."
           },
           "questions": {
             "items": {
@@ -9910,35 +9682,10 @@
           "schedule_updated_at",
           "due",
           "timer",
-          "appearance",
+          "last_entry",
           "questions"
         ],
         "title": "TopicDetail"
-      },
-      "TopicIcon": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "emoji",
-            "title": "Kind",
-            "description": "Only emoji for now; more kinds may be added."
-          },
-          "value": {
-            "type": "string",
-            "title": "Value",
-            "description": "One emoji (one grapheme cluster that starts as an emoji: a pictograph, a flag or a keycap), at most 16 code points. Stored NFC, with U+FE0F added after a text-presentation pictograph.",
-            "examples": [
-              "\ud83d\udeac"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "kind",
-          "value"
-        ],
-        "title": "TopicIcon"
       },
       "TopicPage": {
         "properties": {
@@ -10195,9 +9942,16 @@
             ],
             "description": "The current version's timer; null when the topic is not timed."
           },
-          "appearance": {
-            "$ref": "#/components/schemas/TopicAppearance-Output",
-            "description": "Colour, emoji and tags; every key always present."
+          "last_entry": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EntryOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change."
           }
         },
         "additionalProperties": false,
@@ -10220,7 +9974,7 @@
           "schedule_updated_at",
           "due",
           "timer",
-          "appearance"
+          "last_entry"
         ],
         "title": "TopicSummary"
       },
@@ -10363,10 +10117,6 @@
             ],
             "title": "Expected Revision",
             "description": "Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision."
-          },
-          "appearance": {
-            "$ref": "#/components/schemas/AppearanceUpdate",
-            "description": "Changes the fields it holds; null is refused (clear fields individually)."
           }
         },
         "additionalProperties": false,

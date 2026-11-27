@@ -1,0 +1,113 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "47A807E7-3F17-4128-AA56-9496E2EC8762",
+      "deviceName" : "quickR iOS-26-0 t2-m4-xxxl-413cff",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "name" : "Potentially inaccessible text",
+                      "nodeType" : "Failure Message"
+                    }
+                  ],
+                  "duration" : "25s",
+                  "durationInSeconds" : 25.372736930847168,
+                  "name" : "testAccessibilityXXXL()",
+                  "nodeIdentifier" : "StatsUITests/testAccessibilityXXXL()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests/testAccessibilityXXXL",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "duration" : "6s",
+                  "durationInSeconds" : 6.910732984542847,
+                  "name" : "testActivityStripLabels()",
+                  "nodeIdentifier" : "StatsUITests/testActivityStripLabels()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests/testActivityStripLabels",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "12s",
+                  "durationInSeconds" : 12.199877977371216,
+                  "name" : "testLapTypeCards()",
+                  "nodeIdentifier" : "StatsUITests/testLapTypeCards()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests/testLapTypeCards",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "30s",
+                  "durationInSeconds" : 30.322261929512024,
+                  "name" : "testLapTypeCardsAtAccessibilityXXXL()",
+                  "nodeIdentifier" : "StatsUITests/testLapTypeCardsAtAccessibilityXXXL()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests/testLapTypeCardsAtAccessibilityXXXL",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "18s",
+                  "durationInSeconds" : 18.472836017608643,
+                  "name" : "testOfflineShowsLastUpdated()",
+                  "nodeIdentifier" : "StatsUITests/testOfflineShowsLastUpdated()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests/testOfflineShowsLastUpdated",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "16s",
+                  "durationInSeconds" : 16.056902050971985,
+                  "name" : "testOverviewShowsTheStatsAndCharts()",
+                  "nodeIdentifier" : "StatsUITests/testOverviewShowsTheStatsAndCharts()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests/testOverviewShowsTheStatsAndCharts",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.910637974739075,
+                  "name" : "testTheRangeIsSharedWithEntries()",
+                  "nodeIdentifier" : "StatsUITests/testTheRangeIsSharedWithEntries()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests/testTheRangeIsSharedWithEntries",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "StatsUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/StatsUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

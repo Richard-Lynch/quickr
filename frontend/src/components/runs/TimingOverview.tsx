@@ -7,7 +7,14 @@ import { optionColors } from '../charts/EnumBars';
 import { LineChart } from '../charts/LineChart';
 import { StackedBars } from '../charts/StackedBars';
 import type { Bucket } from '../charts/chartUtils';
-import { durationTicks, stepBars, stepsByBucket, totalsByBucket } from '../charts/timingModels';
+import {
+  durationTicks,
+  lapTypeCards,
+  lapTypesByBucket,
+  stepBars,
+  stepsByBucket,
+  totalsByBucket,
+} from '../charts/timingModels';
 import { Badge, Card } from '../ui/Card';
 
 const dur = (ms: number | null): string => (ms === null ? '—' : fmtDuration(ms));
@@ -16,7 +23,9 @@ const dur = (ms: number | null): string => (ms === null ? '—' : fmtDuration(ms
  * The Overview's Timing section for a timed topic (timers.md §9, §11.5), from
  * `getTopicTiming`: best, median and mean run time over complete runs only (OPEN 2), the run
  * total over time, each step's median and best with a stacked time-per-step chart, and laps
- * and paused time. Built from the same chart components as the question cards.
+ * and paused time. Built from the same chart components as the question cards. A topic with
+ * lap types (content-display.md §4.1) gets one card per type and a stacked time-per-type chart
+ * in place of the v1 lap tiles, which stay for untyped laps.
  */
 export function TimingOverview({ timing, bucket }: { timing: TopicTiming; bucket: Bucket }) {
   const totals = useMemo(() => totalsByBucket(timing.series, bucket), [timing.series, bucket]);
@@ -24,6 +33,16 @@ export function TimingOverview({ timing, bucket }: { timing: TopicTiming; bucket
   const bars = stepBars(timing.steps);
   const colorFor = useMemo(() => optionColors(timing.steps.map((s) => s.key)), [timing.steps]);
   const options = timing.steps.map((s) => ({ value: s.key, label: s.label }));
+  const lapCards = lapTypeCards(timing.lap_types);
+  const perLapType = useMemo(
+    () => lapTypesByBucket(timing.series, bucket),
+    [timing.series, bucket],
+  );
+  const lapColorFor = useMemo(
+    () => optionColors(timing.lap_types.map((t) => t.key)),
+    [timing.lap_types],
+  );
+  const lapOptions = timing.lap_types.map((t) => ({ value: t.key, label: t.label }));
 
   return (
     <section aria-label="Timing" className="flex flex-col gap-3">
@@ -133,9 +152,68 @@ export function TimingOverview({ timing, bucket }: { timing: TopicTiming; bucket
         </Card>
       ) : null}
 
+      {lapCards.length > 0 ? (
+        <Card className="flex flex-col gap-4 p-4 sm:p-5">
+          <h3 className="font-display text-lg leading-tight font-semibold">Lap types</h3>
+          <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3" aria-label="Lap types">
+            {lapCards.map((c) => (
+              <li
+                key={c.key}
+                className="flex min-w-0 flex-col gap-1 rounded-xl bg-sunken/60 p-3"
+                data-testid={`laptype-${c.key}`}
+              >
+                <span className="flex min-w-0 items-center gap-2 text-sm">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ background: lapColorFor(c.key) }}
+                  />
+                  <span className="truncate font-medium">{c.label}</span>
+                </span>
+                <span className="text-xs text-muted">{c.laps}</span>
+                <span className="flex items-baseline gap-1.5 pt-1">
+                  <span
+                    className="font-mono text-2xl leading-none font-bold tabular"
+                    data-testid="laptype-median"
+                  >
+                    {c.median}
+                  </span>
+                  <span className="text-xs text-muted">median</span>
+                </span>
+                <span className="flex flex-wrap gap-x-3 font-mono text-xs text-ink-soft tabular">
+                  <span>
+                    best <span data-testid="laptype-best">{c.best}</span>
+                  </span>
+                  <span>
+                    mean <span data-testid="laptype-mean">{c.mean}</span>
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div>
+            <p className="mb-1 text-xs font-semibold text-ink-soft">
+              Time per lap type, per {bucket}
+            </p>
+            <StackedBars
+              points={perLapType}
+              bucket={bucket}
+              options={lapOptions}
+              colorFor={lapColorFor}
+              label="Lap types"
+              format={fmtDuration}
+              measure="time"
+            />
+          </div>
+        </Card>
+      ) : null}
+
       <Card className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-4 sm:p-5">
-        <Tile label="Runs with laps" value={timing.laps.runs_with_laps.toLocaleString()} />
-        <Tile label="Lap time (median)" value={dur(timing.laps.median_ms)} />
+        {lapCards.length > 0 ? null : (
+          <>
+            <Tile label="Runs with laps" value={timing.laps.runs_with_laps.toLocaleString()} />
+            <Tile label="Lap time (median)" value={dur(timing.laps.median_ms)} />
+          </>
+        )}
         <Tile label="Runs with pauses" value={timing.paused.runs_with_pauses.toLocaleString()} />
         <Tile label="Paused (median)" value={dur(timing.paused.median_ms)} />
       </Card>

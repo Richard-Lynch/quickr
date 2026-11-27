@@ -19,7 +19,7 @@ result.
 | `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                                                                    |
 | `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                                                                           |
 | `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)                                               |
-| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                                                                            |
+| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code; also reads `timing-stats-vectors.json`) | vitest drift check; Swift chart models and Overview summaries (M6), activity strip, sparklines and lap-type stats (T2 M4) |
 | `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                                                                |
 | `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                                                                         |
 | `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6; timed cases I-MANAGE)                                            |
@@ -27,6 +27,7 @@ result.
 | `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
 | `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
 | `live-activity-vectors.json`   | `backend/tests/test_live_activity_vectors.py` (`services/push/live_activity.py`)                  | pytest drift check; Swift `LiveActivityVectorTests` (I-LA)                                                                                    |
+| `entry-summary-vectors.json`   | `backend/tests/test_entry_summary_vectors.py` (`services/summary.py`)                             | pytest drift check; vitest `entrySummary.vectors.test.ts` (F4-SUMMARYLINE); Swift `EntrySummaryVectorTests` (I4-SUMMARYLINE)                  |
 | `timer-expr-vectors.json`      | `backend/tests/test_timer_expr_vectors.py` (`services/timer_expr.py`)                             | pytest drift check; vitest `timerExpr.vectors.test.ts` (F1-BUILDER); Swift `TimerExprVectorTests` (I1-CORE)                                   |
 | `appearance-vectors.json`      | `backend/tests/test_appearance_vectors.py` (`services/appearance.py`)                             | pytest drift check; vitest `appearance.test.ts`; Swift `TopicThemeTests` (palette, icons, tags)                                               |
 | `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                                                                    |
@@ -501,6 +502,80 @@ What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), e
 - `default_bucket`, `ticks` (`niceTicks` and `formatTick`), `numbers` (`formatNumber`; NaN and
   null as strings), `percents` (`formatPercent`) and `pick` (`pickLabels`): the helpers alone.
 
+Generator version 2 adds three sections (content-display.md §4.2, §4.3); the models are in
+`frontend/src/components/charts/timingModels.ts`:
+
+- `activity[]`: the Overview's activity strip, `activityStrip(captured_at, today, tz)`. Input:
+  `tz` (IANA), `today` (the local date in `tz`, `YYYY-MM-DD`) and `captured_at` (epoch
+  milliseconds, integers). Expected: `first_day`, the Monday 11 weeks before `today`'s week's
+  Monday (calendar arithmetic on dates, never `now − 84 days`); `from`, the `listEntries`
+  `captured_from` bound: the first instant of `first_day` in `tz`, as UTC with `Z`; `cells`,
+  one `[day, count, level]` per local day from `first_day` to `today` inclusive (78 cells when
+  `today` is a Monday, 84 on a Sunday; the grid's slots after today are blank and not listed),
+  where an entry counts in the day of its `captured_at` in `tz` and `level` is the intensity
+  step (0, 1, 2–3, 4+ → 0–3); `max`, the largest count; `total`, the entries that fell in a
+  cell (entries outside the grid are dropped). Cases: empty, the grid's edges, one instant
+  (2026-10-25 23:30 UTC) that is 2026-10-26 in `Pacific/Auckland` and 2026-10-25 in
+  `America/Los_Angeles` (the day before Auckland's), a `Europe/London` spring-forward and
+  fall-back week, `today` on a Monday and on a Sunday.
+- `sparklines[]`: a numeric card's sparkline, `sparkline(points, width)`, `H` = 48 px high with
+  an inset `P` = 4 px (`SPARK_LAYOUT`). A case named like a `stats-vectors.json` int/double
+  series case uses that response's `points` at `meta.spark_width`; the synthetic ones carry
+  `points`. Only the points with a non-null `mean` are drawn (call them `d[0..n-1]`, in
+  response order); `empty: true` when there are none. Otherwise, with `t` a point's `start` in
+  epoch ms, `lo`/`hi` the smallest/largest mean of `d`:
+  - `x = P + (t - t(d[0])) / (t(d[n-1]) - t(d[0])) * (width - 2P)`, or `width - P` when
+    `t(d[0]) = t(d[n-1])` (one point). Elapsed time, not equal spacing, and not the requested
+    range: the first drawn point is at `P`, the last at `width - P`.
+  - `y = P + (hi - mean) / (hi - lo) * (H - 2P)` (y grows downward: `hi` at `P`, `lo` at
+    `H - P`), or `H / 2` when `hi = lo`.
+  - `path` is `[x, y]` per drawn point, each rounded half up to 0.01 (`Math.round(v * 100) /
+    100`); `last` is `{x, y, value}` of `d[n-1]` (the rounded coordinates and the unrounded
+    mean), the marked point; `min` = `lo` and `max` = `hi`, the end labels.
+- `timing_models[]`: `stepsByBucket(series, bucket)` for the `timing-stats-vectors.json` case of
+  the same `name` (its `expected.series`), bucketed in `tz`: `steps_by_bucket` is `SeriesPoint[]`
+  with `option_counts` keyed by step key (the floored mean per run, a run without the step
+  counting 0) and `start` the bucket's local start with its offset.
+
+Generator version 3 adds the lap-type stats (content-display.md §4.1; models in
+`timingModels.ts`, cards in `src/components/runs/TimingOverview.tsx`):
+
+- `timing_models[]` gains `lap_types_by_bucket`: `lapTypesByBucket(series, bucket)`, the same
+  rule as `steps_by_bucket` over each run's `series[].lap_types` instead of its `steps`. Per
+  bucket (runs grouped by the bucket of their `captured_at` in `tz`, oldest first): `count` =
+  the runs in the bucket; `option_counts[k]` = `floor(sum of lap_types[k] over the bucket's
+  runs / count)` for every lap-type key `k` any of those runs has, a run without `k` counting
+  0; `mean`, `min`, `max` null. A bucket whose runs have no typed laps is still listed, with
+  `option_counts` `{}`. Lap-type keys and step keys are separate: a lap type `run` never reads
+  a step `run`'s time (case `lap_types_in_series`), nor the other way round. Untyped laps are
+  in neither.
+- `lap_types[]`: the Overview's lap-type section for the `timing-stats-vectors.json` cases that
+  have `expected.lap_types`, plus `laps` (untyped laps only), by `name`, bucketed in `tz`:
+  - `cards`: one per `expected.lap_types` row, in that order (the server's: the current
+    version's types first): `key`, `label`, `laps` (`plural(laps, 'lap')`: "1 lap", "4
+    laps"), `median`, `best`, `mean` (`fmtDuration` of `median_ms`, `best_ms`, `mean_ms`,
+    or "—" when null) and `color` (`optionColors` over the lap-type keys in card order: the
+    `n`th key gets `var(--color-series-n)` for `n ≤ 6`, then `var(--color-line-strong)`). The median
+    is the big figure. `cards` empty (`laps`) means no lap-type section: the v1 "Runs with
+    laps" and "Lap time (median)" tiles show instead; with cards those two tiles are hidden
+    and the pause tiles stay.
+  - `charts`: the stacked "Time per lap type, per {bucket}" chart under the cards, one per
+    bucket (`day`, `week`, `month`): `stackedModel(lapTypesByBucket(series, bucket), options)`
+    with the lap types (`key`, `label`, card order) as the options. `empty: true` when there
+    are no cards (no chart is drawn). Otherwise every bucket of `lap_types_by_bucket` is drawn
+    (each has at least one run, so none is dropped), in order, and: `max` = the largest bar
+    total, at least 1; `totals` = each bar's sum of `option_counts` (0 for a bucket without
+    typed laps: an empty bar); `legend` = `[key, label]` of the lap types some bar has, in
+    card order, then keys with no card (none in these cases) as `[key, key]`; `segments` =
+    per bar, `[key, ms]` bottom up in legend order, zeros left out; `labelled` per chart
+    width `W` (`meta.widths`) as for a stacked `series[]` chart: with `n` bars, gap `g` = 3
+    (`BARS_LAYOUT`), bar width `bw = min(36, (W - g(n-1)) / n)` and `offset = (W - (bw·n +
+    g(n-1))) / 2`, bar `i`'s label centre is `offset + i(bw + g) + bw/2`, and `pickLabels(xs,
+    52)` keeps, from the last bar backwards, each bar whose centre is at least 52 px left of
+    the last kept one (the last bar is always kept; the `pick[]` cases pin this rule);
+    `labels.short` / `labels.long` = `formatBucket(start)` in `tz`.
+    Values are milliseconds; the tooltip shows them with `fmtDuration`.
+
 ## `run-fold-vectors.json`
 
 The run fold ([docs/specs/timers.md](../../docs/specs/timers.md) §4) and the
@@ -594,6 +669,24 @@ against. Generator version 3.
   reaches 4 096 bytes, so the two budget cases use a lower `limit` to pin the order; the app
   applies `steps` to the state it builds before comparing. `meta.budget.fixed_bound` is the
   computed worst case after the terminal step.
+
+## `entry-summary-vectors.json`
+
+- `meta`: `max_length` (80), `separator` (`" · "`) and `semantics`, the prose of
+  [content-display.md](../../docs/specs/content-display.md) §1.2.
+- `question_sets`: name → the entry's version's questions (API shape, in order);
+  `timer_sets`: name → the topic's current `Timer`, or `null` for an untimed
+  topic. `tiktok` (lap types `run`, `rest`) and `renamed` (`cig`) declare M1's
+  lap types; a typed lap segment carries its `lap_type` (timers2.md §3.2).
+- `cases[]`: `{name, questions, timer, answers, timing, expected}`: `questions`
+  and `timer` name a set; `answers` are wire `AnswerOut` objects, `timing` a wire
+  `Timing` or `null`; `expected` is
+  `entrySummary(answers, timing, questions, timer)`. Lengths are extended
+  grapheme clusters: more than 80 keeps the first 79 and appends `…`, never
+  inside a flag, keycap, ZWJ sequence or base-plus-combining-mark (the
+  `long_truncation_*` cases). Strings are not Unicode-normalised, so decode them
+  as they are. `""` means the entry has nothing to say and the caller shows its
+  fallback.
 
 ## `timer-expr-vectors.json`
 

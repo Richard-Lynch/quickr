@@ -6,8 +6,9 @@ import SwiftUI
 
 /// The Overview's Timing section (timers.md §9, §11.2; the PWA's `TimingOverview`): best, median
 /// and runs over complete runs, the run time of every run over time, each step's median bar with
-/// its best marked and its skipped count, and laps and paused time. Hidden for an untimed topic
-/// without runs; "No runs in this range" for a timed one.
+/// its best marked and its skipped count, and laps and paused time. A topic with lap types
+/// (content-display.md §4.1) gets one card per type and a stacked time per type in place of the
+/// v1 lap tiles. Hidden for an untimed topic without runs; "No runs in this range" for a timed one.
 struct TimingOverviewSection: View {
     let timing: OverviewModel.Load<TopicTimingDTO>
     /// The current version has a timer.
@@ -55,6 +56,15 @@ struct TimingOverviewSection: View {
 private struct TimingCards: View {
     let text: TimingOverviewText
     let bucket: QuestionSeries.Bucket
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    /// The lap-type cards' grid: as many as fit, or one per row at accessibility sizes (#280),
+    /// where two side by side cut the median to "1:…".
+    private var lapTypeColumns: [GridItem] {
+        typeSize.isAccessibilitySize
+            ? [GridItem(.flexible(), spacing: 12, alignment: .top)]
+            : [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)]
+    }
 
     var body: some View {
         Card {
@@ -105,10 +115,32 @@ private struct TimingCards: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("overview.timing.steps")
         }
+        if !text.lapTypes.isEmpty {
+            Card {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Lap types").font(.qr(.section)).accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: lapTypeColumns, spacing: 12) {
+                        ForEach(text.lapTypes) { lapType in
+                            LapTypeCard(lapType: lapType, color: lapTypeColor(lapType.key))
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Time per lap type, per \(bucket.rawValue)").font(.qr(.caption)).foregroundStyle(
+                            .qr.inkSoft)
+                        LapTypeStackChart(text: text, bucket: bucket)
+                    }
+                }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("overview.timing.laptypes")
+        }
         Card {
             HStack(alignment: .top, spacing: 16) {
-                tile("Runs with laps", text.runsWithLaps, id: "laps")
-                tile("Lap time (median)", text.lapMedian, id: "lapMedian")
+                // The lap-type cards stand in for these; untyped laps alone keep them.
+                if text.lapTypes.isEmpty {
+                    tile("Runs with laps", text.runsWithLaps, id: "laps")
+                    tile("Lap time (median)", text.lapMedian, id: "lapMedian")
+                }
                 tile("Runs with pauses", text.runsWithPauses, id: "pauses")
                 tile("Paused (median)", text.pausedMedian, id: "pausedMedian")
             }
@@ -118,6 +150,11 @@ private struct TimingCards: View {
     /// A step's series colour, as the question cards colour an option.
     private func color(_ key: String) -> Color {
         optionColor(key, in: text.steps.map { EnumOption(value: $0.key, label: $0.label) })
+    }
+
+    /// A lap type's series colour (`optionColors` over the lap-type keys in card order).
+    private func lapTypeColor(_ key: String) -> Color {
+        optionColor(key, in: text.lapTypeOptions)
     }
 
     private func tile(_ label: String, _ value: String, id: String) -> some View {
@@ -158,6 +195,54 @@ private struct StepBar: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("overview.timing.step.\(step.key)")
+    }
+}
+
+/// A lap type's card: its label, lap count, median (big), best and mean. At accessibility sizes
+/// "median" goes under the value (#280).
+private struct LapTypeCard: View {
+    let lapType: TimingOverviewText.LapType
+    let color: Color
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Circle().fill(color).frame(width: 10, height: 10).accessibilityHidden(true)
+                Text(lapType.label).font(.qr(.label)).lineLimit(2)
+            }
+            Text(lapType.laps).font(.qr(.caption)).foregroundStyle(.qr.muted)
+            let medianLayout =
+                typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+                : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
+            medianLayout {
+                Text(lapType.median).font(.qr(.monoRegular, size: 24, relativeTo: .title2).bold()).lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text("median").font(.qr(.caption)).foregroundStyle(.qr.muted)
+            }
+            Text("best \(lapType.best) · mean \(lapType.mean)").font(.qr(.monoCaption)).foregroundStyle(.qr.inkSoft)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color.qr.sunken.opacity(0.6), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("overview.timing.laptype.\(lapType.key)")
+    }
+}
+
+/// Each lap type's mean time per run per bucket, stacked (the PWA's `StackedBars` with
+/// `measure="time"` over `lapTypesByBucket`): the question cards' stacked bars, in durations.
+private struct LapTypeStackChart: View {
+    let text: TimingOverviewText
+    let bucket: QuestionSeries.Bucket
+
+    var body: some View {
+        let points = text.lapTypeTotals(by: bucket, calendar: .autoupdatingCurrent).map(\.point)
+        OptionStackChart(
+            series: QuestionSeries(key: "lap_types", type: .enum, bucket: bucket, points: points),
+            options: text.lapTypeOptions, label: "Lap types", measure: "time", format: { DurationFormat.format($0) },
+            identifier: "overview.timing.perLapType")
     }
 }
 

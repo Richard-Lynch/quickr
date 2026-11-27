@@ -1,0 +1,7 @@
+I found one test gap that leaves the C3 failure path unverified.
+
+- **[P2] The versions-error test can pass before the request fails** — [EntriesPage.test.tsx](/Users/richie/code/quickr-worktrees/t2-m4-review-fe/frontend/src/pages/topic/EntriesPage.test.tsx:434). The test waits only until `fetch` has been called, then flushes one microtask. It can therefore assert the loading state while React Query is still processing or retrying the 500 response. A regression that restores the current-question fallback *after the query reaches its error state* could pass. Disable retries for this test and wait for an observable error-state completion before asserting, for example by using a controllable rejected request and waiting for the query to settle.
+
+The A14 row test covers a queued lap removal, but it does not exercise a pause removal or the transition from a queued projection to the acknowledged server entry. Those cases are useful integration coverage for the changed list rows: assert the updated active duration for a pause, then assert that the pending mark clears and the server timing remains after acknowledgement.
+
+I found no violation of the shared-file or ownership rules in this diff: the production files changed are listed as M4-owned, and none is among the plan’s explicitly shared files. I did not run the test suite; this was a read-only review.

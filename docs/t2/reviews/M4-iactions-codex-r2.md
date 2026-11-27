@@ -1,0 +1,11 @@
+**Findings**
+
+- **[P2] A queued Remove can leave the displayed timing stale while fixing a refused edit.** [EditModel.swift](/Users/richie/code/quickr-worktrees/t2-m4-iactions/ios/QuickrKit/Sources/QuickrUI/Edit/EditModel.swift:334) discards every store update while `isFixing` is true. Remove remains available on that screen, and M1 projects the queued removal into the entry without changing its revision. Consequently, `EntryActionsModel` receives the projected entry, but the timing section still renders the old `model.entry.timing`: the removed row remains visible, and its Remove button can disappear because the action model no longer recognizes its target. Adopt timing-only updates while preserving the refused answer draft, or render timing from the action model’s current entry. Cover a queued Remove while fixing a refused edit.
+
+- **[P2] The required simulator Remove flow remains missing.** The host tests in [EntriesModelTests+Actions.swift](/Users/richie/code/quickr-worktrees/t2-m4-iactions/ios/QuickrKit/Tests/QuickrDataTests/Entries/EntriesModelTests+Actions.swift:1) exercise the model and store, but do not exercise the detail screen’s button, confirmation, and observation together. Add the §7 flow that removes a segment, observes the reduced count, and verifies that the `edited` badge remains absent.
+
+The `b0aef8de` redirect uses M1’s alias-aware `localRun(id:)` and checks both the topic and open/finishing status. I found no correctness issue in that change. Its added test checks that a resuming entry remains available to the detail lookup; it does **not** exercise opening an already-open or finishing entry-less run through the route, so that redirect path still needs coverage.
+
+The prior lap-picker finding is superseded by the amendment: §3.2 now specifies positional types and explicitly says there is no per-lap picker. The editor’s position-derived label and `TimingDraft` contract are consistent with that change. I found no silent duplicate definitions among the named M1 APIs in the reviewed sources.
+
+This was a static review; I did not run the tests.

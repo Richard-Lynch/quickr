@@ -7,10 +7,11 @@ from typing import Any, cast
 from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import Select, column, delete, func, literal, or_, select
+from sqlalchemy import Select, column, delete, func, literal, or_, select, true
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound, StaleRevision
 from app.models import (
@@ -29,6 +30,7 @@ from app.schemas.api import (
     AppearanceUpdate,
     CompatibilityReport,
     DueStatus,
+    EntryOut,
     FieldIssue,
     StatusFilter,
     TopicAppearance,
@@ -120,6 +122,32 @@ def _entry_stats_subquery() -> Any:
     )
 
 
+# T2-M4
+def _last_entry_alias() -> Any:
+    """The topic's latest counted entry by ``(captured_at DESC, id DESC)`` as a LATERAL join
+    target (content-display.md §2). Deleted entries are deleted rows, so there is nothing to
+    filter. The entity's ``answers`` use the ``selectin`` strategy: one statement per page, not
+    per topic."""
+    latest = (
+        select(Entry)
+        .where(Entry.topic_id == Topic.id)
+        .order_by(Entry.captured_at.desc(), Entry.id.desc())
+        .limit(1)
+        .lateral("last_entry")
+    )
+    return aliased(Entry, latest)
+
+
+def _last_entry_out(entry: Entry | None) -> EntryOut | None:
+    # ``services.entries`` imports this module, so its ``entry_out`` is resolved at call time.
+    from app.services.entries import entry_out
+
+    return None if entry is None else entry_out(entry)
+
+
+# end T2-M4
+
+
 # T2-M3: appearance (docs/specs/appearance.md §1)
 def appearance_of(topic: Topic) -> TopicAppearance:
     """The stored appearance, as validated on write (not re-checked: a rule tightened later never
@@ -162,7 +190,7 @@ async def _summaries(
     rows = (await db.execute(stmt)).all()
     now = now or datetime.now(UTC)
     out: list[tuple[TopicSummary, list[Question]]] = []
-    for topic, questions_raw, timer_raw, entry_count, last_captured in rows:
+    for topic, questions_raw, timer_raw, entry_count, last_captured, last_entry in rows:  # T2-M4: last_entry
         questions = parse_questions(questions_raw)
         out.append(
             (
@@ -184,6 +212,9 @@ async def _summaries(
                     schedule_updated_at=topic.schedule_updated_at,
                     due=_due(topic, last_captured, now),
                     timer=parse_timer(timer_raw),
+                    # T2-M4
+                    last_entry=_last_entry_out(last_entry),
+                    # end T2-M4
                     # T2-M3
                     appearance=appearance_of(topic),
                     # end T2-M3
@@ -210,6 +241,10 @@ def _base_select() -> tuple[Select[Any], Any]:
         )
         .outerjoin(stats, stats.c.topic_id == Topic.id)
     )
+    # T2-M4
+    last_entry = _last_entry_alias()
+    stmt = stmt.add_columns(last_entry).outerjoin(last_entry, true())
+    # end T2-M4
     return stmt, stats
 
 

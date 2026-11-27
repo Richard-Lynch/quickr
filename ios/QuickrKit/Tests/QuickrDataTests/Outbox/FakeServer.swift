@@ -545,6 +545,7 @@ private struct WireTopic: Encodable {
         case updatedAt = "updated_at"
         case archivedAt = "archived_at"
         case scheduleUpdatedAt = "schedule_updated_at"
+        case lastEntry = "last_entry"  // T2-M4
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -566,6 +567,9 @@ private struct WireTopic: Encodable {
         try c.encode(topic.scheduleUpdatedAt, forKey: .scheduleUpdatedAt)
         try c.encodeNil(forKey: .due)
         try c.encode(topic.timer.map(TopicTimerDTO.init), forKey: .timer)
+        // T2-M4: the server always sends `last_entry` (content-display.md §2); the client doesn't read it.
+        try c.encodeNil(forKey: .lastEntry)
+        // end T2-M4
         try c.encode(AppearanceDTO(topic.appearance), forKey: .appearance)  // T2-M3
         try c.encode(topic.questions.map(QuestionDTO.init), forKey: .questions)
     }

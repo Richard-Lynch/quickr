@@ -37,6 +37,7 @@ const topic = {
   schedule_updated_at: null,
   due: null,
   timer: null,
+  last_entry: null,
   appearance: { color: null, icon: null, tags: [] }, // T2-M3
   questions: [],
 } satisfies TopicDetail;

@@ -400,6 +400,9 @@ orange 🏃, as in the setup at the top of this file.
       than 15 min, under 7 days). Expected: "Resume run" is offered; it reopens
       the run, the run screen shows the gap pause, and the Live Activity appears
       on this device.
+- [ ] **Resume run by push-to-start on a second device.** With a second iPhone
+      signed in, resume the same entry's run on the first. Expected: the Live
+      Activity also starts on the second device by push-to-start.
 - [ ] **VoiceOver over the stats.** On the `Intervals` Overview with VoiceOver
       on, swipe through the activity strip and the lap-type bars. Expected:
       "Week of … : N entries" and per-type values are spoken.

@@ -102,6 +102,11 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
     @RequiredKey public var timer: TopicTimerDTO?
+    // T2-M4
+    /// `TopicSummary.last_entry` (content-display.md §2): decoded so the required-key sweep (G1) holds;
+    /// not mapped, the app keeps its store-backed latest entry.
+    @RequiredKey public var lastEntry: EntryDTO?
+    // end T2-M4
     // T2-M3
     /// `TopicSummary.appearance` (appearance.md §1.1, §8): always present, every key required.
     public var appearance: AppearanceDTO
@@ -110,6 +115,7 @@ public struct TopicDetailDTO: Codable, Sendable, Hashable, WireResponse {
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer, questions
+        case lastEntry = "last_entry"  // T2-M4
         case appearance  // T2-M3
         case currentVersion = "current_version"
         case questionCount = "question_count"
@@ -152,6 +158,10 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
     @RequiredKey public var scheduleUpdatedAt: Date?
     @RequiredKey public var due: DueStatusDTO?
     @RequiredKey public var timer: TopicTimerDTO?
+    // T2-M4
+    /// See `TopicDetailDTO.lastEntry`.
+    @RequiredKey public var lastEntry: EntryDTO?
+    // end T2-M4
     // T2-M3
     /// See `TopicDetailDTO.appearance`.
     public var appearance: AppearanceDTO
@@ -159,6 +169,7 @@ public struct TopicSummaryDTO: Codable, Sendable, Hashable, DomainConvertible {
 
     enum CodingKeys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer
+        case lastEntry = "last_entry"  // T2-M4
         case appearance  // T2-M3
         case currentVersion = "current_version"
         case questionCount = "question_count"

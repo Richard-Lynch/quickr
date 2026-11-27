@@ -68,6 +68,10 @@ RECORD_PATHS = frozenset(
         ("body", "deleted", "*"),
         # recordRunEvent: the run's entry.
         ("body", "entry"),
+        # T2-M4: a topic's last_entry (content-display.md §2), wherever a topic record sits.
+        ("body", "last_entry"),
+        ("body", "items", "*", "last_entry"),
+        ("body", "items", "*", "topic", "last_entry"),
     }
 )
 FIXED_PUBLIC_KEY = "B" + "A" * 86
@@ -818,8 +822,10 @@ def test_normaliser_only_touches_known_paths() -> None:
         "meta": {"created_at": "not a date"},
         "answers": [{"key": "k", "value": db_time}],
         "due": {"due_since": "2026-03-04T08:00:00Z", "next_due_at": None},
+        "last_entry": {"created_at": db_time, "captured_at": "2026-03-01T08:00:00Z"},
     }
     assert rec.normalise(body, ("body",), "x.json") == {
         **body,
         "created_at": SERVER_TIME,
+        "last_entry": {"created_at": SERVER_TIME, "captured_at": "2026-03-01T08:00:00Z"},
     }

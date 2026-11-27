@@ -477,3 +477,298 @@ final class HoldOnce: Sendable {
         held?.resume()
     }
 }
+
+// MARK: - Activity strip and sparklines (content-display.md §4.2, §4.3)
+
+@MainActor extension OverviewModelTests {
+    /// Wednesday 2026-11-25 12:00 UTC: today in London is 2026-11-25, the first cell Monday
+    /// 2026-09-07, whose local midnight is 2026-09-06T23:00Z (BST).
+    static let activityNow = Date(timeIntervalSince1970: 1_795_608_000)
+    static let firstCellMidnight = Date(timeIntervalSince1970: 1_788_735_600)
+
+    static let today = ActivityStrip.localDay(activityNow, timeZone: TimeZone(identifier: "Europe/London")!)
+
+    /// Observes the strip for `today` until `until` holds, then stops.
+    func observe(_ model: OverviewModel, until: @escaping @MainActor (OverviewModel) -> Bool) async throws {
+        let observing = Task { @MainActor in await model.observeActivity(today: Self.today) }
+        defer { observing.cancel() }
+        try await eventually("the strip") { await MainActor.run { until(model) } }
+    }
+
+    /// Server rows and a queued create of this topic, on both sides of the first cell's midnight,
+    /// plus another topic's entry and a queued delete of one in the window.
+    func seedActivity(_ h: Harness) throws {
+        let topic = Make.topic(id: StatsLoaderTests.topicId, name: "Everything")
+        let other = Make.topic(name: "Other")
+        func entry(_ topicId: UUID, _ at: Date) -> Entry {
+            var entry = Make.entry(topicId: topicId)
+            entry.capturedAt = at
+            return entry
+        }
+        let deleted = entry(topic.id, Self.firstCellMidnight.addingTimeInterval(3 * 86_400))
+        try h.store.writer.write { db in
+            _ = try ServerLayer.upsert(db, topic: topic)
+            _ = try ServerLayer.upsert(db, topic: other)
+            for at in [
+                Self.firstCellMidnight.addingTimeInterval(-0.001),  // the Sunday before: outside
+                Self.firstCellMidnight,  // the first cell, 00:00 local
+                Self.activityNow, Self.activityNow.addingTimeInterval(3600),  // today, twice
+            ] {
+                _ = try ServerLayer.upsert(db, entry: entry(topic.id, at))
+            }
+            _ = try ServerLayer.upsert(db, entry: entry(other.id, Self.activityNow))
+            _ = try ServerLayer.upsert(db, entry: deleted)
+            _ = try OutboxStorage.append(
+                db,
+                NewOutboxItem(
+                    payload: .entryDelete(entryId: deleted.id.wireString, topicId: topic.id.wireString), origin: .app),
+                now: Self.activityNow)
+            _ = try OutboxStorage.append(
+                db,
+                NewOutboxItem(
+                    payload: .entryCreate(
+                        topic: TopicRef(id: topic.id, slug: topic.slug, name: topic.name),
+                        body: EntryCreateDTO(
+                            id: nil, answers: [:], source: "ios",
+                            capturedAt: Self.firstCellMidnight.addingTimeInterval(86_400 + 60), version: 1)),
+                    origin: .app),
+                now: Self.activityNow)
+        }
+    }
+
+    /// `store.entries(topicId, from:)`: counted view entries from the bound on, inclusive.
+    @Test func storeEntriesFromTheFirstCellsMidnight() async throws {
+        let h = try Harness()
+        try seedActivity(h)
+        let entries = try await h.store.entries(topicId: StatsLoaderTests.topicId, from: Self.firstCellMidnight)
+        let times = entries.map(\.entry.capturedAt)
+        #expect(
+            times == [
+                Self.activityNow.addingTimeInterval(3600), Self.activityNow,
+                Self.firstCellMidnight.addingTimeInterval(86_400 + 60), Self.firstCellMidnight,
+            ])
+        #expect(entries.allSatisfy { $0.entry.topicId == StatsLoaderTests.topicId })
+    }
+
+    @Test func activityStripFromStoreEntriesSinceTheFirstCellsLocalMidnight() async throws {
+        let h = try Harness()
+        try seedActivity(h)
+        Self.serve(h)
+        let model = model(h)
+        try await observe(model) { $0.activity.value != nil }
+        let strip = try #require(model.activity.value)
+        #expect(
+            ActivityStrip.localMidnight(strip.firstDay, timeZone: TimeZone(identifier: "Europe/London")!)
+                == Self.firstCellMidnight)
+        #expect(strip.firstDay == "2026-09-07")
+        #expect(strip.cells.last?.day == "2026-11-25")
+        #expect(strip.cells.count == 80)
+        // The first cell's midnight counts, the instant before doesn't; the queued create counts,
+        // the queued delete and the other topic's entry don't.
+        #expect(strip.cells.first?.count == 1)
+        #expect(strip.cells[1].count == 1)
+        #expect(strip.cells[3].count == 0)
+        #expect(strip.cells.last?.count == 2)
+        #expect(strip.total == 4 && strip.max == 2)
+    }
+
+    /// The strip is the store's, so it shows with the stats unavailable (offline, nothing cached).
+    @Test func theActivityStripShowsOffline() async throws {
+        let h = try Harness()
+        try seedActivity(h)
+        h.offline()
+        let model = model(h)
+        await model.load(query: Self.query, bucket: .week)
+        guard case .unavailable = model.stats else {
+            Issue.record("expected no stats, got \(model.stats)")
+            return
+        }
+        #expect(model.sparklines.isEmpty, "no stats, no cards")
+        try await observe(model) { $0.activity.value?.total == 4 }
+    }
+
+    /// In the charts' bucket, the trend is the chart's series: nothing is fetched twice.
+    @Test func sparklinesShareTheChartsSeriesInTheSameBucket() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let model = model(h)
+        await model.load(query: Self.query, bucket: .week, sparkBucket: .week)
+        let numeric = try #require(model.stats.value).questions.compactMap { q -> String? in
+            if case .numeric = q { q.key } else { nil }
+        }
+        #expect(!numeric.isEmpty)
+        #expect(Set(model.sparklines.keys) == Set(numeric))
+        for key in numeric {
+            #expect(model.sparklines[key]?.value == model.series[key]?.value, "\(key)")
+        }
+        let seriesRequests = h.transport.requests.filter { $0.url.path.hasSuffix("/series") }
+        #expect(seriesRequests.count == model.series.count)
+    }
+
+    /// In another bucket (the chart's picked, the trend's the range's default), each numeric card
+    /// loads its trend after the charts' series; a failed one is unavailable.
+    @Test func sparklinesLoadInTheRangesDefaultBucket() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let model = model(h)
+        await model.load(query: Self.query, bucket: .day, sparkBucket: .week)
+        let numeric = try #require(model.stats.value).questions.compactMap { q -> String? in
+            if case .numeric = q { q.key } else { nil }
+        }
+        #expect(Set(model.sparklines.keys) == Set(numeric))
+        for key in numeric {
+            guard case .loaded(let trend, .fresh) = model.sparklines[key] else {
+                Issue.record("\(key): \(String(describing: model.sparklines[key]))")
+                continue
+            }
+            #expect(trend.bucket == .week && model.series[key]?.value?.bucket == .day)
+        }
+        let trends = h.transport.requests.filter {
+            $0.url.path.hasSuffix("/series") && $0.url.query?.contains("bucket=week") == true
+        }
+        #expect(trends.count == numeric.count)
+        // Offline with nothing cached in that bucket: unavailable ("Trend unavailable").
+        h.offline()
+        let later = self.model(h)
+        await later.load(query: Self.query, bucket: .day, sparkBucket: .month)
+        #expect(later.sparklines.values.allSatisfy { if case .unavailable = $0 { true } else { false } })
+        #expect(!later.sparklines.isEmpty)
+    }
+}
+
+// MARK: - Codex review round 1 (M4-iactivity-codex.md)
+
+@MainActor extension OverviewModelTests {
+    /// The strip follows the store while it's observed: an entry synced in, then one deleted.
+    @Test func theActivityStripFollowsTheStore() async throws {
+        let h = try Harness()
+        try seedActivity(h)
+        let model = model(h)
+        let observing = Task { @MainActor in await model.observeActivity(today: Self.today) }
+        defer { observing.cancel() }
+        try await eventually("the first strip") { await MainActor.run { model.activity.value?.total == 4 } }
+        var entry = Make.entry(topicId: StatsLoaderTests.topicId)
+        entry.capturedAt = Self.activityNow.addingTimeInterval(-86_400)
+        let added = entry
+        try await h.store.writer.write { db in _ = try ServerLayer.upsert(db, entry: added) }
+        try await eventually("the synced entry counts") {
+            await MainActor.run {
+                model.activity.value?.total == 5 && model.activity.value?.cells.suffix(2).first?.count == 1
+            }
+        }
+        try await h.store.writer.write { db in
+            try ServerLayer.applyDeletion(db, kind: .entry, id: added.id, topicId: added.topicId, seq: nil)
+        }
+        try await eventually("the deleted entry doesn't") { await MainActor.run { model.activity.value?.total == 4 } }
+    }
+
+    /// Another day is another strip: the view restarts the observation with the new today.
+    @Test func theNextDayMovesTheStripOn() async throws {
+        let h = try Harness()
+        try seedActivity(h)
+        let model = model(h)
+        try await observe(model) { $0.activity.value?.cells.last?.day == "2026-11-25" }
+        let observing = Task { @MainActor in await model.observeActivity(today: "2026-11-30") }
+        defer { observing.cancel() }
+        try await eventually("Monday's strip") {
+            await MainActor.run { model.activity.value?.cells.last?.day == "2026-11-30" }
+        }
+        let strip = try #require(model.activity.value)
+        #expect(strip.firstDay == "2026-09-14", "the oldest week drops off on a Monday")
+        #expect(strip.cells.count == 78)
+        #expect(strip.total == 2, "the 7 Sep entry and the 8 Sep queued create are outside the grid now")
+    }
+
+    /// A trend fetched under five minutes ago isn't fetched again by another load (the PWA's
+    /// `staleTime`); after that, or on a pull to refresh, it is.
+    @Test func trendsFetchedUnderFiveMinutesAgoAreNotFetchedAgain() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        func trendRequests() -> Int {
+            h.transport.requests.filter {
+                $0.url.path.hasSuffix("/series") && $0.url.query?.contains("bucket=week") == true
+            }.count
+        }
+        let first = model(h)
+        await first.load(query: Self.query, bucket: .day, sparkBucket: .week)
+        let numeric = first.sparklines.count
+        #expect(numeric > 0 && trendRequests() == numeric)
+        h.wall.advance(by: 299)
+        let second = model(h)
+        await second.load(query: Self.query, bucket: .day, sparkBucket: .week)
+        #expect(trendRequests() == numeric, "fresh enough: not fetched")
+        #expect(second.sparklines.values.allSatisfy { if case .loaded(_, .fresh) = $0 { true } else { false } })
+        await second.load(query: Self.query, bucket: .day, sparkBucket: .week)
+        #expect(trendRequests() == 2 * numeric, "a pull to refresh fetches")
+        h.wall.advance(by: 301)
+        let third = model(h)
+        await third.load(query: Self.query, bucket: .day, sparkBucket: .week)
+        #expect(trendRequests() == 3 * numeric, "older than five minutes: fetched")
+    }
+
+    /// One slow chart doesn't hold the numeric cards' trends up.
+    @Test func aSlowChartDoesNotHoldTheTrendsUp() async throws {
+        let h = try Harness()
+        Self.serve(h)
+        let held = HeldTransport(inner: h.transport) { $0.url.path.hasSuffix("/mood/series") }
+        let loader = StatsLoader(
+            store: h.store,
+            client: APIClient(baseURL: StatsLoaderTests.base, transport: held, identity: StaticServerIdentity(nil)),
+            requestSync: {})
+        let model = OverviewModel(
+            topicId: StatsLoaderTests.topicId, ref: "everything", timeZone: { TimeZone(identifier: "Europe/London")! },
+            loader: { loader })
+        let load = Task { @MainActor in await model.load(query: Self.query, bucket: .day, sparkBucket: .week) }
+        try await eventually("every trend loaded while the mood chart waits") {
+            await MainActor.run {
+                !model.sparklines.isEmpty
+                    && model.sparklines.values.allSatisfy { if case .loaded(_, .fresh) = $0 { true } else { false } }
+            }
+        }
+        #expect(held.waiting == 1)
+        guard case .loading = model.series["mood"] else {
+            Issue.record("expected the mood chart still loading, got \(String(describing: model.series["mood"]))")
+            held.release()
+            return
+        }
+        held.release()
+        await load.value
+        #expect(model.series["mood"]?.value != nil)
+    }
+}
+
+/// Passes requests to `inner`, holding the ones `held` picks until `release()`.
+final class HeldTransport: Transport {
+    private let inner: any Transport
+    private let held: @Sendable (HTTPRequest) -> Bool
+    private let state = Mutex<(released: Bool, waiting: [CheckedContinuation<Void, Never>])>((false, []))
+
+    init(inner: any Transport, held: @escaping @Sendable (HTTPRequest) -> Bool) {
+        self.inner = inner
+        self.held = held
+    }
+
+    var waiting: Int { state.withLock { $0.waiting.count } }
+
+    func release() {
+        let waiting = state.withLock { state in
+            state.released = true
+            defer { state.waiting = [] }
+            return state.waiting
+        }
+        for continuation in waiting { continuation.resume() }
+    }
+
+    func send(_ request: HTTPRequest) async throws -> HTTPResponse {
+        if held(request) {
+            await withCheckedContinuation { continuation in
+                let pass = state.withLock { state in
+                    if !state.released { state.waiting.append(continuation) }
+                    return state.released
+                }
+                if pass { continuation.resume() }
+            }
+        }
+        return try await inner.send(request)
+    }
+}

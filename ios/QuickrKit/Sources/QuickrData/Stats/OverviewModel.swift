@@ -43,6 +43,13 @@ public final class OverviewModel {
     public private(set) var series: [String: Load<QuestionSeries>] = [:]
     /// Every source the topic's entries have (unfiltered), for the source filter.
     public private(set) var sources: [String] = []
+    /// The last 12 weeks' entries per local day (content-display.md §4.2), from the store
+    /// (``observeActivity(today:refresh:)``): it ignores the range and the filters, so it shows
+    /// above "Nothing in this range" too, and offline.
+    public private(set) var activity: Load<ActivityStrip> = .loading
+    /// Each numeric question's trend (§4.3): its series in the range's default bucket, which is
+    /// the chart's series when the chart is in that bucket. By question key.
+    public private(set) var sparklines: [String: Load<QuestionSeries>] = [:]
 
     /// Counts `load` calls: only the latest one publishes, or puts back what it replaced. Two
     /// loads of the same query (the first load and a pull to refresh) are told apart by it.
@@ -57,12 +64,13 @@ public final class OverviewModel {
     private struct Request: Hashable {
         var query: StatsQuery
         var bucket: QuestionSeries.Bucket
+        var sparkBucket: QuestionSeries.Bucket
         var timeZone: String
     }
 
     /// `loader` is the bound store's (`session.stats`); `timeZone` is the reader's, which the
-    /// server buckets series in. It is read at every load: the device's zone can change while the
-    /// screen is open.
+    /// server buckets series in and the activity strip's days are in. It is read at every load:
+    /// the device's zone can change while the screen is open.
     public init(
         topicId: UUID, ref: String, timeZone: @escaping @MainActor () -> TimeZone = { TimeZone.current },
         loader: @escaping @MainActor () -> StatsLoader?
@@ -76,15 +84,22 @@ public final class OverviewModel {
     /// The unfiltered query, for the source filter's choices.
     public static let allTime = StatsQuery(cacheKey: "all", filters: EntryFilters())
 
-    /// Loads the stats for `query`, then each chartable question's series in `bucket`.
-    public func load(query: StatsQuery, bucket: QuestionSeries.Bucket) async {
+    /// Loads the stats for `query`, then each chartable question's series in `bucket` and the
+    /// numeric questions' trends in `sparkBucket` (the range's default bucket; nil: `bucket`). In
+    /// `bucket` the trends are the charts' series, not fetched twice. The activity strip is
+    /// ``observeActivity(today:refresh:)``'s.
+    public func load(query: StatsQuery, bucket: QuestionSeries.Bucket, sparkBucket: QuestionSeries.Bucket? = nil)
+        async
+    {
         let timeZone = timeZone().identifier
-        let request = Request(query: query, bucket: bucket, timeZone: timeZone)
+        let sparkBucket = sparkBucket ?? bucket
+        let request = Request(query: query, bucket: bucket, sparkBucket: sparkBucket, timeZone: timeZone)
         generation += 1
         let mine = generation
         guard let loader = loader() else {
             stats = .unavailable(.failed("Not connected to a server."))
             series = [:]
+            sparklines = [:]
             return
         }
         let topicId = topicId
@@ -96,7 +111,7 @@ public final class OverviewModel {
         // Cancelled (the view went away, or SwiftUI ended a refresh) or rebound: what was on
         // screen stays.
         // A cancelled task's reads fail, so its results would read as errors.
-        let before = (stats: stats, series: series)
+        let before = (stats: stats, series: series, sparklines: sparklines)
         let timingBefore = timing
         let scope = loader.scope
         // Another store bound meanwhile (a server switch, a reset): this answer belongs to the old
@@ -138,6 +153,7 @@ public final class OverviewModel {
         if let all { sources = all.sources.map(\.value) }
         guard let shown = stats.value else {
             series = [:]
+            sparklines = [:]
             return
         }
         let keys = shown.questions.compactMap { question -> String? in
@@ -146,6 +162,12 @@ public final class OverviewModel {
             case .text: nil
             }
         }
+        let numeric = shown.questions.compactMap { question -> String? in
+            if case .numeric = question { question.key } else { nil }
+        }
+        // In the charts' bucket the trends are the charts' series; in another, each numeric card
+        // loads its own, alongside the charts (one slow chart doesn't hold the trends up).
+        let shared = sparkBucket == bucket
         var next: [String: Load<QuestionSeries>] = [:]
         for key in keys {
             let cached = await loader.cachedSeries(
@@ -157,30 +179,104 @@ public final class OverviewModel {
                 next[key] = reload ? series[key] ?? .loading : .loading
             }
         }
+        var trends: [String: Load<QuestionSeries>] = [:]
+        var fetchTrends: [String] = []
+        for key in shared ? [] : numeric {
+            let cached = await loader.cachedSeries(
+                topicId: topicId, key: key, bucket: sparkBucket, timeZone: timeZone, query: query)
+            guard !abandoned() else { return }
+            if let (cached, fetchedAt) = cached, !reload,
+                loader.now().timeIntervalSince(fetchedAt) < Self.trendStaleAfter
+            {
+                // Fetched under five minutes ago (the PWA's `staleTime`): shown as it is.
+                trends[key] = .loaded(cached, .fresh(fetchedAt))
+                continue
+            }
+            if let (cached, fetchedAt) = cached {
+                trends[key] = .loaded(cached, .updating(fetchedAt))
+            } else {
+                trends[key] = reload ? sparklines[key] ?? .loading : .loading
+            }
+            fetchTrends.append(key)
+        }
         guard !abandoned() else { return }
         series = next
-        await withTaskGroup(of: (String, StatsResult<QuestionSeries>).self) { group in
+        sparklines = shared ? next.filter { numeric.contains($0.key) } : trends
+        enum Target { case chart, trend }
+        await withTaskGroup(of: (Target, String, StatsResult<QuestionSeries>).self) { group in
             for key in keys {
                 group.addTask {
                     (
-                        key,
+                        .chart, key,
                         await loader.series(
                             topicId: topicId, ref: ref, key: key, bucket: bucket, timeZone: timeZone, query: query)
                     )
                 }
             }
-            for await (key, result) in group {
+            for key in fetchTrends {
+                group.addTask {
+                    (
+                        .trend, key,
+                        await loader.series(
+                            topicId: topicId, ref: ref, key: key, bucket: sparkBucket, timeZone: timeZone,
+                            query: query)
+                    )
+                }
+            }
+            for await (target, key, result) in group {
                 guard !abandoned() else { return }
-                series[key] = Self.load(result)
+                switch target {
+                case .chart:
+                    series[key] = Self.load(result)
+                    if shared, numeric.contains(key) { sparklines[key] = series[key] }
+                case .trend:
+                    sparklines[key] = Self.load(result)
+                }
             }
         }
     }
 
+    /// A trend fetched this recently isn't fetched again by a load (not a pull to refresh): the
+    /// PWA's `staleTime` of 5 minutes (§4.3).
+    static let trendStaleAfter: TimeInterval = 5 * 60
+
+    /// Keeps ``activity`` current until cancelled (§4.2): the store's counted entries since the
+    /// local midnight of the strip's first cell for `today` (the local date in the model's zone),
+    /// re-read on every store change (a sync, a queued entry, an edit or a delete). The view
+    /// restarts it when the local day or the zone changes.
+    public func observeActivity(today: String, refresh: AsyncStream<Void>? = nil) async {
+        guard let loader = loader() else {
+            activity = .unavailable(.failed("Not connected to a server."))
+            return
+        }
+        let zone = timeZone()
+        let from = ActivityStrip.localMidnight(ActivityStrip.firstDay(today: today), timeZone: zone)
+        do {
+            for try await entries in loader.store.observeEntries(topicId: topicId, from: from, refresh: refresh) {
+                let strip = ActivityStrip(
+                    capturedAt: entries.map(\.entry.capturedAt), today: today, timeZone: zone)
+                activity = .loaded(strip, .fresh(loader.now()))
+            }
+        } catch {
+            // Cancelled (the view went away, the day moved on): what was shown stays.
+            guard !Task.isCancelled else { return }
+            activity = .unavailable(.failed("Could not read this topic's entries."))
+        }
+    }
+
     /// Puts back what an abandoned load replaced: anything still loading or updating.
-    private func restore(_ before: (stats: Load<TopicStats>, series: [String: Load<QuestionSeries>])) {
+    private func restore(
+        _ before: (
+            stats: Load<TopicStats>, series: [String: Load<QuestionSeries>],
+            sparklines: [String: Load<QuestionSeries>]
+        )
+    ) {
         if Self.isPending(stats) { stats = before.stats }
         for (key, load) in series where Self.isPending(load) {
             series[key] = before.series[key] ?? load
+        }
+        for (key, load) in sparklines where Self.isPending(load) {
+            sparklines[key] = before.sparklines[key] ?? load
         }
     }
 

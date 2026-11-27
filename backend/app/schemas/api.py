@@ -363,6 +363,12 @@ class TopicSummary(StrictModel):
     )
     due: DueStatus | None = Field(description="Null when the topic has no schedule.")
     timer: Timer | None = Field(description="The current version's timer; null when the topic is not timed.")
+    # T2-M4
+    last_entry: EntryOut | None = Field(
+        description="The latest counted entry, by (captured_at, id) descending; null when the topic has "
+        "none. Derived like entry_count: a feed topic item is not re-sent when entries change."
+    )
+    # end T2-M4
     # T2-M3
     appearance: TopicAppearance = Field(description="Colour, emoji and tags; every key always present.")
     # end T2-M3
@@ -1452,7 +1458,7 @@ class FeedEntry(StrictModel):
 
 class FeedTopic(StrictModel):
     """A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
-    ``due``) are not re-sent when entries change: clients recompute them from entries."""
+    ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries."""
 
     kind: Literal["topic"] = "topic"
     seq: int

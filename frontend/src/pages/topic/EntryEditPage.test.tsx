@@ -1,19 +1,33 @@
 /**
  * Editing a timed entry (timers.md §3.8, §11.5): captured_at is never sent (it is the run's
  * end), and Edit times sends `timing` with `expected_revision`, showing the server's refusals
- * on the fields they name.
+ * on the fields they name. Then the detail's entry actions (content-display.md §3.2): lap-type
+ * badges, one-tap Remove on lap and pause rows, Resume run, the queued (A14) projection and
+ * the OQ-14 redirect, against the fake run server and the page's own outbox.
  */
+import 'fake-indexeddb/auto';
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { EntryOut, TopicDetail, TopicVersionOut } from '../../client';
+import { connectOutboxEffects } from '../../api/outboxEffects';
+import { clearRunMarkers } from '../../api/runs';
+import type { EntryOut, RunEventIn, TopicDetail, TopicVersionOut } from '../../client';
 import { client } from '../../client/client.gen';
 import { toLocalSeconds } from '../../components/runs/timingEdit';
+import { setRunTapCooldown, RUN_TAP_COOLDOWN_MS } from '../../components/runs/useRunActions';
 import { ToastProvider } from '../../components/ui/Toast';
-import { parseInstant } from '../../lib/runs/instant';
+import { outbox, refreshOutboxSnapshot, startOutbox } from '../../lib/outbox/client';
+import { isRunEvent } from '../../lib/outbox/kinds';
+import { memoryAckedStore, setAckedStore } from '../../lib/runs/acked';
+import { formatInstant, parseInstant } from '../../lib/runs/instant';
+import { clearRunNotices, memoryNoticeStore, setNoticeStore } from '../../lib/runs/notices';
+import { resetServerOffset } from '../../lib/runs/serverClock';
+import { fakeRunServer, type FakeRunServer } from '../../test/fakeRunServer';
+import { normalTimer } from '../../test/timer';
 import { EntryEditPage } from './EntryEditPage';
 
 const ENTRY_ID = '6f1c0000-0000-4000-8000-0000000000e1';
@@ -36,6 +50,7 @@ const topic: TopicDetail = {
   schedule_updated_at: null,
   due: null,
   timer: null,
+  last_entry: null,
   appearance: { color: null, icon: null, tags: [] }, // T2-M3
   questions: [],
 };
@@ -243,6 +258,47 @@ async function openEditor(user: ReturnType<typeof userEvent.setup>) {
   await user.click(within(section).getByRole('button', { name: 'Edit times' }));
   return screen.getByRole('form', { name: 'Edit times' });
 }
+
+describe('EntryEditPage timing rows', () => {
+  it('lists the pauses as rows between the segments they fall in, in time order', async () => {
+    // pauses[0] (8:03:10–8:03:30) is in Dry; pauses[1] (8:00:30–8:00:50) in Wash.
+    stubServer(
+      entry({
+        ...steppedTiming,
+        paused_ms: 40_000,
+        pauses: [
+          { start: '2026-10-23T08:03:10Z', end: '2026-10-23T08:03:30Z', id: null },
+          { start: '2026-10-23T08:00:30Z', end: '2026-10-23T08:00:50Z', id: null },
+        ],
+      }),
+      undefined,
+      stepped,
+    );
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    const rows = within(within(section).getByRole('list', { name: 'Segments' })).getAllByRole(
+      'listitem',
+    ) as [HTMLElement, HTMLElement, HTMLElement, HTMLElement];
+    expect(rows.map((r) => r.dataset.testid)).toEqual([
+      'entry.timing.segment.0',
+      'entry.timing.pause.1',
+      'entry.timing.segment.1',
+      'entry.timing.pause.0',
+    ]);
+    expect(rows[1].textContent).toBe('Paused · 0:20');
+    expect(rows[1]).toHaveAccessibleName('Paused, 20 seconds');
+    expect(rows[0].textContent).toContain('Wash');
+    expect(rows[2].textContent).toContain('Dry');
+  });
+
+  it('shows no pause rows for a run without pauses', async () => {
+    stubServer(entry(steppedTiming), undefined, stepped);
+    renderPage();
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    expect(within(section).getByTestId('entry.timing.segment.1')).toBeInTheDocument();
+    expect(within(section).queryByTestId('entry.timing.pause.0')).toBeNull();
+  });
+});
 
 describe('EntryEditPage Edit times', () => {
   it('sends the edited timing with expected_revision and no captured_at', async () => {
@@ -501,5 +557,493 @@ describe('EntryEditPage when the entry changes elsewhere', () => {
       expect(loads().value).toBe('3');
     });
     expect(screen.queryByText('This entry changed elsewhere')).toBeNull();
+  });
+});
+
+// MARK: - Entry actions (content-display.md §3.2)
+
+const RUN = '6f1c0000-0000-4000-8000-0000000000b1';
+/** Event ids of the seeded run, `…c<n>`. */
+const evt = (n: number) => `6f1c0000-0000-4000-8000-0000000000c${String(n)}`;
+
+/** A topic with the `tiktok` lap types (Run, Rest) and, with `steps`, a Warm-up step first. */
+function lapFixture(steps = false) {
+  const timer = normalTimer({
+    steps: steps ? [{ key: 'warmup', label: 'Warm-up' }] : [],
+    laps: [
+      { key: 'run', label: 'Run' },
+      { key: 'rest', label: 'Rest' },
+    ],
+  });
+  const t: TopicDetail = { ...topic, slug: 'intervals', name: 'Intervals', timer };
+  const v: TopicVersionOut = { ...version, timer };
+  return { topic: t, versions: [v] };
+}
+
+interface Tap {
+  type: RunEventIn['type'];
+  /** Seconds after the start. */
+  s: number;
+  seg?: number;
+  pause_id?: string;
+}
+
+/**
+ * The run `RUN`, stopped with its entry on the fake server: started `ago` ms before now, with
+ * `taps` (ids `evt(1)`, `evt(2)`, …) then a stop (`evt(9)`) at `stopS` seconds.
+ */
+function seedStopped(server: FakeRunServer, taps: Tap[], stopS: number, ago = 10 * 60_000) {
+  const t0 = Date.now() - ago;
+  const at = (s: number) => formatInstant(t0 + s * 1000);
+  server.record(RUN, { id: RUN, type: 'start', at: at(0), topic_id: topic.id, version: 1 });
+  taps.forEach((t, i) => {
+    const { s: sec, ...rest } = t;
+    server.record(RUN, { id: evt(i + 1), at: at(sec), ...rest });
+  });
+  server.record(RUN, { id: evt(9), type: 'stop', at: at(stopS) });
+}
+
+/** Run, Rest, Run laps (taps at 30 s and 60 s) with a pause in the second lap. */
+const LAPS_AND_PAUSE: Tap[] = [
+  { type: 'lap', s: 30, seg: 0 },
+  { type: 'pause', s: 40 },
+  { type: 'resume', s: 50, pause_id: evt(2) },
+  { type: 'lap', s: 60, seg: 1 },
+];
+
+interface Actions {
+  server: FakeRunServer;
+  user: ReturnType<typeof userEvent.setup>;
+  section: () => Promise<HTMLElement>;
+}
+
+let teardown: (() => Promise<void>) | null = null;
+
+afterEach(async () => {
+  await teardown?.();
+  teardown = null;
+});
+
+/**
+ * The entry page for `RUN` against the fake run server (its `getEntry` serves the stored
+ * entry), with the page's outbox flushing on its own as in the app. `offline`: the device is
+ * offline (`navigator.onLine` false, and a run event would meet a network error), so run
+ * events stay queued.
+ */
+function renderActions(
+  fixture: { topic: TopicDetail; versions: TopicVersionOut[] },
+  seed: (server: FakeRunServer) => void,
+  opts: { offline?: boolean; patch?: (e: EntryOut) => EntryOut } = {},
+): Actions {
+  const server = fakeRunServer(fixture.topic, fixture.versions);
+  seed(server);
+  if (opts.patch) server.entries = server.entries.map(opts.patch);
+  const base = server.fetch;
+  vi.stubGlobal(
+    'fetch',
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
+      const path = new URL(url, 'http://quickr.test').pathname;
+      if (opts.offline && path.startsWith('/api/v1/runs/') && method === 'POST')
+        return Promise.reject(new TypeError('Failed to fetch'));
+      const one = /^\/api\/v1\/entries\/([^/]+)$/.exec(path);
+      if (one && method === 'GET') {
+        const e = server.entries.find((x) => x.id === one[1]);
+        return Promise.resolve(e ? json(200, e) : json(404, { code: 'not_found', errors: [] }));
+      }
+      return base(input, init);
+    }),
+  );
+  Element.prototype.scrollIntoView = () => undefined;
+  // Offline as the app sees it: nothing is flushed, so no send is in flight at teardown.
+  const onLine = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(!opts.offline);
+  setAckedStore(memoryAckedStore());
+  setNoticeStore(memoryNoticeStore());
+  setRunTapCooldown(0);
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const disconnect = connectOutboxEffects(qc, outbox);
+  const stop = startOutbox();
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/t/:ref',
+        element: <Outlet context={{ topic: fixture.topic }} />,
+        children: [
+          { path: 'entries/:entryId', element: <EntryEditPage /> },
+          { path: 'entries', element: <p>entries page</p> },
+          { path: 'record', element: <p>run panel</p> },
+        ],
+      },
+    ],
+    { initialEntries: [`/t/${fixture.topic.slug}/entries/${RUN}`] },
+  );
+  render(
+    <QueryClientProvider client={qc}>
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
+    </QueryClientProvider>,
+  );
+  teardown = async () => {
+    cleanup();
+    stop();
+    onLine.mockRestore();
+    disconnect();
+    qc.clear();
+    await outbox.clear();
+    await refreshOutboxSnapshot();
+    setAckedStore(memoryAckedStore());
+    clearRunMarkers();
+    clearRunNotices();
+    setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
+    resetServerOffset();
+  };
+  return {
+    server,
+    user: userEvent.setup(),
+    section: () => screen.findByRole('region', { name: 'Timing' }),
+  };
+}
+
+const stored = (server: FakeRunServer) => {
+  const e = server.entries.find((x) => x.id === RUN);
+  if (!e?.timing) throw new Error('no entry');
+  return { ...e, timing: e.timing };
+};
+
+/** The run events this device has queued, oldest first. */
+async function queuedEvents() {
+  return (await outbox.list()).filter(isRunEvent).map((i) => i.payload.event);
+}
+
+async function confirmRemove(a: Actions, name: string) {
+  await a.user.click(within(await a.section()).getByRole('button', { name }));
+  const sheet = await screen.findByRole('dialog');
+  await a.user.click(within(sheet).getByRole('button', { name: 'Remove' }));
+}
+
+describe('EntryEditPage entry actions: rows', () => {
+  it('label typed laps with M1’s label and a neutral lap-type badge; steps have none', async () => {
+    const a = renderActions(lapFixture(true), (s) =>
+      seedStopped(
+        s,
+        [
+          { type: 'next', s: 20, seg: 0 },
+          { type: 'lap', s: 50, seg: 1 },
+        ],
+        80,
+      ),
+    );
+    const section = await a.section();
+    const rows = (await within(section).findAllByRole('listitem')).filter((r) =>
+      r.dataset.testid?.startsWith('entry.timing.segment.'),
+    );
+    expect(rows.map((r) => r.textContent.replace(/\d+:\d\d/g, '').trim())).toEqual([
+      '1Warm-up',
+      '2Run 1Run',
+      '3Rest 1Rest',
+    ]);
+    expect(within(section).queryByTestId('entry.timing.laptype.0')).toBeNull();
+    expect(within(section).getByTestId('entry.timing.laptype.1').textContent).toBe('Run');
+    expect(within(section).getByTestId('entry.timing.laptype.2').textContent).toBe('Rest');
+  });
+
+  it('offer Remove on lap and pause rows only: never on a step or the first segment', async () => {
+    const a = renderActions(lapFixture(true), (s) =>
+      seedStopped(
+        s,
+        [
+          { type: 'next', s: 20, seg: 0 },
+          { type: 'lap', s: 50, seg: 1 },
+          { type: 'pause', s: 60 },
+          { type: 'resume', s: 70, pause_id: evt(3) },
+        ],
+        90,
+      ),
+    );
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.segment.2');
+    expect(within(section).queryByTestId('entry.timing.remove.0')).toBeNull(); // the step
+    // The lap after the last step was opened by a `next`: removing it would be no_target.
+    expect(within(section).getByTestId('entry.timing.remove.1')).toBeDisabled();
+    // A disabled button shows no tooltip: a muted note says why, and describes the button.
+    const why = 'A lap that starts at a step boundary can’t be removed: change it with Edit times.';
+    expect(within(section).getByTestId('entry.timing.remove.why')).toHaveTextContent(why);
+    expect(within(section).getByTestId('entry.timing.remove.1')).toHaveAccessibleDescription(why);
+    expect(within(section).getByTestId('entry.timing.remove.2')).toBeEnabled();
+    expect(within(section).getByTestId('entry.timing.remove.2')).not.toHaveAccessibleDescription(
+      why,
+    );
+    expect(within(section).getByTestId('entry.timing.pause.remove.0')).toBeEnabled();
+  });
+
+  it('give an untyped run’s first lap no Remove, and a pre-v2 timing (null ids) none at all', async () => {
+    const a = renderActions(
+      { topic, versions: [version] },
+      (s) => seedStopped(s, [{ type: 'lap', s: 30, seg: 0 }], 60),
+      {
+        patch: (e) => ({
+          ...e,
+          timing: e.timing && {
+            ...e.timing,
+            terminal_id: null,
+            segments: e.timing.segments.map((x) => ({ ...x, event_id: null, opened_by: null })),
+          },
+        }),
+      },
+    );
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.segment.1');
+    expect(within(section).queryByTestId('entry.timing.remove.0')).toBeNull();
+    expect(within(section).queryByTestId('entry.timing.remove.1')).toBeNull();
+    // No disabled Remove, so no note about one.
+    expect(within(section).queryByTestId('entry.timing.remove.why')).toBeNull();
+  });
+});
+
+describe('EntryEditPage Edit times with lap types', () => {
+  it('reads each lap’s label after the save, relabelled in order through the lap types', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90));
+    const section = await a.section();
+    await a.user.click(await within(section).findByRole('button', { name: 'Edit times' }));
+    const form = screen.getByRole('form', { name: 'Edit times' });
+    const hints = () =>
+      within(form)
+        .getAllByText(/^(Run|Rest) \d: /)
+        .map((h) => h.textContent.split(':')[0]);
+    expect(hints()).toEqual(['Run 1', 'Rest 1', 'Run 2']);
+    // Dropping the second lap's boundary: the third lap becomes Rest 1 (timers2.md §3.2).
+    await a.user.click(within(form).getByRole('button', { name: 'Remove segment 2' }));
+    expect(hints()).toEqual(['Run 1', 'Rest 1']);
+  });
+});
+
+describe('EntryEditPage entry actions: Remove', () => {
+  it('a lap: confirms, sends one `remove` naming segments[i].event_id, and the row merges', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90));
+    const before = stored(a.server);
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.segment.2');
+    await confirmRemove(a, 'Remove Rest 1');
+    await waitFor(() => expect(a.server.events().map((e) => e.type)).toEqual(['remove']));
+    const sent = a.server.events()[0];
+    expect(sent?.target).toBe(before.timing.segments[1]?.event_id);
+    expect(sent?.target).toBe(evt(1));
+    // The ack's entry replaces it: two segments, the laps relabelled, not edited.
+    await waitFor(() => expect(within(section).queryByTestId('entry.timing.segment.2')).toBeNull());
+    const after = stored(a.server);
+    expect(after.revision).toBe(before.revision + 1);
+    expect(after.timing.edited).toBe(false);
+    expect(within(section).getByTestId('entry.timing.segment.1').textContent).toContain('Rest 1');
+    expect(within(section).queryByText('edited')).toBeNull();
+  });
+
+  it('a pause: sends `remove` naming pauses[j].id, and the pause row goes', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90));
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.pause.0');
+    await confirmRemove(a, 'Remove pause, 0:10');
+    await waitFor(() => expect(a.server.events()).toHaveLength(1));
+    expect(a.server.events()[0]).toMatchObject({ type: 'remove', target: evt(2) });
+    await waitFor(() => expect(within(section).queryByTestId('entry.timing.pause.0')).toBeNull());
+    expect(within(section).getByTestId('run-total').textContent).toBe('1:30');
+  });
+
+  it('Cancel sends nothing', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90));
+    const section = await a.section();
+    await a.user.click(await within(section).findByRole('button', { name: 'Remove Rest 1' }));
+    await a.user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }),
+    );
+    expect(await queuedEvents()).toEqual([]);
+    expect(a.server.events()).toEqual([]);
+  });
+
+  it('offline: queues the remove; the entry stays with its timing re-projected and a pending mark', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.segment.2');
+    expect(within(section).queryByTestId('entry.timing.pending')).toBeNull();
+    await confirmRemove(a, 'Remove Rest 1');
+    await within(section).findByTestId('entry.timing.pending');
+    const queued = await queuedEvents();
+    expect(queued).toMatchObject([{ type: 'remove', target: evt(1) }]);
+    // A14: no run projected (the entry is still shown here), the boundary merged and the
+    // later lap relabelled, the total unchanged, nothing sent and no PATCH.
+    expect(screen.queryByText('run panel')).toBeNull();
+    expect(within(section).queryByTestId('entry.timing.segment.2')).toBeNull();
+    expect(within(section).getByTestId('entry.timing.segment.1').textContent).toContain('Rest 1');
+    expect(within(section).getByTestId('run-total').textContent).toBe('1:20');
+    expect(a.server.entries[0]?.revision).toBe(1);
+    expect(a.server.events()).toEqual([]);
+  });
+
+  it('a remove queued while the editor is open stops its save', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    const section = await a.section();
+    await a.user.click(await within(section).findByRole('button', { name: 'Edit times' }));
+    const form = screen.getByRole('form', { name: 'Edit times' });
+    // Another tab of this device removes a lap meanwhile.
+    const e = stored(a.server);
+    await outbox.enqueue('run.event', {
+      topic: { id: topic.id, slug: 'intervals', name: 'Intervals' },
+      run_id: RUN,
+      version: 1,
+      steps: [],
+      requires_answers: false,
+      makes_entry: false,
+      event: { type: 'remove', at: formatInstant(Date.now()), target: evt(1) },
+      entry: { timing: e.timing, revision: e.revision },
+    } as never);
+    await refreshOutboxSnapshot();
+    await within(section).findByTestId('entry.timing.pending');
+    await a.user.click(within(form).getByRole('button', { name: /save/i }));
+    expect(await within(form).findByText(/a removal is waiting to sync/i)).toBeInTheDocument();
+    expect(a.server.requests.filter((r) => r.method === 'PATCH')).toEqual([]);
+  });
+
+  it('offline: Edit times waits for the queued remove (an edit now would void it)', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    const section = await a.section();
+    expect(await within(section).findByRole('button', { name: 'Edit times' })).toBeEnabled();
+    await confirmRemove(a, 'Remove Rest 1');
+    await within(section).findByTestId('entry.timing.pending');
+    expect(within(section).getByRole('button', { name: 'Edit times' })).toBeDisabled();
+  });
+});
+
+describe('EntryEditPage entry actions: Resume run', () => {
+  it('waits for the open runs to load before it is offered', async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    const a = renderActions(lapFixture(), (s) => {
+      seedStopped(s, LAPS_AND_PAUSE, 90);
+      const base = s.fetch;
+      s.fetch = async (input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (new URL(url, 'http://quickr.test').pathname === '/api/v1/runs') await held;
+        return base(input, init);
+      };
+    });
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.remove.2');
+    expect(within(section).queryByTestId('entry-resume')).toBeNull();
+    release();
+    expect(await within(section).findByTestId('entry-resume')).toBeEnabled();
+  });
+
+  it('sends `reopen` naming timing.terminal_id and goes to the run panel', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90));
+    const terminal = stored(a.server).timing.terminal_id;
+    expect(terminal).toBe(evt(9));
+    await a.user.click(await within(await a.section()).findByTestId('entry-resume'));
+    await screen.findByText('run panel');
+    await waitFor(() => expect(a.server.events()).toHaveLength(1));
+    expect(a.server.events()[0]).toMatchObject({ type: 'reopen', target: terminal });
+  });
+
+  it('offline: queues the reopen and goes to the run panel, which the run now represents', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    await a.user.click(await within(await a.section()).findByTestId('entry-resume'));
+    await screen.findByText('run panel');
+    expect(await queuedEvents()).toMatchObject([{ type: 'reopen', target: evt(9) }]);
+    expect(a.server.events()).toEqual([]);
+  });
+
+  it('a pre-v2 timing (terminal_id null) sends target null: the server resolves it', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+      patch: (e) => ({ ...e, timing: e.timing && { ...e.timing, terminal_id: null } }),
+    });
+    await a.user.click(await within(await a.section()).findByTestId('entry-resume'));
+    await screen.findByText('run panel');
+    expect(await queuedEvents()).toMatchObject([{ type: 'reopen', target: null }]);
+  });
+
+  it('is offered within 7 days of the run’s start, not after', async () => {
+    const day = 24 * 60 * 60_000;
+    renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90, 8 * day));
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    await within(section).findByTestId('entry.timing.segment.2');
+    expect(within(section).queryByTestId('entry-resume')).toBeNull();
+    // Remove has no window (timers2.md: a remove is an edit, bounded only by its target).
+    expect(within(section).getByTestId('entry.timing.remove.2')).toBeEnabled();
+  });
+
+  it('is hidden while the topic has another run open here (A15)', async () => {
+    const a = renderActions(lapFixture(), (s) => {
+      seedStopped(s, LAPS_AND_PAUSE, 90);
+      s.record(evt(7), {
+        id: evt(7),
+        type: 'start',
+        at: formatInstant(Date.now() - 1000),
+        topic_id: topic.id,
+        version: 1,
+      });
+    });
+    const section = await a.section();
+    await within(section).findByTestId('entry.timing.remove.2');
+    // listRuns lists the open run; Resume waits for it to load and then stays hidden.
+    await waitFor(() =>
+      expect(a.server.requests.some((r) => r.path === '/api/v1/runs')).toBe(true),
+    );
+    await waitFor(() => expect(within(section).queryByTestId('entry-resume')).toBeNull());
+  });
+
+  it('is hidden while a remove of the entry is queued', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    const section = await a.section();
+    expect(await within(section).findByTestId('entry-resume')).toBeInTheDocument();
+    await confirmRemove(a, 'Remove Rest 1');
+    await within(section).findByTestId('entry.timing.pending');
+    expect(within(section).queryByTestId('entry-resume')).toBeNull();
+  });
+});
+
+describe('EntryEditPage entry actions on an edited entry', () => {
+  it('offers neither Remove nor Resume', async () => {
+    renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      patch: (e) => ({ ...e, timing: e.timing && { ...e.timing, edited: true } }),
+    });
+    const section = await screen.findByRole('region', { name: 'Timing' });
+    await within(section).findByText('edited');
+    expect(within(section).queryByTestId('entry-resume')).toBeNull();
+    expect(within(section).queryByTestId(/^entry\.timing\.(pause\.)?remove\./)).toBeNull();
+    expect(within(section).getByRole('button', { name: 'Edit times' })).toBeInTheDocument();
+  });
+});
+
+describe('EntryEditPage OQ-14', () => {
+  it('redirects to the run when the entry’s run is open here (a queued reopen)', async () => {
+    const a = renderActions(lapFixture(), (s) => seedStopped(s, LAPS_AND_PAUSE, 90), {
+      offline: true,
+    });
+    await within(await a.section()).findByTestId('entry-resume');
+    // Another tab of this device resumed it: the local view now has the run open.
+    const e = stored(a.server);
+    await outbox.enqueue('run.event', {
+      topic: { id: topic.id, slug: 'intervals', name: 'Intervals' },
+      run_id: RUN,
+      version: 1,
+      steps: [],
+      requires_answers: false,
+      makes_entry: false,
+      event: { type: 'reopen', at: formatInstant(Date.now()), target: e.timing.terminal_id },
+      entry: { timing: e.timing, revision: e.revision },
+    } as never);
+    await refreshOutboxSnapshot();
+    await screen.findByText('run panel');
   });
 });
