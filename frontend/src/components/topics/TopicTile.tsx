@@ -117,15 +117,24 @@ export function TopicTile({
     ((lastEntry?.timing != null && lastEntry.version !== t.current_version) ||
       localRunList.some((r) => r.topic_id === t.id && r.version !== t.current_version));
   const versions = useTopicVersions(t.id, olderStop);
+  // The current version always resolves from what the tile has; the list adds the older ones
+  // (and a failed or stale list never hides a Resume on the current version).
+  const known = useMemo(
+    () => (olderStop && versions.data ? [...(current ?? []), ...versions.data] : current),
+    [olderStop, versions.data, current],
+  );
   const reopen = useReopenOffer(
     { id: t.id, slug: t.slug, name: t.name },
-    olderStop ? versions.data : current,
+    known,
     lastEntry,
     idleTimed,
   );
-  const lastAnswer = quick
-    ? lastEntry?.answers.find((a) => a.key === quick.question.key)
-    : undefined;
+  // An answer of another version is never read with the current question (its options and
+  // unit may differ): the tile falls back to the count, as the summary line does.
+  const lastAnswer =
+    quick && lastEntry?.version === t.current_version
+      ? lastEntry.answers.find((a) => a.key === quick.question.key)
+      : undefined;
   const lastText = quick && lastAnswer ? formatAnswer(quick.question, lastAnswer) : null;
   const due = dueView(t.due, now);
   // An open run makes the tile the active card (active-surfaces.md §6.2), which stands in
