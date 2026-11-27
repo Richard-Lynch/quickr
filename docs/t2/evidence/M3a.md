@@ -1,14 +1,14 @@
 # M3a evidence · topic appearance, phase A
 
-**Status: DRAFT, pre-gate** (2026-11-26). Branch `t2/m3a` at
-`9d671383ce7b4e593aa502533c5755c1ad3c476d` (`git rev-parse HEAD` in the
-milestone worktree, before this file was committed). Plan:
+**Status: final, gate run** (2026-11-26). Branch `t2/m3a` at
+`dc060b9a44ca1f834897734dd226f007093f10b5` (`git rev-parse HEAD` in the
+milestone worktree, before this update was committed). Milestone PR:
+[#305](https://github.com/Richard-Lynch/quickr/pull/305) (`t2/m3a` → `feat/t2`). Plan:
 [M3a-plan.md](../M3a-plan.md). Spec: [appearance.md](../../specs/appearance.md)
 Part I. SHAs are copied from `git log --oneline origin/t2/m3a` and `gh pr view`.
 Counts are quoted from the PR descriptions and from the committed xcresult JSON
-under [`M3a/xcresults/`](M3a/xcresults/). Lines marked **PENDING** are gate work
-still to run. Lines marked **GAP** are evidence that is missing or weaker than
-the rules ask for.
+under [`M3a/xcresults/`](M3a/xcresults/). Lines marked **GAP** are evidence
+that is missing or weaker than the rules ask for.
 
 ## 1. WPs
 
@@ -16,21 +16,23 @@ M3-TOKENS (#131) and I3-RENDER's Live Activity half (#227) were merged with
 `--no-ff`, because their branches are shared with M2 and M1. Every other WP was
 squash-merged, so it has one commit on `t2/m3a`.
 
-| WP                          | PR                                                       | Commit on `t2/m3a` | Codex review file(s)                                                                                                                                                                                                                                  | Cleanup                                                                           |
-| --------------------------- | -------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| M3-TOKENS                   | [#131](https://github.com/Richard-Lynch/quickr/pull/131) | `45775247` (merge) | [M3a-TOKENS-codex.md](../reviews/M3a-TOKENS-codex.md), [-r2](../reviews/M3a-TOKENS-codex-r2.md)                                                                                                                                                       | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/131#issuecomment-7177240960) |
-| M3-DB                       | [#201](https://github.com/Richard-Lynch/quickr/pull/201) | `737a25ab`         | [M3a-db-codex.md](../reviews/M3a-db-codex.md), [-round2](../reviews/M3a-db-codex-round2.md)                                                                                                                                                           | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/201#issuecomment-7182929603) |
-| I3-STORE                    | [#211](https://github.com/Richard-Lynch/quickr/pull/211) | `227fcfd9`         | [M3a-i3store-codex.md](../reviews/M3a-i3store-codex.md)                                                                                                                                                                                               | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/211#issuecomment-7184131908) |
-| F3-EDIT                     | [#215](https://github.com/Richard-Lynch/quickr/pull/215) | `2fa9a265`         | [M3a-f3edit-codex.md](../reviews/M3a-f3edit-codex.md), [-r2](../reviews/M3a-f3edit-codex-r2.md), [-full](../reviews/M3a-f3edit-codex-full.md), [-full-r2](../reviews/M3a-f3edit-codex-full-r2.md), [-full-r3](../reviews/M3a-f3edit-codex-full-r3.md) | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/215#issuecomment-7184276363) |
-| F3-RENDER                   | [#216](https://github.com/Richard-Lynch/quickr/pull/216) | `c0dad79f`         | [M3a-f3render-codex.md](../reviews/M3a-f3render-codex.md), [-p2](../reviews/M3a-f3render-codex-p2.md), [-p2r2](../reviews/M3a-f3render-codex-p2r2.md), [-full](../reviews/M3a-f3render-codex-full.md)                                                 | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/216#issuecomment-7184143157) |
-| F3-EDIT-REBASE (extra WP)   | [#220](https://github.com/Richard-Lynch/quickr/pull/220) | `0e72eb5d`         | [M3a-f3edit-rebase-codex.md](../reviews/M3a-f3edit-rebase-codex.md), [-r2](../reviews/M3a-f3edit-rebase-codex-r2.md)                                                                                                                                  | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/220#issuecomment-7184276615) |
-| I3-RENDER (header)          | [#221](https://github.com/Richard-Lynch/quickr/pull/221) | `9b10cba8`         | [M3a-i3render-codex.md](../reviews/M3a-i3render-codex.md) (four rounds in one file)                                                                                                                                                                   | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/221#issuecomment-7185133862) |
-| I3-RENDER (LA attributes)   | [#227](https://github.com/Richard-Lynch/quickr/pull/227) | `3d4592b3` (merge) | [M3a-i3render-la-codex.md](../reviews/M3a-i3render-la-codex.md) (three rounds)                                                                                                                                                                        | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/227#issuecomment-7187933867) |
-| I3-EDIT                     | [#238](https://github.com/Richard-Lynch/quickr/pull/238) | `d1b29181`         | [M3a-i3edit-codex.md](../reviews/M3a-i3edit-codex.md) (every round in one file)                                                                                                                                                                       | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/238#issuecomment-7190037618) |
-| M3-UITEST                   | [#251](https://github.com/Richard-Lynch/quickr/pull/251) | `ac266a9f`         | [M3a-uitest-codex.md](../reviews/M3a-uitest-codex.md), [-r2](../reviews/M3a-uitest-codex-r2.md), [-r3](../reviews/M3a-uitest-codex-r3.md)                                                                                                             | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/251#issuecomment-7193264091) |
-| Review fixes, iOS           | [#268](https://github.com/Richard-Lynch/quickr/pull/268) | **PENDING** (open) | `M3a-rvfix-ios-codex.md` (on `t2/m3a-rvfix-ios`, three rounds)                                                                                                                                                                                        | **PENDING**                                                                       |
-| Review fixes, PWA + backend | [#270](https://github.com/Richard-Lynch/quickr/pull/270) | **PENDING** (open) | `M3a-rvfix-fe-codex.md`, `-r2` … `-r5` (on `t2/m3a-rvfix-fe`)                                                                                                                                                                                         | **PENDING**                                                                       |
-| M3-REVIEW                   | milestone PR, not opened yet                             | —                  | [M3a-milestone-codex.md](../reviews/M3a-milestone-codex.md), [M3a-milestone-claude.md](../reviews/M3a-milestone-claude.md)                                                                                                                            | **PENDING** (milestone `--machine` run, §7)                                       |
+| WP                                       | PR                                                                                    | Commit on `t2/m3a`                                 | Codex review file(s)                                                                                                                                                                                                                                  | Cleanup                                                                           |
+| ---------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| M3-TOKENS                                | [#131](https://github.com/Richard-Lynch/quickr/pull/131)                              | `45775247` (merge)                                 | [M3a-TOKENS-codex.md](../reviews/M3a-TOKENS-codex.md), [-r2](../reviews/M3a-TOKENS-codex-r2.md)                                                                                                                                                       | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/131#issuecomment-7177240960) |
+| M3-DB                                    | [#201](https://github.com/Richard-Lynch/quickr/pull/201)                              | `737a25ab`                                         | [M3a-db-codex.md](../reviews/M3a-db-codex.md), [-round2](../reviews/M3a-db-codex-round2.md)                                                                                                                                                           | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/201#issuecomment-7182929603) |
+| I3-STORE                                 | [#211](https://github.com/Richard-Lynch/quickr/pull/211)                              | `227fcfd9`                                         | [M3a-i3store-codex.md](../reviews/M3a-i3store-codex.md)                                                                                                                                                                                               | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/211#issuecomment-7184131908) |
+| F3-EDIT                                  | [#215](https://github.com/Richard-Lynch/quickr/pull/215)                              | `2fa9a265`                                         | [M3a-f3edit-codex.md](../reviews/M3a-f3edit-codex.md), [-r2](../reviews/M3a-f3edit-codex-r2.md), [-full](../reviews/M3a-f3edit-codex-full.md), [-full-r2](../reviews/M3a-f3edit-codex-full-r2.md), [-full-r3](../reviews/M3a-f3edit-codex-full-r3.md) | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/215#issuecomment-7184276363) |
+| F3-RENDER                                | [#216](https://github.com/Richard-Lynch/quickr/pull/216)                              | `c0dad79f`                                         | [M3a-f3render-codex.md](../reviews/M3a-f3render-codex.md), [-p2](../reviews/M3a-f3render-codex-p2.md), [-p2r2](../reviews/M3a-f3render-codex-p2r2.md), [-full](../reviews/M3a-f3render-codex-full.md)                                                 | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/216#issuecomment-7184143157) |
+| F3-EDIT-REBASE (extra WP)                | [#220](https://github.com/Richard-Lynch/quickr/pull/220)                              | `0e72eb5d`                                         | [M3a-f3edit-rebase-codex.md](../reviews/M3a-f3edit-rebase-codex.md), [-r2](../reviews/M3a-f3edit-rebase-codex-r2.md)                                                                                                                                  | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/220#issuecomment-7184276615) |
+| I3-RENDER (header)                       | [#221](https://github.com/Richard-Lynch/quickr/pull/221)                              | `9b10cba8`                                         | [M3a-i3render-codex.md](../reviews/M3a-i3render-codex.md) (four rounds in one file)                                                                                                                                                                   | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/221#issuecomment-7185133862) |
+| I3-RENDER (LA attributes)                | [#227](https://github.com/Richard-Lynch/quickr/pull/227)                              | `3d4592b3` (merge)                                 | [M3a-i3render-la-codex.md](../reviews/M3a-i3render-la-codex.md) (three rounds)                                                                                                                                                                        | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/227#issuecomment-7187933867) |
+| I3-EDIT                                  | [#238](https://github.com/Richard-Lynch/quickr/pull/238)                              | `d1b29181`                                         | [M3a-i3edit-codex.md](../reviews/M3a-i3edit-codex.md) (every round in one file)                                                                                                                                                                       | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/238#issuecomment-7190037618) |
+| M3-UITEST                                | [#251](https://github.com/Richard-Lynch/quickr/pull/251)                              | `ac266a9f`                                         | [M3a-uitest-codex.md](../reviews/M3a-uitest-codex.md), [-r2](../reviews/M3a-uitest-codex-r2.md), [-r3](../reviews/M3a-uitest-codex-r3.md)                                                                                                             | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/251#issuecomment-7193264091) |
+| Review fixes, iOS                        | [#268](https://github.com/Richard-Lynch/quickr/pull/268)                              | `3f751967`                                         | [M3a-rvfix-ios-codex.md](../reviews/M3a-rvfix-ios-codex.md) (three rounds)                                                                                                                                                                            | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/268#issuecomment-7197426751) |
+| Review fixes, PWA + backend              | [#270](https://github.com/Richard-Lynch/quickr/pull/270)                              | `444cd6a9`                                         | [M3a-rvfix-fe-codex.md](../reviews/M3a-rvfix-fe-codex.md), [-r2](../reviews/M3a-rvfix-fe-codex-r2.md), [-r3](../reviews/M3a-rvfix-fe-codex-r3.md), [-r4](../reviews/M3a-rvfix-fe-codex-r4.md), [-r5](../reviews/M3a-rvfix-fe-codex-r5.md)             | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/270#issuecomment-7197428264) |
+| feat/t2 + M1 merge, store-migration item | [#277](https://github.com/Richard-Lynch/quickr/pull/277)                              | `27bde87a` (fast-forward; the merge is `d237693a`) | [M3a-sync-m1-codex.md](../reviews/M3a-sync-m1-codex.md) (two rounds)                                                                                                                                                                                  | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/277#issuecomment-7199256506) |
+| Gate fix: TopicUITests scroll            | [#303](https://github.com/Richard-Lynch/quickr/pull/303)                              | `dc060b9a`                                         | [M3a-scrollfix-codex.md](../reviews/M3a-scrollfix-codex.md) (no findings)                                                                                                                                                                             | [CLEAN](https://github.com/Richard-Lynch/quickr/pull/303#issuecomment-7205794331) |
+| M3-REVIEW                                | [#305](https://github.com/Richard-Lynch/quickr/pull/305) (open, `t2/m3a` → `feat/t2`) | —                                                  | [M3a-milestone-codex.md](../reviews/M3a-milestone-codex.md), [M3a-milestone-claude.md](../reviews/M3a-milestone-claude.md)                                                                                                                            | machine audit CLEAN (§7)                                                          |
 
 Other commits on `t2/m3a`:
 
@@ -40,6 +42,18 @@ Other commits on `t2/m3a`:
 - `4c7067d6`, `53179734`: `origin/feat/t2` syncs (main syncs #187, #249, #252).
 - `a9cb9d8b`: I3-EDIT xcresult summaries (durable test evidence).
 - `9d671383`: the milestone Codex review.
+- `fae15182`: this evidence draft, the device-checklist items and the Claude
+  milestone review.
+- `d237693a`, `db6a1179`, `fb916ca6`, `1b555fac`, `27bde87a`: #277, the
+  `feat/t2` (M1) merge, its ritual, the store-migration item and its Codex
+  review (§3.5).
+- `8425195a`: `t2-plan.md` text corrected, so iOS store migrations run M1 first.
+- `eccbee53`: `origin/feat/t2` merged for #288 (RecordUITests seeding fix).
+- `ab46f445`: `origin/feat/t2` merged, the final main sync (#253, #279, #284).
+  The ritual was green: backend `1462 passed`, frontend `2020 passed`,
+  ios-core 1211 + 306 + 30 + 3 + 350.
+- `7d2f642e`, `2ff93217`: gate xcresult summaries for the first gate run on
+  `8425195a` and the re-run on `ab46f445` (§7).
 
 ## 2. Acceptance → proof
 
@@ -106,7 +120,7 @@ clients, old requests, api level, openapi breaking).
 | The golden validates in pytest                                                                 | `test_request_goldens.py::test_golden_replays[updateTopic.appearance]`, `[createTopic.appearance]`                                                                                                                                                                                                                                           |
 | Writes (`TopicWrites.updateAppearance`, `expected_revision`)                                   | `TopicWritesTests.updateAppearanceSendsOnePatchAndAppliesTheTheme`, `aStaleAppearanceSaveIsRefusedAndNothingChanges`, `createSendsTheAppearanceAndStoresIt`; `TopicDTOTests.thePatchIsThreeStatePerField`, `theDetailsSaveCarriesTheAppearance`                                                                                              |
 | `DueReminder` local-fallback title (§6.7)                                                      | `DueReminderVectorTests.theTitleIsComposedAsTheServerDoes` over the 8 `reminder_titles[]` cases                                                                                                                                                                                                                                              |
-| E4 `StoreMigrationOrderTests`                                                                  | Not due when #211 merged (no `t2m1_*` migration anywhere then). It is now a gate item: §3.5, **PENDING**                                                                                                                                                                                                                                     |
+| E4 `StoreMigrationOrderTests`                                                                  | Not due when #211 merged (no `t2m1_*` migration anywhere then). Done at the `feat/t2` merge in #277: `StoreMigrationOrderTests`, 4 tests (§3.5)                                                                                                                                                                                              |
 
 - Counts:
   `swift test --filter 'TopicDTOTests|MappingTests|…|FixtureCoverageTests'` gave
@@ -261,13 +275,13 @@ clients, old requests, api level, openapi breaking).
 
 ### M3-REVIEW · milestone PR
 
-| Acceptance                                                             | Status                                                                                                                                                                                                           |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| No open finding inside scope                                           | **PENDING:** every finding is addressed in #268 / #270 (§6), and both are still open                                                                                                                             |
-| Every other finding has a `t2-followup` issue, including OQ-7 and OQ-8 | #269 (Codex round 4 on #270); OQ-7 → [#256](https://github.com/Richard-Lynch/quickr/issues/256), OQ-8 → [#257](https://github.com/Richard-Lynch/quickr/issues/257). **PENDING:** link them from the milestone PR |
-| `docs/t2/evidence/M3a.md` is complete                                  | this file; **PENDING** sections are marked                                                                                                                                                                       |
-| The milestone PR is ready with the five checks green                   | **PENDING**                                                                                                                                                                                                      |
-| LA tint and reminder emoji on the device checklist                     | [device-checklist.md › M3a · topic appearance](../device-checklist.md#m3a--topic-appearance)                                                                                                                     |
+| Acceptance                                                             | Status                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No open finding inside scope                                           | Every milestone-review finding is fixed in #268 (`3f751967`) and #270 (`444cd6a9`) (§6). The gate's one M3a-caused failure is fixed in #303 (`dc060b9a`)                                                                                     |
+| Every other finding has a `t2-followup` issue, including OQ-7 and OQ-8 | #269 (Codex round 4 on #270); OQ-7 → [#256](https://github.com/Richard-Lynch/quickr/issues/256), OQ-8 → [#257](https://github.com/Richard-Lynch/quickr/issues/257); gate follow-ups #293, #302, #274 (§5). Linked from the milestone PR #305 |
+| `docs/t2/evidence/M3a.md` is complete                                  | this file; the remaining **GAP** lines are justified in place                                                                                                                                                                                |
+| The milestone PR is ready with the five checks green                   | #305, opened ready for review; checks: see #305 checks                                                                                                                                                                                       |
+| LA tint and reminder emoji on the device checklist                     | [device-checklist.md › M3a · topic appearance](../device-checklist.md#m3a--topic-appearance)                                                                                                                                                 |
 
 ## 3. Orchestrator rulings and gate items
 
@@ -326,13 +340,13 @@ clients, old requests, api level, openapi breaking).
 - The milestone review refined it into the lead's conflict flow (§6): refetch by
   id; at most 3 sends, then a distinct "busy" error; on a real conflict, name
   the field and move the base; same value elsewhere is a resend.
-  - **PENDING #268 (iOS):** `aConflictThenASecondSaveSucceeds`,
+  - #268 (iOS), merged as `3f751967`: `aConflictThenASecondSaveSucceeds`,
     `twoUnrelatedWritesInARowStillSave`, `threeContentionsSayBusy`,
     `latestAppliesTheServersTopic`. CI green at `19045bc2`
     ([CI](https://github.com/Richard-Lynch/quickr/actions/runs/45852419139) ·
     [iOS](https://github.com/Richard-Lynch/quickr/actions/runs/45852419430) ·
     [Compat](https://github.com/Richard-Lynch/quickr/actions/runs/45852419447)).
-  - **PENDING #270 (PWA):**
+  - #270 (PWA), merged as `444cd6a9`:
     `shows the conflict naming the field, then a second save overwrites it`,
     `re-sends by id over a slug changed elsewhere while only the colour was edited`,
     `keeps re-sending over two unrelated writes in a row`,
@@ -341,9 +355,10 @@ clients, old requests, api level, openapi breaking).
       ([CI](https://github.com/Richard-Lynch/quickr/actions/runs/45852963756) ·
       [iOS](https://github.com/Richard-Lynch/quickr/actions/runs/45852963710) ·
       [Compat](https://github.com/Richard-Lynch/quickr/actions/runs/45852963669)).
-    - The branch has since moved to `7f9208b1` (`f72a1adf`: iOS wording,
-      conflicts judged on the sent fields, same value is no conflict; Codex r5:
-      no findings). Its CI was still running at the time of writing.
+    - The merged head `7f9208b1` also carries the alignment with iOS
+      (`f72a1adf`): the iOS wording, a change to the same value is no conflict,
+      only the sent fields can conflict, and the base moves after "busy". Codex
+      r5: no findings.
 - Residual: #219 (an iOS save tapped right after a sent archive can 409 before
   the store's copy arrives; outbox work).
 
@@ -353,21 +368,48 @@ The orchestrator made it a mandatory follow-up WP and a milestone gate item
 after F3-EDIT. It merged as #220 (`0e72eb5d`); proof in §2. The gate item is
 met. I3-EDIT carried the same fix on iOS (§3.3).
 
-### 3.5 Store migration order at the `feat/t2` merge: **PENDING**
+### 3.5 Store migration order at the `feat/t2` merge
 
-- Approved gate item. M1 (#267) merges to `feat/t2` first. At M3a's merge to
-  `feat/t2`, the merger:
-  - registers `t2m1` before `t2m3` in `StoreSchema.swift`'s `migrations`;
-  - adds `t2m1ServerLayerTables` to the `t2m3` stage clear;
-  - adds `StoreMigrationOrderTests` (plan E4), plus a test that upgrading a
-    store with M1's tables re-pulls cleanly.
-- State now:
-  - `t2/m3a` has one `t2m3` registration line (`154779a9`, kept on the milestone
-    branch by the lead's decision, #211).
-  - `StoreSchema+T2M1.swift` exists on `origin/t2/m1` and not yet on
-    `origin/feat/t2`.
-- Proof to record here: the commit SHA and the test names and counts.
-  **PENDING**.
+- Approved gate item. M1 (#267) merged to `feat/t2` first (`f8d8a8ef`). #277
+  brought `feat/t2` into M3a and was fast-forwarded into `t2/m3a` at
+  `27bde87a`, so the merge (`d237693a`) is a true merge commit. Conflicts and
+  their resolutions are listed in the #277 body.
+- **Order:** `StoreSchema.migrations = v1…v6 + t2m1Migrations + t2m3Migrations`
+  (`fb916ca6`).
+- **Clear:** `t2m3_topic_appearance` also clears every table in
+  `t2m1ServerLayerTables` (today `stage_run_closed`). `t2m1_run_closed` neither
+  resets the cursor nor clears staging, so t2m3's clear is what restarts
+  `stage_run_closed`.
+- **`StoreMigrationOrderTests`** (4 tests; `1b555fac` strengthened them after
+  Codex round 1):
+  - `m1IsRegisteredBeforeM3`: the order.
+  - `aFreshStoreHasBothMilestonesSchema`: the fresh schema.
+  - `aStoreSyncedBeforeBothRePullsOnceAndKeepsM1sData`: the upgrade re-pull.
+    Every stage table is empty after the migration, `stage_run_closed`
+    included. After one sync the themes show, and M1's closed-run marker, the
+    open run and its aliases survive.
+  - `midRebuildStagingRestartsEverywhereAndTheTargetStays`: the mid-rebuild
+    target.
+- **Mutation check:** removing `+ t2m1ServerLayerTables` from the clear fails
+  both upgrade tests.
+- **Counts from #277:**
+  - `swift test --filter 'StoreMigrationOrderTests|AppearanceUpgradeTests|UpgradeTests|SharedDatabaseTests'`:
+    `✔ Test run with 27 tests in 5 suites passed`.
+  - `make ios-core-test` at `fb916ca6`: 3 + 306 + 1207 + 30 + 350 = 1896
+    passed.
+  - `make check`: pytest `1462 passed`, vitest `2020 passed (77 files)`.
+- CI on `27bde87a`:
+  [CI](https://github.com/Richard-Lynch/quickr/actions/runs/45866033577) ·
+  [iOS](https://github.com/Richard-Lynch/quickr/actions/runs/45866033008) ·
+  [Compat](https://github.com/Richard-Lynch/quickr/actions/runs/45866032802)
+- Codex: [M3a-sync-m1-codex.md](../reviews/M3a-sync-m1-codex.md).
+  - Round 1 medium: the mid-rebuild target and full stage seeding. Fixed in
+    `1b555fac`.
+  - Round 1 low: the `t2-plan.md` text. Corrected in `8425195a`.
+  - Round 1 low: the MCP instructions paragraph has no delimiters. Stands: it
+    sits inside a string literal.
+  - Round 2: no remaining findings.
+- Found along the way: #274 (§5).
 
 ### 3.6 UI tests are not in CI: every local UI run
 
@@ -426,7 +468,7 @@ The counts for the JSON-backed rows were re-read from the committed
   demo-screenshot-only (`QUICKR_UIT_DEMO=1`), not real e2e checks.
 - JSON:
   [`m3a-uitest-UI-e2e-20261126-123352.summary.json`](M3a/xcresults/m3a-uitest-UI-e2e-20261126-123352.summary.json).
-- **PENDING:** a final e2e run on the gate head (§7).
+- The final e2e runs on the gate heads are in §7: 14 passed and 3 skipped (demo-only) on both `8425195a` and `ab46f445`.
 
 ## 4. Screenshots and recordings
 
@@ -482,6 +524,11 @@ States are from `gh issue view` at the time of writing.
 | [#230](https://github.com/Richard-Lynch/quickr/issues/230) | CI: iOS Build + Unit plan step hits its 15-min timeout after the tests pass (budget, not a hang)               | CLOSED | from #227. The step budget was raised on `main` (#231) and synced through #249                                                                                                                                                                                                                   |
 | [#217](https://github.com/Richard-Lynch/quickr/issues/217) | SettingsUITests: iOS 'Save Password?' sheet appears after the 3 s dismissal window and blocks the next tap     | CLOSED | found during I3-STORE's UI run (#211); not linked from an M3a PR; the same cause as #89                                                                                                                                                                                                          |
 | [#218](https://github.com/Richard-Lynch/quickr/issues/218) | iOS settings: a save tapped while an archive is in flight can get a self-inflicted 409                         | CLOSED | from I3-EDIT; not linked from an M3a PR; superseded by #219                                                                                                                                                                                                                                      |
+| [#293](https://github.com/Richard-Lynch/quickr/issues/293) | iOS UI flake: BuilderUITests.testPublishingATimerV2Topic can't find editQuestions.variable0.name under load    | OPEN   | the one failure in the first gate's UI classes on `8425195a` (load 94.50 at the start); passed in the `ab46f445` re-run (Builder 14/14)                                                                                                                                                          |
+| [#302](https://github.com/Richard-Lynch/quickr/issues/302) | iOS UI flake: AppSettingsUITests.testAccessibilityXXXL taps Licences while the list is still scrolling         | OPEN   | the iOS 26.0 failure in the final `check-ios` UI plan on `ab46f445`; pre-existing, not M3a (§7)                                                                                                                                                                                                  |
+| [#199](https://github.com/Richard-Lynch/quickr/issues/199) | Flaky: test_stats_vectors reports shared/fixtures/stats-vectors.json stale on CI, passes on re-run             | OPEN   | float last-digit drift in `stats-vectors.json`. Hit in #303's first backend CI run (run 45911117411, job 140219462229, re-run once and green) and in the #288 sync ritual (`1 failed, 1461 passed`)                                                                                              |
+| [#274](https://github.com/Richard-Lynch/quickr/issues/274) | iOS: an epoch rebuild drops closed runs' alias markers (∞)                                                     | OPEN   | found in #277; M1's general rebuild behaviour, not caused by M3a's re-pull                                                                                                                                                                                                                       |
+| [#255](https://github.com/Richard-Lynch/quickr/issues/255) | iOS tests: leaked store pools exhaust file descriptors under -test-iterations                                  | OPEN   | the 36 EMFILE Unit failures on iOS 27 in the first gate run; fixed upstream by #253 and #279, so the `ab46f445` re-run was 0 failed (§7)                                                                                                                                                         |
 
 ## 6. Milestone review
 
@@ -493,14 +540,14 @@ States are from `gh issue view` at the time of writing.
   semantics, the store migration, the LA byte budget, the no-appearance rule,
   tests that can't fail, and scope creep.
 
-| ID  | Source | Severity | Finding                                                                                                                                   | Resolution                                                                                                                                                                                                                                                                 | Fixing PR                                |
-| --- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| X1  | Codex  | Medium   | A remote slug change gives a false conflict in the PWA: the refetch by the old slug 404s, and the 409 is reported unchecked               | PWA: the refetch and the PATCH go by id, and `TopicLayout` follows the rename. iOS already fetched by id; that is now asserted (`latestAppliesTheServersTopic`, `writer.latestIds`)                                                                                        | #270, #268 (**PENDING**)                 |
-| X2  | Codex  | Medium   | Both clients retry once only, so an unrelated write between the refetch and the retry surfaces as a conflict                              | A bounded loop: refetch and compare on every `stale_revision`, at most 3 sends, then a distinct "busy" error (`twoUnrelatedWritesInARowStillSave`, `threeContentionsSayBusy`; PWA `keeps re-sending over two unrelated writes in a row`, `gives up after three attempts…`) | #268, #270 (**PENDING**)                 |
-| C1  | Claude | Medium   | After a same-field conflict the user can never save that field: the base stays on the old revision. The iOS `staleRevision` text is false | On a conflict the base moves to the fresh copy, and the message names the field(s). A second Save overwrites deliberately (`aConflictThenASecondSaveSucceeds`; PWA `shows the conflict naming the field, then a second save overwrites it`). The text was fixed            | #268, #270 (**PENDING**)                 |
-| C2  | Claude | Low      | The PWA rebase wipes typed-but-not-added tag text and clears the 422 field errors                                                         | Pending tag text counts as a tags edit, and errors are kept (`reset(…, { keepErrors: true })`): `keeps tag text not added yet and the 422 field errors over a rebase`                                                                                                      | #270 (**PENDING**)                       |
-| C3  | Claude | Low      | `// T2-M3` edits outside delimited blocks in non-M3 files: `api.py:212`, `TopicEditing.swift:8–18`, `UITestLaunch.swift:429, :678`        | `_not_nullable` is back in M1's place, referenced through `_not_nullable_late` (`openapi.json` unchanged). `TopicEditing.swift` is delimited. `UITestLaunch.swift` has a comment above the raw-string template and trailing markers                                        | #270 (backend), #268 (iOS) (**PENDING**) |
-| C4  | Claude | Low      | An iOS pending-tag 422 lands on `.tags`, not `.newTag`                                                                                    | `AppearanceDraft.field(serverPath:)` maps it to `.newTag` (`aServerErrorOnThePendingTagLandsOnAddATag` in both model suites)                                                                                                                                               | #268 (**PENDING**)                       |
+| ID  | Source | Severity | Finding                                                                                                                                   | Resolution                                                                                                                                                                                                                                                                 | Fixing PR                            |
+| --- | ------ | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| X1  | Codex  | Medium   | A remote slug change gives a false conflict in the PWA: the refetch by the old slug 404s, and the 409 is reported unchecked               | PWA: the refetch and the PATCH go by id, and `TopicLayout` follows the rename. iOS already fetched by id; that is now asserted (`latestAppliesTheServersTopic`, `writer.latestIds`)                                                                                        | #270 (`444cd6a9`), #268 (`3f751967`) |
+| X2  | Codex  | Medium   | Both clients retry once only, so an unrelated write between the refetch and the retry surfaces as a conflict                              | A bounded loop: refetch and compare on every `stale_revision`, at most 3 sends, then a distinct "busy" error (`twoUnrelatedWritesInARowStillSave`, `threeContentionsSayBusy`; PWA `keeps re-sending over two unrelated writes in a row`, `gives up after three attempts…`) | #268 (`3f751967`), #270 (`444cd6a9`) |
+| C1  | Claude | Medium   | After a same-field conflict the user can never save that field: the base stays on the old revision. The iOS `staleRevision` text is false | On a conflict the base moves to the fresh copy, and the message names the field(s). A second Save overwrites deliberately (`aConflictThenASecondSaveSucceeds`; PWA `shows the conflict naming the field, then a second save overwrites it`). The text was fixed            | #268 (`3f751967`), #270 (`444cd6a9`) |
+| C2  | Claude | Low      | The PWA rebase wipes typed-but-not-added tag text and clears the 422 field errors                                                         | Pending tag text counts as a tags edit, and errors are kept (`reset(…, { keepErrors: true })`): `keeps tag text not added yet and the 422 field errors over a rebase`                                                                                                      | #270 (`444cd6a9`)                    |
+| C3  | Claude | Low      | `// T2-M3` edits outside delimited blocks in non-M3 files: `api.py:212`, `TopicEditing.swift:8–18`, `UITestLaunch.swift:429, :678`        | `_not_nullable` is back in M1's place, referenced through `_not_nullable_late` (`openapi.json` unchanged). `TopicEditing.swift` is delimited. `UITestLaunch.swift` has a comment above the raw-string template and trailing markers                                        | #270 (backend), #268 (iOS)           |
+| C4  | Claude | Low      | An iOS pending-tag 422 lands on `.tags`, not `.newTag`                                                                                    | `AppearanceDraft.field(serverPath:)` maps it to `.newTag` (`aServerErrorOnThePendingTagLandsOnAddATag` in both model suites)                                                                                                                                               | #268 (`3f751967`)                    |
 
 The fix PRs had their own Codex reviews:
 
@@ -511,54 +558,124 @@ The fix PRs had their own Codex reviews:
   - round 4's slug-reuse finding is #269;
   - round 5 found no findings.
 
-These files land on `t2/m3a` when the PRs merge.
+Both PRs merged on 2026-11-26, so these files are on `t2/m3a`.
 
 ## 7. Final gate runs
 
-Every gate run is **PENDING**. Record the head SHA, the command, the counts
-copied from the output, `uptime` at the start and end of sim runs, and the
-durable JSON path.
+There were two gate runs: the first on `8425195a` (JSON in
+[`M3a/xcresults/gate/`](M3a/xcresults/gate/)), and a re-run on `ab46f445`
+after the final main sync (JSON and failure folders in
+[`M3a/xcresults/gate2/`](M3a/xcresults/gate2/)). The one failure M3a caused was
+fixed in #303 (`dc060b9a`, JSON in
+[`M3a/xcresults/scrollfix/`](M3a/xcresults/scrollfix/)). The counts below were
+re-read from each `*.summary.json`, and `uptime` comes from the run logs (load
+averages, 1 min).
 
 ### `make check`
 
-**PENDING** (head `________`): backend `____ passed`, frontend
-`Tests ____ passed (____)`, alembic check, openapi and client fresh.
+The merge ritual for `ab46f445` (the final main sync) ran `make check`.
+
+- Backend: `1463 passed in 116.89s`.
+- Frontend: `Tests  2020 passed (2020)`.
+- `make ios-core-test`: `✔ Test run with` 1211, 306, 30, 3 and 350 tests,
+  all passed.
+- The ritual for `eccbee53` (#288) had one backend failure,
+  `tests/test_stats_vectors.py::test_stats_vectors` (`1 failed, 1461 passed`).
+  That is flake #199 (§5).
 
 ### `make check-ios`
 
-**PENDING** (head `________`).
+| Head       | Plan    | Runtime  | Tests | Passed | Failed | Skipped | JSON                                     | uptime start → end                |
+| ---------- | ------- | -------- | ----- | ------ | ------ | ------- | ---------------------------------------- | --------------------------------- |
+| `8425195a` | Unit    | iOS 26.0 | 1635  | 1607   | 0      | 28      | `gate/check-ios-unit-ios26.0.*.json`     | 10.36 → 26.00 (whole `check-ios`) |
+| `8425195a` | Unit    | iOS 27.0 | 1635  | 1571   | 36     | 28      | `gate/check-ios-unit-ios27.0.*.json`     | as above                          |
+| `8425195a` | UI      | iOS 26.0 | 130   | 110    | 0      | 20      | `gate/check-ios-ui-ios26.0.*.json`       | as above                          |
+| `ab46f445` | Unit    | iOS 26.0 | 1638  | 1610   | 0      | 28      | `gate2/check-ios-unit-ios26.0.*.json`    | 16.76 → 6.18 (iOS 26 `check-ios`) |
+| `ab46f445` | UI      | iOS 26.0 | 130   | 109    | 1      | 20      | `gate2/check-ios-ui-ios26.0.*.json`      | as above                          |
+| `ab46f445` | Unit    | iOS 27.0 | 1638  | 1610   | 0      | 28      | `gate2/check-ios-unit-ios27.0.*.json`    | 4.15 → 70.87                      |
+| `ab46f445` | UI      | iOS 27.0 | 130   | 109    | 1      | 20      | `gate2/check-ios-ui-ios27.0.*.json`      | 70.87 → 10.61                     |
+| `ab46f445` | Intents | iOS 27.0 | 11    | 6      | 0      | 5       | `gate2/check-ios-intents-ios27.0.*.json` | 10.61 → 43.51                     |
+
+- **First run:** the 36 iOS 27 Unit failures are EMFILE, from leaked store
+  pools (#255), in `NotificationActionHandlerTests`, `AppSessionTests` and
+  others. #253 and #279 fixed them upstream, and they reached `t2/m3a` in
+  `ab46f445`. The re-run has 0 Unit failures on both runtimes. The Intents plan
+  is skipped on iOS 26 (`AppIntentsTesting needs 27+`). `make check-ios` exited 2.
+- **Re-run, iOS 26.0 UI:** 1 failure,
+  `AppSettingsUITests/testAccessibilityXXXL()`. `licences.list` didn't appear
+  within 5 s of tapping `settings.licences`, because the tap only stopped
+  `reveal()`'s scroll. It is a pre-existing flake, not M3a, filed as #302.
+  Detail in `gate2/check-ios-ui-ios26.0-failure/`.
+- **Re-run, iOS 27.0 UI:** 1 failure, caused by M3a.
+  `TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()`
+  failed at `TopicUITests.swift:45`: `deleteTopic.confirmation` didn't appear
+  within 10 s.
+  - Cause: I3-EDIT's Appearance row pushed `topicSettings.delete` down, so its
+    centre (y 884.7) was off the 874 pt window, and the old `scrollTo` stopped at
+    `isHittable`.
+  - Detail in `gate2/check-ios-ui-ios27.0-failure/`.
+  - **Fixed in #303** (`dc060b9a`): `TopicUITests.scrollTo` now waits until the
+    whole element is on screen, as `BuilderUITests.scrollTo` does.
+  - TopicUITests passed 9/9 on iOS 27.0 (load 24.20 → 7.71,
+    `scrollfix/topicuitests-ios27.0-20261126-231225.*.json`) and 9/9 on iOS 26.0
+    (load 47.59 → 22.02, `scrollfix/topicuitests-ios26.0-20261126-231947.*.json`).
+  - Codex: [M3a-scrollfix-codex.md](../reviews/M3a-scrollfix-codex.md), no
+    findings.
+  - CI green
+    ([CI](https://github.com/Richard-Lynch/quickr/actions/runs/45911117411) ·
+    [iOS](https://github.com/Richard-Lynch/quickr/actions/runs/45911117323) ·
+    [Compat](https://github.com/Richard-Lynch/quickr/actions/runs/45911117427)),
+    after one documented re-run of the backend job for flake #199.
+- **Re-run, other `check-ios` steps:** `Package.resolved` check
+  (`ios: package pins match ios/QuickrKit/Package.resolved`) and lint both
+  exited 0.
 
 ### UI classes (own clone)
 
-**PENDING**: Builder (including `BuilderUITests+T2M3`), Settings, Topic,
-TopicLifecycle, Tile and Timing.
+| Head       | Classes                                                                                                                 | Tests | Passed | Failed | Skipped | JSON                              | uptime start → end |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------- | ----- | ------ | ------ | ------- | --------------------------------- | ------------------ |
+| `8425195a` | Builder 14, Run 4, Settings 5, Tile 4, Timing 2, TopicLifecycle 1, Topic 9                                              | 39    | 38     | 1      | 0       | `gate/ui-classes-ios26.0.*.json`  | 94.50 → 12.62      |
+| `ab46f445` | Builder 14 (including `BuilderUITests+T2M3`), Record 12, Topic 9, Settings 5, Tile 4, Run 4, Timing 2, TopicLifecycle 1 | 51    | 51     | 0      | 0       | `gate2/ui-classes-ios26.0.*.json` | 23.67 → 9.56       |
 
-- Tests / passed / failed / skipped: `__ / __ / __ / __`.
-- JSON: `M3a/xcresults/m3a-gate-UI-<ts>.{summary,tests}.json`.
-- uptime: `____ → ____`.
-- Clone shut down: `____`.
+- The first run's failure is `BuilderUITests/testPublishingATimerV2Topic()`:
+  `editQuestions.variable0.name` wasn't found, at a load of 94.50. It is flake
+  #293 (detail in `gate/ui-classes-failure/`). The re-run passed it.
+- Both runs were on iOS 26.0, on the gate's own clone.
+- SettingsUITests passed 5/5 in both runs, token tests included, which confirms
+  the #89 fix in the gate.
 
 ### e2e
 
-**PENDING**:
 `heavy.sh ios/scripts/uitest-e2e.sh <udid> -collect-test-diagnostics never`,
-then `make ios-integration-down`.
+with its own isolated integration stack, then `make ios-integration-down`.
 
-- Executed / skipped / failed: `__ / __ / __`.
-- JSON: `M3a/xcresults/m3a-gate-e2e-<ts>.{summary,tests}.json`.
+| Head       | Executed | Passed | Skipped (demo-only) | Failed | JSON                       | uptime start → end | Stack down  |
+| ---------- | -------- | ------ | ------------------- | ------ | -------------------------- | ------------------ | ----------- |
+| `8425195a` | 17       | 14     | 3                   | 0      | `gate/e2e-ios26.0.*.json`  | 11.09 → 7.20       | exit 0      |
+| `ab46f445` | 17       | 14     | 3                   | 0      | `gate2/e2e-ios26.0.*.json` | 10.06 → 6.29       | `IT_DOWN 0` |
+
+The skips are `EndToEndUITests/testDemo{ChipAndUndo,OfflineThenSync,SameAsLast}`,
+which are demo-screenshot-only (§3.7). EntriesEndToEndUITests 4/4 and
+TapCountUITests 6/6 ran in both.
 
 ### `t2-cleanup.py --machine`
 
-**PENDING**: paste the output here. It must show no orphan clones, DBs or images
-of this milestone, and free disk ≥ 40 GB.
+The output, verbatim. Every M3a WP worktree had already been removed with a
+`CLEAN` run (§1). The one booted clone belongs to another WP (`t2-fix-235`).
 
 ```text
-PENDING
+machine audit
+  note  booted: quickR iOS-26-0 t2-fix-235-61b2d1 — confirm a live run owns it
+machine: 1 quickR sim(s) booted ['quickR iOS-26-0 t2-fix-235-61b2d1']
+  ok    free disk 45 GB (want >= 40)
+  ..    System-wide memory free percentage: 59%
+CLEAN
 ```
 
 ### Milestone PR checks
 
-**PENDING**: backend, frontend, docker, ios gate and compat gate, with links.
+#305 (`t2/m3a` → `feat/t2`): backend, frontend, docker, ios gate and compat
+gate: see #305 checks.
 
 ## 8. Not verifiable on the simulator
 
