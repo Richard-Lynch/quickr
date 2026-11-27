@@ -1,0 +1,261 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "8817E0F2-49E7-4BB4-85B5-87909798472B",
+      "deviceName" : "quickR iOS-26-0 t2-wire-a2c86f",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "10s",
+                  "durationInSeconds" : 10.025861024856567,
+                  "name" : "testAChipLogReachesTheServerAndUndoRemovesIt()",
+                  "nodeIdentifier" : "EndToEndUITests/testAChipLogReachesTheServerAndUndoRemovesIt()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests/testAChipLogReachesTheServerAndUndoRemovesIt",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "14s",
+                  "durationInSeconds" : 14.263062000274658,
+                  "name" : "testAnEntryRecordedOfflineSyncsOnReconnect()",
+                  "nodeIdentifier" : "EndToEndUITests/testAnEntryRecordedOfflineSyncsOnReconnect()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests/testAnEntryRecordedOfflineSyncsOnReconnect",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.08s",
+                  "durationInSeconds" : 0.0803840160369873,
+                  "name" : "testDemoChipAndUndo()",
+                  "nodeIdentifier" : "EndToEndUITests/testDemoChipAndUndo()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests/testDemoChipAndUndo",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.052s",
+                  "durationInSeconds" : 0.051820993423461914,
+                  "name" : "testDemoOfflineThenSync()",
+                  "nodeIdentifier" : "EndToEndUITests/testDemoOfflineThenSync()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests/testDemoOfflineThenSync",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - Demo screenshots only (QUICKR_UIT_DEMO=1 make ios-uitest-e2e)",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.051s",
+                  "durationInSeconds" : 0.05091297626495361,
+                  "name" : "testDemoSameAsLast()",
+                  "nodeIdentifier" : "EndToEndUITests/testDemoSameAsLast()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests/testDemoSameAsLast",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "duration" : "21s",
+                  "durationInSeconds" : 21.942341923713684,
+                  "name" : "testLinksOpenTheRecordScreenBySlugOrId()",
+                  "nodeIdentifier" : "EndToEndUITests/testLinksOpenTheRecordScreenBySlugOrId()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests/testLinksOpenTheRecordScreenBySlugOrId",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "7s",
+                  "durationInSeconds" : 7.140838980674744,
+                  "name" : "testSameAsLastOffersTheEntryLoggedOnTheWeb()",
+                  "nodeIdentifier" : "EndToEndUITests/testSameAsLastOffersTheEntryLoggedOnTheWeb()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests/testSameAsLastOffersTheEntryLoggedOnTheWeb",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "EndToEndUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EndToEndUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "12s",
+                  "durationInSeconds" : 12.993782043457031,
+                  "name" : "testADeleteReachesTheServerAfterTheHold()",
+                  "nodeIdentifier" : "EntriesEndToEndUITests/testADeleteReachesTheServerAfterTheHold()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesEndToEndUITests/testADeleteReachesTheServerAfterTheHold",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "10s",
+                  "durationInSeconds" : 10.019677996635437,
+                  "name" : "testAnEditOnThePhoneReachesTheServer()",
+                  "nodeIdentifier" : "EntriesEndToEndUITests/testAnEditOnThePhoneReachesTheServer()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesEndToEndUITests/testAnEditOnThePhoneReachesTheServer",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "9s",
+                  "durationInSeconds" : 9.678586959838867,
+                  "name" : "testAWebEditReachesThePhone()",
+                  "nodeIdentifier" : "EntriesEndToEndUITests/testAWebEditReachesThePhone()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesEndToEndUITests/testAWebEditReachesThePhone",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "20s",
+                  "durationInSeconds" : 20.003607034683228,
+                  "name" : "testUndoingADeleteKeepsTheEntryOnTheServer()",
+                  "nodeIdentifier" : "EntriesEndToEndUITests/testUndoingADeleteKeepsTheEntryOnTheServer()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesEndToEndUITests/testUndoingADeleteKeepsTheEntryOnTheServer",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "EntriesEndToEndUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/EntriesEndToEndUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "9s",
+                  "durationInSeconds" : 9.508960008621216,
+                  "name" : "testA_OneQuestionChoice_and_F_Undo()",
+                  "nodeIdentifier" : "TapCountUITests/testA_OneQuestionChoice_and_F_Undo()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TapCountUITests/testA_OneQuestionChoice_and_F_Undo",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "14s",
+                  "durationInSeconds" : 14.033427000045776,
+                  "name" : "testB_OneQuestionNumber()",
+                  "nodeIdentifier" : "TapCountUITests/testB_OneQuestionNumber()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TapCountUITests/testB_OneQuestionNumber",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "16s",
+                  "durationInSeconds" : 16.933031916618347,
+                  "name" : "testC_FourQuestionMixed()",
+                  "nodeIdentifier" : "TapCountUITests/testC_FourQuestionMixed()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TapCountUITests/testC_FourQuestionMixed",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "12s",
+                  "durationInSeconds" : 12.477652907371521,
+                  "name" : "testD_SameAsLastTime()",
+                  "nodeIdentifier" : "TapCountUITests/testD_SameAsLastTime()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TapCountUITests/testD_SameAsLastTime",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "14s",
+                  "durationInSeconds" : 14.611675024032593,
+                  "name" : "testE_FromANotification()",
+                  "nodeIdentifier" : "TapCountUITests/testE_FromANotification()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TapCountUITests/testE_FromANotification",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "8s",
+                  "durationInSeconds" : 8.204320907592773,
+                  "name" : "testG_Offline()",
+                  "nodeIdentifier" : "TapCountUITests/testG_Offline()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TapCountUITests/testG_Offline",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "TapCountUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TapCountUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

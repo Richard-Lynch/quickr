@@ -25,12 +25,13 @@ A topic without a colour keeps the accent chrome exactly (§4.3):
 | Host `LiveActivityReconcileTests`      | `swift test --filter LiveActivityReconcileTests`                                                                                                               | 40 passed (new `startCarriesTheTopicsAppearance`, `startWithoutAppearance`)                                                                                                                                         |
 | Host design + widgets                  | `swift test --filter "WidgetDataTests\|TopicChromeTests\|TileTagsTests\|LatestEntriesTests\|EntrySummaryVectorTests\|TopicThemeTests\|TopicHeaderTests"`       | 25 + 31 passed                                                                                                                                                                                                      |
 | Host full                              | `heavy.sh make ios-core-test`                                                                                                                                  | 3 + 319 + 1293 + 30 + 385 = 2030 passed, 0 failed                                                                                                                                                                   |
-| PWA full                               | `heavy.sh make check-frontend`                                                                                                                                 | 88 files, 2317 tests passed (before Codex r1 fixes); see §5 for the final run                                                                                                                                       |
+| PWA full | `heavy.sh make check-frontend` | 88 files, 2317 passed at `cf62b7c0`; final run in `make check` (§5) |
 | PWA new                                | `TopicTile.test.tsx` (no per-tile entries/versions query; older-version Resume; archived summary), `TopicsPage.test.tsx` "the tag filter", `RunTheme.test.tsx` | all passed                                                                                                                                                                                                          |
 | iOS UI, affected classes r1            | `WireUITests TileUITests WidgetViewsUITests WidgetGalleryTests HomeTests RunUITests`                                                                           | 34 tests, 32 passed, 2 failed (both new `WireUITests`, test bugs, fixed): [summary](WIRE/xcresults/wire-ui-affected-r1.summary.json) · [tests](WIRE/xcresults/wire-ui-affected-r1.tests.json); uptime 3:16 load 7.6 |
 | iOS UI, targeted r2                    | `WireUITests WidgetGalleryTests WidgetViewsUITests`                                                                                                            | 8 passed: [summary](WIRE/xcresults/wire-ui-targeted.summary.json) · [tests](WIRE/xcresults/wire-ui-targeted.tests.json); uptime 3:44 load 10.0 → 3:50 load 3.5                                                      |
-| iOS UI full plan                       | `test.sh UI <clone>`                                                                                                                                           | §5                                                                                                                                                                                                                  |
-| iOS e2e                                | `uitest-e2e.sh <clone> -collect-test-diagnostics never`                                                                                                        | §5                                                                                                                                                                                                                  |
+| iOS UI full plan (build of `2bdba67c`) | `test.sh UI <clone>` | **152 tests, 132 passed, 0 failed, 20 skipped** (the e2e classes, run below): [summary](WIRE/xcresults/wire-ui-full.summary.json) · [tests](WIRE/xcresults/wire-ui-full.tests.json); uptime 3:59 load 3.2 → 4:59 load 3.9 |
+| iOS UI after the `feat/t2` merge and Codex r3/r4 | `WireUITests TileUITests WidgetViewsUITests HomeTests` | **25 passed**: [summary](WIRE/xcresults/wire-ui-final-targeted.summary.json) · [tests](WIRE/xcresults/wire-ui-final-targeted.tests.json); uptime 4:59 load 4.5 |
+| iOS e2e | `heavy.sh ios/scripts/uitest-e2e.sh <clone> -collect-test-diagnostics never` | 17 tests, 14 passed, 3 skipped (demo only), 0 failed (§5) |
 
 ### Mutation checks (each restored from a copy)
 
@@ -46,6 +47,8 @@ A topic without a colour keeps the accent chrome exactly (§4.3):
 5. PWA: Resume with the current version only → "a stop on an older version"
    fails.
 6. PWA: archived details disabled → "an archived tile's summary line" fails.
+7. PWA: no local-run check for an older version → "a queued stop of a run on an
+   older version" fails.
 
 ## 3. Screenshots
 
@@ -72,17 +75,19 @@ system Chrome, fresh profile, Vite on localhost, only `/api/v1/` faked);
 
 ## 4. Review
 
-- Codex r1: [WIRE-codex-r1.md](../reviews/WIRE-codex-r1.md). #1 (P2, Resume
-  after a publish) **fixed** `9cac04f8`; #2 (P2, current timer for an older
-  entry) **stands**: content-display.md §1.2 labels lap types from the current
-  timer and falls back to the key; #3 (P2, widget reload after an entry-only
-  edit) **stands**: a synced edit moves `sync_state.cursor` (`WidgetReloader`
-  observes it), a local one the outbox, as `lastAnswer` already relied on; #4
-  (P3, archived summaries) **fixed** `9cac04f8`.
+| Round | File | Findings | Resolution |
+| --- | --- | --- | --- |
+| 1 | [WIRE-codex-r1.md](../reviews/WIRE-codex-r1.md) | #1 P2 Resume after a publish; #2 P2 current timer for an older entry; #3 P2 widget reload after an entry-only edit; #4 P3 archived summaries | #1, #4 **fixed** `9cac04f8` (tests, mutation-checked); #2 **stands**: content-display.md §1.2 labels lap types from the current timer, an undeclared key falls back to itself; #3 **stands**: a synced edit moves `sync_state.cursor`, which `WidgetReloader` observes, a local one the outbox (as `lastAnswer` already relied on) |
+| 2 | [WIRE-codex-r2.md](../reviews/WIRE-codex-r2.md) | #1 P2 a queued stop on an older version | **fixed** `affec021` (test, mutation-checked); the r1 fixes and justifications confirmed |
+| 3 | [WIRE-codex-r3.md](../reviews/WIRE-codex-r3.md) | #1 P2 older entries' summaries have no labels; #2 P2 an unrelated older run could hide a current Resume | #2 **fixed** `c9913711` (the current version always resolves); #1 **stands** for the line (version-safe; #315), its "Last …" fallback **fixed** `c9913711` (PWA), `872a4857` (iOS) |
+| 4 | [WIRE-codex-r4.md](../reviews/WIRE-codex-r4.md) | #1 = r3 #1; #2 P2 the widget's "Last …" fallback | #1 stands (#315); #2 **fixed** `fd8ae3fe` |
 
 ## 5. Gates
 
-(filled at the end)
+- `heavy.sh make check` on `3e5f7b17` (the merge of `feat/t2` `512b41ed`): backend "All checks passed!", pytest 1556 passed; frontend 88 files, 2320 tests passed.
+- `heavy.sh make ios-core-test`: 2030 passed, 0 failed.
+- e2e (`heavy.sh ios/scripts/uitest-e2e.sh <clone> -collect-test-diagnostics never`, own integration stack, on the merged head): **17 tests, 14 passed, 0 failed, 3 skipped** (the `testDemo*` screenshot cases, `QUICKR_UIT_DEMO=1` only): [summary](WIRE/xcresults/wire-e2e.summary.json) · [tests](WIRE/xcresults/wire-e2e.tests.json); uptime 5:12 load 4.5 → 5:16 load 4.6.
+- CI: the PR's checks.
 
 ## 6. Device-only (text for `docs/t2/device-checklist.md`, via team-lead)
 
@@ -94,4 +99,7 @@ system Chrome, fresh profile, Vite on localhost, only `/api/v1/` faked);
 
 ## 7. Follow-ups (not in T2-WIRE)
 
-(filled at the end)
+- [#315](https://github.com/Richard-Lynch/quickr/issues/315): an older version's entry summarises its timing only (labels need that version's questions).
+- [#316](https://github.com/Richard-Lynch/quickr/issues/316): the iOS Running badge has no dot to tint (§6.4).
+- [#202](https://github.com/Richard-Lynch/quickr/issues/202): the Lock Screen half is done here; the Dynamic Island in the gallery remains.
+- Not filed: the quick-log chips' last-answer dot stays the accent (chips are not in §6.1's list).
