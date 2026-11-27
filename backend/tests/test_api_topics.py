@@ -452,6 +452,9 @@ async def test_list_topics_loads_last_entries_without_a_query_per_topic(client: 
     assert sum("FROM answers" in s for s in for_five) == 1
 
 
+# end T2-M4
+
+
 # T2-M3: topic appearance (docs/specs/appearance.md §1, §5, §8, §16)
 
 EMPTY_APPEARANCE: dict[str, Any] = {"color": None, "icon": None, "tags": []}

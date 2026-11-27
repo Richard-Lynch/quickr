@@ -1,0 +1,3 @@
+- **Low — [backend/tests/test_api_topics.py:374](/Users/richie/code/quickr-worktrees/t2-m3a-sync-m2/backend/tests/test_api_topics.py:374):** The M4 test block has no `# end T2-M4` marker before the M3 block begins at line 455. Both sets of tests survive and are ordered correctly, but the merge does not satisfy the requested delimited-block rule.
+
+The regex floor matches the locked version. I did not find a functional integration regression in the topic payloads, shared-vector count assertions, or M4 topic consumers inspected. This was a static review; I did not run the test suites.
