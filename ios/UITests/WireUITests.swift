@@ -34,6 +34,37 @@ final class WireUITests: XCTestCase {
         element.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", fragment)).firstMatch
     }
 
+    /// Scrolls until `element`'s top is on screen (at accessibility sizes a tile or the card can be
+    /// taller than the window, and a tap that starts a run can move the list).
+    private func showTop(_ element: XCUIElement, in app: XCUIApplication) {
+        let window = app.windows.firstMatch
+        for _ in 0..<10 {
+            guard element.exists else {
+                app.swipeUp()
+                continue
+            }
+            let top = element.frame.minY
+            if top < window.frame.minY + 60 {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                    .press(
+                        forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+            } else if top > window.frame.maxY - 120 {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+                    .press(
+                        forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
+            } else {
+                return
+            }
+        }
+    }
+
+    /// Scrolls (a little at a time) until `element` can be tapped.
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        for _ in 0..<8 where !element.isHittable { start.press(forDuration: 0.05, thenDragTo: end) }
+    }
+
     private func snap(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name
@@ -55,8 +86,12 @@ final class WireUITests: XCTestCase {
             let app = launch(extra)
             let mood = element(app, "tile.mood")
             XCTAssertTrue(mood.waitForExistence(timeout: 20))
+            showTop(mood, in: app)
+            // At the largest text size the chips are under the fold: bring their group up.
+            reveal(mood.otherElements["Log Mood"], in: app)
             let chip = mood.buttons["chip.good"]
             XCTAssertTrue(chip.waitForExistence(timeout: 10))
+            reveal(chip, in: app)
             chip.tap()
             let toast = app.staticTexts.matching(identifier: "toast.text").firstMatch
             XCTAssertTrue(toast.waitForExistence(timeout: 10))
@@ -68,6 +103,7 @@ final class WireUITests: XCTestCase {
                 XCTAssertTrue(text(in: mood, containing: "Tags: Daily, Health, Home, and 1 more").exists)
                 XCTAssertFalse(text(in: element(app, "tile.workout"), containing: "Tags:").exists)
             }
+            showTop(mood, in: app)
             snap(app, "home-tiles-\(name)")
             app.terminate()
         }
@@ -105,14 +141,18 @@ final class WireUITests: XCTestCase {
             let app = launch(extra)
             let start = element(app, "tile.morning.run")
             XCTAssertTrue(start.waitForExistence(timeout: 20))
+            reveal(start, in: app)
             start.tap()
             let next = element(app, "tile.morning.run")
             let predicate = NSPredicate(format: "label CONTAINS 'Next'")
             XCTAssertEqual(
                 XCTWaiter().wait(for: [expectation(for: predicate, evaluatedWith: next)], timeout: 10), .completed,
                 "the card offers Next")
+            let card = element(app, "tile.morning")
+            showTop(card, in: app)
             snap(app, "active-card-\(name)")
-            element(app, "tile.morning").coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.15)).tap()
+            // The card's title, near its top: it opens the run screen.
+            card.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 40, dy: 24)).tap()
             XCTAssertTrue(element(app, "run.primary").waitForExistence(timeout: 10))
             snap(app, "run-screen-\(name)")
             app.terminate()

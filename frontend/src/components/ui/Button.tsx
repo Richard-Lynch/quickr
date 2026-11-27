@@ -4,7 +4,12 @@ import { Link, type LinkProps } from 'react-router';
 import { cn } from './cn';
 import { Spinner } from './Spinner';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'quiet-danger';
+/**
+ * `topic` is `primary` in the topic's theme (appearance.md §6.4): the `topic-*` utilities read
+ * `topicStyle()`'s variables on an ancestor. Use it only for a topic with a colour, so a topic
+ * without one keeps the accent primary exactly (§4.3).
+ */
+export type ButtonVariant = 'primary' | 'topic' | 'secondary' | 'ghost' | 'danger' | 'quiet-danger';
 /** `hero` (72 px) is the run panel's primary (active-surfaces.md §6.1, §8.1). */
 export type ButtonSize = 'sm' | 'md' | 'lg' | 'hero';
 
@@ -14,6 +19,8 @@ const base =
 const variants: Record<ButtonVariant, string> = {
   primary:
     'bg-accent text-on-accent shadow-[0_1px_0_rgb(0_0_0/0.15),inset_0_1px_0_rgb(255_255_255/0.2)] hover:bg-accent-strong',
+  topic:
+    'bg-topic-tint text-topic-on-tint shadow-[0_1px_0_rgb(0_0_0/0.15),inset_0_1px_0_rgb(255_255_255/0.2)] hover:brightness-110',
   secondary: 'border border-line-strong bg-surface text-ink hover:border-ink/40 hover:bg-sunken',
   ghost: 'text-ink-soft hover:bg-sunken hover:text-ink',
   danger: 'bg-danger text-white hover:brightness-110',

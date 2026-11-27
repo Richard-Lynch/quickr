@@ -118,16 +118,15 @@ describe('a single topic tile', () => {
     expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
   });
 
-  it('waits, neutral, until it knows whether the topic is timed (no one-tap log yet)', async () => {
-    // The versions never come: the action stays a placeholder.
+  it('knows from its summary that it isn’t timed: one-tap Log at once, while nothing has loaded', async () => {
+    // T2-WIRE (content-display.md §2): the summary carries the timer, so no versions wait.
     vi.stubGlobal(
       'fetch',
       vi.fn(() => new Promise<Response>(() => undefined)),
     );
     renderTile(vitamins);
-    expect(await screen.findByTestId('tile-action-pending')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
-    expect(screen.queryByTestId('tile-log')).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Log Vitamins now' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull();
   });
 });
 
@@ -167,11 +166,14 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
     h = renderRunApp('/', lapTopic(), (s) =>
       seedStopped(s, WINDOW_MS + 120_000, WINDOW_MS + 1_000),
     );
-    expect(await screen.findByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
+    // Enabled once the details are in (whether Stop asks for answers).
     await waitFor(() =>
-      expect(server().requests.some((r) => r.path.endsWith('/entries'))).toBe(true),
+      expect(screen.getByRole('button', { name: 'Start Morning' })).toBeEnabled(),
     );
     expect(screen.queryByTestId('run-reopen')).toBeNull();
+    // The latest entry came with the list: no per-tile entries or versions query (T2-WIRE-F).
+    const paths = server().requests.map((r) => r.path);
+    expect(paths.filter((p) => p.endsWith('/entries') || p.endsWith('/versions'))).toEqual([]);
   });
 
   it('goes when the window ends', async () => {
@@ -228,7 +230,8 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
       source: 'ios',
       channel: 'ios',
     });
-    await h.qc.invalidateQueries({ queryKey: [{ _id: 'listEntries' }] });
+    // The list refetches (every 60 s, on focus, on an entry ack) and carries it as `last_entry`.
+    await h.qc.invalidateQueries({ queryKey: [{ _id: 'listTopics' }] });
     await waitFor(() => expect(screen.queryByTestId('run-reopen')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
   });

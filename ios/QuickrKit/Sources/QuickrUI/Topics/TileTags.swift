@@ -43,7 +43,6 @@ public struct TileTagChips: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(tags.spokenLabel)
-            .accessibilityIdentifier("tile.tags")
         }
     }
 }

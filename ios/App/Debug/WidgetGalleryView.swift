@@ -201,7 +201,9 @@ struct WidgetGalleryView: View {
             let display = RunActivityDisplay(state: state, topicName: topic.topic.name)
             let theme = TopicTheme(appearance: topic.topic.appearance, name: topic.topic.name)
             VStack(alignment: .leading, spacing: 4) {
-                Text(id).font(.caption2).foregroundStyle(.secondary)
+                // Not the id itself: a query by the id would find the caption first.
+                Text(id.replacingOccurrences(of: "activity.", with: "Live Activity: "))
+                    .font(.caption2).foregroundStyle(.secondary)
                 RunActivityLockScreenContent(display: display, theme: theme) {
                     RunActivityButtonRow.lockScreen(display) { button, primary in
                         Button {

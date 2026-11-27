@@ -10,7 +10,7 @@ import { useCallback } from 'react';
 
 import { lastEntryOptions } from '../../api/entries';
 import { runTapDeps, TAP_REFRESH_TIMEOUT_MS } from '../../api/runs';
-import type { EntryOut, TopicVersionOut } from '../../client';
+import type { EntryOut } from '../../client';
 import { isOnline } from '../../lib/outbox/client';
 import { isRunEvent } from '../../lib/outbox/kinds';
 import type { EntryRef, RunContext } from '../../lib/runs/actions';
@@ -20,7 +20,7 @@ import { parseInstant } from '../../lib/runs/instant';
 import { serverOffset } from '../../lib/runs/serverClock';
 import { localRuns, optimisticEntries, runById, type LocalRun } from '../../lib/runs/localView';
 import { useRuns } from '../../lib/runs/useRuns';
-import { contextFor } from './context';
+import { contextFor, type VersionTimer } from './context';
 import { resumableInView } from './model';
 import { useServerNow } from './RunClock';
 import { useToast } from '../ui/Toast';
@@ -151,7 +151,7 @@ function sendReopen(
  */
 export function useReopenOffer(
   topic: TopicRef,
-  versions: readonly TopicVersionOut[] | undefined,
+  versions: readonly VersionTimer[] | undefined,
   served: EntryOut | undefined,
   enabled: boolean,
 ): ReopenOffer | null {

@@ -17,6 +17,12 @@ import type { Timer, TimerStep } from '../../lib/runs/types';
 
 type TopicRef = RunContext['topic'];
 
+/**
+ * What a run's context reads of a version: its number, timer and questions. A home tile has
+ * the current version's from its summary and details (T2-WIRE), without the versions list.
+ */
+export type VersionTimer = Pick<TopicVersionOut, 'version' | 'timer' | 'questions'>;
+
 /** Versions change only on publish; tiles share this cache. */
 const VERSIONS_STALE_MS = 5 * 60_000;
 
@@ -27,7 +33,7 @@ export function topicVersionsOptions(topicId: string) {
 /** The context for `version` of `topic`, or null when that version isn't timed or isn't known. */
 export function contextFor(
   topic: TopicRef,
-  versions: readonly TopicVersionOut[] | undefined,
+  versions: readonly VersionTimer[] | undefined,
   version: number,
 ): RunContext | null {
   const v = versions?.find((x) => x.version === version);

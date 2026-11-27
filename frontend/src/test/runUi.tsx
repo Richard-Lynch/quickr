@@ -127,7 +127,16 @@ export function renderRunApp(
       return Promise.resolve(
         new Response(
           JSON.stringify({
-            items: [summary, ...others],
+            // T2-WIRE: the list carries the latest entry, as the server derives it (content-display.md §2).
+            items: [
+              {
+                ...summary,
+                last_entry: server.entries[0] ?? null,
+                entry_count: server.entries.length,
+                last_captured_at: server.entries[0]?.captured_at ?? null,
+              },
+              ...others,
+            ],
             total: 1 + others.length,
             limit: 50,
             offset: 0,

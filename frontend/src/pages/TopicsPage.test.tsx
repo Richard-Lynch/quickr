@@ -215,3 +215,55 @@ describe('"Active now" on the topics page', () => {
     expect(morning()).toHaveLength(1);
   });
 });
+
+/** T2-WIRE-F: the home tag filter (appearance.md §5): a tile's chip sets `?tag=`. */
+describe('the tag filter', () => {
+  const listUrls = () =>
+    (fetch as unknown as { mock: { calls: [RequestInfo | URL][] } }).mock.calls
+      .map(
+        ([input]) =>
+          new URL(input instanceof Request ? input.url : String(input), 'https://q.test'),
+      )
+      .filter((u) => u.pathname === '/api/v1/topics');
+
+  it('a chip filters by its exact tag, shown in the panel with ✕ to clear it', async () => {
+    const tagged: TopicSummary = {
+      ...vitamins,
+      due: null,
+      appearance: { color: 'teal', icon: null, tags: ['Daily', 'Health', 'Home', 'Evening'] },
+    };
+    h = renderRunApp('/', timedTopic(), undefined, [tagged]);
+    const user = userEvent.setup();
+    const tile = await screen.findByRole('article', { name: 'Vitamins' });
+    const chips = within(tile).getByRole('list', { name: 'Tags' });
+    // Three chips, then "+1" (§5).
+    expect(
+      within(chips)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent),
+    ).toEqual(['Daily', 'Health', 'Home', '+1']);
+    expect(listUrls().every((u) => !u.searchParams.has('tag'))).toBe(true);
+
+    await user.click(within(tile).getByRole('button', { name: 'Filter by tag Daily' }));
+    await waitFor(() =>
+      expect(listUrls().some((u) => u.searchParams.get('tag') === 'Daily')).toBe(true),
+    );
+    expect(screen.getByTestId('where')).toHaveTextContent('/?tag=Daily');
+    const row = screen.getByRole('group', { name: 'Tag' });
+    expect(within(row).getByTestId('tag-filter')).toHaveTextContent('Daily');
+    // A tag filter is a filtered view: one list, no sections.
+    expect(screen.queryByRole('region', { name: /Due now/ })).toBeNull();
+
+    await user.click(within(row).getByRole('button', { name: 'Clear the tag filter Daily' }));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent(/^\/$/));
+    expect(screen.queryByRole('group', { name: 'Tag' })).toBeNull();
+  });
+
+  it('a ?tag= link opens with the filter on', async () => {
+    h = renderRunApp('/?tag=Gym', timedTopic());
+    expect(await screen.findByTestId('tag-filter')).toHaveTextContent('Gym');
+    await waitFor(() =>
+      expect(listUrls().some((u) => u.searchParams.get('tag') === 'Gym')).toBe(true),
+    );
+  });
+});

@@ -1,0 +1,67 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "8817E0F2-49E7-4BB4-85B5-87909798472B",
+        "deviceName" : "quickR iOS-26-0 t2-wire-a2c86f",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 2,
+      "passedTests" : 32,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 2,
+  "finishTime" : 1795750841.072,
+  "passedTests" : 32,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795749378.125,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 31,
+      "testIdentifierString" : "WireUITests/testLiveActivityMock()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/WireUITests/testLiveActivityMock",
+      "testName" : "testLiveActivityMock()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 33,
+      "testIdentifierString" : "WireUITests/testThemedTilesShowTheSummaryLineAndTagChips()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/WireUITests/testThemedTilesShowTheSummaryLineAndTagChips",
+      "testName" : "testThemedTilesShowTheSummaryLineAndTagChips()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "19% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 105.57s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 34
+}
