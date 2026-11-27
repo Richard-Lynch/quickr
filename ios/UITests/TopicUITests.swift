@@ -272,7 +272,10 @@ final class TopicUITests: XCTestCase {
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         choice.tap()
         // The new card opens with its header in view; at accessibility sizes its label is below the
-        // screen until scrolled to.
+        // screen until scrolled to. Wait for the card before scrolling: on iOS 26.0 the list adds it
+        // only once the dialog has closed (~1 s after the tap), and a drag before then scrolls past
+        // where it appears, which `scrollTo` (downwards only) never comes back to (#235).
+        XCTAssertTrue(element("newTopic.q0.header", in: app).waitForExistence(timeout: 5), "the new card")
         let label = element("newTopic.q0.label", in: app)
         scrollTo(label, in: app)
         XCTAssertTrue(label.waitForExistence(timeout: 5))

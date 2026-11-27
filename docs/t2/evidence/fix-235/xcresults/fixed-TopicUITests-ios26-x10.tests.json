@@ -1,0 +1,1013 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "E0559CF3-47FB-451E-AA5A-8738C4658C59",
+      "deviceName" : "quickR iOS-26-0 t2-fix-235-61b2d1",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.525775909423828,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.50055503845215,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.580631017684937,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.457851886749268,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.50882601737976,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.442085027694702,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.609246969223022,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.55394995212555,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.51126205921173,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "17s",
+                      "durationInSeconds" : 17.482099056243896,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "17s",
+                  "durationInSeconds" : 17.617228293418883,
+                  "name" : "testANewSlugKeepsAnUnsavedSchedule()",
+                  "nodeIdentifier" : "TopicUITests/testANewSlugKeepsAnUnsavedSchedule()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testANewSlugKeepsAnUnsavedSchedule",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.118688941001892,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "10s",
+                      "durationInSeconds" : 10.959832072257996,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.118471026420593,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.037641048431396,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.097354054450989,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.10651695728302,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.08764100074768,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.180551052093506,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.245816946029663,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "11s",
+                      "durationInSeconds" : 11.132521986961365,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.10850350856781,
+                  "name" : "testAnInvalidNewTopicShowsItsErrors()",
+                  "nodeIdentifier" : "TopicUITests/testAnInvalidNewTopicShowsItsErrors()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testAnInvalidNewTopicShowsItsErrors",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "duration" : "19s",
+                      "durationInSeconds" : 19.07824695110321,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.843490958213806,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.24512493610382,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.237146973609924,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.154032945632935,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.805549025535583,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.241382002830505,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "18s",
+                      "durationInSeconds" : 18.8276150226593,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "23s",
+                      "durationInSeconds" : 23.8469979763031,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "19s",
+                      "durationInSeconds" : 19.14045000076294,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "19s",
+                  "durationInSeconds" : 19.14200367927551,
+                  "name" : "testASingleTopicIsCreatedAndLoggedInOneTap()",
+                  "nodeIdentifier" : "TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testASingleTopicIsCreatedAndLoggedInOneTap",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "37s",
+                      "durationInSeconds" : 37.045279026031494,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "39s",
+                      "durationInSeconds" : 39.32383191585541,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "34s",
+                      "durationInSeconds" : 34.79119002819061,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "42s",
+                      "durationInSeconds" : 42.12387204170227,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "43s",
+                      "durationInSeconds" : 43.065221071243286,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "44s",
+                      "durationInSeconds" : 44.38131594657898,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "41s",
+                      "durationInSeconds" : 41.69542598724365,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "40s",
+                      "durationInSeconds" : 40.657142996788025,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "42s",
+                      "durationInSeconds" : 42.07485389709473,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "children" : [
+                        {
+                          "name" : "Invalid frame dimension (negative or non-finite).",
+                          "nodeType" : "Runtime Warning"
+                        }
+                      ],
+                      "duration" : "41s",
+                      "durationInSeconds" : 41.12381207942963,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "40s",
+                  "durationInSeconds" : 40.628194499015805,
+                  "name" : "testCreateATopicOpensItsRecordScreen()",
+                  "nodeIdentifier" : "TopicUITests/testCreateATopicOpensItsRecordScreen()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testCreateATopicOpensItsRecordScreen",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "duration" : "1m",
+                      "durationInSeconds" : 60.25046193599701,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "59s",
+                      "durationInSeconds" : 59.413625955581665,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 3s",
+                      "durationInSeconds" : 63.873722076416016,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 4s",
+                      "durationInSeconds" : 64.81840002536774,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 3s",
+                      "durationInSeconds" : 63.5959210395813,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m",
+                      "durationInSeconds" : 60.32136797904968,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 3s",
+                      "durationInSeconds" : 63.072064995765686,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "59s",
+                      "durationInSeconds" : 59.07125902175903,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "57s",
+                      "durationInSeconds" : 57.205873012542725,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "57s",
+                      "durationInSeconds" : 57.54375398159027,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "1m",
+                  "durationInSeconds" : 60.916645002365115,
+                  "name" : "testNewTopicAndItsScheduleAtTheLargestTextSize()",
+                  "nodeIdentifier" : "TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testNewTopicAndItsScheduleAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.365515947341919,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.815310955047607,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.567625999450684,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.263846039772034,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.466529965400696,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.258595943450928,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.46844208240509,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.437266945838928,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.693526983261108,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "14s",
+                      "durationInSeconds" : 14.002778053283691,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "14s",
+                  "durationInSeconds" : 14.433943891525269,
+                  "name" : "testOfflineSaysItNeedsAConnection()",
+                  "nodeIdentifier" : "TopicUITests/testOfflineSaysItNeedsAConnection()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testOfflineSaysItNeedsAConnection",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.309704899787903,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.293083906173706,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.376918077468872,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.165349006652832,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.319839000701904,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.54543101787567,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.329421043395996,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.328836917877197,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.23598003387451,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "16s",
+                      "durationInSeconds" : 16.11857795715332,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "16s",
+                  "durationInSeconds" : 16.30231418609619,
+                  "name" : "testScreenshots()",
+                  "nodeIdentifier" : "TopicUITests/testScreenshots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testScreenshots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "duration" : "1m 4s",
+                      "durationInSeconds" : 64.47293198108673,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 6s",
+                      "durationInSeconds" : 66.35247790813446,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 8s",
+                      "durationInSeconds" : 68.85644602775574,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 6s",
+                      "durationInSeconds" : 66.65043711662292,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 8s",
+                      "durationInSeconds" : 68.782261967659,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 8s",
+                      "durationInSeconds" : 68.17316102981567,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 8s",
+                      "durationInSeconds" : 68.14730906486511,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 25s",
+                      "durationInSeconds" : 85.63592100143433,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 12s",
+                      "durationInSeconds" : 72.36949801445007,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "1m 7s",
+                      "durationInSeconds" : 67.35362493991852,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "1m 9s",
+                  "durationInSeconds" : 69.67940690517426,
+                  "name" : "testSettingsAtTheLargestTextSize()",
+                  "nodeIdentifier" : "TopicUITests/testSettingsAtTheLargestTextSize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsAtTheLargestTextSize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "duration" : "57s",
+                      "durationInSeconds" : 57.10960900783539,
+                      "name" : "Repetition 1",
+                      "nodeIdentifier" : "1",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "55s",
+                      "durationInSeconds" : 55.20003092288971,
+                      "name" : "Repetition 2",
+                      "nodeIdentifier" : "2",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "55s",
+                      "durationInSeconds" : 55.138813972473145,
+                      "name" : "Repetition 3",
+                      "nodeIdentifier" : "3",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "56s",
+                      "durationInSeconds" : 56.089105010032654,
+                      "name" : "Repetition 4",
+                      "nodeIdentifier" : "4",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "55s",
+                      "durationInSeconds" : 55.36665606498718,
+                      "name" : "Repetition 5",
+                      "nodeIdentifier" : "5",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "56s",
+                      "durationInSeconds" : 56.3184540271759,
+                      "name" : "Repetition 6",
+                      "nodeIdentifier" : "6",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "56s",
+                      "durationInSeconds" : 56.36621403694153,
+                      "name" : "Repetition 7",
+                      "nodeIdentifier" : "7",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "55s",
+                      "durationInSeconds" : 55.56164801120758,
+                      "name" : "Repetition 8",
+                      "nodeIdentifier" : "8",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "56s",
+                      "durationInSeconds" : 56.63790810108185,
+                      "name" : "Repetition 9",
+                      "nodeIdentifier" : "9",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    },
+                    {
+                      "duration" : "55s",
+                      "durationInSeconds" : 55.36424899101257,
+                      "name" : "Repetition 10",
+                      "nodeIdentifier" : "10",
+                      "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                      "nodeType" : "Repetition",
+                      "result" : "Passed"
+                    }
+                  ],
+                  "duration" : "55s",
+                  "durationInSeconds" : 55.91526881456375,
+                  "name" : "testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+                  "nodeIdentifier" : "TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "TopicUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}
