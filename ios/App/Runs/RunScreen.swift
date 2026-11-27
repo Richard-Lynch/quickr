@@ -146,7 +146,7 @@ struct RunPanel: View {
         let steps = topic.timer?.steps ?? []
         return VStack(alignment: .leading, spacing: 20) {
             VStack(spacing: 6) {
-                RunDuration(ms: 0, font: .qr(.sansSemiBold, size: 60, relativeTo: .largeTitle))
+                RunDuration(ms: 0, font: RunClockFont.total).runClockSize()
                     .foregroundStyle(.qr.muted)
                 Text(
                     steps.isEmpty
@@ -175,8 +175,9 @@ struct RunPanel: View {
             QuickrBadge("Stopped", icon: .stop, tone: .warn)
             RunDuration(
                 ms: RunPresentation.activeMs(run.state, now: run.state.endedAt ?? run.state.startedAt),
-                font: .qr(.sansSemiBold, size: 60, relativeTo: .largeTitle)
+                font: RunClockFont.total
             )
+            .runClockSize()
             .frame(maxWidth: .infinity)
             .accessibilityIdentifier("run.total")
             Text("Add the details to save it.")
@@ -344,17 +345,13 @@ private struct OpenRunView<Controls: View>: View {
                 }
             }
             VStack(spacing: 6) {
-                RunDuration(ms: total, font: .qr(.sansSemiBold, size: 60, relativeTo: .largeTitle), ticking: !paused)
+                RunDuration(ms: total, font: RunClockFont.total, ticking: !paused)
+                    .runClockSize()
                     .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
                     .accessibilityLabel("Total \(RunPresentation.spoken(total))")
                     .accessibilityIdentifier("run.total")
                 if let headline = RunHeadline.text(run) {
-                    HStack(spacing: 8) {
-                        Text(headline).font(.qr(.callout)).foregroundStyle(.qr.ink)
-                        RunDuration(ms: segment, font: .qr(.callout), ticking: !paused).foregroundStyle(.qr.muted)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("run.segment")
+                    SegmentClock(label: headline, ms: segment, ticking: !paused, paused: paused)
                 }
                 RunAlertLine(
                     fired: environment.runAlerts.label(runId: run.id),

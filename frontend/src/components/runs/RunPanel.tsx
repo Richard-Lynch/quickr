@@ -21,7 +21,7 @@ import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
 import { ConfirmSheet } from '../ui/Sheet';
 import { runTimer } from './context';
-import { Duration, useServerNow } from './RunClock';
+import { clockClass, Duration, useServerNow } from './RunClock';
 import type { ReopenOffer } from './reopen';
 import { actionLabel, RunControls } from './RunControls';
 import {
@@ -157,21 +157,23 @@ export function RunPanel({
           ) : null}
         </div>
 
-        <div className="flex flex-col items-center gap-1 text-center">
+        <div className="@container flex flex-col items-center gap-2 text-center">
           <Duration
             ms={total}
             label="Total"
-            className={cn(
-              'text-[3.75rem] leading-none font-semibold tracking-tight sm:text-7xl',
-              paused && 'text-muted',
-            )}
+            className={cn(clockClass('total', total), paused && 'text-muted')}
+            testId="run-clock-total"
           />
           {open ? (
-            <p className="flex items-center gap-2 text-[0.95rem] text-ink-soft">
-              <span className="font-semibold text-ink" data-testid="segment-label">
+            <p className="flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
+              <span className="text-lg font-semibold text-ink-soft" data-testid="segment-label">
                 {head.text}
               </span>
-              <Duration ms={segment} label={head.text} className="text-muted" />
+              <Duration
+                ms={segment}
+                className={cn(clockClass('segment', total), paused && 'text-muted')}
+                testId="run-clock-segment"
+              />
             </p>
           ) : null}
           {alert !== null ? (
@@ -358,11 +360,8 @@ export function RunStart({
   return (
     <>
       <Card className="flex flex-col gap-5 p-5 sm:p-6" aria-label="Run">
-        <div className="flex flex-col items-center gap-1 text-center">
-          <Duration
-            ms={0}
-            className="text-[3.75rem] leading-none font-semibold tracking-tight text-muted sm:text-7xl"
-          />
+        <div className="@container flex flex-col items-center gap-1 text-center">
+          <Duration ms={0} className={cn(clockClass('total', 0), 'text-muted')} />
           <p className="text-[0.95rem] text-muted">
             {steps.length === 0
               ? 'One tap starts the timer; Stop saves it.'

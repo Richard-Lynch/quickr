@@ -1,0 +1,59 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "6A3EA829-0CFA-4BAE-A53B-CB536764678D",
+        "deviceName" : "quickR iOS-26-0 fix-294-clocks-3c5dcd",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 1,
+      "passedTests" : 21,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 1,
+  "finishTime" : 1795765169.785,
+  "passedTests" : 21,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795764564.042,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertGreaterThanOrEqual failed: (\"55.99999999999994\") is less than (\"56.0\") - run.stop",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 11,
+      "testIdentifierString" : "RunUITests/testLapIsPrimaryWithChunkyControls()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testLapIsPrimaryWithChunkyControls",
+      "testName" : "testLapIsPrimaryWithChunkyControls()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "25% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 114.64s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 22
+}
