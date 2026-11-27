@@ -7,6 +7,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import Double, Select, cast, func, literal, select
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import DomainError, NotFound
@@ -33,6 +34,12 @@ from app.services.topics import all_questions_by_key, get_version, parse_questio
 HISTOGRAM_BINS = 10
 
 
+def _ordered(agg: Any, v: Any) -> Any:
+    """`agg(v ORDER BY v)`: a float sum depends on the order rows are added in, and the plan's
+    order varies between runs, so an unordered avg/sum/stddev can differ in the last digit (#199)."""
+    return agg(aggregate_order_by(v, v))
+
+
 def _answers_for(topic_id: Any, key: str, filters: EntryFilters, *cols: Any) -> Select[Any]:
     stmt = select(*cols).select_from(Answer).join(Entry, Entry.id == Answer.entry_id)
     stmt = apply_filters(stmt, topic_id, filters)
@@ -52,10 +59,10 @@ async def _numeric(
                 func.count(v),
                 func.min(v),
                 func.max(v),
-                func.avg(v),
+                _ordered(func.avg, v),
                 func.percentile_cont(0.5).within_group(v),
-                func.stddev_samp(v),
-                func.sum(v),
+                _ordered(func.stddev_samp, v),
+                _ordered(func.sum, v),
             )
         )
     ).one()
@@ -250,7 +257,14 @@ async def question_series(
         rows = (
             await db.execute(
                 _answers_for(
-                    topic.id, key, filters, start, func.count(), func.avg(v), func.min(v), func.max(v)
+                    topic.id,
+                    key,
+                    filters,
+                    start,
+                    func.count(),
+                    _ordered(func.avg, v),
+                    func.min(v),
+                    func.max(v),
                 )
                 .group_by(start)
                 .order_by(start)
