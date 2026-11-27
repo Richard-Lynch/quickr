@@ -28,6 +28,7 @@ const base: TopicDetail = {
   schedule_updated_at: null,
   due: null,
   timer: null,
+  last_entry: null,
   questions: [],
   // What the server sends for a topic nobody has styled (§1.1: always normalised).
   appearance: { color: null, icon: null, tags: [] },
