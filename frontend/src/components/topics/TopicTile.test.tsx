@@ -12,7 +12,7 @@ import { client } from '../../client/client.gen';
 import { outbox } from '../../lib/outbox/client';
 import type { EntryCreatePayload } from '../../lib/outbox/kinds';
 import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
-import { renderRunApp, type Harness } from '../../test/runUi';
+import { renderRunApp, seedRun, type Harness } from '../../test/runUi';
 import { ToastProvider } from '../ui/Toast';
 import { TopicTile } from './TopicTile';
 
@@ -249,6 +249,27 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
     );
     expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
     expect(server().requests.some((r) => r.path.endsWith('/versions'))).toBe(true);
+  });
+
+  it('a queued stop of a run on an older version still offers Resume (Codex WIRE r2 #1)', async () => {
+    const fixture = lapTopic();
+    const [v1] = fixture.versions;
+    if (!v1) throw new Error('no version 1');
+    h = renderRunApp(
+      '/',
+      {
+        topic: { ...fixture.topic, current_version: 2 },
+        versions: [...fixture.versions, { ...v1, version: 2 }],
+      },
+      (s) => seedRun(s),
+    );
+    const user = userEvent.setup();
+    // The v1 run's stop stays queued: no server entry, so no `last_entry` to name its version.
+    server().override = (body) =>
+      body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByTestId('card-stop'));
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    expect(server().entries).toHaveLength(0);
   });
 
   it('goes when the window ends', async () => {

@@ -15,6 +15,7 @@ import { dueView, type DueView } from '../../lib/schedule';
 import type { NumericQuestion } from '../../lib/questions';
 import { fmtDuration } from '../../lib/runs/format';
 import { isOpen, type LocalRun } from '../../lib/runs/localView';
+import { useRuns } from '../../lib/runs/useRuns';
 import { NumberInput } from '../answers/AnswerField';
 import { useTopicVersions, type VersionTimer } from '../runs/context';
 import { useReopenOffer, type ReopenOffer } from '../runs/reopen';
@@ -108,9 +109,13 @@ export function TopicTile({
   // tiles start from) its answer, idle timed ones resume it, every idle tile summarises it.
   const lastEntry = t.last_entry ?? undefined;
   // A stop on an older version (a publish since) resumes on that version: only then does the
-  // tile read the versions list, for that version's timer.
+  // tile read the versions list, for that version's timer. The stop may be the server's latest
+  // entry, or only this device's (a queued stop, not in `last_entry` yet).
+  const { runs: localRunList } = useRuns();
   const olderStop =
-    idleTimed && lastEntry?.timing != null && lastEntry.version !== t.current_version;
+    idleTimed &&
+    ((lastEntry?.timing != null && lastEntry.version !== t.current_version) ||
+      localRunList.some((r) => r.topic_id === t.id && r.version !== t.current_version));
   const versions = useTopicVersions(t.id, olderStop);
   const reopen = useReopenOffer(
     { id: t.id, slug: t.slug, name: t.name },
