@@ -13,5 +13,13 @@
   "skip": {
     "endpointTableMatchesOpenAPI": "Pins the client's endpoint table to the CURRENT openapi.json, so any new operation fails it. A removed or changed operation is the OpenAPI breaking-change check's job."
   },
-  "clients": []
+  "clients": [
+    {
+      "build": "20261127.060242",
+      "sha": "e7816a1c07d29dbdde4e24b06b4577f02547c33b",
+      "api_level": 2,
+      "source": "TestFlight 0.4.0 (20261127.060242), uploaded by CI from v0.4.0 e7816a1",
+      "fallbacks": {}
+    }
+  ]
 }
