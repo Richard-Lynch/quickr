@@ -232,9 +232,12 @@ struct TopicTile: View {
     private func summaryLine(_ last: AnswerValue?) -> some View {
         let topic = topic.topic
         let entry = topic.entryCount > 0 ? environment.latestEntries[topic.id] : nil
+        // Another version's answer is never read with the current question (its options and unit
+        // may differ): "Last …" then falls back to the count, as the PWA's tile.
+        let sameVersion = entry.map { $0.version == topic.currentVersion } ?? true
         return TopicSummaryLine(
             entry: entry, questions: entry?.version == topic.currentVersion ? topic.questions : [],
-            timer: topic.timer, fallback: lastLine(last),
+            timer: topic.timer, fallback: lastLine(sameVersion ? last : nil),
             suffix: entry.map { _ in text.relative(topic.lastCapturedAt, now: now) })
     }
 
