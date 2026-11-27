@@ -73,16 +73,40 @@ export function Duration({
   ms,
   className,
   label,
+  testId,
 }: {
   ms: number;
   className?: string | undefined;
   /** For screen readers: what the duration is of. */
   label?: string;
+  testId?: string;
 }) {
   return (
-    <span className={cn('font-mono tabular', className)}>
+    <span className={cn('font-mono tabular', className)} data-testid={testId}>
       {label ? <span className="sr-only">{label} </span> : null}
       {fmtDuration(ms)}
     </span>
   );
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * The run panel's two clocks (#294): the total, and the open segment's at 60% of it. Each is the
+ * smaller of a cap in rem (so it follows the reader's text size) and a share of its `@container`'s
+ * width (so no text size, padding or phone pushes it out of the card). Once the total reaches an
+ * hour ("1:05:23", up to "99:59:59") both step down a size together, so the longer time still
+ * fits and the segment stays the smaller.
+ */
+export function clockClass(clock: 'total' | 'segment', totalMs: number): string {
+  const long = totalMs >= HOUR_MS;
+  const size =
+    clock === 'total'
+      ? long
+        ? 'text-[min(5.5rem,19cqi)]'
+        : 'text-[min(7.5rem,30cqi)]'
+      : long
+        ? 'text-[min(3.3rem,11.4cqi)]'
+        : 'text-[min(4.5rem,18cqi)]';
+  return cn(size, 'leading-none font-semibold tracking-tight');
 }

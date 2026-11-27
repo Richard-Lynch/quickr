@@ -53,6 +53,72 @@ struct RunDuration: View {
     }
 }
 
+/// The run screen's two clocks (#294): the total, and the open segment's at about 60% of it. Each
+/// scales with Dynamic Type up to `runClockSize()`'s cap; `RunDuration` shrinks a long one to fit.
+enum RunClockFont {
+    static let total = Font.qr(.sansSemiBold, size: 96, relativeTo: .largeTitle)
+    static let segment = Font.qr(.sansSemiBold, size: 60, relativeTo: .largeTitle)
+}
+
+extension View {
+    /// Caps a run clock's Dynamic Type at XXXL: bigger sizes would only shrink it back to fit.
+    func runClockSize() -> some View { dynamicTypeSize(...DynamicTypeSize.xxxLarge) }
+}
+
+/// The open segment's clock under the total (#294): its label ("Lap 5", "Rest 2") smaller, beside
+/// the time when both fit the width at full size, otherwise above it (always at the accessibility
+/// sizes, where the label grows and the clock doesn't), so the clock never shrinks to make room.
+/// One VoiceOver element, `run.segment`.
+struct SegmentClock: View {
+    let label: String
+    let ms: Int
+    let ticking: Bool
+    let paused: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        Group {
+            if typeSize.isAccessibilitySize {
+                stacked
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    // At its ideal size: the row is chosen only when the full-size clock and the
+                    // one-line label fit, never by shrinking the clock or wrapping the label.
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        labelText
+                        clock
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    stacked
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("run.segment")
+    }
+
+    private var stacked: some View {
+        VStack(spacing: 2) {
+            labelText
+            clock
+        }
+    }
+
+    private var labelText: some View {
+        Text(label)
+            .font(.qr(.section))
+            .foregroundStyle(.qr.inkSoft)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var clock: some View {
+        RunDuration(ms: ms, font: RunClockFont.segment, ticking: ticking)
+            .runClockSize()
+            .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
+    }
+}
+
 /// The tile's run line (§11.1): "Running · 4:12" (or "Paused · …") and the headline with the
 /// segment's time ("Rest 2 · lap 4 0:41"); "Add details" for a finishing run.
 struct RunStatusLine: View {

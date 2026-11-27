@@ -36,6 +36,10 @@ final class RunUITests: XCTestCase {
             == .completed
     }
 
+    /// Floating-point noise in a frame's height: a control laid out at a fractional y reads
+    /// 55.99999999999994 for 56 (#294's bigger clocks moved the controls to one).
+    private var pointNoise: CGFloat { 0.001 }
+
     /// Past the run controls' tap cooldown (450 ms), so the next tap is a new one.
     private func pastCooldown() { Thread.sleep(forTimeInterval: 0.6) }
 
@@ -64,7 +68,7 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(primary, containing: "Lap"), primary.label)
         XCTAssertTrue(waitForValue(element(app, "run.step.lap.1"), "current"))
         let window = app.windows.firstMatch.frame
-        XCTAssertGreaterThanOrEqual(primary.frame.height, 72, "the hero primary is at least 72 pt tall")
+        XCTAssertGreaterThanOrEqual(primary.frame.height, 72 - pointNoise, "the hero primary is at least 72 pt tall")
         XCTAssertGreaterThan(primary.frame.width, window.width * 0.8, "the primary is full width")
 
         // Stop and Pause: secondaries under the primary, side by side, 56 pt, Stop first.
@@ -74,7 +78,7 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(stop.label.contains("Stop"), stop.label)
         XCTAssertFalse(primary.label.contains("Stop"), "Stop is never the primary (§1.2)")
         for secondary in [stop, pause] {
-            XCTAssertGreaterThanOrEqual(secondary.frame.height, 56, secondary.identifier)
+            XCTAssertGreaterThanOrEqual(secondary.frame.height, 56 - pointNoise, secondary.identifier)
             XCTAssertLessThan(secondary.frame.height, primary.frame.height, secondary.identifier)
             XCTAssertGreaterThanOrEqual(secondary.frame.minY, primary.frame.maxY, "\(secondary.identifier) is under")
         }
@@ -138,7 +142,7 @@ final class RunUITests: XCTestCase {
         XCTAssertTrue(stop.waitForExistence(timeout: 10) && pause.exists)
         bringIntoFullView([primary, stop, pause], in: app)
         let window = app.windows.firstMatch.frame
-        XCTAssertGreaterThanOrEqual(primary.frame.height, 72)
+        XCTAssertGreaterThanOrEqual(primary.frame.height, 72 - pointNoise)
         XCTAssertGreaterThanOrEqual(stop.frame.minY, primary.frame.maxY, "Stop under the primary")
         XCTAssertGreaterThanOrEqual(pause.frame.minY, stop.frame.maxY, "Pause stacked under Stop")
         for control in [primary, stop, pause] {

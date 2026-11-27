@@ -1,0 +1,101 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "6A3EA829-0CFA-4BAE-A53B-CB536764678D",
+      "deviceName" : "quickR iOS-26-0 fix-294-clocks-3c5dcd",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "name" : "XCTAssertGreaterThanOrEqual failed: (\"52.666656494140625\") is less than (\"74.8\") - the lap clock is at least 60% of the total",
+                      "nodeType" : "Failure Message",
+                      "sourceLocation" : {
+                        "filePath" : "/Users/richie/code/quickr-worktrees/fix-294-clocks/ios/UITests/RunUITests+Clocks.swift",
+                        "lineNumber" : 19
+                      }
+                    }
+                  ],
+                  "duration" : "10s",
+                  "durationInSeconds" : 10.22521710395813,
+                  "name" : "testRunClocksAtAnAccessibilitySize()",
+                  "nodeIdentifier" : "RunUITests/testRunClocksAtAnAccessibilitySize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunClocksAtAnAccessibilitySize",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "XCTAssertGreaterThanOrEqual failed: (\"73.33333333333334\") is less than (\"90.0\") - the total is a big clock",
+                      "nodeType" : "Failure Message",
+                      "sourceLocation" : {
+                        "filePath" : "/Users/richie/code/quickr-worktrees/fix-294-clocks/ios/UITests/RunUITests+Clocks.swift",
+                        "lineNumber" : 13
+                      }
+                    }
+                  ],
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.05482804775238,
+                  "name" : "testRunClocksInDark()",
+                  "nodeIdentifier" : "RunUITests/testRunClocksInDark()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunClocksInDark",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "XCTAssertGreaterThanOrEqual failed: (\"73.33333333333334\") is less than (\"90.0\") - the total is a big clock",
+                      "nodeType" : "Failure Message",
+                      "sourceLocation" : {
+                        "filePath" : "/Users/richie/code/quickr-worktrees/fix-294-clocks/ios/UITests/RunUITests+Clocks.swift",
+                        "lineNumber" : 9
+                      }
+                    }
+                  ],
+                  "duration" : "9s",
+                  "durationInSeconds" : 9.742779016494751,
+                  "name" : "testRunClocksInLight()",
+                  "nodeIdentifier" : "RunUITests/testRunClocksInLight()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunClocksInLight",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                }
+              ],
+              "name" : "RunUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}
