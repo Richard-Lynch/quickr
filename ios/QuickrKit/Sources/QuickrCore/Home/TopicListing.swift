@@ -66,15 +66,16 @@ public enum TopicListing {
             scheduleSince: topic.scheduleUpdatedAt ?? topic.createdAt, archived: topic.status == .archived)
     }
 
-    /// `list_topics(status:sort:q:)` over `values`, every page at once.
+    /// `list_topics(status:sort:q:tag:)` over `values`, every page at once.
     public static func list<Value>(
         _ values: [Value], topic: (Value) -> Topic, now: Date, status: TopicStatusFilter, sort: TopicSort,
-        query: String
+        query: String, tag: String? = nil
     ) -> [Item<Value>] {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let items = values.compactMap { value -> Item<Value>? in
             let topic = topic(value)
-            guard includes(topic, status: status), matches(topic, query: needle) else { return nil }
+            guard includes(topic, status: status), matches(topic, query: needle), matches(topic, tag: tag)
+            else { return nil }
             return Item(value: value, topic: topic, due: due(of: topic, at: now))
         }
         return sorted(items, by: sort)
@@ -97,6 +98,24 @@ public enum TopicListing {
         func hit(_ text: String?) -> Bool { text?.lowercased().contains(needle) ?? false }
         if hit(topic.name) || hit(topic.slug) || hit(topic.description) { return true }
         return topic.questions.contains { hit($0.key) || hit($0.label) || hit($0.helpText) }
+    }
+
+    /// The server's `?tag=` (appearance.md §5): the topic holds `tag` in its stored spelling,
+    /// exactly (no casefolding: a chip always sends the stored text). nil matches everything.
+    public static func matches(_ topic: Topic, tag: String?) -> Bool {
+        guard let tag else { return true }
+        return topic.appearance.tags.contains(tag)
+    }
+
+    /// Every tag on `topics`, once each in its stored spelling, sorted as the name sort compares:
+    /// spellings that differ only in case by their bytes: the home filter's chips.
+    public static func tags(of topics: [Topic]) -> [String] {
+        Set(topics.flatMap(\.appearance.tags)).sorted { a, b in
+            switch nameOrder(a, b) {
+            case .orderedSame: Array(a.utf8).lexicographicallyPrecedes(Array(b.utf8))
+            case let order: order == .orderedAscending
+            }
+        }
     }
 
     /// The server's orderings. Every sort ends on the id (ascending, as Postgres and `str(uuid)`
@@ -236,7 +255,10 @@ public enum TopicListing {
     }
 
     /// The sections show only for the default view: due first, active, no search.
-    public static func isSectioned(status: TopicStatusFilter, sort: TopicSort, query: String) -> Bool {
-        sort == .due && status == .active && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    public static func isSectioned(
+        status: TopicStatusFilter, sort: TopicSort, query: String, tag: String? = nil
+    ) -> Bool {
+        sort == .due && status == .active && tag == nil
+            && query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

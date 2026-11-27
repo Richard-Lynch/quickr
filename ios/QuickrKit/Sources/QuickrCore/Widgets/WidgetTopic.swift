@@ -9,6 +9,9 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
     public var quick: QuickLog?
     /// The latest entry's answer to the quick question (pending ones included: they're the user's).
     public var lastAnswer: AnswerValue?
+    /// The latest entry (pending ones included), for the summary line (content-display.md §5);
+    /// nil for none, or not read (a sample).
+    public var lastEntry: Entry?
     /// Entries this device has logged that haven't reached the server yet ("queued").
     public var queued: Int
     /// Entries the server refused (the sync sheet fixes them).
@@ -40,14 +43,24 @@ public struct WidgetTopic: Sendable, Hashable, Identifiable {
 
     public var id: UUID { topic.id }
 
+    /// The latest entry's summary line (`EntrySummary`): in the current version's questions only
+    /// for an entry of that version, else its timing part alone, as the tile's. "" for none.
+    public var lastSummary: String {
+        guard let lastEntry else { return "" }
+        let questions = lastEntry.version == topic.currentVersion ? topic.questions : []
+        return EntrySummary.line(entry: lastEntry, questions: questions, timer: topic.timer)
+    }
+
     public init(
-        topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, queued: Int = 0, failed: Int = 0,
+        topic: Topic, quick: QuickLog?, lastAnswer: AnswerValue?, lastEntry: Entry? = nil, queued: Int = 0,
+        failed: Int = 0,
         scope: EntryScope? = nil, skew: TimeInterval = 0, hasOpenRun: Bool = false, run: RunActivityState? = nil,
         runLapTyped: Bool? = nil, runAuto: WidgetRunButton? = nil, updateRequired: Bool = false
     ) {
         self.topic = topic
         self.quick = quick
         self.lastAnswer = lastAnswer
+        self.lastEntry = lastEntry
         self.queued = queued
         self.failed = failed
         self.scope = scope

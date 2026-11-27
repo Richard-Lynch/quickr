@@ -72,6 +72,7 @@ struct HomeView: View {
         // Tiles keep their quick-log models for the run; topics that left the store let theirs go.
         .onChange(of: model.topics.map(\.id), initial: true) { _, ids in
             environment.quickLogModels.retain(Set(ids))
+            environment.latestEntries.retain(Set(ids))
             #if DEBUG || QUICKR_PERF
             if !ids.isEmpty { PerfProbe.mark("Home has \(ids.count) topics") }
             #endif
@@ -311,6 +312,10 @@ struct HomeView: View {
                 .tint(.qr.ink)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("home.sort")
+            }
+            // The home tag filter (appearance.md §5), once any topic has a tag.
+            if !model.tags.isEmpty || model.tagFilter != nil {
+                TagFilterRow(tags: model.tags, selection: $model.tagFilter)
             }
         }
         .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))

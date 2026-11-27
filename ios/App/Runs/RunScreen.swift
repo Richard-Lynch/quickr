@@ -108,6 +108,8 @@ struct RunPanel: View {
             }
             .padding(16)
         }
+        // The hero primary in the topic's tint and onTint (appearance.md §6.4, #286).
+        .topicTheme(for: topic)
         .qrPaperBackground()
         .navigationTitle(topic.name)
         .navigationBarTitleDisplayMode(.inline)

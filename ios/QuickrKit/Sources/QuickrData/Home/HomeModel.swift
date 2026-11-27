@@ -37,6 +37,10 @@ public final class HomeModel {
     public var sort: TopicSort = .due {
         didSet { if sort != oldValue { relist() } }
     }
+    /// The home tag filter (appearance.md §5): only topics holding this exact tag; nil for all.
+    public var tagFilter: String? {
+        didSet { if tagFilter != oldValue { relist() } }
+    }
     /// The device clock: one instant for the whole list ("… ago" text). Due state uses `serverNow`.
     public private(set) var now: Date
     /// The bound store's server clock (sync-protocol.md §10), from its sync state.
@@ -46,6 +50,8 @@ public final class HomeModel {
 
     /// Every topic in the store (the list's input).
     public private(set) var topics: [ViewTopic] = []
+    /// Every tag on the store's topics, for the filter panel's chips (`TopicListing.tags(of:)`).
+    public private(set) var tags: [String] = []
     /// The filtered, searched and sorted list.
     public private(set) var rows: [Row] = []
     /// `rows` in sections, when `isSectioned`.
@@ -101,11 +107,13 @@ public final class HomeModel {
     // MARK: - Derived
 
     /// A search or a non-default status: the empty state reads "No matches", not "Track anything".
-    public var isFiltered: Bool { !query.isEmpty || status != .active }
-    /// The default view (due first, active, no search) shows sections; anything else, one list.
-    public var isSectioned: Bool { TopicListing.isSectioned(status: status, sort: sort, query: query) }
+    public var isFiltered: Bool { !query.isEmpty || status != .active || tagFilter != nil }
+    /// The default view (due first, active, no search or tag) shows sections; anything else, one list.
+    public var isSectioned: Bool {
+        TopicListing.isSectioned(status: status, sort: sort, query: query, tag: tagFilter)
+    }
     /// The filter panel's button is highlighted when anything is not the default.
-    public var hasNonDefaultFilter: Bool { status != .active || sort != .due }
+    public var hasNonDefaultFilter: Bool { status != .active || sort != .due || tagFilter != nil }
 
     public var phase: Phase {
         switch session.phase {
@@ -280,7 +288,9 @@ public final class HomeModel {
     private func relist() {
         let now = serverNow
         rows = TopicListing.list(
-            topics, topic: \.topic, now: now, status: status, sort: sort, query: query)
+            topics, topic: \.topic, now: now, status: status, sort: sort, query: query, tag: tagFilter)
+        let tags = TopicListing.tags(of: topics.map(\.topic))
+        if tags != self.tags { self.tags = tags }
         sections = TopicListing.sections(rows, now: now, openRuns: openRuns)
         badgeCount = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: openRuns)
         partitionActive()

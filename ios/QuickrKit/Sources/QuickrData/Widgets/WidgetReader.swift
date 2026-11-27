@@ -105,10 +105,8 @@ public struct WidgetReader: Sendable {
         _ topic: Topic, state: (skew: TimeInterval, updateRequired: Bool), runs: Runs, now: Date
     ) async throws -> WidgetTopic {
         let quick = QuickLog(questions: topic.questions)
-        var lastAnswer: AnswerValue?
-        if let question = quick?.question, let latest = try await store.entries.latestEntry(topicId: topic.id) {
-            lastAnswer = latest.entry.answers[question.key]
-        }
+        let latest = try await store.entries.latestEntry(topicId: topic.id)?.entry
+        let lastAnswer = quick?.question.flatMap { latest?.answers[$0.key] }
         // Counted in SQL: a long offline backlog is many rows with payloads, and a widget's
         // timeline has little memory and time.
         let topicId = topic.id.wireString
@@ -123,7 +121,8 @@ public struct WidgetReader: Sendable {
             return (row?["queued"] ?? 0, row?["failed"] ?? 0)
         }
         return WidgetTopic(
-            topic: topic, quick: quick, lastAnswer: lastAnswer, queued: queued, failed: failed, scope: store.scope,
+            topic: topic, quick: quick, lastAnswer: lastAnswer, lastEntry: latest, queued: queued, failed: failed,
+            scope: store.scope,
             skew: state.skew, hasOpenRun: RunOverlay.openRunTopics(runs.all).contains(topic.id),
             run: Self.shownRun(topic.id, in: runs, now: now), runLapTyped: Self.openRunLapTyped(topic.id, in: runs),
             runAuto: Self.openRunAuto(topic.id, in: runs), updateRequired: state.updateRequired)

@@ -82,6 +82,26 @@ import Testing
         #expect(shown.lastAnswer == .string("good"))
     }
 
+    /// T2-WIRE (content-display.md §5): every topic carries its latest entry, quick-log or not,
+    /// and its summary line uses the current questions only for an entry of the current version.
+    @Test func aTopicCarriesItsLatestEntryForTheSummaryLine() async throws {
+        let notes = Question(key: "notes", label: "Notes", kind: .string(.init()))
+        let journal = Self.topic("Journal", questions: [notes])
+        let entry = Make.entry(topicId: journal.id, answers: ["notes": .string("  slept   well ")])
+        let store = try seeded([journal], entries: [entry])
+        let shown = try #require(try await WidgetReader(store: store.store).topic(id: journal.id))
+        #expect(shown.quick == nil)
+        #expect(shown.lastEntry?.id == entry.id)
+        #expect(shown.lastSummary == "Notes: slept well")
+
+        var older = shown
+        older.topic.currentVersion = entry.version + 1
+        #expect(older.lastSummary == "", "another version's labels are never used")
+        var none = shown
+        none.lastEntry = nil
+        #expect(none.lastSummary == "")
+    }
+
     @Test func aMissingTopicIsNil() async throws {
         let store = try seeded([Self.topic("Mood")])
         #expect(try await WidgetReader(store: store.store).topic(id: UUID()) == nil)
@@ -317,6 +337,10 @@ import Testing
             return WidgetFingerprint([copy]) != WidgetFingerprint([base])
         }
         #expect(changed { $0.lastAnswer = .string("meh") })
+        #expect(changed { $0.topic.appearance = TopicAppearance(color: .teal) }, "the widget draws the colour")
+        #expect(
+            changed { $0.lastEntry = Make.entry(topicId: mood.id, answers: ["mood": .string("meh")]) },
+            "the summary line")
         #expect(changed { $0.queued = 1 })
         #expect(changed { $0.failed = 1 })
         #expect(changed { $0.topic.name = "Feelings" })

@@ -22,7 +22,7 @@ final class TileUITests: XCTestCase {
         let app = launch()
         let headache = tile(app, "headache")
         XCTAssertTrue(headache.waitForExistence(timeout: 15))
-        XCTAssertTrue(text(in: headache, containing: "Last Mild").waitForExistence(timeout: 10))
+        XCTAssertTrue(text(in: headache, containing: "Severity: Mild").waitForExistence(timeout: 10))
 
         let chip = headache.buttons["chip.moderate"]
         reveal(chip, in: app)
@@ -35,15 +35,15 @@ final class TileUITests: XCTestCase {
         XCTAssertTrue(toast.waitForExistence(timeout: 10))
         XCTAssertTrue(toast.label.hasPrefix("Logged Moderate"), toast.label)
         XCTAssertTrue(toast.label.contains("saved on this device, will sync"), toast.label)
-        XCTAssertTrue(text(in: headache, containing: "Last Moderate").waitForExistence(timeout: 5))
+        XCTAssertTrue(text(in: headache, containing: "Severity: Moderate").waitForExistence(timeout: 5))
         attach(app, "tiles-logged")
 
         app.buttons["toast.action"].tap()
 
         XCTAssertTrue(waitForLabel(app.staticTexts.matching(identifier: "toast.text").firstMatch, prefix: "Undone"))
         XCTAssertTrue(
-            text(in: headache, containing: "Last Mild").waitForExistence(timeout: 5), "Undo removes the entry")
-        XCTAssertFalse(text(in: headache, containing: "Last Moderate").exists)
+            text(in: headache, containing: "Severity: Mild").waitForExistence(timeout: 5), "Undo removes the entry")
+        XCTAssertFalse(text(in: headache, containing: "Severity: Moderate").exists)
     }
 
     /// Row b: the stepper starts at the last value, so ✓ alone logs it.

@@ -91,36 +91,63 @@ public struct TopicWidgetView: View {
                     .foregroundStyle(.qr.muted)
             }
         }
+        // The chips read it (appearance.md §6.6).
+        .topicTheme(theme)
         .dynamicTypeSize(...WidgetStyle.largestTypeSize)
     }
 
-    private func home(_ topic: WidgetTopic) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Name, due, queued and the last line read as one element; the controls stay apart.
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(topic.topic.name)
-                        .font(.qr(.section))
-                        .foregroundStyle(.qr.ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .accessibilityAddTraits(.isHeader)
-                    Spacer(minLength: 4)
-                    if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
-                }
-                DueBadge(topic.dueView(at: date))
-                    .lineLimit(1)
-                    .widgetAccentable()
-                lastLine(topic)
-                    .font(.qr(.footnote))
-                    .foregroundStyle(.qr.muted)
-                    .lineLimit(topic.updateRequired ? 1 : 2)
-                if topic.updateRequired { UpdateMark() }
+    /// The topic's colours and glyph; the default theme without one.
+    private var theme: TopicTheme {
+        topic.map { TopicTheme(appearance: $0.topic.appearance, name: $0.topic.name) } ?? .default
+    }
+
+    /// The name row's start (§6.6): the glyph, and in full colour a topic with a colour gets the
+    /// tile's 4 pt bar beside the whole widget.
+    private func themed(_ content: some View) -> some View {
+        HStack(spacing: 10) {
+            if theme.isTinted && !style.isAccented {
+                Capsule().fill(TopicChrome(theme).bar).frame(width: 4).accessibilityHidden(true)
             }
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 0)
-            quick(topic)
+            content
         }
+    }
+
+    private func name(_ topic: WidgetTopic) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            WidgetGlyph(theme: theme, isAccented: style.isAccented, size: 20)
+            Text(topic.topic.name)
+                .font(.qr(.section))
+                .foregroundStyle(.qr.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityAddTraits(.isHeader)
+        }
+    }
+
+    private func home(_ topic: WidgetTopic) -> some View {
+        themed(
+            VStack(alignment: .leading, spacing: 6) {
+                // Name, due, queued and the last line read as one element; the controls stay apart.
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline) {
+                        name(topic)
+                        Spacer(minLength: 4)
+                        if topic.queued > 0 { QueuedMark(count: topic.queued, compact: style.family == .systemSmall) }
+                    }
+                    DueBadge(topic.dueView(at: date))
+                        .lineLimit(1)
+                        .widgetAccentable()
+                    lastLine(topic)
+                        .font(.qr(.footnote))
+                        .foregroundStyle(.qr.muted)
+                        .lineLimit(topic.updateRequired ? 1 : 2)
+                    if topic.updateRequired { UpdateMark() }
+                }
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: 0)
+                quick(topic)
+            }
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .widgetURL(topic.recordURL)
     }
@@ -183,9 +210,15 @@ public struct TopicWidgetView: View {
         Button(intent: intent) { label }.buttonStyle(.plain)
     }
 
+    /// The latest entry's summary line and when, as the idle tile's (content-display.md §5), else
+    /// "Last …" or the count.
     private func lastLine(_ topic: WidgetTopic) -> Text {
         guard topic.topic.entryCount > 0 || topic.queued > 0 else { return Text("No entries yet") }
         let when = text.relative(topic.topic.lastCapturedAt, now: date)
+        let summary = topic.lastSummary
+        if !summary.isEmpty {
+            return Text("\(Text(summary).foregroundStyle(.qr.inkSoft)) · \(when)")
+        }
         if let question = topic.quick?.question, let last = topic.lastAnswer,
             let answer = text.answer(last, for: question)
         {
@@ -197,7 +230,7 @@ public struct TopicWidgetView: View {
     private func rectangular(_ topic: WidgetTopic) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
-                Text(topic.topic.name).font(.headline).widgetAccentable().lineLimit(1)
+                Text(WidgetGlyph.prefix(theme) + topic.topic.name).font(.headline).widgetAccentable().lineLimit(1)
                 if topic.queued > 0 {
                     Image(systemName: "clock.arrow.circlepath").font(.caption)
                         .accessibilityLabel("\(topic.queued) waiting to sync")
@@ -252,62 +285,59 @@ public struct TopicWidgetView: View {
     private func timedHome(_ topic: WidgetTopic) -> some View {
         let display = topic.runDisplay
         let state = topic.runTile
-        return VStack(alignment: .leading, spacing: 6) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(topic.topic.name)
-                    .font(.qr(.section))
-                    .foregroundStyle(.qr.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .accessibilityAddTraits(.isHeader)
-                switch state {
-                case .open(let paused):
-                    if let display {
-                        Text(paused ? "Paused · \(display.headline)" : display.headline)
-                            .font(.qr(.footnote))
-                            .foregroundStyle(.qr.muted)
-                            .lineLimit(1)
-                        if style.family == .systemSmall {
-                            segmentTimer(display)
-                        } else {
-                            // The total and, under it, the pending alert trail the segment timer on
-                            // one row, as on the Lock Screen (§4.2): stacked, the alert line would
-                            // push the chips out of the medium size. The segment timer keeps its
-                            // width; a long alert label truncates first.
-                            HStack(alignment: .lastTextBaseline, spacing: 8) {
-                                segmentTimer(display).layoutPriority(2)
-                                Spacer(minLength: 0)
-                                VStack(alignment: .trailing, spacing: 0) {
-                                    RunWidgetTimer(timer: display.totalTimer)
-                                        .font(.qr(.footnote))
-                                        .foregroundStyle(.qr.muted)
-                                    if let alert = display.alert {
-                                        RunAlertLine(alert: alert).font(.qr(.footnote))
+        return themed(
+            VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 4) {
+                    name(topic)
+                    switch state {
+                    case .open(let paused):
+                        if let display {
+                            Text(paused ? "Paused · \(display.headline)" : display.headline)
+                                .font(.qr(.footnote))
+                                .foregroundStyle(.qr.muted)
+                                .lineLimit(1)
+                            if style.family == .systemSmall {
+                                segmentTimer(display)
+                            } else {
+                                // The total and, under it, the pending alert trail the segment timer on
+                                // one row, as on the Lock Screen (§4.2): stacked, the alert line would
+                                // push the chips out of the medium size. The segment timer keeps its
+                                // width; a long alert label truncates first.
+                                HStack(alignment: .lastTextBaseline, spacing: 8) {
+                                    segmentTimer(display).layoutPriority(2)
+                                    Spacer(minLength: 0)
+                                    VStack(alignment: .trailing, spacing: 0) {
+                                        RunWidgetTimer(timer: display.totalTimer)
+                                            .font(.qr(.footnote))
+                                            .foregroundStyle(.qr.muted)
+                                        if let alert = display.alert {
+                                            RunAlertLine(alert: alert).font(.qr(.footnote))
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                case .finishing:
-                    Text("Add details")
-                        .font(.qr(.footnote))
-                        .foregroundStyle(.qr.warn)
-                    if topic.dueView(at: date).kind != .none {
+                    case .finishing:
+                        Text("Add details")
+                            .font(.qr(.footnote))
+                            .foregroundStyle(.qr.warn)
+                        if topic.dueView(at: date).kind != .none {
+                            DueBadge(topic.dueView(at: date)).lineLimit(1).widgetAccentable()
+                        }
+                    case .idle, .untimed:
                         DueBadge(topic.dueView(at: date)).lineLimit(1).widgetAccentable()
+                        lastLine(topic)
+                            .font(.qr(.footnote))
+                            .foregroundStyle(.qr.muted)
+                            .lineLimit(topic.updateRequired ? 1 : 2)
                     }
-                case .idle, .untimed:
-                    DueBadge(topic.dueView(at: date)).lineLimit(1).widgetAccentable()
-                    lastLine(topic)
-                        .font(.qr(.footnote))
-                        .foregroundStyle(.qr.muted)
-                        .lineLimit(topic.updateRequired ? 1 : 2)
+                    if topic.updateRequired { UpdateMark() }
                 }
-                if topic.updateRequired { UpdateMark() }
+                .accessibilityElement(children: .combine)
+                Spacer(minLength: 0)
+                runControls(topic)
             }
-            .accessibilityElement(children: .combine)
-            Spacer(minLength: 0)
-            runControls(topic)
-        }
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .widgetURL(topic.runURL)
     }
@@ -360,7 +390,7 @@ public struct TopicWidgetView: View {
     /// state. It opens the run screen.
     private func timedRectangular(_ topic: WidgetTopic) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(topic.topic.name).font(.headline).widgetAccentable().lineLimit(1)
+            Text(WidgetGlyph.prefix(theme) + topic.topic.name).font(.headline).widgetAccentable().lineLimit(1)
             if case .open = topic.runTile, let display = topic.runDisplay {
                 Text(display.label).font(.caption).lineLimit(1)
                 RunWidgetTimer(timer: display.segmentTimer).font(.caption)
@@ -462,7 +492,8 @@ public struct DueListWidgetView: View {
                     .widgetAccentable()
                 ForEach(rows) { topic in
                     Text(
-                        "\(topic.topic.name) · \(topic.hasOpenRun ? "Running" : topic.dueView(at: date).label())"
+                        WidgetGlyph.prefix(topic.theme) + topic.topic.name
+                            + " · \(topic.hasOpenRun ? "Running" : topic.dueView(at: date).label())"
                     )
                     .font(.caption)
                     .lineLimit(1)
@@ -504,6 +535,8 @@ public struct DueListWidgetView: View {
                 // A timed topic opens its run screen, like its tile (timers.md §11.3).
                 Link(destination: topic.runTile.isTimed ? topic.runURL : topic.recordURL) {
                     HStack(spacing: 8) {
+                        // The glyph before the name (appearance.md §6.8).
+                        WidgetGlyph(theme: topic.theme, isAccented: style.isAccented, size: 18)
                         Text(topic.topic.name)
                             .font(.qr(.callout))
                             .foregroundStyle(.qr.ink)
@@ -532,13 +565,16 @@ struct WidgetChip: View {
     let isLast: Bool
     let isAccented: Bool
     var isPrimary = false
+    /// The primary's fill and the last-answer dot are the topic's `tint` (appearance.md §6.6).
+    @Environment(\.topicTheme) private var theme
 
     var body: some View {
+        let chrome = TopicChrome(theme)
         HStack(spacing: 4) {
-            if isLast { Circle().fill(Color.qr.accent).frame(width: 5, height: 5).widgetAccentable() }
+            if isLast { Circle().fill(chrome.primaryFill()).frame(width: 5, height: 5).widgetAccentable() }
             Text(label).font(.qr(.label)).lineLimit(1).minimumScaleFactor(0.7)
         }
-        .foregroundStyle(isPrimary && !isAccented ? Color.qr.onAccent : Color.qr.ink)
+        .foregroundStyle(isPrimary && !isAccented ? chrome.onPrimary : Color.qr.ink)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, minHeight: 32)
         .background {
@@ -546,13 +582,42 @@ struct WidgetChip: View {
             if isAccented {
                 shape.strokeBorder(.secondary, lineWidth: 1)
             } else if isPrimary {
-                shape.fill(Color.qr.accent)
+                shape.fill(chrome.primaryFill())
             } else {
                 shape.fill(Color.qr.surface).overlay(shape.strokeBorder(Color.qr.lineStrong, lineWidth: 1))
             }
         }
         .widgetAccentable(isPrimary)
     }
+}
+
+/// The glyph before a topic's name in a widget (appearance.md §6.6): the tile's in full colour;
+/// in the tinted and accented modes no fills, so the emoji alone, as text (it renders monochrome
+/// in accented mode, accepted), and no initial.
+struct WidgetGlyph: View {
+    let theme: TopicTheme
+    let isAccented: Bool
+    let size: CGFloat
+
+    var body: some View {
+        if isAccented {
+            if case .emoji(let value)? = theme.glyph {
+                Text(value).font(.system(size: size * 0.85)).accessibilityHidden(true)
+            }
+        } else if TopicChrome(theme).glyph != nil {
+            TopicGlyphView(theme: theme, size: size, fallbackInitial: theme.isTinted)
+        }
+    }
+
+    /// The emoji and a space, for the one-line (text-only) families; "" without one.
+    static func prefix(_ theme: TopicTheme) -> String {
+        if case .emoji(let value)? = theme.glyph { "\(value) " } else { "" }
+    }
+}
+
+extension WidgetTopic {
+    /// The topic's colours and glyph.
+    var theme: TopicTheme { TopicTheme(appearance: topic.appearance, name: topic.name) }
 }
 
 /// A run's ticking timer, frozen at its pause (the system draws it: no timeline entries).

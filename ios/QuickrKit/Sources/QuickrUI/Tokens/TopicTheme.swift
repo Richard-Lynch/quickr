@@ -19,6 +19,9 @@ public struct TopicTheme: Sendable, Hashable {
     public var glyph: TopicGlyph?
     /// The name's first grapheme, for the fallback glyph ("" for an empty name).
     public var initial: String
+    /// The topic has a colour. Without one the theme is the accent, and consumers add no
+    /// accent-coloured chrome the untinted UI doesn't draw (§4.3): no always-on bar, no initial.
+    public var isTinted: Bool
 
     /// nil or no colour → the accent tokens; an icon → `.emoji`.
     public init(appearance: TopicAppearance?, name: String) {
@@ -32,6 +35,7 @@ public struct TopicTheme: Sendable, Hashable {
             }
         }
         initial = TopicGlyph.initial(of: name)
+        isTinted = appearance?.color != nil
     }
 
     /// Accent, accent-soft, on-accent; no glyph. What a topic without a colour, and every surface

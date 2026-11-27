@@ -69,7 +69,7 @@ public enum WidgetTimeline {
 
 /// What the widgets show, reduced to a value the app compares to decide whether to reload them
 /// (`WidgetCenter.reloadAllTimelines`). Covers each active topic's identity, questions, schedule,
-/// last entry and last quick answer, its queued and failed counts and the run it shows (its
+/// appearance, last entry (its summary line) and last quick answer, its queued and failed counts and the run it shows (its
 /// content state, which changes with each tap, not as it ticks), and the store's skew; due
 /// state itself follows from these and the clock, which the timelines already handle, as they
 /// do the run's pending alert (`alert_at` moves on as each passes: not compared).
@@ -85,6 +85,9 @@ public struct WidgetFingerprint: Sendable, Hashable {
         var lastCapturedAt: Date?
         var entryCount: Int
         var lastAnswer: AnswerValue?
+        /// The summary line and the colours and glyph (T2-WIRE): what the widget draws of them.
+        var lastSummary: String
+        var appearance: TopicAppearance
         var queued: Int
         var failed: Int
         var scope: EntryScope?
@@ -107,7 +110,8 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 id: $0.topic.id, name: $0.topic.name, slug: $0.topic.slug, status: $0.topic.status,
                 currentVersion: $0.topic.currentVersion, schedule: $0.topic.schedule,
                 scheduleUpdatedAt: $0.topic.scheduleUpdatedAt, lastCapturedAt: $0.topic.lastCapturedAt,
-                entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed,
+                entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, lastSummary: $0.lastSummary,
+                appearance: $0.topic.appearance, queued: $0.queued, failed: $0.failed,
                 scope: $0.scope, run: $0.run?.withoutAlert, runAuto: $0.runAuto, updateRequired: $0.updateRequired)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }

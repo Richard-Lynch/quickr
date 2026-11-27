@@ -60,6 +60,8 @@ final class AppEnvironment {
     let entryToasts: EntryToasts
     /// Every tile's quick-log model, kept while the app runs (QuickLogModels).
     let quickLogModels: QuickLogModels
+    /// Each topic's latest entry, for the tiles' summary lines (T2-WIRE, content-display.md §5).
+    let latestEntries: LatestEntries
     /// A tap-to-fix notification's text, until its record screen takes it (`takeRecordPrefill`).
     var recordPrefill: NotificationPrefill?
     /// Nil only when it couldn't be created (`sessionError`); `start()` tries again.
@@ -147,6 +149,7 @@ final class AppEnvironment {
                     })
             }, now: runClock)
         quickLogModels = QuickLogModels(writer: entryWriter, toasts: entryToasts, drafts: quickLogDrafts)
+        latestEntries = LatestEntries(writer: entryWriter)
         if prepare == nil { openSession() }
         entryWriter.session = { [weak self] in self?.session }
         weakSession = { [weak self] in self?.session }
