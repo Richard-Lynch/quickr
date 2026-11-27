@@ -219,7 +219,10 @@ public struct TopicWidgetView: View {
         if !summary.isEmpty {
             return Text("\(Text(summary).foregroundStyle(.qr.inkSoft)) · \(when)")
         }
-        if let question = topic.quick?.question, let last = topic.lastAnswer,
+        // Another version's answer is never read with the current question (its options and unit
+        // may differ): the count instead, as the tile (Codex WIRE r4).
+        let sameVersion = topic.lastEntry.map { $0.version == topic.topic.currentVersion } ?? true
+        if sameVersion, let question = topic.quick?.question, let last = topic.lastAnswer,
             let answer = text.answer(last, for: question)
         {
             return Text("Last \(Text(answer).fontWeight(.semibold).foregroundStyle(.qr.inkSoft)) · \(when)")
