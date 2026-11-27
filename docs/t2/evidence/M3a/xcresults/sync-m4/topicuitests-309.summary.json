@@ -1,0 +1,8 @@
+{
+ "source": "sync-m4-ui-full (full UI plan, iOS 26.0, build includes #309 bdbd315e)",
+ "class": "TopicUITests",
+ "totalTestCount": 9,
+ "passedTests": 9,
+ "failedTests": 0,
+ "skippedTests": 0
+}
