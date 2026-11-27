@@ -157,7 +157,8 @@ final class EntriesTests: XCTestCase {
         let queued = app.staticTexts["Saved on this device"]
         XCTAssertTrue(state.waitForExistence(timeout: 10), "the detail went to the run")
         XCTAssertTrue(queued.waitForExistence(timeout: 10), "the reopen waits offline")
-        XCTAssertEqual(state.label, "Running")
+        // M2's Resuming… (timers2.md §5.3, RunHeaderText.state) until the server acks the reopen.
+        XCTAssertEqual(state.label, "Resuming…")
 
         find(app, "debug.online").tap()
         XCTAssertTrue(waitForAbsence(queued, timeout: 20), "the fake server acked the reopen")
