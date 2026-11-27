@@ -4,14 +4,16 @@ import QuickrUI
 import SwiftUI
 import WidgetKit
 
-/// `-QuickrWidgetGallery <home|lock> [tinted] [outdated]`: the widget views at their sizes over the demo
-/// topics, for screenshots and UI checks without SpringBoard (whose automation stalls). Same views
-/// and styles as the extension. "tinted" approximates the system's one-colour modes (Home Screen
+/// `-QuickrWidgetGallery <home|lock|la> [tinted] [outdated]`: the widget views at their sizes over the
+/// demo topics, for screenshots and UI checks without SpringBoard (whose automation stalls). Same views
+/// and styles as the extension; "la" is the Live Activity's Lock Screen view (QuickrUI's
+/// `RunActivityLockScreenContent`, its buttons plain, #202). Headache and Intervals carry a colour
+/// and an emoji (appearance.md §6.5, §6.6); the others the default theme. "tinted" approximates the system's one-colour modes (Home Screen
 /// tinted, Lock Screen): the accented style on a dark tinted plate, desaturated; the system's own
 /// rendering is checked on a device (M4-DEV). "outdated" shows them while this build is too old for
 /// the server ("Update quickR", client-versions.md §4.1).
 struct WidgetGalleryView: View {
-    enum Page: String { case home, lock }
+    enum Page: String { case home, lock, la }
 
     let page: Page
     let tinted: Bool
@@ -20,15 +22,32 @@ struct WidgetGalleryView: View {
 
     private var topics: [WidgetTopic] {
         DemoStore.topics(now: now).filter { $0.status == .active }.map { topic in
+            var topic = topic
+            if topic.slug == "headache" { topic.appearance = Self.headacheLook }
             let quick = QuickLog(questions: topic.questions)
+            let answers = DemoStore.answers[topic.slug] ?? [:]
             return WidgetTopic(
                 topic: topic, quick: quick,
-                lastAnswer: quick?.question.flatMap { DemoStore.answers[topic.slug]?[$0.key] },
+                lastAnswer: quick?.question.flatMap { answers[$0.key] },
+                // Headache's summary line (content-display.md §5); the others keep "Last …".
+                lastEntry: topic.slug == "headache" ? Self.sampleEntry(topic, answers: answers) : nil,
                 queued: topic.slug == "water" ? 1 : 0, updateRequired: outdated)
         }
     }
 
     private func topic(_ slug: String) -> WidgetTopic? { topics.first { $0.topic.slug == slug } }
+
+    /// A latest entry of `topic` at its last capture, for a summary line.
+    static func sampleEntry(_ topic: Topic, answers: [String: AnswerValue]) -> Entry {
+        let at = topic.lastCapturedAt ?? Date()
+        return Entry(
+            id: UUID(), topicId: topic.id, version: topic.currentVersion, revision: 1, source: "demo", channel: .ios,
+            capturedAt: at, createdAt: at, updatedAt: at, answers: answers)
+    }
+
+    /// The themed samples' appearances.
+    static let headacheLook = TopicAppearance(color: .teal, icon: .emoji("🤕"), tags: ["Health"])
+    static let intervalsLook = TopicAppearance(color: .orange, icon: .emoji("🏃"), tags: ["Gym"])
 
     /// A timed topic with an open run (the demo store has none), as the widget reader would show
     /// it: `steps` is the pinned version's; `open` the segment, as the Live Activity's content
@@ -38,19 +57,22 @@ struct WidgetGalleryView: View {
     private func timed(
         slug: String, name: String, steps: [TopicTimer.Step], open: (label: String, stepIndex: Int?, next: String?),
         paused: Bool = false, lap: (type: String, closed: Int)? = nil, laps: [TopicTimer.LapType] = [],
-        alert: (label: String, in: Double)? = nil
+        alert: (label: String, in: Double)? = nil, appearance: TopicAppearance = .empty, ended: Bool = false
     ) -> WidgetTopic? {
         guard var topic = topics.first?.topic else { return nil }
         topic.slug = slug
         topic.name = name
+        topic.appearance = appearance
         topic.questions = []
         topic.timer = TopicTimer(steps: steps, laps: laps)
         let startedAt = now.timeIntervalSince1970 - 104
         let run = RunActivityState(
-            runId: "00000000-0000-4000-8000-0000000000aa", revision: 3, status: paused ? "paused" : "running",
+            runId: "00000000-0000-4000-8000-0000000000aa", revision: 3,
+            status: ended ? "stopped" : paused ? "paused" : "running",
             startedAt: startedAt, seg: 3, segStartedAt: startedAt + 63, label: open.label, stepIndex: open.stepIndex,
             stepCount: steps.count, nextLabel: open.next, pausedAt: paused ? startedAt + 90 : nil,
-            pausedMsBeforeSeg: 0, pausedMsInSeg: 0, endedAt: nil, activeMs: nil, lapType: lap?.type,
+            pausedMsBeforeSeg: 0, pausedMsInSeg: 0, endedAt: ended ? startedAt + 462 : nil,
+            activeMs: ended ? 462_000 : nil, lapType: lap?.type,
             lapCount: lap?.closed, alertAt: alert.map { now.timeIntervalSince1970 + $0.in }, alertLabel: alert?.label)
         return WidgetTopic(
             topic: topic, quick: nil, lastAnswer: nil, hasOpenRun: true, run: run, runLapTyped: !laps.isEmpty,
@@ -77,17 +99,18 @@ struct WidgetGalleryView: View {
 
     /// Intervals on a typed lap, its fourth: "Rest 2 · lap 4", "Go" due in 5 minutes (the alert
     /// line under the total, active-surfaces.md §5.1); Lap opens a Run lap ("Lap → Run").
-    private func intervals() -> WidgetTopic? {
+    private func intervals(paused: Bool = false) -> WidgetTopic? {
         timed(
             slug: "intervals", name: "Intervals", steps: [], open: (label: "Rest 2", stepIndex: nil, next: "Run"),
-            lap: (type: "rest", closed: 3), laps: Self.intervalLaps, alert: (label: "Go", in: 300))
+            paused: paused, lap: (type: "rest", closed: 3), laps: Self.intervalLaps, alert: (label: "Go", in: 300),
+            appearance: Self.intervalsLook)
     }
 
     /// A step run on its first step, Breakfast next; `paused` freezes its timers.
-    private func morning(paused: Bool = false) -> WidgetTopic? {
+    private func morning(paused: Bool = false, ended: Bool = false) -> WidgetTopic? {
         timed(
             slug: "morning", name: "Morning", steps: Self.morningSteps,
-            open: (label: "Shower", stepIndex: 0, next: "Breakfast"), paused: paused)
+            open: (label: "Shower", stepIndex: 0, next: "Breakfast"), paused: paused, ended: ended)
     }
 
     private static let morningSteps = [
@@ -101,6 +124,7 @@ struct WidgetGalleryView: View {
                 switch page {
                 case .home: home
                 case .lock: lock
+                case .la: liveActivities
                 }
             }
             .padding(16)
@@ -136,8 +160,11 @@ struct WidgetGalleryView: View {
         frame(.systemMedium, "widget.medium.timed.paused") {
             TopicWidgetView(topic: morning(paused: true), date: now, style: $0)
         }
-        // A typed lap's headline and the pending alert under the total (§5.1).
+        // A typed lap's headline and the pending alert under the total (§5.1); in its theme.
         frame(.systemMedium, "widget.medium.timed.alert") {
+            TopicWidgetView(topic: intervals(), date: now, style: $0)
+        }
+        frame(.systemSmall, "widget.small.timed.themed") {
             TopicWidgetView(topic: intervals(), date: now, style: $0)
         }
         frame(.systemLarge, "widget.large.due") { DueListWidgetView(topics: topics, date: now, style: $0) }
@@ -156,6 +183,43 @@ struct WidgetGalleryView: View {
         }
         frame(.accessoryInline, "widget.inline.due") { DueListWidgetView(topics: topics, date: now, style: $0) }
         frame(.accessoryInline, "widget.inline.water") { TopicWidgetView(topic: topic("water"), date: now, style: $0) }
+    }
+
+    /// The Live Activity's Lock Screen view (active-surfaces.md §4.2) at its width: a step run and a
+    /// typed lap with its alert, each paused too, and an ended run; Intervals in its theme
+    /// (appearance.md §6.5: `tintSoft` background, `tint` primary, the glyph).
+    @ViewBuilder private var liveActivities: some View {
+        activity("activity.step", morning())
+        activity("activity.themed", intervals())
+        activity("activity.themed.paused", intervals(paused: true))
+        activity("activity.step.paused", morning(paused: true))
+        activity("activity.ended", morning(ended: true))
+    }
+
+    @ViewBuilder private func activity(_ id: String, _ topic: WidgetTopic?) -> some View {
+        if let topic, let state = topic.run {
+            let display = RunActivityDisplay(state: state, topicName: topic.topic.name)
+            let theme = TopicTheme(appearance: topic.topic.appearance, name: topic.topic.name)
+            VStack(alignment: .leading, spacing: 4) {
+                // Not the id itself: a query by the id would find the caption first.
+                Text(id.replacingOccurrences(of: "activity.", with: "Live Activity: "))
+                    .font(.caption2).foregroundStyle(.secondary)
+                RunActivityLockScreenContent(display: display, theme: theme) {
+                    RunActivityButtonRow.lockScreen(display) { button, primary in
+                        Button {
+                        } label: {
+                            RunActivityButtonLabel(display.title(for: button), primary: primary)
+                        }
+                        .runActivityButtonStyle(button, primary: primary, theme: theme)
+                        .accessibilityLabel(display.spokenTitle(for: button))
+                    }
+                }
+                .frame(width: 370)
+                .background(RunActivityTheme.background(theme), in: RoundedRectangle(cornerRadius: 24))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(id)
+            }
+        }
     }
 
     /// One widget at its family's size (iPhone 16 Pro Max), with the widget's container.

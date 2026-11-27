@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useMatch, useNavigate, useSearchParams } from 'react-router';
 
 import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
+import { topicStyle } from '../../lib/appearance';
 import type { RunContext } from '../../lib/runs/actions';
 import { fmtDuration } from '../../lib/runs/format';
 import { isOpen, type LocalRun } from '../../lib/runs/localView';
@@ -58,12 +59,14 @@ export function RunningBar() {
 }
 
 function RunningItem({ run }: { run: LocalRun }) {
-  // A run known only from the server names its topic by id.
+  // A run known only from the server names its topic by id; the details also carry the
+  // topic's colours (appearance.md §6.4), for every run.
   const detail = useQuery({
     ...getTopicOptions({ path: { ref: run.topic_id } }),
     staleTime: 5 * 60_000,
-    enabled: run.topic === null,
   });
+  const appearance = detail.data?.appearance ?? null;
+  const tinted = Boolean(appearance?.color);
   const topic =
     run.topic ??
     (detail.data ? { id: detail.data.id, slug: detail.data.slug, name: detail.data.name } : null);
@@ -77,14 +80,26 @@ function RunningItem({ run }: { run: LocalRun }) {
   return (
     // Wraps rather than truncating the primary: when its title doesn't fit beside the topic
     // (a long step name, a narrow or zoomed screen), the button moves to a line of its own.
-    <li className="flex flex-wrap items-center gap-x-2 gap-y-1">
+    // A run of a topic with a colour gets its wash and its primary in the tint; the strip
+    // itself stays the accent's (it may list several runs).
+    <li
+      className={cn(
+        'flex flex-wrap items-center gap-x-2 gap-y-1',
+        tinted && 'rounded-full bg-topic-tint-soft',
+      )}
+      style={topicStyle(appearance)}
+      data-testid="bar-run"
+    >
       <Link
         to={`/t/${topic.slug}/record`}
         className="flex min-h-11 min-w-0 flex-[1_1_12rem] items-center gap-2 rounded-full px-2 text-sm"
       >
         <Icon
           name={paused ? 'pause' : 'timer'}
-          className={cn('size-4', paused ? 'text-warn' : 'text-accent-strong')}
+          className={cn(
+            'size-4',
+            paused ? 'text-warn' : tinted ? 'text-topic-tint' : 'text-accent-strong',
+          )}
           strokeWidth={2.4}
         />
         <span className="min-w-0 truncate">
@@ -103,7 +118,10 @@ function RunningItem({ run }: { run: LocalRun }) {
           disabled={primary.disabled}
           onClick={primary.onTap}
           data-testid="bar-primary"
-          className="ml-auto inline-flex min-h-11 max-w-full shrink-0 items-center gap-1 rounded-full bg-accent px-3.5 py-1.5 text-left text-sm leading-tight font-semibold text-on-accent transition-transform active:scale-95 disabled:opacity-50 motion-reduce:active:scale-none"
+          className={cn(
+            'ml-auto inline-flex min-h-11 max-w-full shrink-0 items-center gap-1 rounded-full px-3.5 py-1.5 text-left text-sm leading-tight font-semibold transition-transform active:scale-95 disabled:opacity-50 motion-reduce:active:scale-none',
+            tinted ? 'bg-topic-tint text-topic-on-tint' : 'bg-accent text-on-accent',
+          )}
         >
           <Icon
             name={actionIcon(primary.action.kind)}

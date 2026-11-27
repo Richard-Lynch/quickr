@@ -47,6 +47,7 @@ import { initialNumber, quickLogFor } from '../../lib/quickLog';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import { fmtDuration } from '../../lib/runs/format';
+import { appearanceOf } from '../../lib/topicAppearanceSeam';
 import { isOpen, openRunOf, runById, type LocalRun } from '../../lib/runs/localView';
 import { useRuns } from '../../lib/runs/useRuns';
 import type { Question } from '../../lib/questions';
@@ -274,6 +275,7 @@ function TimedRecord({
     content = (
       <RunPanel
         run={open}
+        appearance={appearanceOf(topic)}
         ctx={runCtx}
         timer={timerOf(versions, open.version)}
         topic={topic.name}
@@ -319,6 +321,7 @@ function TimedRecord({
     content = (
       <RunStart
         steps={ctx?.steps ?? []}
+        appearance={appearanceOf(topic)}
         disabled={ctx === null || archived}
         busy={actions.busy}
         onStart={() => {

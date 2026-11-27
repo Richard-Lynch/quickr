@@ -85,6 +85,28 @@ import Testing
         #expect(staleDate == Self.now.addingTimeInterval(4 * 3600))
     }
 
+    @Test("#226 · a themed topic's local start requests attributes with its appearance, as push-to-start does")
+    func startCarriesTheTopicsAppearance() async throws {
+        let rig = try await Rig.make()
+        var topic = rig.h.topic
+        topic.appearance = TopicAppearance(color: .teal, icon: .emoji("🚿"), tags: ["Home"])
+        try rig.h.write { db in _ = try ServerLayer.upsert(db, topic: topic) }
+        _ = try await rig.h.start()
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.attributes.appearance == topic.appearance)
+        #expect(activity.attributes.topicName == rig.h.topic.name)
+    }
+
+    @Test("#226 · a topic without a colour, icon or tags starts with no appearance (the default theme)")
+    func startWithoutAppearance() async throws {
+        let rig = try await Rig.make()
+        _ = try await rig.h.start()
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.attributes.appearance == nil)
+    }
+
     @Test("R8 · reconciliation alone never starts one: a run started elsewhere comes by push-to-start")
     func noStartWithoutTap() async throws {
         let rig = try await Rig.make()

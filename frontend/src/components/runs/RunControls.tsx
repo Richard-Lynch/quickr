@@ -95,6 +95,7 @@ export function RunControls({
   busy,
   topic,
   onAction,
+  tinted = false,
 }: {
   /** `actions(state, status, timer, now)` from `./model`, in display order. */
   actions: readonly RunAction[];
@@ -103,6 +104,8 @@ export function RunControls({
   /** The topic's name, for the accessible names of Stop and its kin (§1.3). */
   topic: string;
   onAction: (action: RunAction) => void;
+  /** The topic has a colour: the hero primary fills with its tint (appearance.md §6.4, #286). */
+  tinted?: boolean;
 }) {
   const { primary, secondaries, overflow } = controlsLayout(actions);
   const [more, setMore] = useState(false);
@@ -114,7 +117,7 @@ export function RunControls({
       {primary ? (
         <Button
           size="hero"
-          variant="primary"
+          variant={tinted ? 'topic' : 'primary'}
           className="w-full min-w-0"
           data-testid="run-primary"
           aria-label={actionLabel(primary.kind, topic)}

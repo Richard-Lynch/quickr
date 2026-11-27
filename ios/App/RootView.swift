@@ -59,7 +59,7 @@ struct RootView: View {
         return DesignCatalogView.Page(rawValue: raw) ?? .colors
     }
 
-    /// `-QuickrWidgetGallery <home|lock> [tinted] [outdated]` shows the widget views (screenshots,
+    /// `-QuickrWidgetGallery <home|lock|la> [tinted] [outdated]` shows the widget views (screenshots,
     /// UI checks).
     private static var widgetGallery: (page: WidgetGalleryView.Page, tinted: Bool, outdated: Bool)? {
         let args = ProcessInfo.processInfo.arguments

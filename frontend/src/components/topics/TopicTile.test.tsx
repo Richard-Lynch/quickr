@@ -8,10 +8,11 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TopicSummary } from '../../client';
+import { client } from '../../client/client.gen';
 import { outbox } from '../../lib/outbox/client';
 import type { EntryCreatePayload } from '../../lib/outbox/kinds';
 import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
-import { renderRunApp, type Harness } from '../../test/runUi';
+import { renderRunApp, seedRun, type Harness } from '../../test/runUi';
 import { ToastProvider } from '../ui/Toast';
 import { TopicTile } from './TopicTile';
 
@@ -118,16 +119,74 @@ describe('a single topic tile', () => {
     expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
   });
 
-  it('waits, neutral, until it knows whether the topic is timed (no one-tap log yet)', async () => {
-    // The versions never come: the action stays a placeholder.
+  it('knows from its summary that it isn’t timed: one-tap Log at once, while nothing has loaded', async () => {
+    // T2-WIRE (content-display.md §2): the summary carries the timer, so no versions wait.
     vi.stubGlobal(
       'fetch',
       vi.fn(() => new Promise<Response>(() => undefined)),
     );
     renderTile(vitamins);
-    expect(await screen.findByTestId('tile-action-pending')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
-    expect(screen.queryByTestId('tile-log')).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Log Vitamins now' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull();
+  });
+});
+
+describe('an archived tile’s summary line', () => {
+  it('labels its latest entry with the details’ questions (Codex WIRE r1 #4)', async () => {
+    const question = {
+      key: 'mood',
+      label: 'Mood',
+      type: 'enum',
+      required: true,
+      help_text: null,
+      multiple: false,
+      min_selected: null,
+      max_selected: null,
+      options: [{ value: 'good', label: 'Good', archived: false }],
+    };
+    const at = new Date(Date.now() - 3_600_000).toISOString();
+    const archived: TopicSummary = {
+      ...vitamins,
+      status: 'archived',
+      archived_at: at,
+      question_count: 1,
+      entry_count: 2,
+      last_captured_at: at,
+      last_entry: {
+        id: '0d6c0000-0000-4000-8000-0000000000f1',
+        topic_id: vitamins.id,
+        version: 1,
+        captured_at: at,
+        created_at: at,
+        updated_at: at,
+        answers: [{ key: 'mood', type: 'enum', value: 'good' }],
+        notes: '',
+        meta: {},
+        timing: null,
+        revision: 1,
+        source: 'ui',
+        channel: 'ui',
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ...archived, questions: [question] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        ),
+      ),
+    );
+    // Node's Request needs an absolute URL (as the run harness sets it).
+    client.setConfig({ baseUrl: 'http://quickr.test' });
+    try {
+      renderTile(archived);
+      expect(await screen.findByTestId('topic-summary')).toHaveTextContent('Mood: Good');
+    } finally {
+      client.setConfig({ baseUrl: '' });
+    }
   });
 });
 
@@ -167,11 +226,50 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
     h = renderRunApp('/', lapTopic(), (s) =>
       seedStopped(s, WINDOW_MS + 120_000, WINDOW_MS + 1_000),
     );
-    expect(await screen.findByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
+    // Enabled once the details are in (whether Stop asks for answers).
     await waitFor(() =>
-      expect(server().requests.some((r) => r.path.endsWith('/entries'))).toBe(true),
+      expect(screen.getByRole('button', { name: 'Start Morning' })).toBeEnabled(),
     );
     expect(screen.queryByTestId('run-reopen')).toBeNull();
+    // The latest entry came with the list: no per-tile entries or versions query (T2-WIRE-F).
+    const paths = server().requests.map((r) => r.path);
+    expect(paths.filter((p) => p.endsWith('/entries') || p.endsWith('/versions'))).toEqual([]);
+  });
+
+  it('a stop on an older version (published since) still offers Resume, from that version', async () => {
+    // Codex WIRE r1 #1: the tile reads the versions list only for such a stop.
+    const fixture = lapTopic();
+    const [v1] = fixture.versions;
+    if (!v1) throw new Error('no version 1');
+    const v2 = { ...v1, version: 2 };
+    h = renderRunApp(
+      '/',
+      { topic: { ...fixture.topic, current_version: 2 }, versions: [...fixture.versions, v2] },
+      (s) => seedStopped(s, 114_000, 10_000),
+    );
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    expect(server().requests.some((r) => r.path.endsWith('/versions'))).toBe(true);
+  });
+
+  it('a queued stop of a run on an older version still offers Resume (Codex WIRE r2 #1)', async () => {
+    const fixture = lapTopic();
+    const [v1] = fixture.versions;
+    if (!v1) throw new Error('no version 1');
+    h = renderRunApp(
+      '/',
+      {
+        topic: { ...fixture.topic, current_version: 2 },
+        versions: [...fixture.versions, { ...v1, version: 2 }],
+      },
+      (s) => seedRun(s),
+    );
+    const user = userEvent.setup();
+    // The v1 run's stop stays queued: no server entry, so no `last_entry` to name its version.
+    server().override = (body) =>
+      body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByTestId('card-stop'));
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    expect(server().entries).toHaveLength(0);
   });
 
   it('goes when the window ends', async () => {
@@ -228,7 +326,8 @@ describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () =
       source: 'ios',
       channel: 'ios',
     });
-    await h.qc.invalidateQueries({ queryKey: [{ _id: 'listEntries' }] });
+    // The list refetches (every 60 s, on focus, on an entry ack) and carries it as `last_entry`.
+    await h.qc.invalidateQueries({ queryKey: [{ _id: 'listTopics' }] });
     await waitFor(() => expect(screen.queryByTestId('run-reopen')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
   });

@@ -41,12 +41,16 @@ struct TopicTile: View {
                 // "Active now" (active-surfaces.md §3.2): the run's own card, opening its run screen.
                 let link = TopicLinkRef(id: topic.topic.id)
                 ActiveTopicCard(topic: topic, run: run, onOpen: { environment.router.open(.run(link)) })
-                    .topicTheme(for: topic.topic)
             } else if state.isTimed {
                 timedTile(state)
             } else {
                 plainTile
             }
+        }
+        // The topic's colours and glyph on the tile, the card and their buttons (appearance.md §6.1, §6.2).
+        .topicTheme(for: topic.topic)
+        .task(id: observationKey) {
+            await follow()
         }
         // Here, not on the idle tile: by the time a Start returns, the tile may be the card.
         .qrHaptic(.logged, trigger: starts)
@@ -178,9 +182,6 @@ struct TopicTile: View {
             if let model { QuickLogArea(model: model) }
         }
         .accessibilityIdentifier("tile.\(topic.slug)")
-        .task(id: observationKey) {
-            await follow()
-        }
     }
 
     /// The Log block: none for an archived topic; a single topic (no questions) logs at once, with
@@ -220,8 +221,24 @@ struct TopicTile: View {
                     if archived { QuickrBadge("Archived", icon: .archive, tone: .warn) }
                 }
             }
-            lastLine(last)
+            summaryLine(last)
+            TileTagChips(topic.topic.appearance.tags)
         }
+    }
+
+    /// The latest entry's summary line and when (content-display.md §5), else `lastLine`. The
+    /// labels are the current version's only for an entry of that version; an older one's summary
+    /// is its timing part alone, never another version's labels (as the entry list does).
+    private func summaryLine(_ last: AnswerValue?) -> some View {
+        let topic = topic.topic
+        let entry = topic.entryCount > 0 ? environment.latestEntries[topic.id] : nil
+        // Another version's answer is never read with the current question (its options and unit
+        // may differ): "Last …" then falls back to the count, as the PWA's tile.
+        let sameVersion = entry.map { $0.version == topic.currentVersion } ?? true
+        return TopicSummaryLine(
+            entry: entry, questions: entry?.version == topic.currentVersion ? topic.questions : [],
+            timer: topic.timer, fallback: lastLine(sameVersion ? last : nil),
+            suffix: entry.map { _ in text.relative(topic.lastCapturedAt, now: now) })
     }
 
     /// `last`: the latest entry's answer to the quick question (quick-log topics only, like the PWA).
@@ -235,25 +252,28 @@ struct TopicTile: View {
         return Text("\(text.count(topic.entryCount, "entry", "entries")) · \(when)")
     }
 
-    /// Keeps the cached model in step with the topic, and its last value with the store.
+    /// Keeps the latest entry (the summary line) and the cached quick-log model in step with the
+    /// store: the model's topic, and its last value (a single topic has no question, so none).
     private func follow() async {
-        guard let quickTopic else { return }
+        let quickTopic = quickTopic
+        let topicId = topic.topic.id
         let models = environment.quickLogModels
+        let latest = environment.latestEntries
         // The store this observation reads; updates are dropped once another is active.
         let scope = environment.entryWriter.scope
-        // A single topic has no question, so no last answer to follow.
-        guard let key = quickTopic.quick.question?.key, let session = environment.session,
-            let store = session.store, topic.topic.entryCount > 0
-        else {
-            models.update(quickTopic, last: nil, from: scope)
+        func update(_ entry: Entry?) {
+            latest.update(topicId, entry: entry, from: scope)
+            guard let quickTopic else { return }
+            models.update(quickTopic, last: quickTopic.quick.question.flatMap { entry?.answers[$0.key] }, from: scope)
+        }
+        guard let session = environment.session, let store = session.store, topic.topic.entryCount > 0 else {
+            update(nil)
             return
         }
         do {
-            for try await entries in store.observeEntries(
-                topicId: quickTopic.id, limit: 1, refresh: session.refresh.stream())
+            for try await entries in store.observeEntries(topicId: topicId, limit: 1, refresh: session.refresh.stream())
             {
-                models.update(
-                    quickTopic, last: entries.first?.entry.answers[key], from: scope)
+                update(entries.first?.entry)
             }
         } catch {
             // The observation ends with its store (a reset or a switch); the next binding restarts it.

@@ -162,6 +162,37 @@ import Testing
         #expect(!model.isFiltered)
     }
 
+    /// The home tag filter (appearance.md §5): the stored spelling, exactly; one list while set;
+    /// the panel's chips are every tag in the store, once each.
+    @Test func theTagFilterListsTheTopicsWithThatTag() async throws {
+        var topics = Self.mixed
+        topics[0].appearance = TopicAppearance(tags: ["Health", "Daily"])
+        topics[1].appearance = TopicAppearance(tags: ["Daily"])
+        topics[4].appearance = TopicAppearance(tags: ["daily"])
+        topics[5].appearance = TopicAppearance(tags: ["Daily"])  // archived
+        let w = try await World(topics: topics)
+        defer { w.cleanup() }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+
+        #expect(model.tags == ["Daily", "daily", "Health"])
+        model.tagFilter = "Daily"
+        #expect(Self.names(model.rows) == ["Meds", "Water"], "exact spelling, archived filtered by status")
+        #expect(!model.isSectioned)
+        #expect(model.isFiltered)
+        #expect(model.hasNonDefaultFilter)
+        #expect(model.badgeCount == 2, "the badge ignores the tag")
+        model.status = .all
+        #expect(Self.names(model.rows) == ["Meds", "Water", "Old habit"])
+        model.status = .active
+        model.tagFilter = "gym"
+        #expect(model.rows.isEmpty)
+        model.tagFilter = nil
+        #expect(model.rows.count == 5)
+        #expect(model.isSectioned)
+        #expect(!model.hasNonDefaultFilter)
+    }
+
     @Test func theListFollowsTheStore() async throws {
         let w = try await World(topics: Self.mixed)
         defer { w.cleanup() }

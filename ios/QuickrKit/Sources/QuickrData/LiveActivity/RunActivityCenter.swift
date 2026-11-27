@@ -54,21 +54,28 @@ public protocol RunActivityCenter: Sendable {
 }
 
 /// What the activities are reconciled with: the active store's server and its local view of runs
-/// (timers.md §8.3), and the names of the topics with one.
+/// (timers.md §8.3), and the names and appearances of the topics with one.
 public struct RunActivitySnapshot: Sendable, Hashable {
     public var serverId: String
     public var runs: [LocalRun]
     /// By topic id.
     public var topicNames: [UUID: String]
+    /// By topic id, for the topics with a colour, icon or tags: a local start's
+    /// `attributes.appearance` (appearance.md §6.5), as push-to-start carries it (#226).
+    public var topicAppearances: [UUID: TopicAppearance]
     /// Each run's pinned version's timer (steps, lap types and their alerts), by run id, when that
     /// version is stored and timed: the lap type labels and alerts of the content state
     /// (timers2.md §8.1). `LocalRun` carries only the steps.
     public var timers: [String: TopicTimer]
 
-    public init(serverId: String, runs: [LocalRun], topicNames: [UUID: String], timers: [String: TopicTimer] = [:]) {
+    public init(
+        serverId: String, runs: [LocalRun], topicNames: [UUID: String],
+        topicAppearances: [UUID: TopicAppearance] = [:], timers: [String: TopicTimer] = [:]
+    ) {
         self.serverId = serverId
         self.runs = runs
         self.topicNames = topicNames
+        self.topicAppearances = topicAppearances
         self.timers = timers
     }
 
@@ -82,12 +89,20 @@ public struct RunActivitySnapshot: Sendable, Hashable {
             guard bootstrapped else { return nil }
             let runs = try RunOverlay.localRuns(db)
             var names: [UUID: String] = [:]
+            var appearances: [UUID: TopicAppearance] = [:]
             for topicId in Set(runs.map(\.topicId)) {
-                names[topicId] = try String.fetchOne(
-                    db, sql: "SELECT name FROM topic WHERE id = ?", arguments: [topicId.wireString])
+                guard
+                    let row = try Row.fetchOne(
+                        db, sql: "SELECT id, name, color, icon, tags_json FROM topic WHERE id = ?",
+                        arguments: [topicId.wireString])
+                else { continue }
+                names[topicId] = row["name"]
+                let appearance = try TopicAppearance(serverRow: row)
+                if appearance != .empty { appearances[topicId] = appearance }
             }
             return RunActivitySnapshot(
-                serverId: serverId, runs: runs, topicNames: names, timers: try timers(db, runs: runs))
+                serverId: serverId, runs: runs, topicNames: names, topicAppearances: appearances,
+                timers: try timers(db, runs: runs))
         }
     }
 
@@ -225,7 +240,8 @@ public enum RunActivityPlan {
         if let startFor, let run = snapshot.run(topicId: startFor), run.isOpen {
             let attributes = RunActivityContent.attributes(
                 serverId: snapshot.serverId, topicId: startFor,
-                topicName: snapshot.topicNames[startFor] ?? run.topic?.name ?? "")
+                topicName: snapshot.topicNames[startFor] ?? run.topic?.name ?? "",
+                appearance: snapshot.topicAppearances[startFor])
             if !shown.contains(key(attributes)) {
                 // A run whose steps aren't stored here is shown without them until they are.
                 let state = snapshot.state(run, now: now) ?? RunActivitySnapshot.stateWithoutSteps(run)

@@ -6,6 +6,7 @@
  */
 import { useState } from 'react';
 
+import { topicStyle, type Appearance } from '../../lib/appearance';
 import type { RunEventPayload } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import type { RunContext } from '../../lib/runs/actions';
@@ -46,6 +47,7 @@ export function RunPanel({
   onStopped,
   onDiscarded,
   onReverted,
+  appearance = null,
 }: {
   run: LocalRun;
   /** The run's own version's context; null while it isn't known (controls wait). */
@@ -57,6 +59,8 @@ export function RunPanel({
   timer?: Timer | null | undefined;
   /** The topic's name, for the controls' accessible names. */
   topic: string;
+  /** The topic's colours (appearance.md §6.4): the hero primary and the Running dot. */
+  appearance?: Appearance | null | undefined;
   actions: RunActions;
   /** The stop is queued. `totalMs` is the run's active time at the tap. */
   onStopped: (run: LocalRun, item: OutboxItem<RunEventPayload>, totalMs: number) => void;
@@ -65,6 +69,7 @@ export function RunPanel({
   onReverted: () => void;
 }) {
   const paused = run.status === 'paused';
+  const tinted = Boolean(appearance?.color);
   const now = useServerNow(!paused);
   // Null: the steps aren't known here yet (no step list, no Skip; the clock still runs).
   const steps: readonly TimerStep[] | null = ctx ? ctx.steps : run.steps;
@@ -119,15 +124,30 @@ export function RunPanel({
 
   return (
     <>
-      <Card className="flex flex-col gap-5 p-5 sm:p-6" aria-label="Run">
+      <Card
+        className="flex flex-col gap-5 p-5 sm:p-6"
+        aria-label="Run"
+        style={topicStyle(appearance)}
+      >
         <div className="flex items-center justify-between gap-3">
           <Badge tone={paused ? 'warn' : 'accent'}>
             {paused ? (
               <Icon name="pause" className="size-3.5" strokeWidth={2.6} />
             ) : (
               <span className="relative flex size-2">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60 motion-reduce:hidden" />
-                <span className="relative inline-flex size-2 rounded-full bg-accent" />
+                <span
+                  className={cn(
+                    'absolute inline-flex size-full animate-ping rounded-full opacity-60 motion-reduce:hidden',
+                    tinted ? 'bg-topic-tint' : 'bg-accent',
+                  )}
+                />
+                <span
+                  data-testid="run-dot"
+                  className={cn(
+                    'relative inline-flex size-2 rounded-full',
+                    tinted ? 'bg-topic-tint' : 'bg-accent',
+                  )}
+                />
               </span>
             )}
             {resuming ? 'Resuming…' : paused ? 'Paused' : 'Running'}
@@ -167,6 +187,7 @@ export function RunPanel({
           busy={ctx === null || actions.busy || cooling}
           topic={topic}
           onAction={onAction}
+          tinted={tinted}
         />
 
         <Steps run={run} steps={steps} segmentMs={segment} />
@@ -323,6 +344,7 @@ export function RunStart({
   onStart,
   reopen = null,
   note,
+  appearance = null,
 }: {
   steps: readonly TimerStep[];
   disabled: boolean;
@@ -330,6 +352,8 @@ export function RunStart({
   onStart: () => void;
   reopen?: ReopenOffer | null;
   note?: React.ReactNode;
+  /** The topic's colours (appearance.md §6.4): Start fills with its tint. */
+  appearance?: Appearance | null | undefined;
 }) {
   return (
     <>
@@ -358,7 +382,7 @@ export function RunStart({
         <div className="flex flex-1 flex-col gap-2 sm:flex-none sm:flex-row-reverse">
           <Button
             size="lg"
-            variant="primary"
+            variant={appearance?.color ? 'topic' : 'primary'}
             className="w-full sm:w-auto"
             disabled={disabled}
             loading={busy}

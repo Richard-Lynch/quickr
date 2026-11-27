@@ -58,10 +58,13 @@ public enum QuickrButtonSize: Sendable {
     var fillsWidth: Bool { self == .large || self == .hero }
 }
 
-/// Capsule buttons in the brand's variants: `.buttonStyle(.qr(.primary, size: .large))`.
+/// Capsule buttons in the brand's variants: `.buttonStyle(.qr(.primary, size: .large))`. The
+/// primary fills with `\.topicTheme`'s `tint` and `onTint` (appearance.md §6.2, §6.4), which are the
+/// accent's outside a themed subtree.
 public struct QuickrButtonStyle: ButtonStyle {
     let variant: QuickrButtonVariant
     let size: QuickrButtonSize
+    @Environment(\.topicTheme) private var theme
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.dynamicTypeSize) private var typeSize
     @QuickrReduceMotion private var reduceMotion
@@ -99,7 +102,7 @@ public struct QuickrButtonStyle: ButtonStyle {
 
     private var foreground: Color {
         switch variant {
-        case .primary: .qr.onAccent
+        case .primary: TopicChrome(theme).onPrimary
         case .secondary: .qr.ink
         case .ghost: .qr.inkSoft
         case .danger: .white
@@ -109,7 +112,7 @@ public struct QuickrButtonStyle: ButtonStyle {
 
     private func background(pressed: Bool) -> Color {
         switch variant {
-        case .primary: pressed ? .qr.accentStrong : .qr.accent
+        case .primary: TopicChrome(theme).primaryFill(pressed: pressed)
         case .secondary: pressed ? .qr.sunken : .qr.surface
         case .ghost: pressed ? .qr.sunken : .clear
         case .danger: .qr.danger

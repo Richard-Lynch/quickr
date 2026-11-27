@@ -34,6 +34,9 @@ import Synchronization
 ///   types Run and Rest (timers2.md §3.1's `tiktok`), and no questions; with
 ///   `-QuickrTikTokAlert`, Run has an alert 5 s in. `-QuickrRunControls` shows
 ///   `UITestRunControls` (another device's reopen or remove of the latest run);
+/// - `-QuickrSeedAppearance` (T2-WIRE): the fake server's Mood is teal with 🙂 and the tags
+///   Daily, Health, Home and Evening, and Morning blue with ☀️ and Daily (appearance.md §1.1);
+///   Workout keeps the default theme;
 /// - `-QuickrClockControl` shows `UITestClockControl` ("+16 min": the fake server's clock jumps
 ///   ahead, then this device pulls), for the 15-minute Resume window (active-surfaces.md §3.3).
 enum UITestLaunch {
@@ -473,21 +476,33 @@ enum FakeServer {
     /// The seeded page's last seq: three topics, each a version row and a topic row.
     static let seededHead = 6
 
+    /// `-QuickrSeedAppearance`'s appearances, by slug, as wire JSON.
+    static let seededAppearances = [
+        "mood":
+            #"{"color": "teal", "icon": {"kind": "emoji", "value": "🙂"}, "tags": ["Daily", "Health", "Home", "Evening"]}"#,
+        "morning": #"{"color": "blue", "icon": {"kind": "emoji", "value": "☀️"}, "tags": ["Daily"]}"#,
+    ]
+
     static func topic(
         _ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int, timer: String = "null"
     ) -> String {
+        let appearance =
+            ProcessInfo.processInfo.arguments.contains("-QuickrSeedAppearance")
+            ? seededAppearances[slug] ?? emptyAppearance : emptyAppearance
         // T2-M3: the template's first line carries the topic's `appearance` (a raw string can't hold
         // the marker).
-        #"""
-        {"kind": "topic", "seq": \#(seq), "topic": {"appearance": {"color": null, "icon": null, "tags": []},
-         "archived_at": null, "created_at": "2026-01-01T00:00:00Z",
-         "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
-         "last_captured_at": null, "last_entry": null, "name": "\#(name)", "question_count": \#(count),
-         "questions": \#(questions),
-         "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
-         "timer": \#(timer), "updated_at": "2026-01-01T00:00:00Z"}}
-        """#
+        return #"""
+            {"kind": "topic", "seq": \#(seq), "topic": {"appearance": \#(appearance),
+             "archived_at": null, "created_at": "2026-01-01T00:00:00Z",
+             "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
+             "last_captured_at": null, "last_entry": null, "name": "\#(name)", "question_count": \#(count),
+             "questions": \#(questions),
+             "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
+             "timer": \#(timer), "updated_at": "2026-01-01T00:00:00Z"}}
+            """#
     }
+
+    static let emptyAppearance = #"{"color": null, "icon": null, "tags": []}"#
 
     static func version(
         _ topicId: UUID, versionId: String, questions: String, seq: Int, timer: String = "null"

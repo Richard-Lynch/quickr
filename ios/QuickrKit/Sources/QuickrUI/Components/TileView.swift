@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The home screen's topic tile (the PWA's `TopicTile`): title, a meta row, an optional
 /// quick-log area, and a full-height Log block on the thumb side. A due tile gets an accent
-/// bar, an accent border and a filled Log block.
+/// bar, an accent border and a filled Log block. The accent is `\.topicTheme`'s (appearance.md
+/// §6.1): a topic with a colour shows its bar at rest too, and its glyph before the title.
 ///
 /// Content comes through slots so the tile knows nothing about topics: pass badges and the
 /// "Last …" line as `meta`, and ``QuickChipGrid`` or a ``NumberStepper`` row as `quick`.
@@ -14,8 +15,10 @@ public struct TileView<Meta: View, Quick: View>: View {
     let action: TileAction?
     let meta: Meta
     let quick: Quick
+    @Environment(\.topicTheme) private var theme
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .callout) private var plusSize: CGFloat = 24
+    @ScaledMetric(relativeTo: .title2) private var glyphSize: CGFloat = 24
 
     /// - Parameters:
     ///   - onOpen: tapping anywhere outside the controls opens the topic.
@@ -51,11 +54,16 @@ public struct TileView<Meta: View, Quick: View>: View {
         layout {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.qr(.title))
-                        .tracking(-0.4)
-                        .foregroundStyle(.qr.ink)
-                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if chrome.glyph != nil {
+                            TopicGlyphView(theme: theme, size: glyphSize, fallbackInitial: theme.isTinted)
+                        }
+                        Text(title)
+                            .font(.qr(.title))
+                            .tracking(-0.4)
+                            .foregroundStyle(.qr.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     meta
                         .font(.qr(.footnote))
                         .foregroundStyle(.qr.muted)
@@ -82,13 +90,15 @@ public struct TileView<Meta: View, Quick: View>: View {
             if let action { logBlock(action, stacked: stacked) }
         }
         .overlay(alignment: .leading) {
-            if isDue { Color.qr.accent.frame(width: 4).accessibilityHidden(true) }
+            if chrome.showsBar(isDue: isDue) { chrome.bar.frame(width: 4).accessibilityHidden(true) }
         }
         .fixedSize(horizontal: false, vertical: true)
-        .qrCard(border: isDue ? .qr.accent.opacity(0.45) : .qr.line)
+        .qrCard(border: chrome.border(isDue: isDue) ?? .qr.line)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
     }
+
+    private var chrome: TopicChrome { TopicChrome(theme) }
 
     private func logBlock(_ action: TileAction, stacked: Bool) -> some View {
         let loud = action.loud ?? isDue
@@ -98,13 +108,13 @@ public struct TileView<Meta: View, Quick: View>: View {
                 action.icon.view(size: plusSize, weight: .bold)
                 Text(action.title).font(.qr(.callout)).multilineTextAlignment(.center)
             }
-            .foregroundStyle(loud ? Color.qr.onAccent : .qr.accentStrong)
+            .foregroundStyle(loud ? chrome.onPrimary : chrome.onSoft)
             .frame(width: stacked ? nil : QuickrMetrics.logBlockWidth)
             .frame(maxWidth: stacked ? .infinity : nil, maxHeight: .infinity)
             .frame(minHeight: stacked ? QuickrMetrics.tapTarget + 12 : nil)
-            .background(loud ? Color.qr.accent : .qr.accentSoft)
+            .background(loud ? chrome.primaryFill() : chrome.softFill)
             .overlay(alignment: stacked ? .top : .leading) {
-                let line = loud ? Color.qr.accentStrong.opacity(0.3) : .qr.line
+                let line = loud ? chrome.primaryFill(pressed: true).opacity(0.3) : .qr.line
                 if stacked { line.frame(height: 1) } else { line.frame(width: 1) }
             }
             .contentShape(Rectangle())

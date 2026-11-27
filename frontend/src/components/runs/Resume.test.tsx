@@ -287,7 +287,9 @@ describe('the stop toast, checked again at the tap', () => {
     await user.click(older);
     await user.click(await screen.findByTestId('run-reopen'));
     await waitFor(() => expect(reopens(server())).toHaveLength(1));
-    await settled();
+    // The reopen is acked; the toast's refresh is still held (no `settled()`: that waits for it).
+    // Before T2-WIRE-F the tile's own latest-entry query took the hold instead.
+    await waitFor(async () => expect(await outbox.list()).toHaveLength(0));
     server().override = (body) =>
       body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
     await user.click(await screen.findByTestId('card-stop'));

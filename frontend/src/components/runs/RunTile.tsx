@@ -6,12 +6,14 @@
 import { Link } from 'react-router';
 
 import type { TopicVersionOut } from '../../client';
+import type { Appearance } from '../../lib/appearance';
 import type { RunContext } from '../../lib/runs/actions';
 import { fmtDuration } from '../../lib/runs/format';
 import type { LocalRun } from '../../lib/runs/localView';
 import { cn } from '../ui/cn';
+import { tileTheme } from '../topics/tileTheme';
 import { Icon } from '../ui/Icon';
-import { contextFor } from './context';
+import { contextFor, type VersionTimer } from './context';
 import { activeMs, segmentMs } from './model';
 import { useServerNow } from './RunClock';
 import { useRunActions } from './useRunActions';
@@ -80,14 +82,18 @@ export function RunTileAction({
   versions,
   currentVersion,
   loud,
+  appearance,
 }: {
   topic: TopicRef;
   /** The topic's current version: a start is pinned to it. */
   currentVersion: number;
   run: LocalRun | undefined;
-  versions: readonly TopicVersionOut[] | undefined;
+  /** At least the current version's timer and questions; Start waits until they're known. */
+  versions: readonly VersionTimer[] | undefined;
   /** The topic is due: the loud version, as the Log action. */
   loud: boolean;
+  /** Start's fill in the topic's theme, as the Log action (appearance.md §6.1). */
+  appearance?: Appearance | null | undefined;
 }) {
   const actions = useRunActions();
 
@@ -113,12 +119,7 @@ export function RunTileAction({
       onClick={() => {
         if (ctx) void actions.start(ctx);
       }}
-      className={cn(
-        ACTION,
-        loud
-          ? 'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong'
-          : 'border-line bg-accent-soft text-accent-strong hover:brightness-[0.97]',
-      )}
+      className={cn(ACTION, loud ? tileTheme(appearance).loud : tileTheme(appearance).soft)}
     >
       <Icon name="play" className="size-6" strokeWidth={2.4} />
       Start
