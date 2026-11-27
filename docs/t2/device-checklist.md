@@ -381,7 +381,9 @@ orange 🏃, as in the setup at the top of this file.
       chip or use the tag filter. Expected: only tagged topics show; the chip
       appears on the tile footer and in the topic header.
 
-## M3b · photos
+## M3b · photos (deferred: not in v0.4.0)
+
+Skip this section for v0.4.0. Photo support moved to a later release (#287).
 
 - [ ] **Photo upload from the camera roll.** In `Smoke` settings → Appearance,
       pick a HEIC photo. Expected: upload completes under a few seconds on
