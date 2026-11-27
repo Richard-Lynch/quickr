@@ -60,6 +60,8 @@ struct OptionStackDescriptor: AXChartDescriptorRepresentable {
     let title: String
     let model: StackedBarsModel
     let bucket: QuestionSeries.Bucket
+    var measure = "answers"
+    var format: @Sendable (Int) -> String = { ChartFormat.count($0) }
 
     func makeChartDescriptor() -> AXChartDescriptor {
         let labels = model.points.map { spokenBucket($0.start, bucket) }
@@ -68,9 +70,9 @@ struct OptionStackDescriptor: AXChartDescriptorRepresentable {
             summary: "\(ChartFormat.plural(model.points.count, bucket.rawValue)), "
                 + ChartFormat.plural(model.legend.count, "option"),
             xAxis: AXCategoricalDataAxisDescriptor(title: bucket.rawValue.capitalized, categoryOrder: labels),
-            yAxis: AXNumericDataAxisDescriptor(title: "Answers", range: 0...Double(model.max), gridlinePositions: []) {
-                ChartFormat.count(Int($0))
-            },
+            yAxis: AXNumericDataAxisDescriptor(
+                title: measure.capitalized, range: 0...Double(model.max), gridlinePositions: []
+            ) { [format] in format(Int($0)) },
             additionalAxes: [],
             series: model.legend.map { item in
                 AXDataSeriesDescriptor(
@@ -119,5 +121,29 @@ struct DistributionDescriptor: AXChartDescriptorRepresentable {
         return labels.enumerated().map { index, label in
             labels.filter { $0 == label }.count > 1 ? "\(label) (bin \(index + 1))" : label
         }
+    }
+}
+
+/// The activity strip (`ActivityStripCard`): one data point per week column, "Week of 3 Nov"
+/// with its entries, so VoiceOver steps through the 12 weeks and can play them as an Audio Graph.
+struct ActivityStripDescriptor: AXChartDescriptorRepresentable {
+    let strip: ActivityStrip
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let columns = strip.columns
+        let labels = columns.map { ActivityStrip.weekLabel($0.firstDay) }
+        return AXChartDescriptor(
+            title: "Activity",
+            summary: strip.caption(),
+            xAxis: AXCategoricalDataAxisDescriptor(title: "Week", categoryOrder: labels),
+            yAxis: AXNumericDataAxisDescriptor(
+                title: "Entries", range: 0...Double(max(1, columns.map(\.count).max() ?? 0)), gridlinePositions: []
+            ) { ChartFormat.count(Int($0)) },
+            additionalAxes: [],
+            series: [
+                AXDataSeriesDescriptor(
+                    name: "Entries", isContinuous: false,
+                    dataPoints: zip(labels, columns).map { AXDataPoint(x: $0, y: Double($1.count)) })
+            ])
     }
 }

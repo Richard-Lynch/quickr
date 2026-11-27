@@ -401,3 +401,81 @@ async def test_timed_topics_round_trip(clean_db: None) -> None:
             assert (await conn.scalar(text("SELECT count(*) FROM runs"))) == 0
     finally:
         await _alembic(command.upgrade, "head")
+
+
+async def test_timers_v2_round_trip(clean_db: None) -> None:
+    """timers2.md §4.3, T26: ``reopen``/``remove`` and ``run_events.target_id``; a stop no longer
+    tombstones, so the stopped runs' ``deleted_ids`` rows go and the discarded ones' stay. A v1
+    timer is not migrated: it reads back as v2. The downgrade drops ``target_id`` and leaves the
+    enum values (Postgres can't drop them)."""
+    from app.services.topics import parse_timer
+
+    before = "d5e2f8a3c104"
+    await _alembic(command.downgrade, before)
+    try:
+        async with get_engine().begin() as conn:
+            await _insert_v1_data_at_head(conn, channel="ios")
+            await conn.execute(
+                text("""UPDATE topic_versions SET timer = '{"steps": [{"key": "a", "label": "A"}]}'""")
+            )
+            await _insert_run(conn, 5, "stopped")
+            await _insert_run(conn, 6, "discarded")
+            await conn.execute(
+                text(
+                    "INSERT INTO deleted_ids (kind, id, topic_id) VALUES"
+                    f" ('run', '{T}5', '{T}1'), ('run', '{T}6', '{T}1'),"  # stopped, discarded
+                    f" ('run', '{T}7', '{T}1'),"  # a run gone with no row (an alias, say)
+                    f" ('entry', '{T}5', '{T}1')"  # another kind, the same id
+                )
+            )
+        await _alembic(command.upgrade, "head")
+        async with get_engine().begin() as conn:
+            rows = (
+                await conn.execute(text("SELECT kind::text, id::text FROM deleted_ids ORDER BY 1, 2"))
+            ).all()
+            assert [tuple(r) for r in rows] == [("entry", f"{T}5"), ("run", f"{T}6"), ("run", f"{T}7")]
+            labels = list(
+                (await conn.execute(text("SELECT unnest(enum_range(NULL::run_event_type))::text"))).scalars()
+            )
+            assert labels[-2:] == ["reopen", "remove"]
+            await conn.execute(
+                text(
+                    "INSERT INTO run_events (id, run_id, type, at, source, target_id) VALUES"
+                    f" ('{T}8', '{T}5', 'reopen', '2026-01-01T08:05:00Z', 'phone', '{T}9'),"
+                    f" ('{T}a', '{T}5', 'remove', '2026-01-01T08:06:00Z', 'phone', '{T}8'),"
+                    f" ('{T}b', '{T}5', 'lap', '2026-01-01T08:07:00Z', 'phone', NULL)"
+                )
+            )
+            raw = await conn.scalar(text("SELECT timer FROM topic_versions"))
+            assert raw == {"steps": [{"key": "a", "label": "A"}]}  # no data migration
+            timer = parse_timer(raw)
+            assert timer is not None
+            assert timer.model_dump(mode="json") == {
+                "steps": [{"key": "a", "label": "A", "alerts": []}],
+                "laps": [],
+                "variables": [],
+            }
+
+        await _alembic(command.downgrade, before)
+        async with get_engine().connect() as conn:
+            columns = set(
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT column_name FROM information_schema.columns"
+                            " WHERE table_name = 'run_events'"
+                        )
+                    )
+                ).scalars()
+            )
+            assert "target_id" not in columns
+            labels = list(
+                (await conn.execute(text("SELECT unnest(enum_range(NULL::run_event_type))::text"))).scalars()
+            )
+            assert {"reopen", "remove"} <= set(labels)  # left in place
+            assert await conn.scalar(text("SELECT count(*) FROM run_events")) == 3
+        await _alembic(command.upgrade, "head")  # re-adding the values is a no-op
+        async with get_engine().connect() as conn:
+            assert await conn.scalar(text("SELECT count(*) FROM run_events WHERE target_id IS NULL")) == 3
+    finally:
+        await _alembic(command.upgrade, "head")

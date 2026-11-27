@@ -85,6 +85,28 @@ import Testing
         #expect(staleDate == Self.now.addingTimeInterval(4 * 3600))
     }
 
+    @Test("#226 · a themed topic's local start requests attributes with its appearance, as push-to-start does")
+    func startCarriesTheTopicsAppearance() async throws {
+        let rig = try await Rig.make()
+        var topic = rig.h.topic
+        topic.appearance = TopicAppearance(color: .teal, icon: .emoji("🚿"), tags: ["Home"])
+        try rig.h.write { db in _ = try ServerLayer.upsert(db, topic: topic) }
+        _ = try await rig.h.start()
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.attributes.appearance == topic.appearance)
+        #expect(activity.attributes.topicName == rig.h.topic.name)
+    }
+
+    @Test("#226 · a topic without a colour, icon or tags starts with no appearance (the default theme)")
+    func startWithoutAppearance() async throws {
+        let rig = try await Rig.make()
+        _ = try await rig.h.start()
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let activity = try #require(await rig.center.all().first)
+        #expect(activity.attributes.appearance == nil)
+    }
+
     @Test("R8 · reconciliation alone never starts one: a run started elsewhere comes by push-to-start")
     func noStartWithoutTap() async throws {
         let rig = try await Rig.make()
@@ -102,6 +124,168 @@ import Testing
         await rig.activities.reconcile(startFor: rig.h.topic.id)
         let all = await rig.center.all()
         #expect(all.isEmpty)
+    }
+
+    // MARK: - Lap types and alerts (I2-LA-FIELDS)
+
+    @Test("I2-LA-FIELDS · the snapshot carries the pinned timer: lap type, next lap type and the alert")
+    func lapTypesAndAlertFromThePinnedTimer() async throws {
+        let rig = try await Rig.make()
+        try rig.h.lapTyped()
+        let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
+        rig.h.wall.advance(by: 60)
+        _ = try await rig.h.runs().lap(runId: runId)
+        let snapshot = try #require(try await RunActivitySnapshot.read(rig.h.store))
+        let timer: TopicTimer? = snapshot.timers[runId]
+        #expect(timer?.laps.map(\.key) == ["run", "rest"])
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let activity = try #require(await rig.center.all().first)
+        let state = activity.state
+        #expect(state.label == "Rest 1")
+        let lapType: String? = state.lapType
+        #expect(lapType == "rest")
+        let lapCount: Int? = state.lapCount
+        #expect(lapCount == 1)
+        let nextLabel: String? = state.nextLabel
+        #expect(nextLabel == "Run")
+        // Rest from 60 s, "Go" 15 minutes in; `now` is 600 s.
+        let alertAt: Double? = state.alertAt
+        #expect(alertAt == Make.t0.timeIntervalSince1970 + 960)
+        let alertLabel: String? = state.alertLabel
+        #expect(alertLabel == "Go")
+        let display = RunActivityDisplay(state: state, topicName: rig.h.topic.name)
+        #expect(display.headline == "Rest 1 · lap 2")
+        let lapCounter: String? = display.lapCounter
+        #expect(lapCounter == "L2")
+        #expect(display.title(for: .lap) == "Lap → Run")
+        // The same view again: nothing to do.
+        await rig.activities.reconcile()
+        let updates = await rig.center.updates
+        #expect(updates == 0)
+    }
+
+    /// M2-RESUME: this device's own tap updates its activity through `reconcile(after:)` (R20, the
+    /// app's tap writer) with the pinned timer's fields, so a local update never blanks what the
+    /// server pushed: the lap type and count, the next lap type and the alert.
+    @Test("A local tap's update keeps the lap and alert fields (reconcile(after:), the timer:now: state)")
+    func aLocalTapsUpdateKeepsTheLapAndAlertFields() async throws {
+        let rig = try await Rig.make()
+        try rig.h.lapTyped()
+        let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let started = try #require(await rig.center.all().first).state
+        let startedType: String? = started.lapType
+        #expect(startedType == "run")
+        rig.h.wall.advance(by: 60)
+        let result = try await rig.h.runs().lap(runId: runId)
+        await rig.activities.reconcile(after: result)
+        let updates = await rig.center.updates
+        #expect(updates == 1, "the tap updated the activity it had")
+        let state = try #require(await rig.center.all().first).state
+        #expect(state.label == "Rest 1")
+        let lapType: String? = state.lapType
+        #expect(lapType == "rest")
+        let lapCount: Int? = state.lapCount
+        #expect(lapCount == 1)
+        let nextLabel: String? = state.nextLabel
+        #expect(nextLabel == "Run")
+        let alertAt: Double? = state.alertAt
+        #expect(alertAt == Make.t0.timeIntervalSince1970 + 960, "Rest from 60 s, Go 15 minutes in")
+        let alertLabel: String? = state.alertLabel
+        #expect(alertLabel == "Go")
+    }
+
+    @Test("I2-LA-FIELDS · a pause drops the alert from the activity, and a resume brings it back")
+    func pauseDropsTheAlert() async throws {
+        let rig = try await Rig.make()
+        try rig.h.lapTyped()
+        let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
+        rig.h.wall.advance(by: 60)
+        _ = try await rig.h.runs().lap(runId: runId)
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        rig.h.wall.advance(by: 30)
+        _ = try await rig.h.runs().pause(runId: runId)
+        await rig.activities.reconcile()
+        let paused = try #require(await rig.center.all().first).state
+        #expect(paused.status == "paused")
+        let pausedAlert: Double? = paused.alertAt
+        #expect(pausedAlert == nil)
+        let lapType: String? = paused.lapType
+        #expect(lapType == "rest")
+        rig.h.wall.advance(by: 30)
+        _ = try await rig.h.runs().resume(runId: runId)
+        await rig.activities.reconcile()
+        let resumed = try #require(await rig.center.all().first).state
+        // 30 s paused inside the rest: "Go" moves 30 s later.
+        let resumedAlert: Double? = resumed.alertAt
+        #expect(resumedAlert == Make.t0.timeIntervalSince1970 + 990)
+        let updates = await rig.center.updates
+        #expect(updates == 2)
+    }
+
+    /// `alert_at` is anchored to the segment's start and pauses, so the passing of time alone
+    /// changes the content state only when an alert passes: then the next one (by `at_ms`) is
+    /// shown, and after the last none. One update per alert passed, none in between.
+    @Test("I2-LA-FIELDS · time alone updates the activity only as each alert passes")
+    func alertBoundaries() async throws {
+        let rig = try await Rig.make()
+        try rig.h.lapTyped()
+        let runId = try await rig.h.runs().start(topic: rig.h.ref, version: 2).runId
+        rig.h.wall.advance(by: 60)
+        _ = try await rig.h.runs().lap(runId: runId)
+        await rig.activities.reconcile(startFor: rig.h.topic.id)
+        let record = try #require(await rig.center.activities().first)
+        let snapshot = try #require(try await RunActivitySnapshot.read(rig.h.store))
+        // Rest opened at 60 s; its one alert ("Go", 15 min) fires at 960 s.
+        let t0 = Make.t0.timeIntervalSince1970
+        #expect(record.state.alertAt == t0 + 960)
+        for s in [600.0, 700, 959] {
+            let actions = RunActivityPlan.actions([record], snapshot, now: Make.t0.addingTimeInterval(s))
+            #expect(actions.isEmpty, "\(s) s")
+        }
+        let past = RunActivityPlan.actions([record], snapshot, now: Make.t0.addingTimeInterval(961))
+        guard case .update(_, let state)? = past.first, past.count == 1 else {
+            Issue.record("expected one update, got \(past)")
+            return
+        }
+        let alertAt: Double? = state.alertAt
+        #expect(alertAt == nil)
+        let alertLabel: String? = state.alertLabel
+        #expect(alertLabel == nil)
+        #expect(state.lapType == "rest")
+    }
+
+    /// Two alerts: the earlier by `at_ms` first, whatever their order in the timer, then the
+    /// later once it passes.
+    @Test("I2-LA-FIELDS · with several alerts the next by at_ms is shown, then the one after")
+    func severalAlertsInOrder() async throws {
+        let rig = try await Rig.make()
+        let timer = TopicTimer(
+            steps: [],
+            laps: [
+                TopicTimer.LapType(
+                    key: "run", label: "Run",
+                    alerts: [
+                        TopicTimer.Alert(key: "time", label: "Time", at: "10m", atMs: 600_000),
+                        TopicTimer.Alert(key: "half", label: "Half way", at: "5m", atMs: 300_000),
+                    ])
+            ])
+        let row = TopicVersion(version: 2, questions: [], timer: timer, createdAt: Make.t0)
+        let topicId = rig.h.topic.id
+        try rig.h.write { db in _ = try ServerLayer.insert(db, version: row, id: UUID(), topicId: topicId) }
+        _ = try await rig.h.runs().start(topic: rig.h.ref, version: 2)
+        let snapshot = try #require(try await RunActivitySnapshot.read(rig.h.store))
+        let run = try #require(snapshot.runs.first)
+        let t0 = Make.t0.timeIntervalSince1970
+        let early = try #require(snapshot.state(run, now: Make.t0.addingTimeInterval(10)))
+        #expect(early.alertAt == t0 + 300)
+        #expect(early.alertLabel == "Half way")
+        let later = try #require(snapshot.state(run, now: Make.t0.addingTimeInterval(301)))
+        #expect(later.alertAt == t0 + 600)
+        #expect(later.alertLabel == "Time")
+        let none = try #require(snapshot.state(run, now: Make.t0.addingTimeInterval(601)))
+        let noneAt: Double? = none.alertAt
+        #expect(noneAt == nil)
     }
 
     // MARK: - Updates

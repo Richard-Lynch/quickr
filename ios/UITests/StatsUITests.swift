@@ -102,7 +102,117 @@ final class StatsUITests: XCTestCase {
         XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 10))
     }
 
+    /// The tiktok timer's lap types (content-display.md §4.1, `-QuickrSeedTypedTopic`'s Intervals,
+    /// `FakeLapTypes`): a card per type in the timer's order, with its laps, median, best and mean
+    /// over the five runs, and the stacked chart under them; the untyped laps tiles give way.
+    @MainActor
+    func testLapTypeCards() {
+        let app = launch(open: "quickr://t/intervals", extra: ["-QuickrSeedTypedTopic"])
+        XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
+        let run = element(app, "overview.timing.laptype.run")
+        let rest = element(app, "overview.timing.laptype.rest")
+        scrollTo(rest, in: app)
+        XCTAssertTrue(run.waitForExistence(timeout: 10))
+        XCTAssertTrue(rest.exists)
+        for part in ["Run", "12 laps", "1:40", "median", "best 1:10 · mean 1:40"] {
+            XCTAssertTrue(run.label.contains(part), "\(part) in \(run.label)")
+        }
+        for part in ["Rest", "8 laps", "0:40", "median", "best 0:30 · mean 0:40"] {
+            XCTAssertTrue(rest.label.contains(part), "\(part) in \(rest.label)")
+        }
+        XCTAssertLessThanOrEqual(run.frame.minX, rest.frame.minX, "the timer's order")
+        XCTAssertLessThanOrEqual(run.frame.minY, rest.frame.minY, "the timer's order")
+        let chart = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Time per lap type, per '"))
+        XCTAssertTrue(chart.firstMatch.exists, "the stacked chart's caption")
+        XCTAssertFalse(element(app, "overview.timing.laps").exists, "no untyped laps tile")
+        XCTAssertFalse(element(app, "overview.timing.lapMedian").exists, "no untyped lap median tile")
+        snap(app, "stats-5-laptypes")
+    }
+
+    /// The lap-type cards at the largest accessibility size (#280): one card per row, each the
+    /// section's width (two side by side cut the median to "1:…" and wrapped "median" a few letters
+    /// a line), still read whole, and each passes the audit, clipped text included.
+    @MainActor
+    func testLapTypeCardsAtAccessibilityXXXL() throws {
+        let app = launch(
+            open: "quickr://t/intervals", extra: ["-QuickrSeedTypedTopic"] + AccessibilityLaunch.arguments())
+        XCTAssertTrue(element(app, "overview.summary").waitForExistence(timeout: 20))
+        let run = element(app, "overview.timing.laptype.run")
+        let rest = element(app, "overview.timing.laptype.rest")
+        scrollTo(run, in: app)
+        XCTAssertTrue(run.waitForExistence(timeout: 10))
+        let width = app.windows.firstMatch.frame.width
+        for (card, parts) in [
+            (run, ["Run", "12 laps", "1:40", "median", "best 1:10 · mean 1:40"]),
+            (rest, ["Rest", "8 laps", "0:40", "median", "best 0:30 · mean 0:40"]),
+        ] {
+            bringIntoFullView([card], in: app)
+            for part in parts { XCTAssertTrue(card.label.contains(part), "\(part) in \(card.label)") }
+            XCTAssertGreaterThan(card.frame.width, width * 0.7, "\(card.identifier): one per row")
+            // Before the audit, which steps the text size and so moves the list.
+            if card == run { snap(app, "stats-6-laptypes-ax") }
+            try assertAccessible(app, allowing: StatsAccessibility.known, within: [card.frame])
+        }
+        XCTAssertGreaterThanOrEqual(rest.frame.minY, run.frame.maxY, "Rest under Run, the timer's order")
+        XCTAssertEqual(rest.frame.minX, run.frame.minX, accuracy: 1, "one column")
+    }
+
+    /// The activity strip's columns (content-display.md §4.2) over Intervals' five runs
+    /// (`FakeLapTypes.runs`): twelve Monday-started weeks, oldest left, each read as "Week of 3 Nov:
+    /// 5 entries" for its Monday and its count.
+    @MainActor
+    func testActivityStripLabels() {
+        let runs = [(1, 7), (3, 18), (8, 7), (15, 7), (22, 19)]
+        // The labels for the day the run starts and the day it ends: they differ only when it
+        // crosses local midnight, when the app shows one or the other.
+        let before = Self.weekLabels(runs: runs)
+        let app = launch(open: "quickr://t/intervals", extra: ["-QuickrSeedTypedTopic"])
+        let caption = element(app, "overview.activity.caption")
+        XCTAssertTrue(caption.waitForExistence(timeout: 20))
+        // The strip follows the store, so it can show a smaller count until the feed is applied.
+        expectation(for: NSPredicate(format: "label == '5 entries in the last 12 weeks'"), evaluatedWith: caption)
+        waitForExpectations(timeout: 15)
+        let shown = (0..<12).map { element(app, "overview.activity.week.\($0)").label }
+        let after = Self.weekLabels(runs: runs)
+        XCTAssertEqual(before.count, 12)
+        XCTAssertTrue(shown == before || shown == after, "\(shown) is neither \(before) nor \(after)")
+        XCTAssertFalse(element(app, "overview.activity.week.12").exists, "twelve columns")
+    }
+
     // MARK: - Helpers
+
+    /// The strip's twelve column labels for entries logged `daysAgo` days before today's local
+    /// midnight plus `hour` (as the fake server places them): the first column is the Monday 11
+    /// weeks before this week's, and a Monday is named in no zone ("3 Nov"), as `ActivityStrip`.
+    static func weekLabels(runs: [(daysAgo: Int, hour: Int)], now: Date = Date()) -> [String] {
+        let calendar = Calendar.autoupdatingCurrent
+        let today = calendar.startOfDay(for: now)
+        let weekday = calendar.component(.weekday, from: today)  // 1 is Sunday
+        guard let monday = calendar.date(byAdding: .day, value: -((weekday + 5) % 7), to: today),
+            let first = calendar.date(byAdding: .day, value: -77, to: monday)
+        else { return [] }
+        var counts = Array(repeating: 0, count: 12)
+        for run in runs {
+            guard let day = calendar.date(byAdding: .day, value: -run.daysAgo, to: today),
+                let at = calendar.date(byAdding: .hour, value: run.hour, to: day),
+                let days = calendar.dateComponents([.day], from: first, to: calendar.startOfDay(for: at)).day
+            else { return [] }
+            counts[days / 7] += 1
+        }
+        let utc = TimeZone(identifier: "UTC")!
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = utc
+        let format = DateFormatter()
+        format.locale = .autoupdatingCurrent
+        format.timeZone = utc
+        format.setLocalizedDateFormatFromTemplate("MMMd")
+        return counts.enumerated().compactMap { column, count in
+            guard let start = calendar.date(byAdding: .day, value: 7 * column, to: first),
+                let name = gregorian.date(from: calendar.dateComponents([.year, .month, .day], from: start))
+            else { return nil }
+            return "Week of \(format.string(from: name)): \(count) \(count == 1 ? "entry" : "entries")"
+        }
+    }
 
     /// A slow drag down from the summary (a quick swipe doesn't trigger the refresh; the pickers
     /// above and the charts below take drags themselves).

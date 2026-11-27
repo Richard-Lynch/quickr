@@ -17,6 +17,7 @@ import {
 import { activeMs } from '../../components/runs/model';
 import { RunDetailsForm } from '../../components/runs/RunDetailsForm';
 import { RunPanel, RunStart } from '../../components/runs/RunPanel';
+import { useReopenAfterStop, useReopenOffer } from '../../components/runs/reopen';
 import { useRunActions, type FinishResult } from '../../components/runs/useRunActions';
 import { ButtonLink } from '../../components/ui/Button';
 import { Banner, VersionTag } from '../../components/ui/Card';
@@ -46,6 +47,7 @@ import { initialNumber, quickLogFor } from '../../lib/quickLog';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import { fmtDuration } from '../../lib/runs/format';
+import { appearanceOf } from '../../lib/topicAppearanceSeam';
 import { isOpen, openRunOf, runById, type LocalRun } from '../../lib/runs/localView';
 import { useRuns } from '../../lib/runs/useRuns';
 import type { Question } from '../../lib/questions';
@@ -196,6 +198,12 @@ function TimedRecord({
   const shown: LocalRun | undefined = details ? details.run : open;
   const runCtx = useRunContext(shown, ref);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // The latest entry, for Resume under Start (§2.4, §6.3); idle only.
+  const idle = !details && !open;
+  const archived = topic.status === 'archived';
+  const last = useQuery({ ...lastEntryOptions(topic.slug), enabled: idle });
+  const reopen = useReopenOffer(ref, versions, last.data?.items[0], idle && !archived);
+  const reopenAfterStop = useReopenAfterStop();
 
   const title = (
     <span className="flex items-center gap-2">
@@ -267,35 +275,59 @@ function TimedRecord({
     content = (
       <RunPanel
         run={open}
+        appearance={appearanceOf(topic)}
         ctx={runCtx}
+        timer={timerOf(versions, open.version)}
+        topic={topic.name}
         actions={actions}
-        onStopped={(run, _item, totalMs) => {
+        onStopped={(run, item, totalMs) => {
           // Questions not known yet: open the form, which waits for them (as the tile does).
           const questions = questionsOf(topic, versions, run.version);
           if (questions === null || questions.length > 0) {
             setParams({ finish: run.id, v: String(run.version) }, { replace: true });
             return;
           }
-          toast({ title: `Saved ${topic.name}: ${fmtDuration(totalMs)}` });
+          // Resume from the toast for its usual lifetime (as iOS); the lasting offer is the Resume
+          // under Start and on the idle tile, for OQ-1's window. The tap re-checks the stop.
+          toast({
+            title: `Saved ${topic.name}: ${fmtDuration(totalMs)}`,
+            ...(runCtx
+              ? {
+                  action: {
+                    label: 'Resume',
+                    onClick: reopenAfterStop(topic, run, item.id, runCtx),
+                  },
+                }
+              : {}),
+          });
           leave();
         }}
         onDiscarded={() => {
           toast({ title: 'Run discarded', tone: 'info' });
           leave();
         }}
+        onReverted={() => {
+          toast({
+            title: 'Resume undone',
+            description: 'The run stays stopped as it was.',
+            tone: 'info',
+          });
+          leave();
+        }}
       />
     );
   } else {
     const ctx = contextFor(ref, versions, topic.current_version);
-    const archived = topic.status === 'archived';
     content = (
       <RunStart
         steps={ctx?.steps ?? []}
+        appearance={appearanceOf(topic)}
         disabled={ctx === null || archived}
         busy={actions.busy}
         onStart={() => {
           if (ctx) void actions.start(ctx);
         }}
+        reopen={reopen}
         note={
           ctx === null && !archived ? (
             <p className="text-center text-sm text-muted">

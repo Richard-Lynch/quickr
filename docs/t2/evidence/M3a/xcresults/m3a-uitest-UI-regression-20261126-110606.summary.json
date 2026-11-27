@@ -1,0 +1,79 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "BB9679F1-2E79-4697-A8C4-243B8765AE24",
+        "deviceName" : "quickR iOS-26-0 t2-m3a-uitest-9c2eef",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 3,
+      "passedTests" : 27,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 3,
+  "finishTime" : 1795692391.541,
+  "passedTests" : 27,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795691169.387,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "Failed to get matching snapshot: No matches found for first query match sequence: `Descendants matching type Any` -> `Elements matching predicate '\"topic.tags.0\" IN identifiers'`, given input App element pid: 14382",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 3,
+      "testIdentifierString" : "BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testAppearanceInLightDarkAndTheLargestTextSize",
+      "testName" : "testAppearanceInLightDarkAndTheLargestTextSize()"
+    },
+    {
+      "failureText" : "Failed to not hittable: Button, {{24.0, 394.0}, {354.0, 56.0}}, identifier: 'onboarding.done', label: 'Not now'",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 12,
+      "testIdentifierString" : "SettingsUITests/testOnboardingWithAServiceToken()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testOnboardingWithAServiceToken",
+      "testName" : "testOnboardingWithAServiceToken()"
+    },
+    {
+      "failureText" : "Failed to not hittable: Button, {{16.0, 554.3}, {370.0, 52.0}}, identifier: 'settings.removeToken', label: 'Remove token'",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 14,
+      "testIdentifierString" : "SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/SettingsUITests/testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain",
+      "testName" : "testSettingsShowsTheServerAndKeepsTheTokenInTheKeychain()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "18% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 168.96s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 30
+}

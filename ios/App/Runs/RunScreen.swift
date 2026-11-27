@@ -71,45 +71,52 @@ struct RunScreen: View {
     }
 }
 
-/// The run screen's body for `topic`: its open run's clocks and controls, a finishing run's Add
-/// details, or Start. Also the record screen's, for a timed topic.
+/// The run screen's body for `topic` (active-surfaces.md §2.1): a header, the controls under it,
+/// then the step and lap table, for its open run, a finishing run's Add details, or Start. Also
+/// the record screen's, for a timed topic. The whole screen scrolls; the controls aren't pinned.
 struct RunPanel: View {
     let topic: Topic
     let run: LocalRun?
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
     @State private var confirmingDiscard = false
+    @State private var confirmingRevert = false
+    /// The topic's latest stop, while the store offers it "Resume" (`LocalStore.observeResumable`).
+    @State private var resumable: ResumableRun?
+    /// Moved when the Resume window closes, so the idle screen re-reads it then.
+    @State private var windowClosed = Date.distantPast
     @State private var starts = 0
+    @State private var advances = 0
+    @State private var stops = 0
 
     private var link: TopicLinkRef { TopicLinkRef(id: topic.id) }
 
     var body: some View {
+        let layout = RunControlsLayout(actions: actions)
+        let busy = environment.runActions.isBusy(topic.id)
+        let controls = RunControls(
+            layout: layout, topic: topic.name, busy: busy, reopenTotalMs: resumable?.totalMs, perform: perform)
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let run, run.isOpen {
-                    OpenRunView(run: run)
+                    OpenRunView(run: run) { controls }
                 } else if let run, run.status == .finishing {
-                    finishing(run)
+                    finishing(run, controls: controls)
                 } else {
-                    idle
+                    idle(controls: controls)
                 }
             }
             .padding(16)
         }
+        // The hero primary in the topic's tint and onTint (appearance.md §6.4, #286).
+        .topicTheme(for: topic)
         .qrPaperBackground()
-        .safeAreaInset(edge: .bottom) { bar }
         .navigationTitle(topic.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if let run, run.isOpen || run.status == .finishing {
+            if !layout.overflow.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Discard run…", role: .destructive) { confirmingDiscard = true }
-                            .accessibilityIdentifier("run.discard")
-                    } label: {
-                        Label("More", systemImage: "ellipsis.circle")
-                    }
-                    .accessibilityIdentifier("run.menu")
+                    RunOverflowMenu(actions: layout.overflow, topic: topic.name, busy: busy, perform: perform)
                 }
             }
         }
@@ -119,12 +126,23 @@ struct RunPanel: View {
         } message: {
             Text("Its times won’t be saved. This can’t be undone.")
         }
+        .alert("Undo the resume?", isPresented: $confirmingRevert) {
+            Button("Undo resume", role: .destructive) { revert() }
+            Button("Keep timing", role: .cancel) {}
+        } message: {
+            Text("The run keeps its stop and its saved entry; the time since the resume isn’t saved.")
+        }
+        .task(id: ResumableKey(binding: environment.session?.binding, topicId: topic.id)) { await followResumable() }
+        // An idle Resume is re-read when its window closes, rescheduled when the offset moves (§2.4).
+        .onResumeWindowClose(resumable, offsetMs: environment.runTicker.offsetMs) { windowClosed = .now }
         .qrHaptic(.logged, trigger: starts)
+        .qrHaptic(.selection, trigger: advances)
+        .qrHaptic(.logged, trigger: stops)
     }
 
     // MARK: - States
 
-    private var idle: some View {
+    private func idle(controls: RunControls) -> some View {
         let steps = topic.timer?.steps ?? []
         return VStack(alignment: .leading, spacing: 20) {
             VStack(spacing: 6) {
@@ -139,19 +157,20 @@ struct RunPanel: View {
                 .foregroundStyle(.qr.muted)
             }
             .frame(maxWidth: .infinity)
-            if !steps.isEmpty {
-                StepList(rows: RunPresentation.rows(steps: steps), liveMs: 0)
-            }
             if topic.status == .archived {
                 Text("This topic is archived. Unarchive it to time it.")
                     .font(.qr(.subheadline))
                     .foregroundStyle(QuickrTone.warn.foreground)
                     .accessibilityIdentifier("run.archived")
             }
+            controls
+            if !steps.isEmpty {
+                StepList(rows: RunPresentation.rows(steps: steps), liveMs: 0)
+            }
         }
     }
 
-    private func finishing(_ run: LocalRun) -> some View {
+    private func finishing(_ run: LocalRun, controls: RunControls) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             QuickrBadge("Stopped", icon: .stop, tone: .warn)
             RunDuration(
@@ -163,58 +182,51 @@ struct RunPanel: View {
             Text("Add the details to save it.")
                 .font(.qr(.subheadline))
                 .foregroundStyle(.qr.muted)
+            controls.padding(.vertical, 8)
             StepList(rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: 0)
         }
     }
 
-    // MARK: - The bar
+    // MARK: - Controls
 
-    @ViewBuilder private var bar: some View {
-        HStack(spacing: 10) {
-            if let run, run.isOpen {
-                let primary = RunPresentation.primary(run.state, steps: run.steps)
-                if primary.isNext {
-                    Button {
-                        stop(run)
-                    } label: {
-                        Label("Stop", systemImage: "stop")
-                    }
-                    .buttonStyle(.qr(.secondary, size: .large))
-                    .accessibilityIdentifier("run.stop")
-                }
-                Button {
-                    if primary.isNext { tap(.next, run) } else { stop(run) }
-                } label: {
-                    Label(primary.title, systemImage: primary.isNext ? "chevron.right" : "stop")
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.qr(.primary, size: .large))
-                .accessibilityIdentifier("run.primary")
-            } else if let run, run.status == .finishing, let runId = UUID(uuidString: run.id) {
-                Button {
-                    environment.router.open(.runDetails(link, runId: runId))
-                } label: {
-                    Label("Add details", systemImage: "pencil").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.qr(.primary, size: .large))
-                .accessibilityIdentifier("run.addDetails")
-            } else if topic.status != .archived {
-                Button {
-                    start()
-                } label: {
-                    Label("Start", systemImage: "play").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.qr(.primary, size: .large))
-                .accessibilityIdentifier("run.start")
-            }
+    /// The screen's actions in display order (§2.2): M1's actions for an open or finishing run
+    /// (`RunActions.actions(for:)`: none while "Resuming…", §1.2 row 11; disabled while busy, row
+    /// 14). Idle (rows 1–3, 13), Start, and "Resume · 1:44" (`reopen`, secondary) while the
+    /// topic's latest stop is resumable (§2.4); none for an archived topic, whose start or
+    /// reopen the server would refuse.
+    private var actions: [RunAction] {
+        if let run, run.isOpen || run.status == .finishing {
+            // `now` only bounds the reopen window: the wall clock, so the panel doesn't follow the
+            // ticker (OpenRunView does).
+            return environment.runActions.actions(for: run, timer: run.timer, now: .now)
         }
-        .disabled(environment.runActions.isBusy(topic.id))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color.qr.paper)
+        guard topic.status != .archived else { return [] }
+        let start = RunAction(kind: .start, role: .primary, enabled: true)
+        guard let resumable, resumable.isOffered(at: runNow) else { return [start] }
+        return [start, resumable.action]
+    }
+
+    /// Now on the run clock (the store's server offset), the clock a stop's `endedAt` is on.
+    private var runNow: Int {
+        RunInstant.milliseconds(max(Date(), windowClosed)) + environment.runTicker.offsetMs
+    }
+
+    private func perform(_ action: RunAction) {
+        switch action.kind {
+        case .start: start()
+        case .addDetails:
+            guard let run, let runId = UUID(uuidString: run.id) else { return }
+            environment.router.open(.runDetails(link, runId: runId))
+        case .discard: confirmingDiscard = true
+        case .reopen: reopen()
+        case .revert: confirmingRevert = true
+        case .next: advance(.next)
+        case .lap: advance(.lap)
+        case .skip: tap(.skip)
+        case .pause: tap(.pause)
+        case .resume: tap(.resume)
+        case .stop: stop()
+        }
     }
 
     // MARK: - Taps
@@ -227,25 +239,37 @@ struct RunPanel: View {
         }
     }
 
-    private func tap(_ type: RunTapType, _ run: LocalRun) {
+    /// Lap or Next: a tap with the selection haptic (§2.5).
+    private func advance(_ type: RunTapType) {
+        guard let run, run.isOpen else { return }
+        let expect = RunTapExpect(run)
+        Task {
+            if await environment.runActions.tap(type, run: run, expect: expect) != nil { advances += 1 }
+        }
+    }
+
+    private func tap(_ type: RunTapType) {
+        guard let run, run.isOpen else { return }
         // Captured now: a second tap before the screen catches up targets what it showed.
         let expect = RunTapExpect(run)
         Task { await environment.runActions.tap(type, run: run, expect: expect) }
     }
 
-    private func stop(_ run: LocalRun) {
+    private func stop() {
+        guard let run, run.isOpen else { return }
         let expect = RunTapExpect(run)
         let (name, link, environment) = (topic.name, link, environment)
         Task {
             guard let outcome = await environment.runActions.stop(run: run, topicName: name, expect: expect) else {
                 return
             }
+            stops += 1
             switch outcome {
             case .details(let runId):
                 guard let id = UUID(uuidString: runId) else { return }
                 environment.router.replaceTop(with: .runDetails(link, runId: id))
             case .saved:
-                showStopOutcome(outcome, ref: link, in: environment)
+                showStopOutcome(outcome, run: run, ref: link, in: environment)
                 dismiss()
             }
         }
@@ -257,12 +281,48 @@ struct RunPanel: View {
             if await environment.runActions.discard(run: run) { dismiss() }
         }
     }
+
+    /// Resume run (§2.4): reopens the latest stop by its entry (`timing.terminalId` names the
+    /// stop); the screen then shows the open run, "Resuming…" until the ack when it came from the
+    /// entry.
+    private func reopen() {
+        guard let resumable else { return }
+        let actions = environment.runActions
+        Task { await actions.reopen(runId: resumable.runId, topicId: resumable.topicId) }
+    }
+
+    /// Undo resume… (§1.2 row 10), after its confirmation: the reopen is undone and the stop kept,
+    /// so the run is back in its entry. The screen stays: idle, with that stop's "Resume · 1:44"
+    /// again while its window lasts (§2.4).
+    private func revert() {
+        guard let run else { return }
+        let actions = environment.runActions
+        Task { await actions.revert(run: run) }
+    }
+
+    /// The topic's latest stop while the store offers it "Resume" (M2's `observeResumable`).
+    private func followResumable() async {
+        guard let session = environment.session, let store = session.store else { return }
+        do {
+            for try await latest in store.observeResumable(topicId: topic.id, refresh: session.refresh.stream()) {
+                resumable = latest
+            }
+        } catch {
+            // the store closed: the next binding observes again
+        }
+    }
+
+    private struct ResumableKey: Hashable {
+        var binding: AppSession.Binding?
+        var topicId: UUID
+    }
 }
 
-/// An open run: the status, the total and segment clocks, the step list, and Lap, Skip and
-/// Pause or Resume.
-private struct OpenRunView: View {
+/// An open run, top to bottom (§2.1): the header (status, the total clock, the headline with the
+/// segment's time, the alert line), then `controls`, then the step and lap table.
+private struct OpenRunView<Controls: View>: View {
     let run: LocalRun
+    @ViewBuilder let controls: Controls
     @Environment(AppEnvironment.self) private var environment
 
     var body: some View {
@@ -270,13 +330,12 @@ private struct OpenRunView: View {
         let paused = run.status == .paused
         let total = RunPresentation.activeMs(run.state, now: now)
         let segment = RunPresentation.segmentMs(run.state, now: now)
-        let skip = RunPresentation.skipTarget(run.state, steps: run.steps)
-        let expect = RunTapExpect(run)
-        let busy = environment.runActions.isBusy(run.topicId)
         VStack(alignment: .leading, spacing: 20) {
             HStack {
+                // "Resuming…" while a reopen from the entry waits for its ack (§2.4: no controls).
                 QuickrBadge(
-                    paused ? "Paused" : "Running", icon: paused ? .pause : .timer, tone: paused ? .warn : .accent
+                    RunHeaderText.state(resuming: run.resuming, paused: paused), icon: paused ? .pause : .timer,
+                    tone: paused ? .warn : .accent
                 )
                 .accessibilityIdentifier("run.state")
                 Spacer()
@@ -289,70 +348,25 @@ private struct OpenRunView: View {
                     .foregroundStyle(paused ? Color.qr.muted : .qr.ink)
                     .accessibilityLabel("Total \(RunPresentation.spoken(total))")
                     .accessibilityIdentifier("run.total")
-                if let open = run.state.open {
+                if let headline = RunHeadline.text(run) {
                     HStack(spacing: 8) {
-                        Text(open.label).font(.qr(.callout)).foregroundStyle(.qr.ink)
+                        Text(headline).font(.qr(.callout)).foregroundStyle(.qr.ink)
                         RunDuration(ms: segment, font: .qr(.callout), ticking: !paused).foregroundStyle(.qr.muted)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("run.segment")
                 }
+                RunAlertLine(
+                    fired: environment.runAlerts.label(runId: run.id),
+                    next: RunPresentation.alertLine(run.state, timer: run.timer, now: RunInstant.date(now)))
             }
             .frame(maxWidth: .infinity)
-            StepList(rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: segment)
-            // Side by side; stacked when the labels don't fit (large text, a long step name).
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) { controls(skip: skip, expect: expect, busy: busy, paused: paused) }
-                VStack(spacing: 8) { controls(skip: skip, expect: expect, busy: busy, paused: paused) }
-            }
+            controls
+            StepList(
+                rows: RunPresentation.rows(run.state, steps: run.steps), liveMs: segment,
+                lapTypes: RunHeaderText.lapTypeBadges(run.state, timer: run.timer))
         }
         .runTicking(!paused)
-    }
-
-    @ViewBuilder
-    private func controls(
-        skip: RunPresentation.SkipTarget?, expect: RunTapExpect, busy: Bool, paused: Bool
-    ) -> some View {
-        control("Lap", icon: "flag", id: "run.lap", label: "Lap") {
-            tap(.lap, expect)
-        }
-        .disabled(busy || run.state.open == nil)
-        control(
-            skip.map { "Skip \($0.label)" } ?? "Skip", icon: "forward.end", id: "run.skip",
-            label: skipLabel(skip)
-        ) {
-            tap(.skip, expect)
-        }
-        .disabled(busy || skip == nil)
-        control(
-            paused ? "Resume" : "Pause", icon: paused ? "play" : "pause",
-            id: paused ? "run.resume" : "run.pause", label: paused ? "Resume" : "Pause"
-        ) {
-            tap(paused ? .resume : .pause, expect)
-        }
-        .disabled(busy)
-    }
-
-    /// "Skip Breakfast (step 3)".
-    private func skipLabel(_ skip: RunPresentation.SkipTarget?) -> String {
-        guard let skip else { return "Skip" }
-        guard let index = run.steps?.firstIndex(where: { $0.key == skip.key }) else { return "Skip \(skip.label)" }
-        return "Skip \(skip.label) (step \(index + 1))"
-    }
-
-    private func control(
-        _ title: String, icon: String, id: String, label: String, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: icon).lineLimit(1).frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.qr(.secondary))
-        .accessibilityLabel(label)
-        .accessibilityIdentifier(id)
-    }
-
-    private func tap(_ type: RunTapType, _ expect: RunTapExpect) {
-        Task { await environment.runActions.tap(type, run: run, expect: expect) }
     }
 }
 
@@ -362,13 +376,15 @@ private struct StepList: View {
     let rows: [RunPresentation.Row]
     /// The open segment's time, for the current row.
     let liveMs: Int
+    /// The typed lap rows' type labels, by row id (§2.1's lap-type badge).
+    var lapTypes: [String: String] = [:]
 
     var body: some View {
         if !rows.isEmpty {
             VStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                     if index > 0 { Divider() }
-                    StepRow(row: row, ms: row.status == .current ? liveMs : row.ms)
+                    StepRow(row: row, ms: row.status == .current ? liveMs : row.ms, lapType: lapTypes[row.id])
                 }
             }
             .qrCard()
@@ -379,6 +395,8 @@ private struct StepList: View {
 private struct StepRow: View {
     let row: RunPresentation.Row
     let ms: Int?
+    /// A typed lap's type label ("Rest"), shown as a neutral badge.
+    var lapType: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -387,7 +405,8 @@ private struct StepRow: View {
                 .font(.qr(row.status == .current ? .callout : .body))
                 .foregroundStyle(row.status == .skipped ? Color.qr.muted : .qr.ink)
                 .strikethrough(row.status == .skipped)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if let lapType { QuickrBadge(lapType, tone: .neutral) }
+            Spacer(minLength: 0)
             if let ms {
                 RunDuration(ms: ms, font: .qr(.monoCaption))
                     .foregroundStyle(row.status == .current ? Color.qr.ink : .qr.muted)

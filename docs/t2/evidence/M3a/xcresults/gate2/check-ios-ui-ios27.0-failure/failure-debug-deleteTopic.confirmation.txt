@@ -1,0 +1,4 @@
+Query chain:
+ →Find: Target Application 'com.bahumia.quickr'
+  ↪︎Find: Descendants matching type TextField
+    ↪︎Find: Elements matching predicate '"deleteTopic.confirmation" IN identifiers'

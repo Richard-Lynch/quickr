@@ -1,6 +1,7 @@
 {
   "body": {
     "complete_runs": 1,
+    "lap_types": [],
     "laps": {
       "mean_ms": null,
       "median_ms": null,
@@ -17,6 +18,7 @@
         "captured_at": "2026-03-04T11:05:30Z",
         "complete": true,
         "entry_id": "0a000000-0000-4000-8000-000000000001",
+        "lap_types": {},
         "paused_ms": 30000,
         "started_at": "2026-03-04T11:00:00Z",
         "steps": {

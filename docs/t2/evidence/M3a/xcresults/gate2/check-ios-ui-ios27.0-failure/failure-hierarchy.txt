@@ -1,0 +1,172 @@
+Application, 0x1144abac0, pid: 7014, label: 'quickR' <App element pid: 7014>
+  Window (Main), 0x1144ab5c0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4398187520.4>
+    Other, 0x1144a9680, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4441981952.5>
+      Other, 0x1144a9180, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4443115264.6>
+        Other, 0x1144a9a40, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4398186496.7>
+          Other, 0x1144ab480, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4602379904.8>
+            Other, 0x1144aa440, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4441985024.9>
+              NavigationBar, 0x1144a8b40, {{0.0, 62.0}, {402.0, 54.0}}, identifier: 'Topic settings' <AX element pid: 7014, elementOrHash.elementID: 4442773504.10>
+                Button, 0x1144a8f00, {{16.0, 62.0}, {44.0, 44.0}}, identifier: 'BackButton', label: 'Back' <AX element pid: 7014, elementOrHash.elementID: 4442299392.13>
+                StaticText, 0x1144a9cc0, {{145.0, 73.7}, {111.7, 20.7}}, label: 'Topic settings' <AX element pid: 7014, elementOrHash.elementID: 4596401920.14>
+              Other, 0x1144aaf80, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4399419776.11>
+                Other, 0x1144a8dc0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4399430080.15>
+                  Other, 0x1144a9f40, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4398352128.17>
+                    Other, 0x1144a8a00, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4454006944.18>
+                      Other, 0x1144ab700, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4454010464.19>
+                      CollectionView, 0x1144aa300, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4442161152.20>
+                        Other, 0x1144aabc0, {{-16.0, -2210.0}, {434.0, 2222.0}} <AX element pid: 7014, elementOrHash.elementID: 4442946560.21>
+                        Cell, 0x1144a8c80, {{16.0, -17.7}, {370.0, 29.7}} <AX element pid: 7014, elementOrHash.elementID: 4602338816.34>
+                          Other, 0x1144abd40, {{16.0, -17.7}, {370.0, 29.7}} <AX element pid: 7014, elementOrHash.elementID: 4442896384.58>
+                          Other, 0x1144aad00, {{16.0, -17.7}, {370.0, 29.7}} <AX element pid: 7014, elementOrHash.elementID: 4602581376.59>
+                            Other, 0x1144abe80, {{16.0, -17.7}, {370.0, 29.7}} <AX element pid: 7014, elementOrHash.elementID: 4602617344.82>
+                              Other, 0x1144a97c0, {{16.0, -17.7}, {370.0, 29.7}} <AX element pid: 7014, elementOrHash.elementID: 4633461856.97>
+                                StaticText, 0x1144c8c80, {{16.0, -17.7}, {370.0, 29.7}}, label: 'Questions are edited by publishing a new version.' <AX element pid: 7014, elementOrHash.elementID: 4633462016.113>
+                        Other, 0x1144c9b80, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4399430976.22>
+                          Other, 0x1144c9cc0, {{0.0, 0.0}, {402.0, 156.0}} <AX element pid: 7014, elementOrHash.elementID: 4602582720.45>
+                        Other, 0x1144cb5c0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4399430528.23>
+                          Other, 0x1144c9a40, {{0.0, 0.0}, {402.0, 156.0}} <AX element pid: 7014, elementOrHash.elementID: 4601595136.257>
+                        Other, 0x1144c8dc0, {{-16.0, 12.0}, {434.0, 690.0}} <AX element pid: 7014, elementOrHash.elementID: 4442851328.35>
+                        Cell, 0x1144c9540, {{16.0, 12.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4602340096.36>
+                          Other, 0x1144c9f40, {{16.0, 12.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4442897408.60>
+                          Other, 0x1144c9180, {{16.0, 12.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4602581824.61>
+                            Other, 0x1144c9040, {{16.0, 12.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4602618880.83>
+                              Other, 0x1144c9400, {{16.0, 12.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4633462176.98>
+                                StaticText, 0x1144c9680, {{16.0, 12.0}, {370.0, 40.3}}, label: 'Schedule' <AX element pid: 7014, elementOrHash.elementID: 4633462336.114>
+                        Cell, 0x1144c9e00, {{16.0, 52.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4602332416.38>
+                          Other, 0x1144c97c0, {{16.0, 52.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4442889728.64>
+                            Other, 0x1144cbe80, {{16.0, 52.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4602577792.86>
+                          Other, 0x1144c9900, {{16.0, 52.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4602577344.65>
+                            Other, 0x1144c92c0, {{16.0, 52.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4602609664.87>
+                              Other, 0x1144c8f00, {{16.0, 52.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4621330592.331>
+                                StaticText, 0x114498000, {{16.0, 52.3}, {370.0, 52.0}}, label: 'Archived topics are never due.' <AX element pid: 7014, elementOrHash.elementID: 4621330272.334>
+                        Cell, 0x114498140, {{16.0, 104.3}, {370.0, 61.0}} <AX element pid: 7014, elementOrHash.elementID: 4602331136.37>
+                          Other, 0x114498280, {{16.0, 104.3}, {370.0, 61.0}} <AX element pid: 7014, elementOrHash.elementID: 4442887680.62>
+                            Other, 0x1144983c0, {{16.0, 104.3}, {370.0, 61.0}} <AX element pid: 7014, elementOrHash.elementID: 4596413568.84>
+                          Other, 0x114498500, {{16.0, 104.3}, {370.0, 61.0}} <AX element pid: 7014, elementOrHash.elementID: 4596413120.63>
+                            Other, 0x114498640, {{16.0, 104.3}, {370.0, 61.0}} <AX element pid: 7014, elementOrHash.elementID: 4398085632.85>
+                              Other, 0x114498780, {{16.0, 104.3}, {370.0, 61.0}} <AX element pid: 7014, elementOrHash.elementID: 4633462496.99>
+                                SegmentedControl, 0x1144988c0, {{32.0, 119.3}, {338.0, 31.0}}, identifier: 'topicSettings.schedule.kind', label: 'Schedule' <AX element pid: 7014, elementOrHash.elementID: 4454293760.115>
+                                  Button, 0x114498a00, {{32.0, 119.3}, {112.0, 32.0}}, label: 'None' <AX element pid: 7014, elementOrHash.elementID: 4454294528.126>
+                                  Button, 0x114498b40, {{144.0, 119.3}, {113.0, 32.0}}, label: 'Daily', Selected <AX element pid: 7014, elementOrHash.elementID: 4454295296.127>
+                                  Button, 0x114498c80, {{257.0, 119.3}, {113.0, 32.0}}, label: 'Every…' <AX element pid: 7014, elementOrHash.elementID: 4454296064.128>
+                        Other, 0x114498dc0, {{32.0, 103.3}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442850816.33>
+                        Cell, 0x114498f00, {{16.0, 165.3}, {370.0, 66.0}} <AX element pid: 7014, elementOrHash.elementID: 4663875840.213>
+                          Other, 0x114499040, {{16.0, 165.3}, {370.0, 66.0}} <AX element pid: 7014, elementOrHash.elementID: 4442605056.217>
+                            Other, 0x114499180, {{16.0, 165.3}, {370.0, 66.0}} <AX element pid: 7014, elementOrHash.elementID: 4662999040.223>
+                          Other, 0x1144992c0, {{16.0, 165.3}, {370.0, 66.0}} <AX element pid: 7014, elementOrHash.elementID: 4662988736.218>
+                            Other, 0x114499400, {{16.0, 165.3}, {370.0, 66.0}} <AX element pid: 7014, elementOrHash.elementID: 4602621952.224>
+                              Other, 0x114499540, {{16.0, 165.3}, {370.0, 66.0}} <AX element pid: 7014, elementOrHash.elementID: 4684334016.229>
+                                StaticText, 0x114499680, {{32.0, 187.8}, {18.7, 21.0}}, label: 'At' <AX element pid: 7014, elementOrHash.elementID: 4684333216.232>
+                                DatePicker, 0x1144997c0, {{300.0, 180.3}, {70.0, 36.0}}, identifier: 'topicSettings.schedule.time.0', label: 'Time 1, Time 1' <AX element pid: 7014, elementOrHash.elementID: 4662087424.233>
+                                  Button, 0x114499900, {{300.0, 180.3}, {70.0, 36.0}}, label: 'Time Picker', value: 08:00 <AX element pid: 7014, elementOrHash.elementID: 4662088064.240>
+                        Other, 0x114499a40, {{32.0, 164.3}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442851840.39>
+                        Cell, 0x114499b80, {{16.0, 231.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663874560.214>
+                          Other, 0x114499cc0, {{16.0, 231.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4442570752.219>
+                            Other, 0x114499e00, {{16.0, 231.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4661881344.225>
+                          Other, 0x114499f40, {{16.0, 231.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4661880896.220>
+                            Other, 0x11449a080, {{16.0, 231.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4662870016.226>
+                              Other, 0x11449a1c0, {{16.0, 231.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4684342016.230>
+                                Button, 0x11449a300, {{16.0, 231.3}, {370.0, 52.0}}, identifier: 'topicSettings.schedule.addTime', label: 'Add a time' <AX element pid: 7014, elementOrHash.elementID: 4684335456.234>
+                                  Image, 0x11449a440, {{34.0, 250.3}, {14.0, 14.0}}, identifier: 'plus', label: 'Add' <AX element pid: 7014, elementOrHash.elementID: 4684337376.241>
+                                  StaticText, 0x11449a580, {{58.0, 246.8}, {41.3, 21.0}}, label: 'Time' <AX element pid: 7014, elementOrHash.elementID: 4684337536.242>
+                        Other, 0x11449a6c0, {{32.0, 230.3}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442852352.41>
+                        Cell, 0x11449a800, {{16.0, 283.3}, {370.0, 167.0}} <AX element pid: 7014, elementOrHash.elementID: 4663879680.215>
+                          Other, 0x11449a940, {{16.0, 283.3}, {370.0, 167.0}} <AX element pid: 7014, elementOrHash.elementID: 4442572288.221>
+                            Other, 0x11449aa80, {{16.0, 283.3}, {370.0, 167.0}} <AX element pid: 7014, elementOrHash.elementID: 4661876864.227>
+                          Other, 0x11449abc0, {{16.0, 283.3}, {370.0, 167.0}} <AX element pid: 7014, elementOrHash.elementID: 4661881792.222>
+                            Other, 0x11449ad00, {{16.0, 283.3}, {370.0, 167.0}} <AX element pid: 7014, elementOrHash.elementID: 4662871552.228>
+                              Other, 0x11449ae40, {{16.0, 283.3}, {370.0, 167.0}} <AX element pid: 7014, elementOrHash.elementID: 4684347456.231>
+                                StaticText, 0x11449af80, {{32.0, 302.3}, {24.0, 21.0}}, label: 'On' <AX element pid: 7014, elementOrHash.elementID: 4684345696.235>
+                                Other, 0x11449b0c0, {{32.0, 333.3}, {338.0, 44.0}} <AX element pid: 7014, elementOrHash.elementID: 4684346816.236>
+                                  Button, 0x11449b200, {{32.0, 333.3}, {43.0, 44.0}}, identifier: 'topicSettings.schedule.day.1', label: 'Monday', Selected <AX element pid: 7014, elementOrHash.elementID: 4684345536.243>
+                                  Button, 0x11449b340, {{81.0, 333.3}, {43.3, 44.0}}, identifier: 'topicSettings.schedule.day.2', label: 'Tuesday', Selected <AX element pid: 7014, elementOrHash.elementID: 4684345856.244>
+                                  Button, 0x11449b480, {{130.3, 333.3}, {43.0, 44.0}}, identifier: 'topicSettings.schedule.day.3', label: 'Wednesday', Selected <AX element pid: 7014, elementOrHash.elementID: 4684346016.245>
+                                  Button, 0x11449b5c0, {{179.3, 333.3}, {43.3, 44.0}}, identifier: 'topicSettings.schedule.day.4', label: 'Thursday', Selected <AX element pid: 7014, elementOrHash.elementID: 4684347136.246>
+                                  Button, 0x11449b700, {{228.7, 333.3}, {43.0, 44.0}}, identifier: 'topicSettings.schedule.day.5', label: 'Friday', Selected <AX element pid: 7014, elementOrHash.elementID: 4684346496.247>
+                                  Button, 0x11449b840, {{277.7, 333.3}, {43.3, 44.0}}, identifier: 'topicSettings.schedule.day.6', label: 'Saturday', Selected <AX element pid: 7014, elementOrHash.elementID: 4684346656.248>
+                                  Button, 0x11449b980, {{327.0, 333.3}, {43.0, 44.0}}, identifier: 'topicSettings.schedule.day.7', label: 'Sunday', Selected <AX element pid: 7014, elementOrHash.elementID: 4684346176.249>
+                                Button, 0x11449bac0, {{32.0, 387.3}, {81.3, 44.0}}, identifier: 'topicSettings.schedule.preset.Every day', label: 'Every day', Selected <AX element pid: 7014, elementOrHash.elementID: 4684346976.237>
+                                Button, 0x11449bc00, {{119.3, 387.3}, {86.0, 44.0}}, identifier: 'topicSettings.schedule.preset.Weekdays', label: 'Weekdays' <AX element pid: 7014, elementOrHash.elementID: 4684346336.238>
+                                Button, 0x11449bd40, {{211.3, 387.3}, {88.0, 44.0}}, identifier: 'topicSettings.schedule.preset.Weekends', label: 'Weekends' <AX element pid: 7014, elementOrHash.elementID: 4684347296.239>
+                        Other, 0x11449be80, {{58.0, 282.3}, {312.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442578944.216>
+                        Cell, 0x108e38000, {{16.0, 450.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663880960.250>
+                          Other, 0x108e38140, {{16.0, 450.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4442583040.258>
+                            Other, 0x108e38280, {{16.0, 450.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4661875968.266>
+                          Other, 0x108e383c0, {{16.0, 450.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4661875072.259>
+                            Other, 0x108e38500, {{16.0, 450.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4662873088.267>
+                              Other, 0x108e38640, {{16.0, 450.3}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4397831808.274>
+                                Button, 0x108e38780, {{16.0, 450.3}, {370.0, 52.0}}, identifier: 'topicSettings.schedule.timezone', label: 'Time zone, Europe/London' <AX element pid: 7014, elementOrHash.elementID: 4661083776.279>
+                                  StaticText, 0x108e388c0, {{32.0, 466.2}, {316.0, 20.3}}, label: 'Time zone, Europe/London' <AX element pid: 7014, elementOrHash.elementID: 4684334976.286>
+                                  StaticText, 0x108e38a00, {{32.0, 466.2}, {79.0, 20.3}}, label: 'Time zone' <AX element pid: 7014, elementOrHash.elementID: 4684335616.287>
+                                  Image, 0x108e38b40, {{360.7, 470.3}, {7.0, 12.0}}, identifier: 'chevron.forward' <AX element pid: 7014, elementOrHash.elementID: 4684348096.288>
+                        Other, 0x108e38c80, {{32.0, 449.3}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442613248.251>
+                        Cell, 0x108e38dc0, {{16.0, 502.3}, {370.0, 67.7}} <AX element pid: 7014, elementOrHash.elementID: 4663882240.252>
+                          Other, 0x108e38f00, {{16.0, 502.3}, {370.0, 67.7}} <AX element pid: 7014, elementOrHash.elementID: 4442584576.260>
+                            Other, 0x108e39040, {{16.0, 502.3}, {370.0, 67.7}} <AX element pid: 7014, elementOrHash.elementID: 4661873280.268>
+                          Other, 0x108e39180, {{16.0, 502.3}, {370.0, 67.7}} <AX element pid: 7014, elementOrHash.elementID: 4661875520.261>
+                            Other, 0x108e392c0, {{16.0, 502.3}, {370.0, 67.7}} <AX element pid: 7014, elementOrHash.elementID: 4662874624.269>
+                              Other, 0x108e39400, {{16.0, 502.3}, {370.0, 67.7}} <AX element pid: 7014, elementOrHash.elementID: 4444630432.275>
+                                Switch, 0x108e39540, {{16.0, 502.3}, {370.0, 67.7}}, identifier: 'topicSettings.schedule.notify', label: 'Notify me when it’s due, Needs notifications on in Settings', value: 1 <AX element pid: 7014, elementOrHash.elementID: 4444630592.280>
+                                  StaticText, 0x108e39680, {{32.0, 517.3}, {170.0, 19.7}}, label: 'Notify me when it’s due' <AX element pid: 7014, elementOrHash.elementID: 4444631872.289>
+                                  Switch, 0x108e397c0, {{309.0, 522.3}, {63.0, 28.0}}, value: 1 <AX element pid: 7014, elementOrHash.elementID: 4662088704.290>
+                                  StaticText, 0x108e39900, {{32.0, 539.0}, {199.3, 16.0}}, label: 'Needs notifications on in Settings' <AX element pid: 7014, elementOrHash.elementID: 4444633792.291>
+                        Other, 0x108e39a40, {{32.0, 501.3}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442614272.253>
+                        Cell, 0x108e39b80, {{16.0, 570.0}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663883520.254>
+                          Other, 0x108e39cc0, {{16.0, 570.0}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4442607616.262>
+                            Other, 0x108e39e00, {{16.0, 570.0}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663183104.270>
+                          Other, 0x108e39f40, {{16.0, 570.0}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663181312.263>
+                            Other, 0x108e3a080, {{16.0, 570.0}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4662876160.271>
+                              Other, 0x108e3a1c0, {{16.0, 570.0}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4444631552.276>
+                                StaticText, 0x108e3a300, {{16.0, 570.0}, {370.0, 52.0}}, identifier: 'topicSettings.schedule.preview', label: 'Daily 08:00' <AX element pid: 7014, elementOrHash.elementID: 4444631712.281>
+                        Other, 0x108e3a440, {{32.0, 569.0}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442849280.27>
+                        Cell, 0x108e3a580, {{16.0, 622.0}, {370.0, 62.3}} <AX element pid: 7014, elementOrHash.elementID: 4602333696.40>
+                          Other, 0x108e3a6c0, {{16.0, 622.0}, {370.0, 62.3}} <AX element pid: 7014, elementOrHash.elementID: 4442890752.66>
+                            Other, 0x108e3a800, {{16.0, 622.0}, {370.0, 62.3}} <AX element pid: 7014, elementOrHash.elementID: 4602578688.88>
+                          Other, 0x108e3a940, {{16.0, 622.0}, {370.0, 62.3}} <AX element pid: 7014, elementOrHash.elementID: 4602578240.67>
+                            Other, 0x108e3aa80, {{16.0, 622.0}, {370.0, 62.3}} <AX element pid: 7014, elementOrHash.elementID: 4602611200.89>
+                              Other, 0x108e3abc0, {{16.0, 622.0}, {370.0, 62.3}} <AX element pid: 7014, elementOrHash.elementID: 4444632192.297>
+                                Button, 0x108e3ad00, {{16.0, 622.0}, {370.0, 62.3}}, identifier: 'topicSettings.saveSchedule', label: 'Save schedule', Disabled <AX element pid: 7014, elementOrHash.elementID: 4633465696.298>
+                        Other, 0x108e3ae40, {{32.0, 621.0}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442608128.255>
+                        Other, 0x108e3af80, {{-16.0, 702.0}, {434.0, 1976.7}} <AX element pid: 7014, elementOrHash.elementID: 4442852864.42>
+                        Cell, 0x108e3b0c0, {{16.0, 702.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4602337536.24>
+                          Other, 0x108e3b200, {{16.0, 702.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4442894848.46>
+                          Other, 0x108e3b340, {{16.0, 702.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4602580928.47>
+                            Other, 0x108e3b480, {{16.0, 702.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4602615808.71>
+                              Other, 0x108e3b5c0, {{16.0, 702.0}, {370.0, 40.3}} <AX element pid: 7014, elementOrHash.elementID: 4454019264.91>
+                                StaticText, 0x108e3b700, {{16.0, 702.0}, {370.0, 40.3}}, label: 'Lifecycle' <AX element pid: 7014, elementOrHash.elementID: 4684335296.284>
+                        Cell, 0x108e3b840, {{16.0, 742.3}, {370.0, 64.3}} <AX element pid: 7014, elementOrHash.elementID: 4602334976.256>
+                          Other, 0x108e3b980, {{16.0, 742.3}, {370.0, 64.3}} <AX element pid: 7014, elementOrHash.elementID: 4442892288.264>
+                            Other, 0x108e3bac0, {{16.0, 742.3}, {370.0, 64.3}} <AX element pid: 7014, elementOrHash.elementID: 4602579584.272>
+                          Other, 0x108e3bc00, {{16.0, 742.3}, {370.0, 64.3}} <AX element pid: 7014, elementOrHash.elementID: 4602579136.265>
+                            Other, 0x108e3bd40, {{16.0, 742.3}, {370.0, 64.3}} <AX element pid: 7014, elementOrHash.elementID: 4602612736.273>
+                              Other, 0x108e3be80, {{16.0, 742.3}, {370.0, 64.3}} <AX element pid: 7014, elementOrHash.elementID: 4444633472.278>
+                                StaticText, 0x118ec0000, {{16.0, 742.3}, {370.0, 64.3}}, identifier: 'topicSettings.lifecycle', label: 'Created 1 Jan 2026 at 0:00 · 0 entries · archived 26 Nov 2026 at 22:21' <AX element pid: 7014, elementOrHash.elementID: 4444633312.285>
+                        Cell, 0x118ec0140, {{16.0, 806.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4634533376.321>
+                          Other, 0x118ec0280, {{16.0, 806.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4442508288.323>
+                            Other, 0x118ec03c0, {{16.0, 806.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663187584.327>
+                          Other, 0x118ec0500, {{16.0, 806.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663186688.324>
+                            Other, 0x118ec0640, {{16.0, 806.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4662877696.328>
+                              Other, 0x118ec0780, {{16.0, 806.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4621324192.359>
+                                Button, 0x118ec08c0, {{16.0, 806.7}, {370.0, 52.0}}, identifier: 'topicSettings.unarchive', label: 'Unarchive' <AX element pid: 7014, elementOrHash.elementID: 4621321472.361>
+                                  StaticText, 0x118ec0a00, {{34.0, 822.5}, {114.7, 20.3}}, label: 'Unarchive' <AX element pid: 7014, elementOrHash.elementID: 4621324032.363>
+                                  Image, 0x118ec0b40, {{34.0, 822.7}, {20.3, 20.0}}, identifier: 'arrow.uturn.backward', label: 'Undo' <AX element pid: 7014, elementOrHash.elementID: 4621329152.364>
+                        Other, 0x118ec0c80, {{32.0, 805.7}, {338.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442850304.31>
+                        Cell, 0x118ec0dc0, {{16.0, 858.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4634539776.322>
+                          Other, 0x118ec0f00, {{16.0, 858.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4442516480.325>
+                            Other, 0x118ec1040, {{16.0, 858.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663188032.329>
+                          Other, 0x118ec1180, {{16.0, 858.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4663188480.326>
+                            Other, 0x118ec12c0, {{16.0, 858.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4662880768.330>
+                              Other, 0x118ec1400, {{16.0, 858.7}, {370.0, 52.0}} <AX element pid: 7014, elementOrHash.elementID: 4621329472.360>
+                                Button, 0x118ec1540, {{16.0, 858.7}, {370.0, 52.0}}, identifier: 'topicSettings.delete', label: 'Delete permanently' <AX element pid: 7014, elementOrHash.elementID: 4621327712.362>
+                                  Image, 0x118ec1680, {{33.7, 872.7}, {20.7, 24.0}}, identifier: 'trash', label: 'Trash' <AX element pid: 7014, elementOrHash.elementID: 4633463616.365>
+                                  StaticText, 0x118ec17c0, {{33.7, 872.7}, {187.7, 24.0}}, label: 'Delete permanently' <AX element pid: 7014, elementOrHash.elementID: 4621336192.366>
+                        Other, 0x118ec1900, {{72.0, 857.7}, {298.0, 1.0}} <AX element pid: 7014, elementOrHash.elementID: 4442519040.358>
+                        Other, 0x118ec1a40, {{369.0, 116.0}, {30.0, 696.0}}, label: 'Vertical scroll bar, 2 pages', value: 86% <AX element pid: 7014, elementOrHash.elementID: 4441824768.44>
+                          Other, 0x118ec1b80, {{396.0, 393.7}, {3.0, 415.3}} <AX element pid: 7014, elementOrHash.elementID: 4596400576.70>
+                        Other, 0x118ec1cc0, {{369.0, 116.0}, {30.0, 696.0}}, label: 'Vertical scroll bar, 2 pages', value: 86% <AX element pid: 7014, elementOrHash.elementID: 4441824768.44>
+                          Other, 0x118ec1e00, {{396.0, 393.7}, {3.0, 415.3}} <AX element pid: 7014, elementOrHash.elementID: 4596400576.70>
+              Toolbar, 0x118ec1f40, {{0.0, 0.0}, {402.0, 874.0}}, identifier: 'Toolbar', label: 'Toolbar' <AX element pid: 7014, elementOrHash.elementID: 4441985536.12>
+                Other, 0x118ec2080, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4441986048.16>
+  Window, 0x118ec21c0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4634525696.130>
+    Other, 0x118ec2300, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4442795008.132>
+      Other, 0x118ec2440, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 7014, elementOrHash.elementID: 4632469824.134>

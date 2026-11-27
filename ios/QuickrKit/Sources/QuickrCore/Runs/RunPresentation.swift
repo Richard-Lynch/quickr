@@ -82,6 +82,134 @@ public enum RunPresentation {
         steps.first { $0.key == key }?.label ?? key
     }
 
+    // MARK: - RunAction (timers2.md §10; active-surfaces.md §1.1–§1.2)
+
+    /// OQ-1: how long after its stop a run is offered "Resume run" on tiles, toasts and the run
+    /// screen (timers2.md glossary, "Resumable").
+    public static let reopenWindowMs = 15 * 60 * 1000
+
+    /// The run's actions in display order: the primary first, then secondaries, then overflow,
+    /// destructive last (active-surfaces.md §1.1, §1.2). The on-screen primary rule (timers2.md
+    /// §10): Lap when the open segment is a lap or no named step remains, labelled with the lap it
+    /// opens when the timer has lap types ("Lap → Rest"), else Next with the step it opens; Stop is
+    /// never primary. `timer == nil` (steps unknown) is the v1 fallback: `next(label: "")`, which
+    /// §1.3 renders as a plain "Next", and no `skip`, no `lap`.
+    ///
+    /// - An open run reached by a reopen (`state.reopenId`) offers `revert` instead of `discard`
+    ///   (row 10).
+    /// - A closed run (stopped or discarded) is idle (rows 1–3): `start` (primary). A stopped run
+    ///   with a terminal also offers `reopen(terminalId)` (secondary) within `reopenWindowMs` of
+    ///   its stop (row 13). The store-level rules (the entry unedited, the latest stop, no other
+    ///   open run: A15) are `resumable`'s and the surface's. A topic with no run doesn't call this.
+    /// - A finishing run: `addDetails`, `discard` (row 12).
+    ///
+    /// Not expressible here: rows 11 (a queued reopen's "resuming" run shows no controls) and 14
+    /// (busy: every `enabled` false). `RunActions.actions(for:timer:now:)` adds both. Every
+    /// action returned here is enabled.
+    // Verbatim from timers2.md §10 (A13).
+    public static func actions(_ state: RunState, status: RunStatus, timer: TopicTimer?, now: Date) -> [RunAction] {
+        switch status {
+        case .finishing:
+            return [
+                RunAction(kind: .addDetails, role: .primary, enabled: true),
+                RunAction(kind: .discard, role: .destructive, enabled: true),
+            ]
+        case .stopped, .discarded:
+            var out = [RunAction(kind: .start, role: .primary, enabled: true)]
+            if status == .stopped, let id = state.terminalId, let target = UUID(uuidString: id),
+                let end = state.endedAt, RunInstant.milliseconds(now) - end <= reopenWindowMs
+            {
+                out.append(RunAction(kind: .reopen(target: target), role: .secondary, enabled: true))
+            }
+            return out
+        case .running, .paused:
+            break
+        }
+        let primary: RunAction.Kind
+        if let timer {
+            if state.open?.kind == .lap || state.nextStep == nil {
+                let next = state.nextLapType.flatMap { key in timer.laps.first { $0.key == key }?.label }
+                primary = .lap(nextTypeLabel: next)
+            } else {
+                primary = .next(label: label(of: state.nextStep ?? "", in: timer.steps))
+            }
+        } else {
+            primary = .next(label: "")
+        }
+        var out = [
+            RunAction(kind: primary, role: .primary, enabled: true),
+            RunAction(kind: .stop, role: .secondary, enabled: true),
+            RunAction(kind: status == .paused ? .resume : .pause, role: .secondary, enabled: true),
+        ]
+        if let skip = skipTarget(state, steps: timer?.steps) {
+            out.append(RunAction(kind: .skip(label: skip.label), role: .overflow, enabled: true))
+        }
+        out.append(RunAction(kind: state.reopenId != nil ? .revert : .discard, role: .destructive, enabled: true))
+        return out
+    }
+
+    /// The open segment's label with its counter (active-surfaces.md §1.1):
+    ///
+    /// - a typed lap: "{label} · lap {n}" ("Rest 2 · lap 4"), counter "L{n}", where n is the lap's
+    ///   number in the run (`lapCount + 1`);
+    /// - an untyped lap: its label ("Lap 3"), counter "L3";
+    /// - a step: "{label} · {position} of {count}" over the timer's steps ("Shower · 2 of 5"), no
+    ///   counter; the bare label when the timer isn't known or lacks the step;
+    /// - nothing open: "Running", or "Paused" while `status` is paused.
+    public static func headline(_ state: RunState, status: RunStatus, timer: TopicTimer?) -> Headline {
+        guard let open = state.open else {
+            return Headline(text: status == .paused ? "Paused" : "Running", counter: nil)
+        }
+        switch open.kind {
+        case .lap:
+            let n = state.lapCount + 1
+            let text = open.lapType != nil ? "\(open.label) · lap \(n)" : open.label
+            return Headline(text: text, counter: "L\(n)")
+        case .step:
+            guard let steps = timer?.steps, let index = steps.firstIndex(where: { $0.key == open.step }) else {
+                return Headline(text: open.label, counter: nil)
+            }
+            return Headline(text: "\(open.label) · \(index + 1) of \(steps.count)", counter: nil)
+        }
+    }
+
+    /// The next alert of the open segment and its countdown: "Half way · in 0:12"
+    /// (active-surfaces.md §1.1). The alerts are the open step's or lap type's (timers2.md §1.1),
+    /// in `atMs` order then position; the next is the first whose `atMs` is beyond the segment's
+    /// active time now (paused time doesn't count). Nil while paused, when nothing is open, when
+    /// the timer isn't known, or when none remain. The countdown is `fmtDuration` (truncated).
+    public static func alertLine(_ state: RunState, timer: TopicTimer?, now: Date) -> String? {
+        guard let open = state.open, state.pausedSince == nil, let timer else { return nil }
+        let active = segmentMs(state, now: RunInstant.milliseconds(now))
+        let next = timer.alerts(step: open.step, lapType: open.lapType).enumerated()
+            .compactMap { index, alert in alert.atMs.map { (at: $0, index: index, label: alert.label) } }
+            .filter { $0.at > active }
+            .min { ($0.at, $0.index) < ($1.at, $1.index) }
+        guard let next else { return nil }
+        return "\(next.label) · in \(DurationFormat.format(next.at - active))"
+    }
+
+    /// OQ-1: from the entry detail, a run can be reopened within 7 days of its start.
+    public static let entryReopenWindowMs = 7 * 24 * 60 * 60 * 1000
+
+    /// The entry's half of "resumable" (timers2.md glossary, OQ-1) on tiles, toasts and the run
+    /// screen: a timed entry whose times are unedited (`timing.edited == false`, i.e.
+    /// `run.edited == false`; answers, notes and meta changes don't count), within
+    /// `reopenWindowMs` of its stop. The store's half (the entry is the topic's latest stop, the
+    /// topic has no locally open run: A15, and the run isn't open here already) is
+    /// `RunOverlay.resumable(_:entryId:now:)`, which surfaces call; `Entry` alone can't tell.
+    public static func resumable(_ entry: Entry, now: Date) -> Bool {
+        guard let timing = entry.timing, !timing.edited else { return false }
+        return RunInstant.milliseconds(now) - timing.endedAt <= reopenWindowMs
+    }
+
+    /// `resumable` from the entry detail (OQ-1): unedited, within `entryReopenWindowMs` of the
+    /// run's start.
+    public static func resumableFromDetail(_ entry: Entry, now: Date) -> Bool {
+        guard let timing = entry.timing, !timing.edited else { return false }
+        return RunInstant.milliseconds(now) - timing.startedAt <= entryReopenWindowMs
+    }
+
     // MARK: - The step list
 
     public enum StepStatus: String, Sendable, Hashable {
@@ -168,6 +296,67 @@ public enum RunPresentation {
         if minutes > 0 { parts.append(unit(minutes, "minute")) }
         if secs > 0 || parts.isEmpty { parts.append(unit(secs, "second")) }
         return parts.joined(separator: " ")
+    }
+}
+
+/// One control of a run (active-surfaces.md §1.1): what it does, where it goes and whether it is
+/// enabled. Surfaces place it by `role` and may read `kind` for the title and icon (§1.3).
+public struct RunAction: Sendable, Hashable, Identifiable {
+    public enum Kind: Sendable, Hashable {
+        case start
+        /// "Shower": the step it opens (M2 renders "Next: Shower", §1.3). Empty: the steps are
+        /// unknown (`timer == nil`, row 9), so a plain "Next".
+        case next(label: String)
+        case lap(nextTypeLabel: String?)  // nil: untyped laps ("Lap"); "Rest": the lap it opens
+        case skip(label: String)  // the step a skip would skip
+        case pause, resume, stop
+        case addDetails  // finishing run
+        case reopen(target: UUID)  // the terminal stop's id: entry.timing.terminalId (timers2.md §3.3)
+        case revert  // discard of a reopened run (timers2.md §3.4, §4.1)
+        case discard
+
+        /// Stable per kind: the accessibility id suffix.
+        public var id: String {
+            switch self {
+            case .start: "start"
+            case .next: "next"
+            case .lap: "lap"
+            case .skip: "skip"
+            case .pause: "pause"
+            case .resume: "resume"
+            case .stop: "stop"
+            case .addDetails: "addDetails"
+            case .reopen: "reopen"
+            case .revert: "revert"
+            case .discard: "discard"
+            }
+        }
+    }
+    public enum Role: Sendable, Hashable { case primary, secondary, destructive, overflow }
+    public var kind: Kind
+    public var role: Role
+    public var enabled: Bool
+    /// Stable per kind: "start", "next", "lap", "skip", "pause", "resume", "stop",
+    /// "addDetails", "reopen", "revert", "discard" — the accessibility id suffix.
+    public var id: String
+
+    public init(kind: Kind, role: Role, enabled: Bool) {
+        self.kind = kind
+        self.role = role
+        self.enabled = enabled
+        self.id = kind.id
+    }
+}
+
+/// The headline of an open run (active-surfaces.md §1.1): "Rest 2 · lap 4", "Shower · 2 of 5",
+/// "Running"/"Paused" when nothing is open, and the compact counter ("L4") for the Dynamic Island.
+public struct Headline: Sendable, Hashable {
+    public var text: String
+    public var counter: String?
+
+    public init(text: String, counter: String?) {
+        self.text = text
+        self.counter = counter
     }
 }
 

@@ -5,6 +5,66 @@ export type ClientOptions = {
 };
 
 /**
+ * Alert
+ *
+ * A cue that fires when its segment's active time reaches ``at_ms``.
+ */
+export type AlertInput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * At
+     *
+     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. 1..64 characters.
+     */
+    at: string;
+    /**
+     * At Ms
+     *
+     * Output only: ``at`` evaluated over the timer's variables, in ms. A sent value is ignored.
+     */
+    at_ms?: number;
+};
+
+/**
+ * Alert
+ *
+ * A cue that fires when its segment's active time reaches ``at_ms``.
+ */
+export type AlertOutput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * At
+     *
+     * An alert time over the timer's variables (timers2.md §2): `t/2`, `t+30s`, `1.5m`. 1..64 characters.
+     */
+    at: string;
+    /**
+     * At Ms
+     *
+     * Output only: ``at`` evaluated over the timer's variables, in ms. A sent value is ignored.
+     */
+    at_ms: number;
+};
+
+/**
  * ApnsDeviceIn
  *
  * An iOS app install's APNs registration, upserted by token (sent on every launch).
@@ -86,6 +146,31 @@ export type ApnsDeviceRef = {
      * The APNs device token, hex (stored lower-case).
      */
     token: string;
+};
+
+/**
+ * AppearanceUpdate
+ *
+ * Partial appearance update: an omitted field is unchanged; ``color: null`` and ``icon: null``
+ * clear; ``tags: []`` clears the tags.
+ */
+export type AppearanceUpdate = {
+    /**
+     * Color
+     *
+     * null clears the colour.
+     */
+    color?: 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink' | null;
+    /**
+     * null clears the icon.
+     */
+    icon?: TopicIcon | null;
+    /**
+     * Tags
+     *
+     * At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.
+     */
+    tags?: Array<string>;
 };
 
 /**
@@ -890,8 +975,9 @@ export type EnumStats = {
  * FeedDeletion
  *
  * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
- * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
- * discarded, or went with its topic.
+ * runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+ * was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+ * with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2).
  */
 export type FeedDeletion = {
     /**
@@ -914,6 +1000,12 @@ export type FeedDeletion = {
      * Deleted At
      */
     deleted_at: string;
+    /**
+     * Revision
+     *
+     * A run deletion: the run's revision in the page's snapshot, which bounds every earlier state of the run. Null for a run that went with its topic and for other kinds (timers2.md §5.2).
+     */
+    revision: number | null;
 };
 
 /**
@@ -953,7 +1045,7 @@ export type FeedRun = {
  * FeedTopic
  *
  * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
- * ``due``) are not re-sent when entries change: clients recompute them from entries.
+ * ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries.
  */
 export type FeedTopic = {
     /**
@@ -1187,6 +1279,52 @@ export type IntervalScheduleOutput = {
 };
 
 /**
+ * LapType
+ *
+ * A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two
+ * or more alternate). Its key is its identity across versions, as a step's is.
+ */
+export type LapTypeInput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Alerts
+     */
+    alerts?: Array<AlertInput>;
+};
+
+/**
+ * LapType
+ *
+ * A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two
+ * or more alternate). Its key is its identity across versions, as a step's is.
+ */
+export type LapTypeOutput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Alerts
+     */
+    alerts: Array<AlertOutput>;
+};
+
+/**
  * Limits
  *
  * Validation ceilings, so clients can mirror server-side validation without hard-coding.
@@ -1284,6 +1422,52 @@ export type Limits = {
      * Interval Max Minutes
      */
     interval_max_minutes: number;
+    /**
+     * Max Steps
+     */
+    max_steps: number;
+    /**
+     * Max Lap Types
+     */
+    max_lap_types: number;
+    /**
+     * Max Variables
+     */
+    max_variables: number;
+    /**
+     * Max Alerts
+     */
+    max_alerts: number;
+    /**
+     * Max Expr Length
+     */
+    max_expr_length: number;
+    /**
+     * Max Var Name Length
+     */
+    max_var_name_length: number;
+    /**
+     * Max Short Label Length
+     */
+    max_short_label_length: number;
+    /**
+     * Max Tags
+     */
+    max_tags: number;
+    /**
+     * Max Tag Length
+     */
+    max_tag_length: number;
+    /**
+     * Max Icon Length
+     */
+    max_icon_length: number;
+    /**
+     * Color Names
+     *
+     * The palette's names, in palette order.
+     */
+    color_names: Array<'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink'>;
 };
 
 /**
@@ -1649,7 +1833,7 @@ export type RunEventEffect = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
 };
 
 /**
@@ -1667,7 +1851,7 @@ export type RunEventIn = {
     /**
      * Type
      */
-    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard' | 'reopen' | 'remove';
     /**
      * At
      *
@@ -1692,6 +1876,12 @@ export type RunEventIn = {
      * resume (required): the pause event it ends.
      */
     pause_id?: string | null;
+    /**
+     * Target
+     *
+     * reopen and remove only: the event acted on. remove (required): a pause, a lap, or a reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server resolves and stores.
+     */
+    target?: string | null;
     /**
      * Topic Id
      *
@@ -1744,7 +1934,7 @@ export type RunEventOut = {
     /**
      * Type
      */
-    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard';
+    type: 'start' | 'next' | 'lap' | 'skip' | 'pause' | 'resume' | 'stop' | 'finish' | 'discard' | 'reopen' | 'remove';
     /**
      * At
      */
@@ -1762,6 +1952,12 @@ export type RunEventOut = {
      */
     pause_id: string | null;
     /**
+     * Target
+     *
+     * A reopen's or remove's target as stored: a reopen sent without one carries the stop the server resolved it to (timers2.md §4.2); null for other types.
+     */
+    target: string | null;
+    /**
      * Arrival
      *
      * Server arrival order.
@@ -1774,7 +1970,7 @@ export type RunEventOut = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
     /**
      * Source
      */
@@ -1811,7 +2007,7 @@ export type RunEventResultEvent = {
     /**
      * Reason
      */
-    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | null;
+    reason: 'merged' | 'already_closed' | 'run_edited' | 'entry_deleted' | 'before_start' | 'after_stop' | 'too_long' | 'stale' | 'no_step' | 'already_paused' | 'not_paused' | 'reverted' | 'not_stopped' | 'deleted' | 'no_target' | null;
 };
 
 /**
@@ -1840,6 +2036,12 @@ export type RunOpenSegment = {
      * Started At
      */
     started_at: string;
+    /**
+     * Lap Type
+     *
+     * The lap type's key; null for a step or an untyped lap.
+     */
+    lap_type: string | null;
 };
 
 /**
@@ -1959,6 +2161,24 @@ export type RunState = {
     effects: {
         [key: string]: RunEventEffect;
     };
+    /**
+     * Terminal Id
+     *
+     * The applied stop that closed the run; null while open, after a reopen and for a discarded run (timers2.md §3.3).
+     */
+    terminal_id: string | null;
+    /**
+     * Next Lap Type
+     *
+     * The type of the lap a `lap` tap would open now; null when untyped or the run is closed.
+     */
+    next_lap_type: string | null;
+    /**
+     * Lap Count
+     *
+     * Closed lap segments.
+     */
+    lap_count: number;
 };
 
 /**
@@ -1999,9 +2219,10 @@ export type SeriesPoint = {
  * Step
  *
  * A named checkpoint of a timed topic. Its key is its identity across versions, in a
- * namespace of its own (a step and a question may share a key).
+ * namespace of its own (a step and a question may share a key) that it shares with the
+ * timer's lap types.
  */
-export type Step = {
+export type StepInput = {
     /**
      * Key
      *
@@ -2012,6 +2233,34 @@ export type Step = {
      * Label
      */
     label: string;
+    /**
+     * Alerts
+     */
+    alerts?: Array<AlertInput>;
+};
+
+/**
+ * Step
+ *
+ * A named checkpoint of a timed topic. Its key is its identity across versions, in a
+ * namespace of its own (a step and a question may share a key) that it shares with the
+ * timer's lap types.
+ */
+export type StepOutput = {
+    /**
+     * Key
+     *
+     * Stable machine key (lower snake_case); the identity of a question across versions.
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Alerts
+     */
+    alerts: Array<AlertOutput>;
 };
 
 /**
@@ -2153,13 +2402,53 @@ export type StrStats = {
 /**
  * Timer
  *
- * A version's timing: its steps, timed in this order. No steps makes a plain stopwatch.
+ * A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),
+ * its lap types, and the variables its alerts refer to (timers2.md §1).
+ *
+ * Output is normalised: every list is present and each alert's ``at_ms`` is filled. The v1
+ * shape ``{steps: [{key, label}]}`` is accepted, stored ones included.
  */
-export type Timer = {
+export type TimerInput = {
     /**
      * Steps
      */
-    steps: Array<Step>;
+    steps: Array<StepInput>;
+    /**
+     * Laps
+     *
+     * None: laps are untyped.
+     */
+    laps?: Array<LapTypeInput>;
+    /**
+     * Variables
+     */
+    variables?: Array<Variable>;
+};
+
+/**
+ * Timer
+ *
+ * A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),
+ * its lap types, and the variables its alerts refer to (timers2.md §1).
+ *
+ * Output is normalised: every list is present and each alert's ``at_ms`` is filled. The v1
+ * shape ``{steps: [{key, label}]}`` is accepted, stored ones included.
+ */
+export type TimerOutput = {
+    /**
+     * Steps
+     */
+    steps: Array<StepOutput>;
+    /**
+     * Laps
+     *
+     * None: laps are untyped.
+     */
+    laps: Array<LapTypeOutput>;
+    /**
+     * Variables
+     */
+    variables: Array<Variable>;
 };
 
 /**
@@ -2215,6 +2504,12 @@ export type Timing = {
      * Pauses
      */
     pauses: Array<TimingPause>;
+    /**
+     * Terminal Id
+     *
+     * The applied stop that closed the run (a reopen names it); null on a pre-v2 stored timing. Kept by an edit.
+     */
+    terminal_id: string | null;
 };
 
 /**
@@ -2292,6 +2587,42 @@ export type TimingEditSegment = {
 };
 
 /**
+ * TimingLapTypeStats
+ */
+export type TimingLapTypeStats = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Label
+     *
+     * The latest version's label for the lap type.
+     */
+    label: string;
+    /**
+     * Laps
+     *
+     * Lap segments of this type, over every timed run.
+     */
+    laps: number;
+    /**
+     * Best Ms
+     *
+     * Over those segments' active_ms.
+     */
+    best_ms: number | null;
+    /**
+     * Median Ms
+     */
+    median_ms: number | null;
+    /**
+     * Mean Ms
+     */
+    mean_ms: number | null;
+};
+
+/**
  * TimingLaps
  */
 export type TimingLaps = {
@@ -2323,6 +2654,12 @@ export type TimingPause = {
      * End
      */
     end: string;
+    /**
+     * Id
+     *
+     * The pause event's id (a gap pause carries its stop's id); null on a pre-v2 stored timing and after an edit.
+     */
+    id: string | null;
 };
 
 /**
@@ -2344,7 +2681,7 @@ export type TimingPaused = {
 /**
  * TimingSegment
  *
- * One segment of a finished run: a named step's time, or an unnamed lap's.
+ * One segment of a finished run: a named step's time, or a lap's (typed or not).
  */
 export type TimingSegment = {
     /**
@@ -2360,7 +2697,7 @@ export type TimingSegment = {
     /**
      * Label
      *
-     * The step's label in the run's version, or 'Lap n'.
+     * The step's label in the run's version, or the lap's ('Lap n', 'Run 2').
      */
     label: string;
     /**
@@ -2381,6 +2718,24 @@ export type TimingSegment = {
      * Its overlap with the run's pauses.
      */
     paused_ms: number;
+    /**
+     * Lap Type
+     *
+     * The lap type's key (timers2.md §3.2); null for a step or an untyped lap.
+     */
+    lap_type: string | null;
+    /**
+     * Event Id
+     *
+     * The next or lap event that opened the segment; null for the first segment (the start opened it), on a pre-v2 stored timing and after an edit (timers2.md §3.3).
+     */
+    event_id: string | null;
+    /**
+     * Opened By
+     *
+     * The type of the event named by event_id ('start' for the first segment); null on a pre-v2 stored timing and after an edit.
+     */
+    opened_by: 'start' | 'next' | 'lap' | 'skip' | null;
 };
 
 /**
@@ -2419,6 +2774,14 @@ export type TimingSeriesPoint = {
      * Each step segment's key and its active_ms.
      */
     steps: {
+        [key: string]: number;
+    };
+    /**
+     * Lap Types
+     *
+     * Each lap type and its lap segments' summed active_ms; untyped laps are left out.
+     */
+    lap_types: {
         [key: string]: number;
     };
 };
@@ -2492,6 +2855,48 @@ export type TimingSummary = {
 };
 
 /**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export type TopicAppearanceInput = {
+    /**
+     * Color
+     *
+     * One of the palette's names: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink.
+     */
+    color?: 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink' | null;
+    icon?: TopicIcon | null;
+    /**
+     * Tags
+     *
+     * At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.
+     */
+    tags?: Array<string>;
+};
+
+/**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export type TopicAppearanceOutput = {
+    /**
+     * Color
+     *
+     * One of the palette's names: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink.
+     */
+    color: 'red' | 'orange' | 'amber' | 'yellow' | 'lime' | 'green' | 'teal' | 'cyan' | 'blue' | 'indigo' | 'violet' | 'pink' | null;
+    icon: TopicIcon | null;
+    /**
+     * Tags
+     *
+     * At most 10 labels, each trimmed with inner whitespace collapsed, 1-24 characters, no control characters, unique ignoring case; order kept.
+     */
+    tags: Array<string>;
+};
+
+/**
  * TopicCreate
  */
 export type TopicCreate = {
@@ -2526,7 +2931,11 @@ export type TopicCreate = {
     /**
      * Makes the topic timed (optional; null: not timed).
      */
-    timer?: Timer | null;
+    timer?: TimerInput | null;
+    /**
+     * Colour, emoji and tags (optional; null: none of them).
+     */
+    appearance?: TopicAppearanceInput | null;
 };
 
 /**
@@ -2605,11 +3014,37 @@ export type TopicDetail = {
     /**
      * The current version's timer; null when the topic is not timed.
      */
-    timer: Timer | null;
+    timer: TimerOutput | null;
+    /**
+     * The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change.
+     */
+    last_entry: EntryOut | null;
+    /**
+     * Colour, emoji and tags; every key always present.
+     */
+    appearance: TopicAppearanceOutput;
     /**
      * Questions
      */
     questions: Array<IntQuestionOutput | DoubleQuestionOutput | StrQuestionOutput | EnumQuestionOutput>;
+};
+
+/**
+ * TopicIcon
+ */
+export type TopicIcon = {
+    /**
+     * Kind
+     *
+     * Only emoji for now; more kinds may be added.
+     */
+    kind: 'emoji';
+    /**
+     * Value
+     *
+     * One emoji (one grapheme cluster that starts as an emoji: a pictograph, a flag or a keycap), at most 16 code points. Stored NFC, with U+FE0F added after a text-presentation pictograph.
+     */
+    value: string;
 };
 
 /**
@@ -2747,7 +3182,15 @@ export type TopicSummary = {
     /**
      * The current version's timer; null when the topic is not timed.
      */
-    timer: Timer | null;
+    timer: TimerOutput | null;
+    /**
+     * The latest counted entry, by (captured_at, id) descending; null when the topic has none. Derived like entry_count: a feed topic item is not re-sent when entries change.
+     */
+    last_entry: EntryOut | null;
+    /**
+     * Colour, emoji and tags; every key always present.
+     */
+    appearance: TopicAppearanceOutput;
 };
 
 /**
@@ -2775,6 +3218,12 @@ export type TopicTiming = {
      * Every step key seen in range: the current version's steps in step order, then the rest by key.
      */
     steps: Array<TimingStepStats>;
+    /**
+     * Lap Types
+     *
+     * Every lap type with a lap segment in range: the current version's lap types in order, then the rest by key. Keyed apart from steps; untyped laps count only toward laps.
+     */
+    lap_types: Array<TimingLapTypeStats>;
     laps: TimingLaps;
     paused: TimingPaused;
     /**
@@ -2819,6 +3268,10 @@ export type TopicUpdate = {
      * Optional optimistic-concurrency guard: the revision this change was based on. When it no longer matches, the change is rejected with 409 stale_revision.
      */
     expected_revision?: number | null;
+    /**
+     * Changes the fields it holds; null is refused (clear fields individually).
+     */
+    appearance?: AppearanceUpdate;
 };
 
 /**
@@ -2836,7 +3289,7 @@ export type TopicVersionOut = {
     /**
      * Null when this version is not timed.
      */
-    timer: Timer | null;
+    timer: TimerOutput | null;
     /**
      * Change Note
      */
@@ -2878,6 +3331,24 @@ export type ValueCount = {
 };
 
 /**
+ * Variable
+ *
+ * A named duration that alert expressions refer to (``t``, ``rest``).
+ */
+export type Variable = {
+    /**
+     * Name
+     *
+     * Case-insensitive on input, stored and returned lowercase; not a unit (ms, s, m, h).
+     */
+    name: string;
+    /**
+     * Ms
+     */
+    ms: number;
+};
+
+/**
  * VersionCreate
  */
 export type VersionCreate = {
@@ -2894,7 +3365,7 @@ export type VersionCreate = {
     /**
      * The new version's timer, or null for an untimed topic. Required, so leaving it out can't switch timing off: send the current version's timer to keep it.
      */
-    timer: Timer | null;
+    timer: TimerInput | null;
     /**
      * Change Note
      */
@@ -2918,7 +3389,7 @@ export type VersionDraft = {
     /**
      * Optional: the draft's timer (null for untimed). When given, a timer change with no question changes is a change, as publishing treats it; the report itself covers questions only.
      */
-    timer?: Timer | null;
+    timer?: TimerInput | null;
 };
 
 export type HealthData = {
@@ -3109,6 +3580,12 @@ export type ListTopicsData = {
          * Only topics that are due now.
          */
         due_only?: boolean;
+        /**
+         * Tag
+         *
+         * Only topics with this tag, spelled exactly as stored (tags are unique ignoring case, so the stored spelling is the one the topic shows).
+         */
+        tag?: string | null;
         /**
          * Limit
          */

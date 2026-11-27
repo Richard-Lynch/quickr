@@ -1,6 +1,6 @@
 /**
  * The run context a surface needs to tap a run (`RunContext`): the topic, the run's pinned
- * version, that version's steps and whether it has a required question.
+ * version, that version's steps and lap types, and whether it has a required question.
  *
  * Topics don't carry their timer; versions do (`listTopicVersions`, timers.md §2.1). The
  * versions are read by topic id, so a run known only from the server (which names its
@@ -13,9 +13,15 @@ import type { TopicVersionOut } from '../../client';
 import { listTopicVersionsOptions } from '../../client/@tanstack/react-query.gen';
 import type { RunContext } from '../../lib/runs/actions';
 import type { LocalRun } from '../../lib/runs/localView';
-import type { Timer } from '../../lib/runs/types';
+import type { Timer, TimerStep } from '../../lib/runs/types';
 
 type TopicRef = RunContext['topic'];
+
+/**
+ * What a run's context reads of a version: its number, timer and questions. A home tile has
+ * the current version's from its summary and details (T2-WIRE), without the versions list.
+ */
+export type VersionTimer = Pick<TopicVersionOut, 'version' | 'timer' | 'questions'>;
 
 /** Versions change only on publish; tiles share this cache. */
 const VERSIONS_STALE_MS = 5 * 60_000;
@@ -27,7 +33,7 @@ export function topicVersionsOptions(topicId: string) {
 /** The context for `version` of `topic`, or null when that version isn't timed or isn't known. */
 export function contextFor(
   topic: TopicRef,
-  versions: readonly TopicVersionOut[] | undefined,
+  versions: readonly VersionTimer[] | undefined,
   version: number,
 ): RunContext | null {
   const v = versions?.find((x) => x.version === version);
@@ -36,6 +42,7 @@ export function contextFor(
     topic,
     version,
     steps: v.timer.steps,
+    laps: v.timer.laps,
     requires_answers: v.questions.some((q) => q.required),
   };
 }
@@ -50,6 +57,7 @@ export function contextFromRun(run: LocalRun, topic: TopicRef): RunContext {
     topic,
     version: run.version,
     steps: run.steps ? [...run.steps] : null,
+    laps: run.laps ? [...run.laps] : null,
     requires_answers: run.requires_answers,
   };
 }
@@ -64,6 +72,19 @@ export function timerOf(
 ): Timer | null | undefined {
   const v = versions?.find((x) => x.version === version);
   return v ? v.timer : undefined;
+}
+
+/**
+ * The timer a run's controls read (`actions`, active-surfaces.md §1.1): its pinned version's
+ * when the versions are known, else one made from the steps the run knows, or null when those
+ * are unknown too (§1.2 row 9). The run panel and the running bar both read it, so their
+ * primaries agree.
+ */
+export function runTimer(
+  pinned: Timer | null | undefined,
+  steps: readonly TimerStep[] | null,
+): Timer | null {
+  return pinned ?? (steps === null ? null : { steps: [...steps] });
 }
 
 /** The topic's versions (by id), for timers and run contexts. */

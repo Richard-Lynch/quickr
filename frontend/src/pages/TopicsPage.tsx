@@ -56,8 +56,12 @@ export function TopicsPage() {
   const [params, setParams] = useSearchParams();
   const status = asStatus(params.get('status'));
   const sort = asSort(params.get('sort'));
+  // The home tag filter (appearance.md §5): the stored spelling, exactly, set by a tile's chip.
+  const tag = params.get('tag') || null;
   const [search, setSearch] = useState(params.get('q') ?? '');
-  const [filtersOpen, setFiltersOpen] = useState(status !== 'active' || sort !== 'due');
+  const [filtersOpen, setFiltersOpen] = useState(
+    status !== 'active' || sort !== 'due' || tag !== null,
+  );
   const q = useDebounced(search.trim(), 250);
   const now = useNow();
 
@@ -73,9 +77,15 @@ export function TopicsPage() {
     );
   };
 
+  // A tile's chip: filter by its tag, with the panel open on the "Tag" row.
+  const filterByTag = (t: string) => {
+    setParam('tag', t, '');
+    setFiltersOpen(true);
+  };
+
   const query = useInfiniteQuery({
     ...listTopicsInfiniteOptions({
-      query: { status, sort, limit: PAGE, ...(q ? { q } : {}) },
+      query: { status, sort, limit: PAGE, ...(q ? { q } : {}), ...(tag ? { tag } : {}) },
     }),
     initialPageParam: 0,
     getNextPageParam: (last) =>
@@ -85,7 +95,7 @@ export function TopicsPage() {
 
   const items = useMemo(() => query.data?.pages.flatMap((p) => p.items) ?? [], [query.data]);
   const total = query.data?.pages[0]?.total ?? 0;
-  const filtered = q !== '' || status !== 'active';
+  const filtered = q !== '' || status !== 'active' || tag !== null;
   const sectioned = sort === 'due' && !filtered;
   const { openTopics, runs } = useRuns();
   // Each timed tile's run: its open one (one per topic, §5), else a finishing one.
@@ -98,7 +108,29 @@ export function TopicsPage() {
     }
     return out;
   }, [runs]);
-  const sections = useMemo(() => splitByDue(items, now, openTopics), [items, now, openTopics]);
+  // "Active now" (active-surfaces.md §6.2): the listed topics with an open run, the most
+  // recently started first, shown once there and left out of every other list. A view over
+  // the listing: `splitByDue` and its vectors don't change.
+  const active = useMemo(() => {
+    const startedAt = (t: TopicSummary) => tileRuns.get(t.id)?.state.started_at ?? 0;
+    return items
+      .filter((t) => {
+        const r = tileRuns.get(t.id);
+        return r !== undefined && isOpen(r);
+      })
+      .sort((a, b) => startedAt(b) - startedAt(a));
+  }, [items, tileRuns]);
+  const sections = useMemo(() => {
+    const ids = new Set(active.map((t) => t.id));
+    const idle = (list: TopicSummary[]) => list.filter((t) => !ids.has(t.id));
+    const split = splitByDue(items, now, openTopics);
+    return {
+      due: idle(split.due),
+      upcoming: idle(split.upcoming),
+      other: idle(split.other),
+      all: idle(items),
+    };
+  }, [items, now, openTopics, active]);
   const dueTotal = useMemo(() => dueCount(items, now, openTopics), [items, now, openTopics]);
 
   return (
@@ -171,6 +203,12 @@ export function TopicsPage() {
           </EmptyState>
         ) : (
           <>
+            {active.length > 0 ? (
+              <Section title="Active now" count={active.length} tone="live">
+                <TileList onTag={filterByTag} topics={active} now={now} runs={tileRuns} />
+              </Section>
+            ) : null}
+
             {sectioned ? (
               <Section
                 title="Due now"
@@ -183,7 +221,7 @@ export function TopicsPage() {
                   </p>
                 }
               >
-                <TileList topics={sections.due} now={now} runs={tileRuns} />
+                <TileList onTag={filterByTag} topics={sections.due} now={now} runs={tileRuns} />
               </Section>
             ) : null}
 
@@ -224,7 +262,7 @@ export function TopicsPage() {
                   onClick={() => setFiltersOpen((o) => !o)}
                   className={cn(
                     'grid size-11 shrink-0 place-items-center rounded-full border transition-colors',
-                    filtersOpen || status !== 'active' || sort !== 'due'
+                    filtersOpen || status !== 'active' || sort !== 'due' || tag !== null
                       ? 'border-ink bg-ink text-paper'
                       : 'border-line-strong bg-surface text-ink-soft',
                   )}
@@ -233,7 +271,7 @@ export function TopicsPage() {
                 </button>
               </div>
               {filtersOpen ? (
-                <div id="topic-filters" className="flex animate-fade items-center gap-2">
+                <div id="topic-filters" className="flex animate-fade flex-wrap items-center gap-2">
                   <Segmented
                     label="Status"
                     value={status}
@@ -254,17 +292,45 @@ export function TopicsPage() {
                       ))}
                     </Select>
                   </div>
+                  {tag !== null ? (
+                    <div
+                      role="group"
+                      aria-label="Tag"
+                      className="flex basis-full items-center gap-2 text-sm"
+                    >
+                      <span className="font-semibold text-ink-soft">Tag</span>
+                      <span
+                        data-testid="tag-filter"
+                        className="inline-flex h-8 items-center gap-1 rounded-full border border-ink bg-ink pr-1 pl-3 font-semibold text-paper"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          aria-label={`Clear the tag filter ${tag}`}
+                          onClick={() => setParam('tag', '', '')}
+                          className="grid size-7 place-items-center rounded-full hover:bg-paper/20"
+                        >
+                          <Icon name="x" className="size-4" />
+                        </button>
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
 
             {items.length === 0 ? (
-              <EmptyState title="No matches">Try another search or status filter.</EmptyState>
+              <EmptyState title="No matches">Try another search, status or tag filter.</EmptyState>
             ) : sectioned ? (
               <>
                 {sections.upcoming.length > 0 ? (
                   <Section title="Coming up" count={sections.upcoming.length}>
-                    <TileList topics={sections.upcoming} now={now} runs={tileRuns} />
+                    <TileList
+                      onTag={filterByTag}
+                      topics={sections.upcoming}
+                      now={now}
+                      runs={tileRuns}
+                    />
                   </Section>
                 ) : null}
                 {sections.other.length > 0 ? (
@@ -272,12 +338,17 @@ export function TopicsPage() {
                     title={sections.upcoming.length > 0 ? 'Unscheduled' : 'All'}
                     count={sections.other.length}
                   >
-                    <TileList topics={sections.other} now={now} runs={tileRuns} />
+                    <TileList
+                      onTag={filterByTag}
+                      topics={sections.other}
+                      now={now}
+                      runs={tileRuns}
+                    />
                   </Section>
                 ) : null}
               </>
             ) : (
-              <TileList topics={items} now={now} runs={tileRuns} />
+              <TileList onTag={filterByTag} topics={sections.all} now={now} runs={tileRuns} />
             )}
           </>
         )}
@@ -303,7 +374,8 @@ function Section({
 }: {
   title: string;
   count: number;
-  tone?: 'accent';
+  /** `accent`: the due list; `live`: the active list (a timer glyph, the same pulse). */
+  tone?: 'accent' | 'live';
   empty?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -314,10 +386,15 @@ function Section({
         id={id}
         className={cn(
           'flex items-center gap-2 text-xs font-bold tracking-[0.12em] uppercase',
-          tone === 'accent' ? 'text-accent-strong' : 'text-muted',
+          tone ? 'text-accent-strong' : 'text-muted',
         )}
       >
-        {tone === 'accent' && count > 0 ? (
+        {tone === 'live' ? (
+          <span className="relative flex size-3.5 items-center justify-center">
+            <span className="absolute inline-flex size-2 animate-ping rounded-full bg-accent opacity-60 motion-reduce:hidden" />
+            <Icon name="timer" className="relative size-3.5" strokeWidth={2.6} />
+          </span>
+        ) : tone === 'accent' && count > 0 ? (
           <span className="relative flex size-2">
             <span className="absolute inline-flex size-full animate-ping rounded-full bg-accent opacity-60 motion-reduce:hidden" />
             <span className="relative inline-flex size-2 rounded-full bg-accent" />
@@ -335,10 +412,12 @@ function TileList({
   topics,
   now,
   runs,
+  onTag,
 }: {
   topics: readonly TopicSummary[];
   now: Date;
   runs: ReadonlyMap<string, LocalRun>;
+  onTag: (tag: string) => void;
 }) {
   return (
     <ul className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -348,7 +427,7 @@ function TileList({
           className="animate-rise"
           style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
         >
-          <TopicTile topic={t} now={now} run={runs.get(t.id)} />
+          <TopicTile topic={t} now={now} run={runs.get(t.id)} onTag={onTag} />
         </li>
       ))}
     </ul>

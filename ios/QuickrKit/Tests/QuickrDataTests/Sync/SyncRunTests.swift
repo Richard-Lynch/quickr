@@ -7,7 +7,8 @@ import Testing
 @_spi(Testing) @testable import QuickrData
 
 /// R2 (timers.md §13.3): runs through the feed into the store (§7.2). Run items and deletions,
-/// live and staged, under the §4.2 guards; a topic tombstone clears its runs and aliases; a stop's
+/// live and staged, under the §4.2 guards (a run deletion is a closed marker, timers2.md §5.2,
+/// `RunSyncTests`); a topic tombstone clears its runs and aliases; a stop's
 /// entry keeps its timing; the store migration that adds runs re-pulls the server layer.
 @Suite(.timeLimit(.minutes(5))) struct SyncRunTests {
     static let everything = UUID(uuidString: FakeFeedServer.everything)!
@@ -59,6 +60,16 @@ import Testing
         }
     }
 
+    /// The closed-run markers (timers2.md §5.2), id → revision.
+    static func markers(_ store: LocalStore, prefix: String = "") async throws -> [String: Int] {
+        try await store.writer.read { db in
+            Dictionary(
+                uniqueKeysWithValues: try Row.fetchAll(db, sql: "SELECT id, revision FROM \(prefix)run_closed").map {
+                    ($0["id"] as String, $0["revision"] as Int)
+                })
+        }
+    }
+
     // MARK: - Live pages
 
     /// A run item stores the run and its aliases; a later revision replaces it; the run reads back
@@ -91,7 +102,8 @@ import Testing
     }
 
     /// A stop: the page carries the entry (with its timing) and the run's deletion. The run and its
-    /// aliases go, the run is tombstoned, and the entry reads back with the timing the API has.
+    /// aliases go, the run is closed (a marker at the deletion's revision, its alias at ∞, no
+    /// tombstone), and the entry reads back with the timing the API has.
     @Test func aStopDeletesTheRunAndKeepsItsEntrysTiming() async throws {
         let env = try SyncEnv()
         defer { env.cleanup() }
@@ -105,8 +117,9 @@ import Testing
         #expect(await coordinator.sync(reason: .requested) == .synced)
         #expect(try await store.runs.runs().isEmpty)
         #expect(try await store.count("run_alias") == 0)
-        // Its alias closed with it: tombstoned, and no longer resolves.
-        #expect(try await Self.tombstones(store, kind: "run") == [Self.runA, Self.aliasA])
+        // Its alias closed with it, and no longer resolves.
+        #expect(try await Self.tombstones(store, kind: "run").isEmpty)
+        #expect(try await Self.markers(store) == [Self.runA: 4, Self.aliasA: StoreSchema.closedForever])
         #expect(try await store.runs.run(id: UUID(uuidString: Self.aliasA)!) == nil)
         let expected = try Self.domainEntry(entry)
         let timing = try #require(expected.timing)
@@ -114,18 +127,19 @@ import Testing
         #expect(viewed.timing == timing)
         #expect(viewed.capturedAt == expected.capturedAt)
 
-        // A late page carrying the run again (from before the close) is dropped by the tombstone.
+        // A late page carrying the run again (from before the close) is dropped by the marker.
         var stale = try Self.openRun()
-        stale["revision"] = 99
+        stale["revision"] = 4
         let late = try Self.domain(stale)
         let outcome = try await store.writer.write { db in try ServerLayer.upsert(db, run: late) }
-        #expect(outcome == .tombstoned)
+        #expect(outcome == .closed)
         // Nor can the alias come back as a run of its own.
         stale["id"] = Self.aliasA
+        stale["revision"] = 99
         stale["aliases"] = [String]()
         let asAlias = try Self.domain(stale)
         let aliasOutcome = try await store.writer.write { db in try ServerLayer.upsert(db, run: asAlias) }
-        #expect(aliasOutcome == .tombstoned)
+        #expect(aliasOutcome == .closed)
         #expect(try await store.runs.runs().isEmpty)
     }
 
@@ -239,7 +253,10 @@ import Testing
         #expect(try await store.ids("run_alias") == [Self.aliasB])
         #expect(try await store.count("stage_run") == 0)
         #expect(try await store.count("stage_run_alias") == 0)
-        #expect(try await Self.tombstones(store, kind: "run") == [Self.runA])
+        // The staged bootstrap's deletion replaced the markers: A at its closing revision.
+        #expect(try await Self.tombstones(store, kind: "run").isEmpty)
+        #expect(try await Self.markers(store) == [Self.runA: 4])
+        #expect(try await store.count("stage_run_closed") == 0)
         let stopped: Entry = try Self.domainEntry(entry)
         let viewed = try #require(try await store.entries.entry(id: stopped.id)).entry
         #expect(viewed.timing == stopped.timing)
@@ -339,7 +356,8 @@ import Testing
         #expect(try await s.store.runs.run(id: a.id) == a)
     }
 
-    /// A run deletion that names an alias (a topic's deletion lists them) removes that alias row.
+    /// A run deletion that names an alias (a topic's deletion lists them) removes that alias row
+    /// and closes the alias for good (its deletion carries no revision).
     @Test func aRunDeletionByAliasRemovesTheAlias() throws {
         let s = try TestStore()
         let run = try Self.domain(try Self.openRun())
@@ -349,6 +367,7 @@ import Testing
                 db, kind: .run, id: UUID(uuidString: Self.aliasA)!, topicId: Self.everything, seq: 7)
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM run_alias") == 0)
             #expect(try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM run") == 1)
+            #expect(try ServerLayer.closedMarker(db, id: Self.aliasA) == StoreSchema.closedForever)
         }
     }
 }

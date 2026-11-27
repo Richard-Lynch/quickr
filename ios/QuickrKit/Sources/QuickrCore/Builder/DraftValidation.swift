@@ -45,8 +45,17 @@ public enum DraftField: Sendable, Hashable {
     /// The timer's step list as a whole (too many).
     case steps
     case step(Int, StepField)
+    /// The timer's lap-type list as a whole (too many).
+    case laps
+    case lap(Int, StepField)
+    /// The timer's variable list as a whole (too many).
+    case variables
+    case variable(Int, VariableField)
+    /// A step's or lap type's alert list as a whole (too many).
+    case alerts(AlertOwner)
+    case alert(AlertOwner, Int, AlertField)
 
-    /// The PWA's form path: `name`, `questions`, `questions.1.key`.
+    /// The PWA's form path: `name`, `questions`, `questions.1.key`, `laps.0.alerts.1.at`.
     public var path: String {
         switch self {
         case .name: "name"
@@ -57,8 +66,33 @@ public enum DraftField: Sendable, Hashable {
         case .question(let i, let field): "questions.\(i).\(field.path)"
         case .steps: "steps"
         case .step(let i, let field): "steps.\(i).\(field.rawValue)"
+        case .laps: "laps"
+        case .lap(let i, let field): "laps.\(i).\(field.rawValue)"
+        case .variables: "variables"
+        case .variable(let i, let field): "variables.\(i).\(field.rawValue)"
+        case .alerts(let owner): "\(owner.path).alerts"
+        case .alert(let owner, let j, let field): "\(owner.path).alerts.\(j).\(field.rawValue)"
         }
     }
+}
+
+/// The step or lap type an alert belongs to, by index (timers2.md §1.3's `{steps|laps}.{i}`).
+public enum AlertOwner: Sendable, Hashable {
+    case step(Int)
+    case lap(Int)
+
+    /// `steps.0`, `laps.1`.
+    public var path: String {
+        switch self {
+        case .step(let i): "steps.\(i)"
+        case .lap(let i): "laps.\(i)"
+        }
+    }
+}
+
+/// A field of one draft alert.
+public enum AlertField: String, Sendable, Hashable {
+    case key, label, at
 }
 
 /// One validation message, in the PWA's words, at the field it belongs to.

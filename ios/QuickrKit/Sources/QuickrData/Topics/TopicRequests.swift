@@ -1,19 +1,36 @@
 import QuickrCore
 
 /// The bodies the topic screens send, as the PWA builds them (`NewTopicPage`, `SettingsPage`).
-/// None carries `expected_revision`: the PWA's create, details and schedule saves don't either.
+/// Only the Details save carries `expected_revision` (``details(_:expectedRevision:)``), as the
+/// PWA's `MetaForm` does; create and schedule saves don't.
 public enum TopicRequests {
     /// `TopicCreate` (`makeTopicDraftSchema`'s output): BUILDER's validated draft plus the schedule
-    /// (nil: none). An empty slug was already turned into nil (the server derives it).
-    public static func create(_ creation: TopicDraft.Creation, schedule: Schedule?) -> TopicCreateDTO {
+    /// (nil: none) and the appearance (left out when empty: the server's defaults). An empty slug
+    /// was already turned into nil (the server derives it).
+    public static func create(
+        _ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance = .empty
+    ) -> TopicCreateDTO {
         TopicCreateDTO(
             name: creation.name, slug: creation.slug, description: creation.description,
-            questions: creation.questions, schedule: schedule, timer: creation.timer)
+            questions: creation.questions, schedule: schedule, timer: creation.timer,
+            appearance: appearance == .empty ? nil : appearance)
     }
 
-    /// The Details save (`MetaForm`): only the changed fields (``TopicDetailsChange``).
+    /// The Details save (`MetaForm`): only the changed fields (``TopicDetailsChange``), the
+    /// appearance's among them, in one PATCH.
     public static func details(_ change: TopicDetailsChange) -> TopicUpdateDTO {
-        TopicUpdateDTO(name: change.name, slug: change.slug, description: change.description)
+        TopicUpdateDTO(
+            name: change.name, slug: change.slug, description: change.description,
+            appearance: change.appearance.map(AppearanceUpdateDTO.init))
+    }
+
+    /// The Details save with `expected_revision` (appearance.md §1.1, §7): the revision on screen,
+    /// so a topic changed elsewhere meanwhile answers 409 `stale_revision` instead of having its
+    /// appearance overwritten.
+    public static func details(_ change: TopicDetailsChange, expectedRevision: Int) -> TopicUpdateDTO {
+        var body = details(change)
+        body.expectedRevision = expectedRevision
+        return body
     }
 
     /// The Schedule save (`ScheduleForm`): `{schedule}`, where null removes it.

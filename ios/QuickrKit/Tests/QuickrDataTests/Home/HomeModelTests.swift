@@ -162,6 +162,37 @@ import Testing
         #expect(!model.isFiltered)
     }
 
+    /// The home tag filter (appearance.md §5): the stored spelling, exactly; one list while set;
+    /// the panel's chips are every tag in the store, once each.
+    @Test func theTagFilterListsTheTopicsWithThatTag() async throws {
+        var topics = Self.mixed
+        topics[0].appearance = TopicAppearance(tags: ["Health", "Daily"])
+        topics[1].appearance = TopicAppearance(tags: ["Daily"])
+        topics[4].appearance = TopicAppearance(tags: ["daily"])
+        topics[5].appearance = TopicAppearance(tags: ["Daily"])  // archived
+        let w = try await World(topics: topics)
+        defer { w.cleanup() }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+
+        #expect(model.tags == ["Daily", "daily", "Health"])
+        model.tagFilter = "Daily"
+        #expect(Self.names(model.rows) == ["Meds", "Water"], "exact spelling, archived filtered by status")
+        #expect(!model.isSectioned)
+        #expect(model.isFiltered)
+        #expect(model.hasNonDefaultFilter)
+        #expect(model.badgeCount == 2, "the badge ignores the tag")
+        model.status = .all
+        #expect(Self.names(model.rows) == ["Meds", "Water", "Old habit"])
+        model.status = .active
+        model.tagFilter = "gym"
+        #expect(model.rows.isEmpty)
+        model.tagFilter = nil
+        #expect(model.rows.count == 5)
+        #expect(model.isSectioned)
+        #expect(!model.hasNonDefaultFilter)
+    }
+
     @Test func theListFollowsTheStore() async throws {
         let w = try await World(topics: Self.mixed)
         defer { w.cleanup() }
@@ -379,5 +410,128 @@ import Testing
         let before = model.attempt
         await model.retry()
         #expect(model.attempt == before + 1, "the view keys its observing task by `attempt`")
+    }
+}
+
+// MARK: - "Active now" (active-surfaces.md §3.1)
+
+extension HomeModelTests {
+    /// The partition: a topic with an open run (running or paused) is in `activeRows`, latest
+    /// start first, and in no other section; a finishing run's topic isn't active and stays due.
+    /// "Due now" and the badge are what `TopicListing` says (R11), and a search keeps the active
+    /// topic it matches in `activeRows`, out of `inactiveRows`. A queued start joins the section;
+    /// discarding the runs empties it.
+    /// #239: the list waits for the runs as well as the topics. With the runs' observation held
+    /// back, the topics alone leave the screen loading (no tile, so no Start on a topic that has a
+    /// run); the first runs make it ready with each topic's run already in place.
+    @Test func theListWaitsForTheRuns() async throws {
+        let w = try await World(topics: Self.mixed)
+        defer { w.cleanup() }
+        let meds = Self.mixed[0]
+        let now = Self.now
+        try await w.store.writer.write { db in try RunSeed.run(db, topicId: meds.id, .running, at: now) }
+        let (held, release) = AsyncThrowingStream<[LocalRun], any Error>.makeStream()
+        let model = HomeModel(session: w.session, now: Self.now, debounce: .zero)
+        model.localRunsForTesting = { _ in held }
+        let observing = Task { await model.observe() }
+        defer { observing.cancel() }
+        try await eventually("the topics are read") { await MainActor.run { model.topics.count == Self.mixed.count } }
+        #expect(!model.loaded)
+        #expect(model.phase == .loading, "no tiles before the runs")
+
+        let runs = try await w.store.writer.read { db in try RunOverlay.localRuns(db) }
+        release.yield(runs)
+        try await eventually("the runs are read") { await MainActor.run { model.loaded } }
+        #expect(model.phase == .ready)
+        #expect(model.runs[meds.id]?.isOpen == true)
+        #expect(Self.names(model.activeRows) == ["Meds"], "the first tiles already show the run's card")
+
+        // The runs can't be read: no list (it couldn't show the runs), the error and Retry; the
+        // retried observation reads them.
+        struct Broken: Error {}
+        let failing = HomeModel(session: w.session, now: Self.now, debounce: .zero)
+        failing.localRunsForTesting = { _ in AsyncThrowingStream { $0.finish(throwing: Broken()) } }
+        let observingFailing = Task { await failing.observe() }
+        try await eventually("the failure shows") {
+            await MainActor.run { if case .failed = failing.phase { true } else { false } }
+        }
+        #expect(!failing.loaded)
+        observingFailing.cancel()
+        failing.localRunsForTesting = nil
+        await failing.retry()
+        let retried = Task { await failing.observe() }
+        defer { retried.cancel() }
+        try await eventually("the retry reads the runs") { await MainActor.run { failing.loaded } }
+        #expect(failing.phase == .ready)
+        #expect(failing.runs[meds.id]?.isOpen == true)
+    }
+
+    @Test func activePartition() async throws {
+        let w = try await World(topics: Self.mixed)
+        defer { w.cleanup() }
+        let (meds, water, stretch, mood) = (Self.mixed[0], Self.mixed[1], Self.mixed[2], Self.mixed[4])
+        let now = Self.now
+        // RunSeed starts each run an hour before `at`: Stretch latest, then Meds, then Mood.
+        try await w.store.writer.write { db in
+            try RunSeed.run(db, topicId: meds.id, .running, at: now)
+            try RunSeed.run(db, topicId: water.id, .finishing, at: now)
+            try RunSeed.run(db, topicId: stretch.id, .paused, at: now.addingTimeInterval(600))
+            try RunSeed.run(db, topicId: mood.id, .running, at: now.addingTimeInterval(-1200))
+        }
+        let (model, observing) = try await w.model()
+        defer { observing.cancel() }
+        try await eventually("the runs are read") { await MainActor.run { model.runs.count == 4 } }
+
+        let active: [String] = Self.names(model.activeRows)
+        #expect(active == ["Stretch", "Meds", "Mood"], "running and paused, latest start first")
+        let due: [String] = Self.names(model.inactiveSections.due)
+        #expect(due == ["Water"], "finishing isn't active: its topic keeps its due state")
+        let upcoming: [String] = Self.names(model.inactiveSections.upcoming)
+        #expect(upcoming.isEmpty)
+        let other: [String] = Self.names(model.inactiveSections.other)
+        #expect(other == ["Sleep"])
+        let rest: [String] = Self.names(model.inactiveRows)
+        #expect(rest == ["Water", "Sleep"])
+        // Every listed topic shows exactly once.
+        let sections = model.inactiveSections
+        let shown = (model.activeRows + sections.due + sections.upcoming + sections.other).map(\.topic.id)
+        #expect(shown.count == Set(shown).count)
+        #expect(Set(shown) == Set(model.rows.map(\.topic.id)))
+        // The listing and the badge are TopicListing's, untouched by the partition.
+        let sectionsDue: [String] = Self.names(model.sections.due)
+        #expect(sectionsDue == ["Water"])
+        let badge: Int = model.badgeCount
+        let expected = TopicListing.dueCount(Self.mixed, now: now, openRuns: model.openRuns)
+        #expect(badge == expected)
+        #expect(badge == 1)
+
+        // A search that matches an active topic keeps it in "Active now".
+        model.search = "e"
+        let searched: [String] = Self.names(model.activeRows)
+        #expect(!model.isSectioned)
+        #expect(searched == ["Stretch", "Meds"], "Mood doesn't match")
+        let searchedRest: [String] = Self.names(model.inactiveRows)
+        #expect(searchedRest == ["Water", "Sleep"])
+        model.search = ""
+
+        // A queued start on Water makes it active (and not due).
+        let sessionStore = try #require(await MainActor.run { w.session.store })
+        let writes = RunWrites(store: sessionStore, origin: .app)
+        try await writes.start(topic: RunSeed.ref(water), version: 1)
+        try await eventually("the queued start is seen") {
+            await MainActor.run { model.activeRows.count == 4 }
+        }
+        let first: String? = model.activeRows.first?.topic.name
+        #expect(first == "Water", "the newest start leads")
+        let dueAfterStart: [String] = Self.names(model.inactiveSections.due)
+        #expect(dueAfterStart.isEmpty)
+
+        // Discarding every open run empties the section.
+        for run in model.runs.values where run.isOpen {
+            try await writes.discard(runId: run.id)
+        }
+        try await eventually("the section empties") { await MainActor.run { model.activeRows.isEmpty } }
+        let restAfter = model.inactiveRows.map(\.topic.id)
+        #expect(restAfter == model.rows.map(\.topic.id))
     }
 }

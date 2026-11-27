@@ -7,7 +7,7 @@ import { createMemoryRouter, Outlet, RouterProvider, useLocation } from 'react-r
 import { vi } from 'vitest';
 
 import { connectOutboxEffects } from '../api/outboxEffects';
-import { clearRunTombstones } from '../api/runs';
+import { clearRunMarkers } from '../api/runs';
 import { client } from '../client/client.gen';
 import type { RunEventIn, TopicDetail, TopicSummary, TopicVersionOut } from '../client';
 import { AppShell, TopBar } from '../components/AppShell';
@@ -19,6 +19,7 @@ import { memoryAckedStore, setAckedStore } from '../lib/runs/acked';
 import { clearRunNotices, memoryNoticeStore, setNoticeStore } from '../lib/runs/notices';
 import { resetServerOffset } from '../lib/runs/serverClock';
 import type { TimerStep } from '../lib/runs/types';
+import { normalTimer } from './timer';
 import { RecordPage } from '../pages/topic/RecordPage';
 import { TopicLayout } from '../pages/topic/TopicLayout';
 import { TopicsPage } from '../pages/TopicsPage';
@@ -66,14 +67,16 @@ export function timedTopic(opts: { steps?: TimerStep[] | null; questions?: Quest
     schedule: null,
     schedule_updated_at: null,
     due: null,
-    timer: steps === null ? null : { steps },
+    timer: steps === null ? null : normalTimer({ steps }),
+    last_entry: null,
+    appearance: { color: null, icon: null, tags: [] }, // T2-M3
     questions,
   };
   const versions: TopicVersionOut[] = [
     {
       version: 1,
       questions,
-      timer: steps === null ? null : { steps },
+      timer: steps === null ? null : normalTimer({ steps }),
       change_note: '',
       created_at: '2026-10-01T00:00:00Z',
       entry_count: 0,
@@ -102,12 +105,14 @@ export interface Harness {
 
 /**
  * Render the app at `path` against a fresh fake server for `topic`. The page's outbox
- * (IndexedDB, fake) flushes on its own, as in the app.
+ * (IndexedDB, fake) flushes on its own, as in the app. `others` are listed after the
+ * topic on the topics page (untimed: the fake server knows nothing else of them).
  */
 export function renderRunApp(
   path: string,
   fixture: { topic: TopicDetail; versions: TopicVersionOut[] },
   seed?: (server: FakeRunServer) => void,
+  others: readonly TopicSummary[] = [],
 ): Harness {
   const server = fakeRunServer(fixture.topic, fixture.versions);
   seed?.(server);
@@ -120,10 +125,27 @@ export function renderRunApp(
     );
     if (url.pathname === '/api/v1/topics') {
       return Promise.resolve(
-        new Response(JSON.stringify({ items: [summary], total: 1, limit: 50, offset: 0 }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
+        new Response(
+          JSON.stringify({
+            // T2-WIRE: the list carries the latest entry, as the server derives it (content-display.md §2).
+            items: [
+              {
+                ...summary,
+                last_entry: server.entries[0] ?? null,
+                entry_count: server.entries.length,
+                last_captured_at: server.entries[0]?.captured_at ?? null,
+              },
+              ...others,
+            ],
+            total: 1 + others.length,
+            limit: 50,
+            offset: 0,
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
       );
     }
     return base(input, init);
@@ -192,12 +214,16 @@ export function renderRunApp(
       cleanup();
       stop();
       disconnect();
+      // A flush pass still running (slow under load) can put a retried item back after the
+      // clear, so the next test would start with this one's queued taps: let it finish first
+      // (a concurrent flush() joins it; the scheduler is stopped, so none follows).
+      await outbox.flush().catch(() => undefined);
       qc.clear();
       await outbox.clear();
       // The page's snapshots are module state: start the next test from empty ones.
       await refreshOutboxSnapshot();
       setAckedStore(memoryAckedStore());
-      clearRunTombstones();
+      clearRunMarkers();
       clearRunNotices();
       setRunTapCooldown(RUN_TAP_COOLDOWN_MS);
       resetServerOffset();

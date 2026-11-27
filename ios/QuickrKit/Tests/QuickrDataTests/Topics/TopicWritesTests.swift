@@ -204,12 +204,10 @@ import Testing
         let sent = try JSONSerialization.jsonObject(with: try #require(request.body)) as? [String: Any]
         #expect(sent?["change_note"] as? String == "add energy")
         #expect(sent?["base_version"] as? Int == 1)
-        // The draft's timer (timers.md §2.1).
+        // The draft's timer (timers.md §2.1), normalised (timers2.md §1.4).
         let timer = try #require(sent?["timer"] as? [String: Any])
-        #expect(
-            (timer["steps"] as? [[String: String]]) == [
-                ["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"],
-            ])
+        #expect(Self.stepLabels(timer) == [["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"]])
+        #expect(Self.isNormalised(timer))
     }
 
     @Test func aPublishOfAnUntimedVersionSendsANullTimer() async throws {
@@ -232,8 +230,21 @@ import Testing
         let sent = try JSONSerialization.jsonObject(with: try #require(harness.server.requests.last?.body))
         let object = try #require(sent as? [String: Any])
         let timer = try #require(object["timer"] as? [String: Any])
-        let steps = timer["steps"] as? [[String: String]]
-        #expect(steps == [["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"]])
+        #expect(Self.stepLabels(timer) == [["key": "load", "label": "Load"], ["key": "rinse", "label": "Rinse"]])
+        #expect(Self.isNormalised(timer))
+    }
+
+    /// Each sent step's key and label.
+    static func stepLabels(_ timer: [String: Any]) -> [[String: String]]? {
+        (timer["steps"] as? [[String: Any]])?.map {
+            ["key": $0["key"] as? String ?? "", "label": $0["label"] as? String ?? ""]
+        }
+    }
+
+    /// Every list of the normalised `Timer` is sent (timers2.md §1.4): laps, variables, alerts.
+    static func isNormalised(_ timer: [String: Any]) -> Bool {
+        let steps = timer["steps"] as? [[String: Any]] ?? []
+        return timer["laps"] is [Any] && timer["variables"] is [Any] && steps.allSatisfy { $0["alerts"] is [Any] }
     }
 
     @Test func aStalePublishIsAConflictAndNothingChanges() async throws {
@@ -279,6 +290,8 @@ import Testing
         #expect(try await local(harness.topic.id)?.currentVersion == 3)
         #expect(syncs.reasons == [.afterOnlineOnly])
         #expect(harness.server.requests.last?.method == .get)
+        // By the immutable id, never the slug: a slug changed elsewhere can't make it 404.
+        #expect(harness.server.requests.last?.url.lastPathComponent == harness.topic.id.wireString)
     }
 
     @Test func aVersionCheckOrPublishOnAnotherEpochIsResyncing() async throws {
@@ -598,4 +611,72 @@ import Testing
         #expect(left.allSatisfy { $0.state == .failed && $0.failureReason == .deletedElsewhere }, "\(left)")
         #expect(syncs.reasons == [.afterOnlineOnly, .afterOnlineOnly], "after the queued archive, then the delete")
     }
+
+    // T2-M3
+    // MARK: Appearance (appearance.md §1.1, §7)
+
+    /// The Details save with an appearance is one PATCH with `expected_revision`; the response's
+    /// appearance is in the store and the view.
+    @Test func updateAppearanceSendsOnePatchAndAppliesTheTheme() async throws {
+        let topicId = harness.topic.id
+        let change = TopicDetailsChange(
+            name: "Mood!", appearance: AppearanceUpdate(color: .some(.violet), icon: .some(.emoji("🧠")), tags: ["Mind"])
+        )
+        guard case .done(let topic) = await try writes().updateAppearance(topicId: topicId, change, expectedRevision: 1)
+        else {
+            Issue.record("not done")
+            return
+        }
+        let theme = TopicAppearance(color: .violet, icon: .emoji("🧠"), tags: ["Mind"])
+        #expect(topic.appearance == theme && topic.name == "Mood!")
+        #expect(try await harness.store.topics.topic(id: topicId)?.appearance == theme, "the response row is stored")
+        #expect(syncs.reasons == [.afterOnlineOnly])
+        #expect(harness.server.requests.count == 1, "one PATCH, details and appearance together")
+        let request = try #require(harness.server.requests.last)
+        #expect(request.method == .patch && request.url.path == "/api/v1/topics/\(topicId.wireString)")
+        let sentBody = try #require(request.body)
+        let body = try #require(try JSONSerialization.jsonObject(with: sentBody) as? [String: Any])
+        #expect(body["expected_revision"] as? Int == 1)
+        #expect(body["name"] as? String == "Mood!")
+        let sent = try #require(body["appearance"] as? [String: Any])
+        #expect(sent["color"] as? String == "violet" && sent["tags"] as? [String] == ["Mind"])
+
+        // Clearing: null and [] clear, an omitted field is kept.
+        let clear = TopicDetailsChange(appearance: AppearanceUpdate(icon: .some(nil), tags: []))
+        guard
+            case .done(let cleared) = await try writes().updateAppearance(topicId: topicId, clear, expectedRevision: 2)
+        else {
+            Issue.record("not cleared")
+            return
+        }
+        #expect(cleared.appearance == TopicAppearance(color: .violet))
+        #expect(try await harness.store.topics.topic(id: topicId)?.appearance == TopicAppearance(color: .violet))
+    }
+
+    /// Changed elsewhere since the screen read it: a 409, and the local theme is untouched.
+    @Test func aStaleAppearanceSaveIsRefusedAndNothingChanges() async throws {
+        let topicId = harness.topic.id
+        harness.server.setArchived(topicId, true)  // revision 2 on the server
+        let change = TopicDetailsChange(appearance: AppearanceUpdate(color: .some(.red)))
+        guard case .staleRevision = await try writes().updateAppearance(topicId: topicId, change, expectedRevision: 1)
+        else {
+            Issue.record("not stale")
+            return
+        }
+        #expect(try await harness.store.topics.topic(id: topicId)?.appearance == .empty)
+        #expect(syncs.reasons.isEmpty)
+    }
+
+    /// A create with an appearance sends it and stores the themed topic.
+    @Test func createSendsTheAppearanceAndStoresIt() async throws {
+        let theme = TopicAppearance(color: .cyan, icon: .emoji("💧"), tags: ["Daily"])
+        let body = TopicCreateDTO(name: "Water", slug: "water", questions: Make.questions, appearance: theme)
+        guard case .done(let topic) = await try writes().create(body) else {
+            Issue.record("not done")
+            return
+        }
+        #expect(topic.appearance == theme)
+        #expect(try await harness.store.topics.topic(id: topic.id)?.appearance == theme)
+    }
+    // end T2-M3
 }

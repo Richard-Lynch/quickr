@@ -22,7 +22,7 @@ settings:
     SUPPORTS_MACCATALYST: NO
     SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
     SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
-    MARKETING_VERSION: "0.1.0"
+    MARKETING_VERSION: "0.4.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
@@ -108,6 +108,14 @@ targets:
         # APNs. Device builds register in the sandbox; exporting for App Store Connect re-signs
         # with the distribution profile, whose value is production (ios/README.md, TestFlight).
         aps-environment: development
+        # T2-M1: Time Sensitive lap/step alerts (timers2.md §9.1, OQ-6). Read by
+        # `RunAlerts.interruptionLevel` (.timeSensitive). App target only: the extensions
+        # schedule no alerts. Signing is automatic (CODE_SIGN_STYLE above, testflight.sh
+        # -allowProvisioningUpdates with the ASC key), so Xcode should add the capability to the
+        # App ID and regenerate the profile. Not yet proven: the v0.4.0-rc1 signed upload is the
+        # proof; if it fails here, drop this line and set RunAlerts to .active
+        # (docs/t2/device-checklist.md, M1 fallback).
+        com.apple.developer.usernotifications.time-sensitive: true
 
   QuickRWidgets:
     type: app-extension

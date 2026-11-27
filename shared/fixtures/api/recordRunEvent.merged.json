@@ -23,6 +23,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -35,6 +36,7 @@
           "seg": null,
           "source": "widget",
           "step": null,
+          "target": null,
           "type": "start"
         }
       ],
@@ -53,11 +55,14 @@
           }
         },
         "ended_at": null,
+        "lap_count": 0,
+        "next_lap_type": null,
         "next_step": "drink",
         "open": {
           "index": 0,
           "kind": "step",
           "label": "Pour",
+          "lap_type": null,
           "started_at": "2026-03-04T11:00:00Z",
           "step": "pour"
         },
@@ -66,7 +71,8 @@
         "segments": [],
         "skipped": [],
         "started_at": "2026-03-04T11:00:00Z",
-        "status": "running"
+        "status": "running",
+        "terminal_id": null
       },
       "status": "running",
       "topic_id": "00000000-0000-4000-8000-000000000001",

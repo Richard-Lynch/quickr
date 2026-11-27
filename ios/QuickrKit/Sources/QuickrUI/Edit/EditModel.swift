@@ -94,8 +94,16 @@ public final class EditModel: EntryDetailsEditing {
     public var isTimed: Bool { entry.timing != nil }
     /// The run's version's steps (labels for skipped steps, and Edit times' choices).
     public let timerSteps: [TopicTimer.Step]
+    /// The run's version's lap types (Edit times types laps by position, timers2.md §3.2).
+    public let timerLapTypes: [TopicTimer.LapType]
     /// The open Edit times sheet.
     public var timingEditor: TimingEditModel?
+    /// One of the run's removes is being enqueued or is queued (`EntryActionsModel.holdsEditTimes`,
+    /// content-display.md §3.2): Edit times waits for its ack, since saving times would void it (`run_edited`). An
+    /// open sheet that isn't saving closes, and a save is refused.
+    public var removeQueued = false {
+        didSet { if removeQueued, timingEditor?.isSaving == false { timingEditor = nil } }
+    }
     /// The entry changed elsewhere while the answers or notes are being edited: what it says now.
     /// Shown with Reload; the edits stay until then.
     public private(set) var changedElsewhere: Entry?
@@ -137,12 +145,14 @@ public final class EditModel: EntryDetailsEditing {
     public init(
         topic: Topic, entry: Entry, questions: [Question], localOnly: Bool, syncProblem: String? = nil,
         fix: EditFix? = nil, writer: any EntryEditing, toasts: EntryToasts, scope: EntryScope,
-        timerSteps: [TopicTimer.Step] = [], timingWriter: (any EntryTimingWriting)? = nil,
-        timingClock: TimingEditClock = .current, limits: Limits = .serverDefaults,
+        timerSteps: [TopicTimer.Step] = [], timerLapTypes: [TopicTimer.LapType] = [],
+        timingWriter: (any EntryTimingWriting)? = nil, timingClock: TimingEditClock = .current,
+        limits: Limits = .serverDefaults,
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.topic = topic
         self.timerSteps = timerSteps
+        self.timerLapTypes = timerLapTypes
         self.timingWriter = timingWriter
         self.timingClock = timingClock
         self.localOnly = localOnly
@@ -289,11 +299,12 @@ public final class EditModel: EntryDetailsEditing {
 
     // MARK: Edit times (timers.md §3.8)
 
-    /// Why Edit times isn't offered, if it isn't: the server must have the entry, and saving is
-    /// online.
+    /// Why Edit times isn't offered, if it isn't: the server must have the entry, saving is
+    /// online, and a queued remove must have synced first (an edit voids it).
     public var timingEditUnavailable: String? {
         guard let timing = entry.timing else { return nil }
         if localOnly || timingWriter == nil { return "Edit times once this run has synced." }
+        if removeQueued { return "Edit times once the removal has synced." }
         // Its steps' labels and choices come from its version's row.
         if timerSteps.isEmpty && timing.segments.contains(where: { $0.kind == .step }) {
             return "Edit times once its version has synced."
@@ -305,8 +316,8 @@ public final class EditModel: EntryDetailsEditing {
     public func openTimingEditor() {
         guard let timing = entry.timing, timingEditUnavailable == nil, let timingWriter else { return }
         let editor = TimingEditModel(
-            entryId: entry.id, timing: timing, revision: entry.revision, steps: timerSteps, writer: timingWriter,
-            clock: timingClock, now: now)
+            entryId: entry.id, timing: timing, revision: entry.revision, steps: timerSteps, lapTypes: timerLapTypes,
+            writer: timingWriter, clock: timingClock, now: now)
         // A change seen elsewhere and not reloaded yet: these times may be behind it.
         if let changedElsewhere { editor.entryChanged(revision: changedElsewhere.revision) }
         timingEditor = editor
@@ -315,7 +326,13 @@ public final class EditModel: EntryDetailsEditing {
     /// "Save times": saved, the sheet closes and the entry shows its new times. Unsaved answer and
     /// notes edits stay on the form, now based on the saved revision.
     public func saveTiming() async {
-        guard let editor = timingEditor, let saved = await editor.save() else { return }
+        // A remove queued meanwhile: Edit times waits for it, so the sheet closes unsaved.
+        if removeQueued { timingEditor = nil }
+        guard let editor = timingEditor else { return }
+        guard let saved = await editor.save() else {
+            if removeQueued { timingEditor = nil }
+            return
+        }
         timingEditor = nil
         adopt(times: saved)
         _ = toasts.center.show(Toast("Times updated"))

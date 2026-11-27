@@ -120,8 +120,9 @@ public enum AckOutcome: Sendable, Hashable {
 /// same commit. The server row and the overlay change together, so the view never shows the
 /// operation twice or not at all.
 public enum AtomicAck {
+    /// `wall` stamps a closed run's marker (timers2.md §5.2).
     public static func ack(
-        _ db: Database, itemId: String, sender: SenderContext, effect: AckEffect, at now: LeaseInstant
+        _ db: Database, itemId: String, sender: SenderContext, effect: AckEffect, at now: LeaseInstant, wall: Date
     ) throws -> AckOutcome {
         if let failure = try StoreFence.check(db, sender.conditions(itemId: itemId), at: now) {
             return .fenced(failure)
@@ -135,7 +136,9 @@ public enum AtomicAck {
             try ServerLayer.applyDeletion(db, kind: .entry, id: id, topicId: topicId, seq: nil)
             upsert = nil
         case .runEvent(let result, let runId):
-            upsert = try ServerLayer.apply(db, runEvent: result, sentTo: runId)
+            // The acked event's type decides whether the ack may reopen a closed run.
+            upsert = try ServerLayer.apply(
+                db, runEvent: result, sentTo: runId, type: (try? item.runEventPayload())?.type, wall: wall)
         }
         try OutboxStorage.delete(db, id: itemId)
         try OutboxStorage.chainRevision(db, entityKind: item.entityKind, entityId: item.entityId)

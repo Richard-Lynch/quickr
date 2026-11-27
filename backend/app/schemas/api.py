@@ -15,6 +15,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    StringConstraints,
     WithJsonSchema,
     field_validator,
     model_validator,
@@ -32,14 +33,18 @@ from app.schemas.limits import (
     INTERVAL_MAX_MINUTES,
     INTERVAL_MIN_MINUTES,
     LIVE_ACTIVITY_TOKEN_PATTERN,
+    MAX_ALERTS,
     MAX_APP_VERSION_LENGTH,
     MAX_CHANGE_NOTE_LENGTH,
     MAX_DECIMALS,
     MAX_DESCRIPTION_LENGTH,
     MAX_DEVICE_NAME_LENGTH,
     MAX_ENUM_OPTIONS,
+    MAX_EXPR_LENGTH,
     MAX_HELP_TEXT_LENGTH,
+    MAX_ICON_LENGTH,
     MAX_LABEL_LENGTH,
+    MAX_LAP_TYPES,
     MAX_META_ENTRIES,
     MAX_META_KEY_LENGTH,
     MAX_META_VALUE_LENGTH,
@@ -48,18 +53,25 @@ from app.schemas.limits import (
     MAX_PUSH_KEY_LENGTH,
     MAX_QUESTIONS,
     MAX_RUN_EVENTS,
+    MAX_SHORT_LABEL_LENGTH,
     MAX_SOURCE_LENGTH,
     MAX_STEPS,
     MAX_STR_LENGTH,
+    MAX_TAG_LENGTH,
+    MAX_TAGS,
     MAX_TIMEZONE_LENGTH,
     MAX_TOPIC_NAME_LENGTH,
     MAX_UNIT_LENGTH,
     MAX_USER_AGENT_LENGTH,
+    MAX_VAR_NAME_LENGTH,
+    MAX_VARIABLES,
     SCHEDULE_MAX_TIMES,
     SLUG_PATTERN,
     TIME_PATTERN,
 )
 from app.schemas.questions import KEY_PATTERN, AnswerValue, Question, QuestionKey, QuestionList, Timer
+from app.services import appearance as appearance_svc
+from app.services.appearance import COLOR_NAMES, ColorName
 
 __all__ = ["FieldIssue", "Problem", "QuestionList"]
 
@@ -197,6 +209,89 @@ ExpectedRevision = Annotated[
 ]
 
 
+# T2-M3: topic appearance (docs/specs/appearance.md §1.1, §1.3, §2; services/appearance.py)
+def _not_nullable_late(schema: dict[str, Any]) -> None:
+    """``_not_nullable`` (defined with ``EntryUpdate``, below), looked up when the schema is built."""
+    _not_nullable(schema)
+
+
+# ---------------------------------------------------------------------------
+# Appearance
+# ---------------------------------------------------------------------------
+
+
+def _check_icon(v: str) -> str:
+    try:
+        return appearance_svc.check_icon(v)
+    except appearance_svc.AppearanceError as exc:
+        raise field_error("", exc.message, "icon") from None
+
+
+def _check_tags(v: list[str]) -> list[str]:
+    try:
+        return appearance_svc.check_tags(v)
+    except appearance_svc.AppearanceError as exc:
+        raise field_error("" if exc.index is None else str(exc.index), exc.message, "tags") from None
+
+
+# Not stripped (unlike every other string): " 🚬" is refused, as both clients refuse it.
+IconValue = Annotated[
+    str,
+    StringConstraints(strip_whitespace=False),
+    AfterValidator(_check_icon),
+    Field(
+        examples=["🚬"],
+        description="One emoji (one grapheme cluster that starts as an emoji: a pictograph, a flag or a "
+        f"keycap), at most {MAX_ICON_LENGTH} code points. Stored NFC, with U+FE0F added after a "
+        "text-presentation pictograph.",
+    ),
+]
+Tags = Annotated[
+    list[str],
+    AfterValidator(_check_tags),
+    Field(
+        description=f"At most {MAX_TAGS} labels, each trimmed with inner whitespace collapsed, 1-"
+        f"{MAX_TAG_LENGTH} characters, no control characters, unique ignoring case; order kept.",
+    ),
+]
+
+
+class TopicIcon(StrictModel):
+    kind: Literal["emoji"] = Field(description="Only emoji for now; more kinds may be added.")
+    value: IconValue
+
+
+class TopicAppearance(StrictModel):
+    """A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, [])."""
+
+    color: ColorName | None = Field(
+        default=None, description=f"One of the palette's names: {', '.join(COLOR_NAMES)}."
+    )
+    icon: TopicIcon | None = None
+    tags: Tags = []
+
+
+class AppearanceUpdate(StrictModel):
+    """Partial appearance update: an omitted field is unchanged; ``color: null`` and ``icon: null``
+    clear; ``tags: []`` clears the tags."""
+
+    color: ColorName | None = Field(default=None, description="null clears the colour.")
+    icon: TopicIcon | None = Field(default=None, description="null clears the icon.")
+    tags: Tags | None = Field(
+        default=None, json_schema_extra=_not_nullable_late, description="Replaces the tags; [] clears them."
+    )
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def _tags_not_null(cls, v: object) -> object:
+        if v is None:
+            raise PydanticCustomError("tags_null", "send [] to clear the tags")
+        return v
+
+
+# end T2-M3
+
+
 # ---------------------------------------------------------------------------
 # Topics
 # ---------------------------------------------------------------------------
@@ -211,6 +306,11 @@ class TopicCreate(StrictModel):
     timer: Timer | None = Field(
         default=None, description="Makes the topic timed (optional; null: not timed)."
     )
+    # T2-M3
+    appearance: TopicAppearance | None = Field(
+        default=None, description="Colour, emoji and tags (optional; null: none of them)."
+    )
+    # end T2-M3
 
 
 class TopicUpdate(StrictModel):
@@ -224,6 +324,23 @@ class TopicUpdate(StrictModel):
     description: Description | None = None
     schedule: Schedule | None = None
     expected_revision: ExpectedRevision = None
+    # T2-M3: optional but not nullable, like EntryUpdate.timing
+    appearance: AppearanceUpdate | None = Field(
+        default=None,
+        json_schema_extra=_not_nullable_late,
+        description="Changes the fields it holds; null is refused (clear fields individually).",
+    )
+
+    @field_validator("appearance", mode="before")
+    @classmethod
+    def _appearance_not_null(cls, v: object) -> object:
+        if v is None:
+            raise PydanticCustomError(
+                "appearance_null", "clear fields individually (color: null, icon: null, tags: [])"
+            )
+        return v
+
+    # end T2-M3
 
 
 class TopicSummary(StrictModel):
@@ -246,6 +363,15 @@ class TopicSummary(StrictModel):
     )
     due: DueStatus | None = Field(description="Null when the topic has no schedule.")
     timer: Timer | None = Field(description="The current version's timer; null when the topic is not timed.")
+    # T2-M4
+    last_entry: EntryOut | None = Field(
+        description="The latest counted entry, by (captured_at, id) descending; null when the topic has "
+        "none. Derived like entry_count: a feed topic item is not re-sent when entries change."
+    )
+    # end T2-M4
+    # T2-M3
+    appearance: TopicAppearance = Field(description="Colour, emoji and tags; every key always present.")
+    # end T2-M3
 
 
 class TopicDetail(TopicSummary):
@@ -526,20 +652,38 @@ class EntryUpdate(StrictModel):
 
 
 class TimingSegment(StrictModel):
-    """One segment of a finished run: a named step's time, or an unnamed lap's."""
+    """One segment of a finished run: a named step's time, or a lap's (typed or not)."""
 
     kind: Literal["step", "lap"]
     step: str | None = Field(description="The step's key; null for a lap.")
-    label: str = Field(description="The step's label in the run's version, or 'Lap n'.")
+    label: str = Field(description="The step's label in the run's version, or the lap's ('Lap n', 'Run 2').")
     started_at: datetime
     ended_at: datetime
     active_ms: int
     paused_ms: int = Field(description="Its overlap with the run's pauses.")
+    lap_type: str | None = Field(
+        default=None, description="The lap type's key (timers2.md §3.2); null for a step or an untyped lap."
+    )
+    event_id: UUID | None = Field(
+        default=None,
+        description="The next or lap event that opened the segment; null for the first segment (the start "
+        "opened it), on a pre-v2 stored timing and after an edit (timers2.md §3.3).",
+    )
+    opened_by: Literal["start", "next", "lap", "skip"] | None = Field(
+        default=None,
+        description="The type of the event named by event_id ('start' for the first segment); null on a "
+        "pre-v2 stored timing and after an edit.",
+    )
 
 
 class TimingPause(StrictModel):
     start: datetime
     end: datetime
+    id: UUID | None = Field(
+        default=None,
+        description="The pause event's id (a gap pause carries its stop's id); null on a pre-v2 stored "
+        "timing and after an edit.",
+    )
 
 
 class Timing(StrictModel):
@@ -555,6 +699,11 @@ class Timing(StrictModel):
     segments: list[TimingSegment] = Field(description="In time order.")
     skipped: list[str] = Field(description="Skipped step keys, in step order.")
     pauses: list[TimingPause]
+    terminal_id: UUID | None = Field(
+        default=None,
+        description="The applied stop that closed the run (a reopen names it); null on a pre-v2 stored "
+        "timing. Kept by an edit.",
+    )
 
 
 class EntryOut(StrictModel):
@@ -705,6 +854,19 @@ class TimingStepStats(StrictModel):
     mean_ms: int | None
 
 
+# T2-M1: timers2.md §7.4
+class TimingLapTypeStats(StrictModel):
+    key: str
+    label: str = Field(description="The latest version's label for the lap type.")
+    laps: int = Field(description="Lap segments of this type, over every timed run.")
+    best_ms: int | None = Field(description="Over those segments' active_ms.")
+    median_ms: int | None
+    mean_ms: int | None
+
+
+# end T2-M1
+
+
 class TimingLaps(StrictModel):
     runs_with_laps: int
     median_ms: int | None = Field(description="Of each such run's summed lap time.")
@@ -724,6 +886,9 @@ class TimingSeriesPoint(StrictModel):
     paused_ms: int
     complete: bool
     steps: dict[str, int] = Field(description="Each step segment's key and its active_ms.")
+    lap_types: dict[str, int] = Field(
+        description="Each lap type and its lap segments' summed active_ms; untyped laps are left out."
+    )  # T2-M1: timers2.md §7.4
 
 
 class TopicTiming(StrictModel):
@@ -737,6 +902,10 @@ class TopicTiming(StrictModel):
         description="Every step key seen in range: the current version's steps in step order, "
         "then the rest by key."
     )
+    lap_types: list[TimingLapTypeStats] = Field(
+        description="Every lap type with a lap segment in range: the current version's lap types in order, "
+        "then the rest by key. Keyed apart from steps; untyped laps count only toward laps."
+    )  # T2-M1: timers2.md §7.4
     laps: TimingLaps
     paused: TimingPaused
     series: list[TimingSeriesPoint] = Field(
@@ -789,6 +958,23 @@ class Limits(StrictModel):
     schedule_max_times: int = SCHEDULE_MAX_TIMES
     interval_min_minutes: int = INTERVAL_MIN_MINUTES
     interval_max_minutes: int = INTERVAL_MAX_MINUTES
+    # T2-M1: Timer v2 (docs/specs/timers2.md §1.2)
+    max_steps: int = MAX_STEPS
+    max_lap_types: int = MAX_LAP_TYPES
+    max_variables: int = MAX_VARIABLES
+    max_alerts: int = MAX_ALERTS
+    max_expr_length: int = MAX_EXPR_LENGTH
+    max_var_name_length: int = MAX_VAR_NAME_LENGTH
+    max_short_label_length: int = MAX_SHORT_LABEL_LENGTH
+    # end T2-M1
+    # T2-M3: topic appearance (docs/specs/appearance.md §1.3)
+    max_tags: int = MAX_TAGS
+    max_tag_length: int = MAX_TAG_LENGTH
+    max_icon_length: int = MAX_ICON_LENGTH
+    color_names: list[ColorName] = Field(
+        default_factory=lambda: list(COLOR_NAMES), description="The palette's names, in palette order."
+    )
+    # end T2-M3
 
 
 # ---------------------------------------------------------------------------
@@ -1055,7 +1241,20 @@ class ClientOutdatedProblem(Problem):
 # Runs (docs/specs/timers.md §3)
 # ---------------------------------------------------------------------------
 
-RunEventKind = Literal["start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+RunEventKind = Literal[
+    "start",
+    "next",
+    "lap",
+    "skip",
+    "pause",
+    "resume",
+    "stop",
+    "finish",
+    "discard",
+    # T2-M1: timers2.md §7.1
+    "reopen",
+    "remove",
+]
 RunStatusName = Literal["running", "paused", "finishing", "stopped", "discarded"]
 VoidReason = Literal[
     "merged",
@@ -1069,6 +1268,11 @@ VoidReason = Literal[
     "no_step",
     "already_paused",
     "not_paused",
+    # T2-M1: timers2.md §3.3
+    "reverted",
+    "not_stopped",
+    "deleted",
+    "no_target",
 ]
 RunListStatus = Literal["open", "finishing"]
 
@@ -1079,7 +1283,9 @@ _REQUIRED_FOR: dict[str, tuple[str, ...]] = {
     "lap": ("seg",),
     "skip": ("seg", "step"),
     "resume": ("pause_id",),
+    "remove": ("target",),  # T2-M1: a reopen's target may be null (timers2.md §4.2)
 }
+_TARGETED = frozenset({"reopen", "remove"})
 
 
 class RunDevice(StrictModel):
@@ -1110,6 +1316,13 @@ class RunEventIn(StrictModel):
         default=None, description="skip (required): the step the device saw as being skipped."
     )
     pause_id: UUID | None = Field(default=None, description="resume (required): the pause event it ends.")
+    # T2-M1: timers2.md §4.2, §7.1
+    target: UUID | None = Field(
+        default=None,
+        description="reopen and remove only: the event acted on. remove (required): a pause, a lap, or a "
+        "reopened stop. reopen: the run's terminal stop; null means the current terminal, which the server "
+        "resolves and stores.",
+    )
     topic_id: UUID | None = Field(default=None, description="start (required): the timed topic.")
     version: Annotated[StrictInt, Field(ge=1)] | None = Field(
         default=None, description="start (required): the topic version the run is pinned to."
@@ -1129,6 +1342,8 @@ class RunEventIn(StrictModel):
             for name in ("answers", "notes"):
                 if getattr(self, name) is not None:
                     raise field_error(name, "only a stop or a finish carries answers and notes")
+        if self.type not in _TARGETED and self.target is not None:
+            raise field_error("target", "only a reopen or a remove names a target")
         return self
 
 
@@ -1139,6 +1354,10 @@ class RunEventOut(StrictModel):
     seg: int | None
     step: str | None
     pause_id: UUID | None
+    target: UUID | None = Field(
+        description="A reopen's or remove's target as stored: a reopen sent without one carries the stop "
+        "the server resolved it to (timers2.md §4.2); null for other types."
+    )  # T2-M1
     arrival: int = Field(description="Server arrival order.")
     effect: Literal["applied", "void"]
     reason: VoidReason | None
@@ -1156,6 +1375,9 @@ class RunOpenSegment(StrictModel):
     step: str | None
     label: str
     started_at: datetime
+    lap_type: str | None = Field(
+        default=None, description="The lap type's key; null for a step or an untyped lap."
+    )
 
 
 class RunState(StrictModel):
@@ -1173,6 +1395,26 @@ class RunState(StrictModel):
     skipped: list[str]
     pauses: list[TimingPause] = Field(description="Ended pauses; an open one is paused_since.")
     effects: dict[str, RunEventEffect] = Field(description="Each event's effect, by lowercase event id.")
+    terminal_id: UUID | None = Field(
+        default=None,
+        description="The applied stop that closed the run; null while open, after a reopen and for a "
+        "discarded run (timers2.md §3.3).",
+    )
+    next_lap_type: str | None = Field(
+        default=None,
+        description="The type of the lap a `lap` tap would open now; null when untyped or the run is closed.",
+    )
+    lap_count: int = Field(default=0, description="Closed lap segments.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lap_count_before_fold_v4(cls, data: Any) -> Any:
+        """A state stored before fold v4 has no ``lap_count``: count its closed lap segments."""
+        if isinstance(data, dict) and data.get("lap_count") is None:
+            segments = data.get("segments") or []
+            laps = sum(1 for s in segments if isinstance(s, dict) and s.get("kind") == "lap")
+            data = {**data, "lap_count": laps}
+        return data
 
 
 class RunOut(StrictModel):
@@ -1216,7 +1458,7 @@ class FeedEntry(StrictModel):
 
 class FeedTopic(StrictModel):
     """A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
-    ``due``) are not re-sent when entries change: clients recompute them from entries."""
+    ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries."""
 
     kind: Literal["topic"] = "topic"
     seq: int
@@ -1250,14 +1492,20 @@ DeletionKind = Literal["entry", "topic", "version", "run"]
 
 class FeedDeletion(StrictModel):
     """A permanently deleted id. A topic deletion also deletes all of its versions, entries and
-    runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
-    discarded, or went with its topic."""
+    runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+    was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+    with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2)."""
 
     kind: DeletionKind
     seq: int
     id: UUID
     topic_id: UUID
     deleted_at: datetime
+    revision: int | None = Field(
+        description="A run deletion: the run's revision in the page's snapshot, which bounds every "
+        "earlier state of the run. Null for a run that went with its topic and for other kinds "
+        "(timers2.md §5.2)."
+    )  # T2-M1
 
 
 class ChangesPage(StrictModel):

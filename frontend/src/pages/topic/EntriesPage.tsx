@@ -8,7 +8,7 @@ import {
   listEntriesInfiniteOptions,
   listTopicVersionsOptions,
 } from '../../client/@tanstack/react-query.gen';
-import type { EntryOut, TopicDetail, TopicVersionOut } from '../../client';
+import type { EntryOut, TimerOutput as Timer, TopicDetail, TopicVersionOut } from '../../client';
 import { ChannelBadge } from '../../components/ChannelBadge';
 import { FilterBar } from '../../components/FilterBar';
 import { pendingTimedEntries } from '../../components/runs/model';
@@ -19,13 +19,16 @@ import { Skeleton } from '../../components/ui/Spinner';
 import { formatDateTime, formatRelative } from '../../lib/dates';
 import { csvHref, filterQuery, useEntryFilters } from '../../lib/filters';
 import { answerLabels, formatAnswer } from '../../lib/answerDisplay';
+import { entrySummary } from '../../lib/entrySummary';
+import { timingChip } from '../../lib/entryTiming';
 import { plural } from '../../lib/format';
 import { isEntryCreate, type EntryCreatePayload } from '../../lib/outbox/kinds';
 import type { OutboxItem } from '../../lib/outbox/types';
 import { useOutbox } from '../../lib/outbox/useOutbox';
 import type { Question } from '../../lib/questions';
-import { fmtDuration } from '../../lib/runs/format';
+import { timingFromWire, timingToWire } from '../../lib/runs/fold';
 import { formatInstant } from '../../lib/runs/instant';
+import { projectedEntryTiming } from '../../lib/runs/localView';
 import { useRuns } from '../../lib/runs/useRuns';
 import { useTopic } from './TopicLayout';
 
@@ -53,32 +56,156 @@ function columnsFor(
   return [...cols.values()];
 }
 
+/**
+ * Each version's questions, for the summary line (content-display.md §1.2: labels come from
+ * the entry's own version). The current version's are the topic's; any other version's are
+ * null until the versions are listed (and stay null if listing them fails).
+ */
+function questionsByVersion(
+  topic: TopicDetail,
+  versions: readonly TopicVersionOut[] | undefined,
+): (version: number) => readonly Question[] | null {
+  const byVersion = new Map((versions ?? []).map((v) => [v.version, v.questions]));
+  return (version) =>
+    byVersion.get(version) ?? (version === topic.current_version ? topic.questions : null);
+}
+
+/** What a row shows of the entry besides its answers: the summary line and the timing chip. */
+interface RowText {
+  questionsOf: (version: number) => readonly Question[] | null;
+  timer: Timer | null;
+}
+
+/**
+ * The entry's summary line (§3.1): one line, truncated; nothing when it is empty. On a card it
+ * sits under the captured-at line; in the table, small, under the captured-at cell's date.
+ */
+function SummaryLine({
+  entry,
+  text,
+  table = false,
+}: {
+  entry: EntryOut;
+  text: RowText;
+  table?: boolean;
+}) {
+  // Until the entry's own version's questions are known, only the timing part: another
+  // version's labels or units would misread its answers (§1.2).
+  const summary = entrySummary(
+    entry.answers,
+    entry.timing,
+    text.questionsOf(entry.version) ?? [],
+    text.timer,
+  );
+  if (!summary) return null;
+  return (
+    <span
+      className={
+        table
+          ? 'mt-0.5 block truncate text-xs text-ink-soft'
+          : 'mb-2 block truncate text-[0.95rem] font-medium'
+      }
+      data-testid="entry-summary"
+      title={summary}
+    >
+      {summary}
+    </span>
+  );
+}
+
+/**
+ * A timed entry's chip, "12:40 · 3 laps", read as "12 minutes 40 seconds, 3 laps"; nothing for
+ * an untimed entry (timers.md §11.1), an untimed entry of a timed topic too.
+ */
+function TimingChip({ entry, timer }: { entry: EntryOut; timer: Timer | null }) {
+  const chip = timingChip(entry.timing, timer);
+  if (!chip) return null;
+  return (
+    <span role="img" aria-label={chip.label} data-testid="entry-timing" className="inline-flex">
+      <Badge tone="accent">
+        <Icon name="timer" className="size-3.5" />
+        <span className="tabular">{chip.text}</span>
+      </Badge>
+    </span>
+  );
+}
+
+/** The chip on a phone card, spaced above the answers. */
+function RowChip({ entry, timer }: { entry: EntryOut; timer: Timer | null }) {
+  if (!entry.timing) return null;
+  return (
+    <div className="mb-3">
+      <TimingChip entry={entry} timer={timer} />
+    </div>
+  );
+}
+
+/** The mark on a listed entry whose run has a removal queued on this device (A14). */
+function WaitingBadge() {
+  return (
+    <Badge tone="info">
+      <span data-testid="entry-pending" className="inline-flex items-center gap-1">
+        <Icon name="clock" className="size-3.5" /> Waiting to sync
+      </span>
+    </Badge>
+  );
+}
+
+/**
+ * A listed entry as this device sees it (content-display.md §3.2, A14): its timing with the
+ * queued removes of its run applied, and `pending` until the ack replaces the entry.
+ */
+function projectedRow(
+  entry: EntryOut,
+  queue: readonly OutboxItem[],
+): { entry: EntryOut; pending: boolean } {
+  if (!entry.timing) return { entry, pending: false };
+  const p = projectedEntryTiming({ id: entry.id, timing: timingFromWire(entry.timing) }, queue);
+  if (!p.pending) return { entry, pending: false };
+  const timing = { ...timingToWire(p.timing), skipped: [...p.timing.skipped] };
+  return { entry: { ...entry, timing }, pending: true };
+}
+
 function display(col: Column, s: EntryOut): string | null {
   const a = s.answers.find((x) => x.key === col.key);
   return a ? formatAnswer(col.question, a) : null;
 }
 
-/** Queued answers (`{key: value}`) as stored answers, typed by the topic's questions. */
+/**
+ * Queued answers (`{key: value}`) as stored answers, typed by the questions of the version
+ * they were recorded against.
+ */
 function answersOut(
-  topic: TopicDetail,
+  questions: readonly Question[],
   map: Readonly<Record<string, unknown>>,
 ): EntryOut['answers'] {
-  const types = new Map(topic.questions.map((q) => [q.key, q.type]));
-  return Object.entries(map).flatMap(([key, value]) => {
+  const types = new Map(questions.map((q) => [q.key, q.type]));
+  return Object.entries(map).flatMap(([key, value]): EntryOut['answers'] => {
     const type = types.get(key);
     if (!type || value === null) return [];
-    return [{ key, type: type === 'enum' && Array.isArray(value) ? 'enum_list' : type, value }];
-  }) as EntryOut['answers'];
+    if (type === 'enum' && Array.isArray(value))
+      return [{ key, type: 'enum_list', value: value.map(String) }];
+    // A value that doesn't fit its question (read against another version's questions while
+    // the entry's own aren't in) is left out rather than mistyped.
+    if (type === 'int' || type === 'double')
+      return typeof value === 'number' ? [{ key, type, value }] : [];
+    return typeof value === 'string' ? [{ key, type, value }] : [];
+  });
 }
 
 /** A queued (not yet synced) entry, shaped like a stored one so it renders the same way. */
-function pendingAsEntry(item: OutboxItem<EntryCreatePayload>, topic: TopicDetail): EntryOut {
+function pendingAsEntry(
+  item: OutboxItem<EntryCreatePayload>,
+  topic: TopicDetail,
+  questionsOf: RowText['questionsOf'],
+): EntryOut {
   const b = item.payload.body;
-  const answers = answersOut(topic, b.answers);
+  const version = b.version ?? topic.current_version;
+  const answers = answersOut(questionsOf(version) ?? topic.questions, b.answers);
   return {
     id: item.id,
     topic_id: topic.id,
-    version: b.version ?? topic.current_version,
+    version,
     revision: 0, // not on the server yet
     source: b.source ?? 'ui',
     channel: 'ui',
@@ -163,10 +290,12 @@ function PendingEntries({
   topic,
   columns,
   serverIds,
+  text,
 }: {
   topic: TopicDetail;
   columns: Column[];
   serverIds: ReadonlySet<string>;
+  text: RowText;
 }) {
   const { items } = useOutbox();
   const { runs } = useRuns();
@@ -177,32 +306,34 @@ function PendingEntries({
   if (mine.length === 0 && timed.length === 0) return null;
   return (
     <ul className="flex flex-col gap-3" aria-label="Not yet synced">
-      {timed.map((e) => (
-        <li key={e.id}>
-          <Card className="relative border-dashed border-line-strong p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate font-semibold">
-                {formatDateTime(formatInstant(e.captured_at))}
-              </span>
-              <Badge tone="info">
-                <Icon name="clock" className="size-3.5" /> Waiting to sync
-              </Badge>
-            </div>
-            <p className="mb-2 text-sm text-ink-soft">
-              Timed{' '}
-              <span className="font-mono font-semibold text-ink tabular">
-                {fmtDuration(e.timing.active_ms)}
-              </span>
-            </p>
-            <AnswerGrid
-              columns={columns}
-              entry={{ ...pendingAsEntryShape(topic, e.id), answers: answersOut(topic, e.answers) }}
-            />
-          </Card>
-        </li>
-      ))}
+      {timed.map((e) => {
+        const entry: EntryOut = {
+          ...pendingAsEntryShape(topic, e.id),
+          version: e.version,
+          answers: answersOut(text.questionsOf(e.version) ?? topic.questions, e.answers),
+          // The local fold's timing, in the server's wire shape.
+          timing: { ...timingToWire(e.timing), skipped: [...e.timing.skipped] },
+        };
+        return (
+          <li key={e.id}>
+            <Card className="relative border-dashed border-line-strong p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-semibold">
+                  {formatDateTime(formatInstant(e.captured_at))}
+                </span>
+                <Badge tone="info">
+                  <Icon name="clock" className="size-3.5" /> Waiting to sync
+                </Badge>
+              </div>
+              <SummaryLine entry={entry} text={text} />
+              <RowChip entry={entry} timer={text.timer} />
+              <AnswerGrid columns={columns} entry={entry} />
+            </Card>
+          </li>
+        );
+      })}
       {mine.map((item) => {
-        const s = pendingAsEntry(item, topic);
+        const s = pendingAsEntry(item, topic, text.questionsOf);
         const failed = item.status === 'failed';
         return (
           <li key={item.id}>
@@ -236,6 +367,7 @@ function PendingEntries({
                   </Badge>
                 )}
               </div>
+              <SummaryLine entry={s} text={text} />
               <AnswerGrid columns={columns} entry={s} />
               {failed && item.last_error ? (
                 <p className="mt-3 border-t border-dashed border-danger/30 pt-2 text-sm text-danger">
@@ -271,10 +403,22 @@ export function EntriesPage() {
     () => columnsFor(topic.questions, versions.data),
     [topic.questions, versions.data],
   );
-  const items = entries.data?.pages.flatMap((p) => p.items) ?? [];
-  const serverIds = new Set(items.map((e) => e.id.toLowerCase()));
-  const total = entries.data?.pages[0]?.total ?? 0;
+  const text = useMemo<RowText>(
+    () => ({ questionsOf: questionsByVersion(topic, versions.data), timer: topic.timer }),
+    [topic, versions.data],
+  );
+  const listed = entries.data?.pages.flatMap((p) => p.items) ?? [];
+  const serverIds = new Set(listed.map((e) => e.id.toLowerCase()));
+  // OQ-14 (timers2.md §5.3): an entry whose run is open or finishing here is the run's;
+  // the total still counts it, and the empty state and Load more follow the listed rows,
+  // so a page of hidden entries never strands the next one.
+  const { hiddenEntries } = useRuns();
   const outbox = useOutbox();
+  // A14: each row's timing with this device's queued removes applied, marked until the ack.
+  const rows = listed
+    .filter((e) => !hiddenEntries.has(e.id.toLowerCase()))
+    .map((e) => projectedRow(e, outbox.items));
+  const total = entries.data?.pages[0]?.total ?? 0;
   const queuedHere = outbox.items.filter(
     (i) => isEntryCreate(i) && i.payload.topic.id === topic.id,
   ).length;
@@ -306,7 +450,7 @@ export function EntriesPage() {
           : ' '}
       </p>
 
-      <PendingEntries topic={topic} columns={columns} serverIds={serverIds} />
+      <PendingEntries topic={topic} columns={columns} serverIds={serverIds} text={text} />
 
       {entries.isError ? (
         <Banner title="Could not load entries">{errorMessage(entries.error)}</Banner>
@@ -316,7 +460,7 @@ export function EntriesPage() {
             <Skeleton key={i} className="h-28 rounded-card" />
           ))}
         </div>
-      ) : items.length === 0 && queuedHere > 0 ? null : items.length === 0 ? (
+      ) : listed.length === 0 && queuedHere > 0 ? null : listed.length === 0 ? (
         <EmptyState
           title={topic.entry_count === 0 ? 'No entries yet' : 'No entries match'}
           action={
@@ -335,7 +479,7 @@ export function EntriesPage() {
         <>
           {/* phones: cards */}
           <ul className="flex flex-col gap-3 md:hidden">
-            {items.map((s) => (
+            {rows.map(({ entry: s, pending }) => (
               <li key={s.id}>
                 <Card className="relative p-4 active:scale-[0.99]">
                   <div className="mb-3 flex items-center gap-2">
@@ -345,11 +489,14 @@ export function EntriesPage() {
                     >
                       {formatDateTime(s.captured_at)}
                     </Link>
+                    {pending ? <WaitingBadge /> : null}
                     {s.version !== topic.current_version ? (
                       <VersionTag version={s.version} />
                     ) : null}
                     <Icon name="chevronRight" className="size-4 text-muted" />
                   </div>
+                  <SummaryLine entry={s} text={text} />
+                  <RowChip entry={s} timer={text.timer} />
                   <AnswerGrid columns={columns} entry={s} />
                   {s.notes ? (
                     <p className="mt-3 line-clamp-2 border-t border-dashed border-line pt-2 text-sm text-ink-soft">
@@ -374,6 +521,9 @@ export function EntriesPage() {
                   <th scope="col" className="px-4 py-3 font-semibold whitespace-nowrap">
                     Captured
                   </th>
+                  <th scope="col" className="px-3 py-3 font-semibold whitespace-nowrap">
+                    Timing
+                  </th>
                   {columns.map((c) => (
                     <th
                       key={c.key}
@@ -396,13 +546,28 @@ export function EntriesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {items.map((s) => (
+                {rows.map(({ entry: s, pending }) => (
                   <tr
                     key={s.id}
                     className="cursor-pointer transition-colors hover:bg-sunken/60"
                     onClick={() => open(s)}
                   >
-                    <td className="px-4 py-3 whitespace-nowrap">{formatDateTime(s.captured_at)}</td>
+                    <td className="max-w-72 px-4 py-3">
+                      <span className="block whitespace-nowrap">
+                        {formatDateTime(s.captured_at)}
+                      </span>
+                      <SummaryLine entry={s} text={text} table />
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      {s.timing ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <TimingChip entry={s} timer={text.timer} />
+                          {pending ? <WaitingBadge /> : null}
+                        </span>
+                      ) : (
+                        <span className="text-muted/60">—</span>
+                      )}
+                    </td>
                     {columns.map((c) => {
                       const v = display(c, s);
                       return (

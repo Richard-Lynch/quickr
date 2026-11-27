@@ -14,8 +14,9 @@ struct HomeActions {
     var onboarding: () -> Void = {}
 }
 
-/// The home screen (the PWA's `TopicsPage`): "Due now", then every topic with search, a status
-/// filter and the sorts, "Coming up" and the rest. Tiles are TILES's `TopicTile`.
+/// The home screen (the PWA's `TopicsPage`): "Active now" (topics with an open run), "Due now",
+/// then every topic with search, a status filter and the sorts, "Coming up" and the rest. Tiles
+/// are TILES's `TopicTile`.
 struct HomeView: View {
     let session: AppSession
     var actions = HomeActions()
@@ -71,6 +72,7 @@ struct HomeView: View {
         // Tiles keep their quick-log models for the run; topics that left the store let theirs go.
         .onChange(of: model.topics.map(\.id), initial: true) { _, ids in
             environment.quickLogModels.retain(Set(ids))
+            environment.latestEntries.retain(Set(ids))
             #if DEBUG || QUICKR_PERF
             if !ids.isEmpty { PerfProbe.mark("Home has \(ids.count) topics") }
             #endif
@@ -140,14 +142,24 @@ struct HomeView: View {
     }
 
     @ViewBuilder private var list: some View {
+        // "Active now" (active-surfaces.md §3.1): first in either layout; an active topic shows
+        // here and nowhere else.
+        if !model.activeRows.isEmpty {
+            HomeSection(
+                title: "Active now", count: model.activeRows.count, tone: .live, identifier: "home.section.active"
+            ) {
+                tiles(model.activeRows)
+            }
+        }
         if model.isSectioned {
             HomeSection(
-                title: "Due now", count: model.sections.due.count, tone: .accent, identifier: "home.section.due"
+                title: "Due now", count: model.inactiveSections.due.count, tone: .accent,
+                identifier: "home.section.due"
             ) {
-                if model.sections.due.isEmpty {
+                if model.inactiveSections.due.isEmpty {
                     CaughtUp()
                 } else {
-                    tiles(model.sections.due)
+                    tiles(model.inactiveSections.due)
                 }
             }
         }
@@ -155,19 +167,18 @@ struct HomeView: View {
         searchRow
         if filtersOpen { filterPanel }
         if model.isSectioned {
-            if !model.sections.upcoming.isEmpty {
-                HomeSection(
-                    title: "Coming up", count: model.sections.upcoming.count, identifier: "home.section.upcoming"
-                ) {
-                    tiles(model.sections.upcoming)
+            let sections = model.inactiveSections
+            if !sections.upcoming.isEmpty {
+                HomeSection(title: "Coming up", count: sections.upcoming.count, identifier: "home.section.upcoming") {
+                    tiles(sections.upcoming)
                 }
             }
-            if !model.sections.other.isEmpty {
+            if !sections.other.isEmpty {
                 HomeSection(
-                    title: model.sections.upcoming.isEmpty ? "All" : "Unscheduled", count: model.sections.other.count,
+                    title: sections.upcoming.isEmpty ? "All" : "Unscheduled", count: sections.other.count,
                     identifier: "home.section.other"
                 ) {
-                    tiles(model.sections.other)
+                    tiles(sections.other)
                 }
             }
         } else if model.rows.isEmpty {
@@ -175,7 +186,7 @@ struct HomeView: View {
                 icon: .search, title: "No matches", message: "Try another search or status filter.",
                 identifier: "home.noMatches")
         } else {
-            tiles(model.rows)
+            tiles(model.inactiveRows)
         }
     }
 
@@ -302,6 +313,10 @@ struct HomeView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("home.sort")
             }
+            // The home tag filter (appearance.md §5), once any topic has a tag.
+            if !model.tags.isEmpty || model.tagFilter != nil {
+                TagFilterRow(tags: model.tags, selection: $model.tagFilter)
+            }
         }
         .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .top)))
     }
@@ -375,23 +390,19 @@ private struct HomeSection<Content: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var pulse = false
 
-    enum Tone { case plain, accent }
+    /// `accent`: a pulsing dot ("Due now"); `live`: a pulsing timer glyph ("Active now").
+    enum Tone { case plain, accent, live }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                if tone == .accent {
-                    Circle()
-                        .fill(Color.qr.accent)
-                        .frame(width: 8, height: 8)
-                        .opacity(count > 0 && pulse ? 0.35 : 1)
-                        .accessibilityHidden(true)
-                        .onAppear {
-                            guard count > 0, !reduceMotion else { return }
-                            withQRAnimation(.easeInOut(duration: 1).repeatForever(), reduceMotion: reduceMotion) {
-                                pulse = true
-                            }
-                        }
+                switch tone {
+                case .plain:
+                    EmptyView()
+                case .accent:
+                    pulsing(Circle().fill(Color.qr.accent).frame(width: 8, height: 8))
+                case .live:
+                    pulsing(QIcon.timer.view(size: 14, weight: .bold).foregroundStyle(Color.qr.accentStrong))
                 }
                 Text(title.uppercased())
                     .font(.qr(.label))
@@ -400,7 +411,7 @@ private struct HomeSection<Content: View>: View {
                     // accessibility sizes rather than truncate (audit H7).
                     .lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
                     .minimumScaleFactor(0.6)
-                    .foregroundStyle(tone == .accent ? Color.qr.accentStrong : .qr.muted)
+                    .foregroundStyle(tone == .plain ? Color.qr.muted : .qr.accentStrong)
                 Text(count.formatted())
                     .font(.qr(.monoCaption))
                     .foregroundStyle(.qr.muted)
@@ -411,6 +422,19 @@ private struct HomeSection<Content: View>: View {
             .accessibilityIdentifier(identifier)
             content
         }
+    }
+
+    /// The tone's mark, pulsing while the section has tiles (never under Reduce Motion).
+    private func pulsing(_ mark: some View) -> some View {
+        mark
+            .opacity(count > 0 && pulse ? 0.35 : 1)
+            .accessibilityHidden(true)
+            .onAppear {
+                guard count > 0, !reduceMotion else { return }
+                withQRAnimation(.easeInOut(duration: 1).repeatForever(), reduceMotion: reduceMotion) {
+                    pulse = true
+                }
+            }
     }
 }
 

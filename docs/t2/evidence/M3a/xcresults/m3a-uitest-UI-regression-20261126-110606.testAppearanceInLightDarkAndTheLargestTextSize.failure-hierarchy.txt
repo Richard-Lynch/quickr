@@ -1,0 +1,53 @@
+Application, 0x11b1677f0, pid: 14382, label: 'quickR' <App element pid: 14382>
+  Window (Main), 0x11b16a6a0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4437760064.4>
+    Other, 0x11b16aa60, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4411566480.5>
+      Other, 0x11b16ab80, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4441792128.6>
+        Other, 0x11b16a7c0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4438719360.7>
+          Other, 0x11b16a8e0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4442113856.8>
+            Other, 0x11b16aca0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4443962928.9>
+              NavigationBar, 0x11b16adc0, {{0.0, 62.0}, {402.0, 54.0}}, identifier: 'Appearance' <AX element pid: 14382, elementOrHash.elementID: 4439840416.10>
+                Button, 0x11b16aee0, {{16.0, 62.0}, {44.0, 44.0}}, identifier: 'BackButton', label: 'New topic' <AX element pid: 14382, elementOrHash.elementID: 105553140603456.13>
+                StaticText, 0x11b16b000, {{142.8, 71.3}, {116.3, 25.3}}, label: 'Appearance' <AX element pid: 14382, elementOrHash.elementID: 4404092144.14>
+              Other, 0x11b16b120, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4443964800.11>
+                Other, 0x11b16b240, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4405153376.15>
+                  Other, 0x11b16b360, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4437821600.196>
+                    Other, 0x11b16b480, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4405686976.197>
+                      Other, 0x11b16b5a0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4405141952.198>
+                      CollectionView, 0x11b16b6c0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4412789248.199>
+                        Other, 0x11b16b7e0, {{-16.0, -1632.0}, {434.0, 2980.0}} <AX element pid: 14382, elementOrHash.elementID: 4411800016.200>
+                        Other, 0x11b16b900, {{0.0, 0.0}, {402.0, 170.8}} <AX element pid: 14382, elementOrHash.elementID: 4411672816.201>
+                        Cell, 0x11b16ba20, {{16.0, 116.0}, {370.0, 83.3}} <AX element pid: 14382, elementOrHash.elementID: 4429987328.202>
+                          Other, 0x11b16bb40, {{16.0, 116.0}, {370.0, 83.3}} <AX element pid: 14382, elementOrHash.elementID: 4411731504.205>
+                          Other, 0x11b16bc60, {{16.0, 116.0}, {370.0, 83.3}} <AX element pid: 14382, elementOrHash.elementID: 4411789760.206>
+                            Other, 0x11b16bd80, {{16.0, 116.0}, {370.0, 83.3}} <AX element pid: 14382, elementOrHash.elementID: 4430005248.210>
+                              Other, 0x11b16bea0, {{16.0, 116.0}, {370.0, 83.3}} <AX element pid: 14382, elementOrHash.elementID: 4437798368.493>
+                                StaticText, 0x11b16bfc0, {{16.0, 116.0}, {370.0, 83.3}}, label: 'Colour' <AX element pid: 14382, elementOrHash.elementID: 4437881392.494>
+                        Cell, 0x11b16c0e0, {{16.0, 199.3}, {370.0, 982.0}} <AX element pid: 14382, elementOrHash.elementID: 4429847040.203>
+                          Other, 0x11b16c200, {{16.0, 199.3}, {370.0, 982.0}} <AX element pid: 14382, elementOrHash.elementID: 4411730176.207>
+                            Other, 0x11b16c320, {{16.0, 199.3}, {370.0, 982.0}} <AX element pid: 14382, elementOrHash.elementID: 4411730672.211>
+                          Other, 0x11b16c4f0, {{16.0, 199.3}, {370.0, 982.0}} <AX element pid: 14382, elementOrHash.elementID: 4411729248.208>
+                            Other, 0x11b16c610, {{16.0, 199.3}, {370.0, 982.0}} <AX element pid: 14382, elementOrHash.elementID: 4429869056.212>
+                              Other, 0x11b16c730, {{16.0, 199.3}, {370.0, 982.0}} <AX element pid: 14382, elementOrHash.elementID: 4442344784.471>
+                                Other, 0x11b16c850, {{51.7, 220.3}, {299.0, 940.0}} <AX element pid: 14382, elementOrHash.elementID: 4442347920.475>
+                                  Button, 0x11b16c970, {{51.7, 220.3}, {124.0, 124.0}}, identifier: 'topic.color.none', label: 'No colour' <AX element pid: 14382, elementOrHash.elementID: 4442377984.480>
+                                  Button, 0x11b16ca90, {{226.7, 220.3}, {124.0, 124.0}}, identifier: 'topic.color.red', label: 'Red' <AX element pid: 14382, elementOrHash.elementID: 4442078816.481>
+                                  Button, 0x11b16cbb0, {{51.7, 356.3}, {124.0, 124.0}}, identifier: 'topic.color.orange', label: 'Orange' <AX element pid: 14382, elementOrHash.elementID: 4442376128.482>
+                                  Button, 0x11b16ccd0, {{226.7, 356.3}, {124.0, 124.0}}, identifier: 'topic.color.amber', label: 'Amber' <AX element pid: 14382, elementOrHash.elementID: 4442377024.483>
+                                  Button, 0x11b16cdf0, {{51.7, 492.3}, {124.0, 124.0}}, identifier: 'topic.color.yellow', label: 'Yellow' <AX element pid: 14382, elementOrHash.elementID: 4442336720.484>
+                                  Button, 0x11b16cf10, {{226.7, 492.3}, {124.0, 124.0}}, identifier: 'topic.color.lime', label: 'Lime' <AX element pid: 14382, elementOrHash.elementID: 4442338288.485>
+                                  Button, 0x11b16d030, {{51.7, 628.3}, {124.0, 124.0}}, identifier: 'topic.color.green', label: 'Green' <AX element pid: 14382, elementOrHash.elementID: 4442339856.486>
+                                  Button, 0x11b16d150, {{226.7, 628.3}, {124.0, 124.0}}, identifier: 'topic.color.teal', label: 'Teal', Selected <AX element pid: 14382, elementOrHash.elementID: 4442341424.487>
+                                  Button, 0x11b16d270, {{51.7, 764.3}, {124.0, 124.0}}, identifier: 'topic.color.cyan', label: 'Cyan' <AX element pid: 14382, elementOrHash.elementID: 4442342320.488>
+                                  Button, 0x11b16d390, {{226.7, 764.3}, {124.0, 124.0}}, identifier: 'topic.color.blue', label: 'Blue' <AX element pid: 14382, elementOrHash.elementID: 4442343888.489>
+                                  Button, 0x11b16d4b0, {{51.7, 900.3}, {124.0, 124.0}}, identifier: 'topic.color.indigo', label: 'Indigo' <AX element pid: 14382, elementOrHash.elementID: 4442345456.490>
+                                  Button, 0x11b16d5d0, {{226.7, 900.3}, {124.0, 124.0}}, identifier: 'topic.color.violet', label: 'Violet' <AX element pid: 14382, elementOrHash.elementID: 4442347024.491>
+                                  Button, 0x11b16d6f0, {{51.7, 1036.3}, {124.0, 124.0}}, identifier: 'topic.color.pink', label: 'Pink' <AX element pid: 14382, elementOrHash.elementID: 4442348592.492>
+                        Other, 0x11b16d810, {{369.0, 116.0}, {30.0, 696.0}}, label: 'Vertical scroll bar, 4 pages', value: 0% <AX element pid: 14382, elementOrHash.elementID: 4438017200.204>
+                          Other, 0x11b16d930, {{396.0, 119.0}, {3.0, 244.7}} <AX element pid: 14382, elementOrHash.elementID: 4438017664.209>
+                        Other, 0x11b16da50, {{369.0, 116.0}, {30.0, 696.0}}, label: 'Vertical scroll bar, 4 pages', value: 0% <AX element pid: 14382, elementOrHash.elementID: 4438017200.204>
+                          Other, 0x11b16db70, {{396.0, 119.0}, {3.0, 244.7}} <AX element pid: 14382, elementOrHash.elementID: 4438017664.209>
+              Other, 0x11b16dc90, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4442840144.12>
+                Other, 0x11b16ddb0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4442847680.16>
+  Window, 0x11b16ded0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4488514048.74>
+    Other, 0x11b16dff0, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4404218928.76>
+      Other, 0x11b16e110, {{0.0, 0.0}, {402.0, 874.0}} <AX element pid: 14382, elementOrHash.elementID: 4404238976.78>

@@ -1,12 +1,14 @@
 import Foundation
 
-/// Timing stats: best, median and mean run times, per step, laps and pauses (timers.md §9.1).
+/// Timing stats: best, median and mean run times, per step, per lap type, laps and pauses
+/// (timers.md §9.1, timers2.md §7.4).
 ///
 /// A port of backend/app/services/timing_stats.py, the model behind the timing charts;
 /// `shared/fixtures/timing-stats-vectors.json` is the contract. Every duration is active time in
 /// integer milliseconds. Best, median and mean of run totals count complete runs only; per-step
 /// stats, laps, pauses and the series count every timed run. Untimed entries (`timing` nil) count
-/// toward nothing here.
+/// toward nothing here. Step and lap-type buckets are keyed separately (the shared key namespace
+/// of timers2.md §1.1 is per timer, not per topic).
 public enum TimingStats {
     public struct TimedEntry: Sendable, Hashable {
         public var entryId: String
@@ -39,6 +41,17 @@ public enum TimingStats {
         public var meanMs: Int?
     }
 
+    /// One lap-type key seen in range: `laps` counts its lap segments over every timed run; best,
+    /// median and mean are over those segments' `activeMs`.
+    public struct LapTypeStats: Sendable, Hashable {
+        public var key: String
+        public var label: String
+        public var laps: Int
+        public var bestMs: Int?
+        public var medianMs: Int?
+        public var meanMs: Int?
+    }
+
     public struct LapStats: Sendable, Hashable {
         public var runsWithLaps: Int
         public var medianMs: Int?
@@ -59,6 +72,8 @@ public enum TimingStats {
         public var complete: Bool
         /// Each step segment's key and its `activeMs`.
         public var steps: [String: Int]
+        /// Each lap type and the sum of its lap segments' `activeMs` (untyped laps left out).
+        public var lapTypes: [String: Int]
     }
 
     /// `TopicTiming` (§9.2).
@@ -68,6 +83,8 @@ public enum TimingStats {
         public var total: Summary
         /// The current version's keys first, in step order, then the rest by key.
         public var steps: [StepStats]
+        /// The current version's lap types first, in order, then the rest by key.
+        public var lapTypes: [LapTypeStats]
         public var laps: LapStats
         public var paused: PausedStats
         /// By `(capturedAt, entryId)`.
@@ -92,43 +109,67 @@ public enum TimingStats {
     }
 
     /// Each step key's label in the latest version that has it.
-    public static func stepLabels(_ versions: [Int: [TopicTimer.Step]?]) -> [String: String] {
+    public static func stepLabels(_ versions: [Int: TopicTimer?]) -> [String: String] {
         var labels: [String: String] = [:]
         for number in versions.keys.sorted() {
-            for step in versions[number].flatMap({ $0 }) ?? [] { labels[step.key] = step.label }
+            for step in versions[number].flatMap({ $0 })?.steps ?? [] { labels[step.key] = step.label }
         }
         return labels
     }
 
+    /// Each lap-type key's label in the latest version that has it.
+    public static func lapTypeLabels(_ versions: [Int: TopicTimer?]) -> [String: String] {
+        var labels: [String: String] = [:]
+        for number in versions.keys.sorted() {
+            for type in versions[number].flatMap({ $0 })?.laps ?? [] { labels[type.key] = type.label }
+        }
+        return labels
+    }
+
+    /// The current version's keys first, in its order, then the rest by key.
+    static func ordered(_ current: [String], _ seen: Set<String>) -> [String] {
+        current.filter(seen.contains) + seen.subtracting(current).sorted(by: codePointLess)
+    }
+
     /// Timing stats over `entries` (already filtered to the range).
     ///
-    /// `versions` maps each version number of the topic to its steps (nil when that version isn't
-    /// timed). `steps` lists only keys seen in range (done or skipped). A key keeps the label of the
-    /// latest version that has it, else its latest segment's.
+    /// `versions` maps each version number of the topic to its timer (nil when that version isn't
+    /// timed). `steps` lists only keys seen in range (done or skipped), `lapTypes` only lap types
+    /// with a lap segment. A key keeps the label of the latest version that has it, else (steps)
+    /// its latest segment's.
     public static func compute(
-        _ entries: [TimedEntry], versions: [Int: [TopicTimer.Step]?], currentVersion: Int
+        _ entries: [TimedEntry], versions: [Int: TopicTimer?], currentVersion: Int
     ) -> TopicTiming {
         let timed = entries.compactMap { e in e.timing.map { (entry: e, timing: $0) } }
             .sorted { a, b in
                 a.entry.capturedAt != b.entry.capturedAt
                     ? a.entry.capturedAt < b.entry.capturedAt : codePointLess(a.entry.entryId, b.entry.entryId)
             }
-        let current = (versions[currentVersion].flatMap { $0 } ?? []).map(\.key)
+        let currentTimer = versions[currentVersion].flatMap { $0 }
+        let current = (currentTimer?.steps ?? []).map(\.key)
+        let currentTypes = (currentTimer?.laps ?? []).map(\.key)
         let labels = stepLabels(versions)
+        let typeLabels = lapTypeLabels(versions)
         var latestLabels: [String: String] = [:]  // a key in no version: its latest segment's label
 
         var done: [String: [Int]] = [:]
         var skipped: [String: Int] = [:]
+        var typed: [String: [Int]] = [:]
         var lapTotals: [Int] = []
         var paused: [Int] = []
         var series: [SeriesPoint] = []
         for (entry, t) in timed {
             var steps: [String: Int] = [:]
+            var byType: [String: Int] = [:]
             for s in t.segments {
-                guard let key = s.step else { continue }
-                steps[key] = s.activeMs
-                done[key, default: []].append(s.activeMs)
-                latestLabels[key] = s.label
+                if let key = s.step {
+                    steps[key] = s.activeMs
+                    done[key, default: []].append(s.activeMs)
+                    latestLabels[key] = s.label
+                } else if let type = s.lapType {
+                    typed[type, default: []].append(s.activeMs)
+                    byType[type, default: 0] += s.activeMs
+                }
             }
             for key in t.skipped { skipped[key, default: 0] += 1 }
             let laps = t.segments.filter { $0.kind == .lap }.map(\.activeMs)
@@ -137,11 +178,10 @@ public enum TimingStats {
             series.append(
                 SeriesPoint(
                     entryId: entry.entryId, capturedAt: entry.capturedAt, startedAt: t.startedAt,
-                    activeMs: t.activeMs, pausedMs: t.pausedMs, complete: t.complete, steps: steps))
+                    activeMs: t.activeMs, pausedMs: t.pausedMs, complete: t.complete, steps: steps, lapTypes: byType))
         }
 
-        let seen = Set(done.keys).union(skipped.keys)
-        let order = current.filter(seen.contains) + seen.subtracting(current).sorted(by: codePointLess)
+        let order = ordered(current, Set(done.keys).union(skipped.keys))
         let complete = timed.filter(\.timing.complete).map(\.timing.activeMs)
         return TopicTiming(
             runs: timed.count, completeRuns: complete.count, total: summary(complete),
@@ -152,6 +192,12 @@ public enum TimingStats {
                     key: key, label: label, current: current.contains(key), done: durations.count,
                     skipped: skipped[key] ?? 0, bestMs: durations.min(), medianMs: median(durations),
                     meanMs: mean(durations))
+            },
+            lapTypes: ordered(currentTypes, Set(typed.keys)).map { key in
+                let durations = typed[key] ?? []
+                return LapTypeStats(
+                    key: key, label: typeLabels[key] ?? key, laps: durations.count, bestMs: durations.min(),
+                    medianMs: median(durations), meanMs: mean(durations))
             },
             laps: LapStats(runsWithLaps: lapTotals.count, medianMs: median(lapTotals), meanMs: mean(lapTotals)),
             paused: PausedStats(runsWithPauses: paused.count, medianMs: median(paused)),

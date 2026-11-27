@@ -33,6 +33,13 @@ public struct LocalRun: Sendable, Hashable, Identifiable {
     /// Whether the pinned version has any question (Stop then opens the answers form, §11.2);
     /// nil when the version isn't stored.
     public var hasQuestions: Bool?
+    /// The pinned version's timer (steps, lap types and their alerts, timers2.md §1.1), for
+    /// `RunPresentation`; nil exactly when `steps` is (an untimed stored version has no steps).
+    public var timer: TopicTimer?
+    /// A reopen queued from the run's entry while no run row is here (timers2.md §5.3): the run is
+    /// projected from the entry's timing, "Resuming…" without controls, until the ack replaces it
+    /// with the server's run. It takes no tap but its revert (a discard).
+    public var resuming = false
 
     public var isOpen: Bool { status.isOpen }
 
@@ -66,7 +73,9 @@ public struct LocalRun: Sendable, Hashable, Identifiable {
 
 /// The local view of runs (timers.md §8.3), read inside the caller's transaction like the rest of
 /// the view. A queued start makes an open run at once, offline too, and a device that is the only
-/// one tapping sees exactly the state the server will reach.
+/// one tapping sees exactly the state the server will reach. A queued reopen of a closed run
+/// whose entry is here projects a "resuming" run from that entry (timers2.md §5.3,
+/// `RunOverlay+Reopen.swift`).
 ///
 /// The server layer is updated atomically with each ack (`ServerLayer.apply(runEvent:)`), so an
 /// acked event never drops out of the view before the feed has it: unlike the PWA, no record of
@@ -123,10 +132,15 @@ public enum RunOverlay {
             }
         }
         for key in order {
-            // A closed run's tombstone: its start was answered elsewhere, its queued taps are
-            // the server's to merge (§4.4).
-            guard let queued = groups[key], queued.contains(where: { $0.id == key }),
-                try !ServerLayer.isTombstoned(db, kind: .run, id: key),
+            guard let queued = groups[key] else { continue }
+            // No start here: a reopen queued from the run's entry (timers2.md §5.3) resumes it.
+            guard queued.contains(where: { $0.id == key }) else {
+                if let run = try resuming(db, id: key, queued: queued, book) { result.append(run) }
+                continue
+            }
+            // A closed run's marker (or a deleted one's tombstone): its start was answered
+            // elsewhere, its queued taps are the server's to merge (§4.4).
+            guard try !ServerLayer.isClosedRun(db, id: key),
                 let run = try build(db, id: key, server: nil, queued: queued, aliases: [], book)
             else { continue }
             result.append(run)
@@ -176,11 +190,15 @@ public enum RunOverlay {
             state = server.state
         } else if info.steps == nil, let server {
             // The pinned version isn't stored: the server's labels, not a fold over the wrong steps,
-            // with this device's step-independent taps over them.
+            // with this device's step-independent taps over them (a reopen of the server's closed
+            // state first: `reopened(_:taps:)`).
+            let (base, taps) = reopened(server.state, taps: mine.compactMap { queuedEvent($0.0, $0.1) })
             state = RunFold.overlay(
-                server.state, events: mine.compactMap { queuedEvent($0.0, $0.1) },
-                pauseId: LocalRun.openPauseId(server.state, server.foldEvents))
-        } else if let folded = try? RunFold.fold(runId: id, steps: info.steps ?? [], events: events) {
+                base, events: taps,
+                pauseId: base.pausedSince == nil ? nil : LocalRun.openPauseId(server.state, server.foldEvents))
+        } else if let folded = try? RunFold.fold(
+            runId: id, timer: info.timer ?? TopicTimer(steps: []), events: events)
+        {
             state = folded
         } else if let server {
             state = server.state
@@ -191,48 +209,65 @@ public enum RunOverlay {
         var aliases = Set((server?.aliases.map(\.wireString) ?? []) + storedAliases)
         for (_, payload) in mine { aliases.insert(payload.runId) }
         aliases.remove(id)
+        let entry =
+            isReopened(state, events)
+            ? try hasEntry(
+                db, id: id, server: server, events: events, mine: mine, requiresAnswers: info.requiresAnswers)
+            : false
         return LocalRun(
             id: id, topicId: topicId, topic: mine.last?.1.topic, version: version,
-            status: status(server: server, state: state, mine: mine.map(\.1), requiresAnswers: info.requiresAnswers),
+            status: status(
+                server: server, state: state, events: events, mine: mine, requiresAnswers: info.requiresAnswers,
+                entry: entry),
             state: state, events: events, aliases: aliases.sorted(), server: server, queued: queued,
-            steps: info.steps, requiresAnswers: info.requiresAnswers, hasQuestions: info.hasQuestions)
+            steps: info.steps, requiresAnswers: info.requiresAnswers, hasQuestions: info.hasQuestions,
+            timer: info.timer)
     }
 
-    private static func queuedEvent(_ item: OutboxItem, _ payload: RunEventPayload) -> RunEvent? {
+    static func queuedEvent(_ item: OutboxItem, _ payload: RunEventPayload) -> RunEvent? {
         guard let type = payload.type, let at = RunInstant.parse(payload.event.at) else { return nil }
         return RunEvent(
             id: item.id.lowercased(), type: type, at: at, seg: payload.event.seg, step: payload.event.step,
-            pauseId: payload.event.pauseId?.lowercased())
+            pauseId: payload.event.pauseId?.lowercased(), target: payload.event.target?.lowercased())
     }
 
     /// The fold says `stopped`; the server decides `finishing` (§3.5), and a finishing run's
-    /// discard and finish happen outside the fold (§3.6, §3.7).
+    /// discard and finish happen outside the fold (§3.6, §3.7). A discard that reverted a reopen
+    /// (timers2.md §3.4) leaves the run `stopped` when it has its entry, and `discarded` when it
+    /// doesn't (a reopened finishing run, §4.1, §5.3: no optimistic entry, A15). `entry`: the run
+    /// was reopened and has its entry (`hasEntry`).
     private static func status(
-        server: Run?, state: RunState, mine: [RunEventPayload], requiresAnswers: Bool?
+        server: Run?, state: RunState, events: [RunEvent], mine: [(OutboxItem, RunEventPayload)],
+        requiresAnswers: Bool?, entry: Bool
     ) -> RunStatus {
+        if !state.status.isOpen, isReverted(state, events) || (state.status == .discarded && isReopened(state, events))
+        {
+            return entry ? .stopped : .discarded
+        }
         guard state.status == .stopped else { return state.status }
-        guard stopLeavesFinishing(server: server, state: state, mine: mine, requiresAnswers: requiresAnswers)
+        guard
+            stopLeavesFinishing(
+                server: server, state: state, mine: mine.map(\.1), requiresAnswers: requiresAnswers, entry: entry)
         else { return .stopped }
-        if mine.contains(where: { $0.type == .discard }) { return .discarded }
-        if mine.contains(where: { $0.type == .finish }) { return .stopped }
+        if mine.contains(where: { $0.1.type == .discard }) { return .discarded }
+        if mine.contains(where: { $0.1.type == .finish }) { return .stopped }
         return .finishing
     }
 
-    /// The server says the run is finishing, or its stop is this device's queued one, carries no
-    /// answers and the version has a required question.
+    /// The server says the run is finishing, or its stop (the terminal) is this device's queued
+    /// one, carries no answers and the version has a required question. A re-stop of a reopened
+    /// run that has its entry never leaves it finishing (timers2.md §4.1): it updates the entry.
     private static func stopLeavesFinishing(
-        server: Run?, state: RunState, mine: [RunEventPayload], requiresAnswers: Bool?
+        server: Run?, state: RunState, mine: [RunEventPayload], requiresAnswers: Bool?, entry: Bool
     ) -> Bool {
+        if entry { return false }
         if server?.status == .finishing { return true }
-        guard
-            let stop = mine.first(where: {
-                $0.type == .stop && state.effects[$0.event.id.lowercased()] == .applied
-            })
+        guard let terminal = state.terminalId, let stop = mine.first(where: { $0.event.id.lowercased() == terminal })
         else { return false }
-        return stop.event.answers == nil && requiresAnswers == true
+        return stop.type == .stop && stop.event.answers == nil && requiresAnswers == true
     }
 
-    private static func topicExists(_ db: Database, _ id: String) throws -> Bool {
+    static func topicExists(_ db: Database, _ id: String) throws -> Bool {
         try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM topic WHERE id = ?)", arguments: [id]) ?? false
     }
 
@@ -258,7 +293,7 @@ public enum RunOverlay {
         else { return [] }
         var result: [EntryOverlay] = []
         for run in try localRuns(db, topicId: topicId) {
-            guard run.status == .stopped, run.server?.status != .stopped, let steps = run.steps,
+            guard run.status == .stopped, !run.resuming, run.server?.status != .stopped, let steps = run.steps,
                 let entryId = UUID(uuidString: run.id),
                 try !ServerLayer.isTombstoned(db, kind: .entry, id: run.id),
                 try Bool.fetchOne(db, sql: "SELECT EXISTS (SELECT 1 FROM entry WHERE id = ?)", arguments: [run.id])
@@ -292,8 +327,11 @@ public enum RunOverlay {
 
 /// The steps and required-question flag of each `(topic, version)`, read lazily within one read
 /// transaction.
-private final class VersionBook {
+final class VersionBook {
     struct Info {
+        /// The version's timer (steps and lap types, the fold's input); nil exactly when `steps`
+        /// is (not stored). An untimed stored version has no steps and no lap types.
+        var timer: TopicTimer?
         var steps: [TopicTimer.Step]?
         var requiresAnswers: Bool?
         var hasQuestions: Bool?
@@ -315,7 +353,8 @@ private final class VersionBook {
         var info = Info()
         if let row {
             let timer = try (row["timer_json"] as String?).map { try StoreJSON.decode(TopicTimer.self, $0) }
-            info.steps = timer?.steps ?? []
+            info.timer = timer ?? TopicTimer(steps: [])
+            info.steps = info.timer?.steps
             let questions = try StoreJSON.decode([QuestionDTO].self, row["questions_json"]).toDomain()
             info.requiresAnswers = questions.contains(where: \.required)
             info.hasQuestions = !questions.isEmpty

@@ -3,6 +3,30 @@
 import * as z from 'zod';
 
 /**
+ * Alert
+ *
+ * A cue that fires when its segment's active time reaches ``at_ms``.
+ */
+export const zAlertInput = z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    label: z.string().min(1).max(64),
+    at: z.string().min(1).max(64),
+    at_ms: z.int().optional().default(0)
+});
+
+/**
+ * Alert
+ *
+ * A cue that fires when its segment's active time reaches ``at_ms``.
+ */
+export const zAlertOutput = z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    label: z.string().min(1).max(64),
+    at: z.string().min(1).max(64),
+    at_ms: z.int().default(0)
+});
+
+/**
  * ApnsDeviceIn
  *
  * An iOS app install's APNs registration, upserted by token (sent on every launch).
@@ -291,8 +315,9 @@ export const zEnumStats = z.object({
  * FeedDeletion
  *
  * A permanently deleted id. A topic deletion also deletes all of its versions, entries and
- * runs. A ``run`` deletion means the run is no longer open or finishing: it stopped, was
- * discarded, or went with its topic.
+ * runs. A ``run`` deletion means the run is closed, no longer open or finishing: it stopped,
+ * was discarded, or went with its topic. A stopped run may be reopened, so a later ``run`` item
+ * with a higher ``revision`` can follow its deletion (timers2.md §5.1, §5.2).
  */
 export const zFeedDeletion = z.object({
     kind: z.enum([
@@ -304,7 +329,8 @@ export const zFeedDeletion = z.object({
     seq: z.int(),
     id: z.uuid(),
     topic_id: z.uuid(),
-    deleted_at: z.iso.datetime({ offset: true })
+    deleted_at: z.iso.datetime({ offset: true }),
+    revision: z.int().nullable()
 });
 
 /**
@@ -400,6 +426,30 @@ export const zIntervalScheduleOutput = z.object({
 });
 
 /**
+ * LapType
+ *
+ * A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two
+ * or more alternate). Its key is its identity across versions, as a step's is.
+ */
+export const zLapTypeInput = z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    label: z.string().min(1).max(64),
+    alerts: z.array(zAlertInput).max(8).optional()
+});
+
+/**
+ * LapType
+ *
+ * A kind of lap: laps cycle through the timer's lap types in order (one renames laps, two
+ * or more alternate). Its key is its identity across versions, as a step's is.
+ */
+export const zLapTypeOutput = z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    label: z.string().min(1).max(64),
+    alerts: z.array(zAlertOutput).max(8)
+});
+
+/**
  * Limits
  *
  * Validation ceilings, so clients can mirror server-side validation without hard-coding.
@@ -427,7 +477,31 @@ export const zLimits = z.object({
     captured_at_max_future_hours: z.int().default(24),
     schedule_max_times: z.int().default(24),
     interval_min_minutes: z.int().default(15),
-    interval_max_minutes: z.int().default(129600)
+    interval_max_minutes: z.int().default(129600),
+    max_steps: z.int().default(30),
+    max_lap_types: z.int().default(8),
+    max_variables: z.int().default(16),
+    max_alerts: z.int().default(8),
+    max_expr_length: z.int().default(64),
+    max_var_name_length: z.int().default(16),
+    max_short_label_length: z.int().default(64),
+    max_tags: z.int().default(10),
+    max_tag_length: z.int().default(24),
+    max_icon_length: z.int().default(16),
+    color_names: z.array(z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
+    ]))
 });
 
 /**
@@ -621,7 +695,11 @@ export const zRunEventEffect = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable()
 });
 
@@ -641,12 +719,15 @@ export const zRunEventIn = z.object({
         'resume',
         'stop',
         'finish',
-        'discard'
+        'discard',
+        'reopen',
+        'remove'
     ]),
     at: z.iso.datetime({ offset: true }),
     seg: z.int().gte(0).nullish(),
     step: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).nullish(),
     pause_id: z.uuid().nullish(),
+    target: z.uuid().nullish(),
     topic_id: z.uuid().nullish(),
     version: z.int().gte(1).nullish(),
     answers: z.record(z.string(), z.union([
@@ -674,12 +755,15 @@ export const zRunEventOut = z.object({
         'resume',
         'stop',
         'finish',
-        'discard'
+        'discard',
+        'reopen',
+        'remove'
     ]),
     at: z.iso.datetime({ offset: true }),
     seg: z.int().nullable(),
     step: z.string().nullable(),
     pause_id: z.uuid().nullable(),
+    target: z.uuid().nullable(),
     arrival: z.int(),
     effect: z.enum(['applied', 'void']),
     reason: z.enum([
@@ -693,7 +777,11 @@ export const zRunEventOut = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable(),
     source: z.string()
 });
@@ -715,7 +803,11 @@ export const zRunEventResultEvent = z.object({
         'stale',
         'no_step',
         'already_paused',
-        'not_paused'
+        'not_paused',
+        'reverted',
+        'not_stopped',
+        'deleted',
+        'no_target'
     ]).nullable()
 });
 
@@ -727,7 +819,8 @@ export const zRunOpenSegment = z.object({
     kind: z.enum(['step', 'lap']),
     step: z.string().nullable(),
     label: z.string(),
-    started_at: z.iso.datetime({ offset: true })
+    started_at: z.iso.datetime({ offset: true }),
+    lap_type: z.string().nullable()
 });
 
 /**
@@ -765,11 +858,26 @@ export const zQuestionSeries = z.object({
  * Step
  *
  * A named checkpoint of a timed topic. Its key is its identity across versions, in a
- * namespace of its own (a step and a question may share a key).
+ * namespace of its own (a step and a question may share a key) that it shares with the
+ * timer's lap types.
  */
-export const zStep = z.object({
+export const zStepInput = z.object({
     key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
-    label: z.string().min(1).max(200)
+    label: z.string().min(1).max(200),
+    alerts: z.array(zAlertInput).max(8).optional()
+});
+
+/**
+ * Step
+ *
+ * A named checkpoint of a timed topic. Its key is its identity across versions, in a
+ * namespace of its own (a step and a question may share a key) that it shares with the
+ * timer's lap types.
+ */
+export const zStepOutput = z.object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/),
+    label: z.string().min(1).max(200),
+    alerts: z.array(zAlertOutput).max(8)
 });
 
 /**
@@ -807,15 +915,6 @@ export const zStrQuestionOutput = z.object({
     min_length: z.int().gte(0).lte(10000).default(0),
     max_length: z.int().gte(1).lte(10000).default(500),
     multiline: z.boolean().default(false)
-});
-
-/**
- * Timer
- *
- * A version's timing: its steps, timed in this order. No steps makes a plain stopwatch.
- */
-export const zTimer = z.object({
-    steps: z.array(zStep).max(30)
 });
 
 /**
@@ -869,6 +968,18 @@ export const zEntryUpdate = z.object({
 });
 
 /**
+ * TimingLapTypeStats
+ */
+export const zTimingLapTypeStats = z.object({
+    key: z.string(),
+    label: z.string(),
+    laps: z.int(),
+    best_ms: z.int().nullable(),
+    median_ms: z.int().nullable(),
+    mean_ms: z.int().nullable()
+});
+
+/**
  * TimingLaps
  */
 export const zTimingLaps = z.object({
@@ -882,7 +993,8 @@ export const zTimingLaps = z.object({
  */
 export const zTimingPause = z.object({
     start: z.iso.datetime({ offset: true }),
-    end: z.iso.datetime({ offset: true })
+    end: z.iso.datetime({ offset: true }),
+    id: z.uuid().nullable()
 });
 
 /**
@@ -896,7 +1008,7 @@ export const zTimingPaused = z.object({
 /**
  * TimingSegment
  *
- * One segment of a finished run: a named step's time, or an unnamed lap's.
+ * One segment of a finished run: a named step's time, or a lap's (typed or not).
  */
 export const zTimingSegment = z.object({
     kind: z.enum(['step', 'lap']),
@@ -905,7 +1017,15 @@ export const zTimingSegment = z.object({
     started_at: z.iso.datetime({ offset: true }),
     ended_at: z.iso.datetime({ offset: true }),
     active_ms: z.int(),
-    paused_ms: z.int()
+    paused_ms: z.int(),
+    lap_type: z.string().nullable(),
+    event_id: z.uuid().nullable(),
+    opened_by: z.enum([
+        'start',
+        'next',
+        'lap',
+        'skip'
+    ]).nullable()
 });
 
 /**
@@ -931,7 +1051,10 @@ export const zRunState = z.object({
     segments: z.array(zTimingSegment),
     skipped: z.array(z.string()),
     pauses: z.array(zTimingPause),
-    effects: z.record(z.string(), zRunEventEffect)
+    effects: z.record(z.string(), zRunEventEffect),
+    terminal_id: z.uuid().nullable(),
+    next_lap_type: z.string().nullable(),
+    lap_count: z.int().default(0)
 });
 
 /**
@@ -986,7 +1109,8 @@ export const zTiming = z.object({
     edited: z.boolean(),
     segments: z.array(zTimingSegment),
     skipped: z.array(z.string()),
-    pauses: z.array(zTimingPause)
+    pauses: z.array(zTimingPause),
+    terminal_id: z.uuid().nullable()
 });
 
 /**
@@ -1052,7 +1176,8 @@ export const zTimingSeriesPoint = z.object({
     active_ms: z.int(),
     paused_ms: z.int(),
     complete: z.boolean(),
-    steps: z.record(z.string(), z.int())
+    steps: z.record(z.string(), z.int()),
+    lap_types: z.record(z.string(), z.int())
 });
 
 /**
@@ -1081,109 +1206,90 @@ export const zTimingSummary = z.object({
 });
 
 /**
- * TopicCreate
+ * TopicIcon
  */
-export const zTopicCreate = z.object({
-    name: z.string().min(1).max(200),
-    slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).nullish(),
-    description: z.string().max(5000).optional().default(''),
-    questions: z.array(z.union([
-        zIntQuestionInput,
-        zDoubleQuestionInput,
-        zStrQuestionInput,
-        zEnumQuestionInput
-    ])).min(0).max(100),
-    schedule: z.discriminatedUnion('kind', [
-        zDailyScheduleInput,
-        zIntervalScheduleInput
+export const zTopicIcon = z.object({
+    kind: z.literal('emoji'),
+    value: z.string()
+});
+
+/**
+ * AppearanceUpdate
+ *
+ * Partial appearance update: an omitted field is unchanged; ``color: null`` and ``icon: null``
+ * clear; ``tags: []`` clears the tags.
+ */
+export const zAppearanceUpdate = z.object({
+    color: z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
     ]).nullish(),
-    timer: zTimer.nullish()
+    icon: zTopicIcon.nullish(),
+    tags: z.array(z.string()).optional()
+});
+
+/**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export const zTopicAppearanceInput = z.object({
+    color: z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
+    ]).nullish(),
+    icon: zTopicIcon.nullish(),
+    tags: z.array(z.string()).optional().default([])
+});
+
+/**
+ * TopicAppearance
+ *
+ * A topic's colour, emoji and tags. Always present on a topic (defaults: null, null, []).
+ */
+export const zTopicAppearanceOutput = z.object({
+    color: z.enum([
+        'red',
+        'orange',
+        'amber',
+        'yellow',
+        'lime',
+        'green',
+        'teal',
+        'cyan',
+        'blue',
+        'indigo',
+        'violet',
+        'pink'
+    ]).nullable(),
+    icon: zTopicIcon.nullable(),
+    tags: z.array(z.string()).default([])
 });
 
 /**
  * TopicStatus
  */
 export const zTopicStatus = z.enum(['active', 'archived']);
-
-/**
- * TopicDetail
- */
-export const zTopicDetail = z.object({
-    id: z.uuid(),
-    slug: z.string(),
-    name: z.string(),
-    description: z.string(),
-    status: zTopicStatus,
-    current_version: z.int(),
-    revision: z.int(),
-    question_count: z.int(),
-    entry_count: z.int(),
-    last_captured_at: z.iso.datetime({ offset: true }).nullable(),
-    created_at: z.iso.datetime({ offset: true }),
-    updated_at: z.iso.datetime({ offset: true }),
-    archived_at: z.iso.datetime({ offset: true }).nullable(),
-    schedule: z.discriminatedUnion('kind', [
-        zDailyScheduleOutput,
-        zIntervalScheduleOutput
-    ]).nullable(),
-    schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
-    due: zDueStatus.nullable(),
-    timer: zTimer.nullable(),
-    questions: z.array(z.union([
-        zIntQuestionOutput,
-        zDoubleQuestionOutput,
-        zStrQuestionOutput,
-        zEnumQuestionOutput
-    ]))
-});
-
-/**
- * FeedTopic
- *
- * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
- * ``due``) are not re-sent when entries change: clients recompute them from entries.
- */
-export const zFeedTopic = z.object({
-    kind: z.literal('topic').default('topic'),
-    seq: z.int(),
-    topic: zTopicDetail
-});
-
-/**
- * TopicSummary
- */
-export const zTopicSummary = z.object({
-    id: z.uuid(),
-    slug: z.string(),
-    name: z.string(),
-    description: z.string(),
-    status: zTopicStatus,
-    current_version: z.int(),
-    revision: z.int(),
-    question_count: z.int(),
-    entry_count: z.int(),
-    last_captured_at: z.iso.datetime({ offset: true }).nullable(),
-    created_at: z.iso.datetime({ offset: true }),
-    updated_at: z.iso.datetime({ offset: true }),
-    archived_at: z.iso.datetime({ offset: true }).nullable(),
-    schedule: z.discriminatedUnion('kind', [
-        zDailyScheduleOutput,
-        zIntervalScheduleOutput
-    ]).nullable(),
-    schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
-    due: zDueStatus.nullable(),
-    timer: zTimer.nullable()
-});
-
-/**
- * TopicPage
- */
-export const zTopicPage = z.object({
-    items: z.array(zTopicSummary),
-    total: z.int(),
-    limit: z.int(),
-    offset: z.int()
-});
 
 /**
  * TopicTiming
@@ -1196,6 +1302,7 @@ export const zTopicTiming = z.object({
     complete_runs: z.int(),
     total: zTimingSummary,
     steps: z.array(zTimingStepStats),
+    lap_types: z.array(zTimingLapTypeStats),
     laps: zTimingLaps,
     paused: zTimingPaused,
     series: z.array(zTimingSeriesPoint)
@@ -1216,63 +1323,8 @@ export const zTopicUpdate = z.object({
         zDailyScheduleInput,
         zIntervalScheduleInput
     ]).nullish(),
-    expected_revision: z.int().gte(1).nullish()
-});
-
-/**
- * TopicVersionOut
- */
-export const zTopicVersionOut = z.object({
-    version: z.int(),
-    questions: z.array(z.union([
-        zIntQuestionOutput,
-        zDoubleQuestionOutput,
-        zStrQuestionOutput,
-        zEnumQuestionOutput
-    ])),
-    timer: zTimer.nullable(),
-    change_note: z.string(),
-    created_at: z.iso.datetime({ offset: true }),
-    entry_count: z.int()
-});
-
-/**
- * FeedVersion
- *
- * A published question version (immutable; ``version.entry_count`` is as of this page).
- */
-export const zFeedVersion = z.object({
-    kind: z.literal('version').default('version'),
-    seq: z.int(),
-    id: z.uuid(),
-    topic_id: z.uuid(),
-    version: zTopicVersionOut
-});
-
-/**
- * ChangesPage
- *
- * One page of the change feed, read from a single consistent snapshot.
- *
- * Each changed entity appears once, in its latest state (``items``) or as a deletion
- * (``deleted``). Apply ``items`` in order (topics, then versions, then entries, then runs),
- * then ``deleted`` (runs, then entries, then versions, then topics), then store ``next`` as
- * the cursor.
- */
-export const zChangesPage = z.object({
-    items: z.array(z.union([
-        zFeedEntry,
-        zFeedTopic,
-        zFeedVersion,
-        zFeedRun
-    ])),
-    deleted: z.array(zFeedDeletion),
-    next: z.int(),
-    has_more: z.boolean(),
-    head: z.int(),
-    epoch: z.string(),
-    server_id: z.string(),
-    server_time: z.iso.datetime({ offset: true })
+    expected_revision: z.int().gte(1).nullish(),
+    appearance: zAppearanceUpdate.optional()
 });
 
 /**
@@ -1332,6 +1384,207 @@ export const zTopicStats = z.object({
 });
 
 /**
+ * Variable
+ *
+ * A named duration that alert expressions refer to (``t``, ``rest``).
+ */
+export const zVariable = z.object({
+    name: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,15}$/),
+    ms: z.int().gte(0).lte(604800000)
+});
+
+/**
+ * Timer
+ *
+ * A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),
+ * its lap types, and the variables its alerts refer to (timers2.md §1).
+ *
+ * Output is normalised: every list is present and each alert's ``at_ms`` is filled. The v1
+ * shape ``{steps: [{key, label}]}`` is accepted, stored ones included.
+ */
+export const zTimerInput = z.object({
+    steps: z.array(zStepInput).max(30),
+    laps: z.array(zLapTypeInput).max(8).optional(),
+    variables: z.array(zVariable).max(16).optional()
+});
+
+/**
+ * Timer
+ *
+ * A version's timing: its steps, timed in this order (no steps makes a plain stopwatch),
+ * its lap types, and the variables its alerts refer to (timers2.md §1).
+ *
+ * Output is normalised: every list is present and each alert's ``at_ms`` is filled. The v1
+ * shape ``{steps: [{key, label}]}`` is accepted, stored ones included.
+ */
+export const zTimerOutput = z.object({
+    steps: z.array(zStepOutput).max(30),
+    laps: z.array(zLapTypeOutput).max(8),
+    variables: z.array(zVariable).max(16)
+});
+
+/**
+ * TopicCreate
+ */
+export const zTopicCreate = z.object({
+    name: z.string().min(1).max(200),
+    slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).nullish(),
+    description: z.string().max(5000).optional().default(''),
+    questions: z.array(z.union([
+        zIntQuestionInput,
+        zDoubleQuestionInput,
+        zStrQuestionInput,
+        zEnumQuestionInput
+    ])).min(0).max(100),
+    schedule: z.discriminatedUnion('kind', [
+        zDailyScheduleInput,
+        zIntervalScheduleInput
+    ]).nullish(),
+    timer: zTimerInput.nullish(),
+    appearance: zTopicAppearanceInput.nullish()
+});
+
+/**
+ * TopicDetail
+ */
+export const zTopicDetail = z.object({
+    id: z.uuid(),
+    slug: z.string(),
+    name: z.string(),
+    description: z.string(),
+    status: zTopicStatus,
+    current_version: z.int(),
+    revision: z.int(),
+    question_count: z.int(),
+    entry_count: z.int(),
+    last_captured_at: z.iso.datetime({ offset: true }).nullable(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+    archived_at: z.iso.datetime({ offset: true }).nullable(),
+    schedule: z.discriminatedUnion('kind', [
+        zDailyScheduleOutput,
+        zIntervalScheduleOutput
+    ]).nullable(),
+    schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
+    due: zDueStatus.nullable(),
+    timer: zTimerOutput.nullable(),
+    last_entry: zEntryOut.nullable(),
+    appearance: zTopicAppearanceOutput,
+    questions: z.array(z.union([
+        zIntQuestionOutput,
+        zDoubleQuestionOutput,
+        zStrQuestionOutput,
+        zEnumQuestionOutput
+    ]))
+});
+
+/**
+ * FeedTopic
+ *
+ * A topic's current state. Its derived fields (``entry_count``, ``last_captured_at``,
+ * ``due``, ``last_entry``) are not re-sent when entries change: clients recompute them from entries.
+ */
+export const zFeedTopic = z.object({
+    kind: z.literal('topic').default('topic'),
+    seq: z.int(),
+    topic: zTopicDetail
+});
+
+/**
+ * TopicSummary
+ */
+export const zTopicSummary = z.object({
+    id: z.uuid(),
+    slug: z.string(),
+    name: z.string(),
+    description: z.string(),
+    status: zTopicStatus,
+    current_version: z.int(),
+    revision: z.int(),
+    question_count: z.int(),
+    entry_count: z.int(),
+    last_captured_at: z.iso.datetime({ offset: true }).nullable(),
+    created_at: z.iso.datetime({ offset: true }),
+    updated_at: z.iso.datetime({ offset: true }),
+    archived_at: z.iso.datetime({ offset: true }).nullable(),
+    schedule: z.discriminatedUnion('kind', [
+        zDailyScheduleOutput,
+        zIntervalScheduleOutput
+    ]).nullable(),
+    schedule_updated_at: z.iso.datetime({ offset: true }).nullable(),
+    due: zDueStatus.nullable(),
+    timer: zTimerOutput.nullable(),
+    last_entry: zEntryOut.nullable(),
+    appearance: zTopicAppearanceOutput
+});
+
+/**
+ * TopicPage
+ */
+export const zTopicPage = z.object({
+    items: z.array(zTopicSummary),
+    total: z.int(),
+    limit: z.int(),
+    offset: z.int()
+});
+
+/**
+ * TopicVersionOut
+ */
+export const zTopicVersionOut = z.object({
+    version: z.int(),
+    questions: z.array(z.union([
+        zIntQuestionOutput,
+        zDoubleQuestionOutput,
+        zStrQuestionOutput,
+        zEnumQuestionOutput
+    ])),
+    timer: zTimerOutput.nullable(),
+    change_note: z.string(),
+    created_at: z.iso.datetime({ offset: true }),
+    entry_count: z.int()
+});
+
+/**
+ * FeedVersion
+ *
+ * A published question version (immutable; ``version.entry_count`` is as of this page).
+ */
+export const zFeedVersion = z.object({
+    kind: z.literal('version').default('version'),
+    seq: z.int(),
+    id: z.uuid(),
+    topic_id: z.uuid(),
+    version: zTopicVersionOut
+});
+
+/**
+ * ChangesPage
+ *
+ * One page of the change feed, read from a single consistent snapshot.
+ *
+ * Each changed entity appears once, in its latest state (``items``) or as a deletion
+ * (``deleted``). Apply ``items`` in order (topics, then versions, then entries, then runs),
+ * then ``deleted`` (runs, then entries, then versions, then topics), then store ``next`` as
+ * the cursor.
+ */
+export const zChangesPage = z.object({
+    items: z.array(z.union([
+        zFeedEntry,
+        zFeedTopic,
+        zFeedVersion,
+        zFeedRun
+    ])),
+    deleted: z.array(zFeedDeletion),
+    next: z.int(),
+    has_more: z.boolean(),
+    head: z.int(),
+    epoch: z.string(),
+    server_id: z.string(),
+    server_time: z.iso.datetime({ offset: true })
+});
+
+/**
  * VersionCreate
  */
 export const zVersionCreate = z.object({
@@ -1342,7 +1595,7 @@ export const zVersionCreate = z.object({
         zEnumQuestionInput
     ])).min(0).max(100),
     base_version: z.int().gte(1),
-    timer: zTimer.nullable(),
+    timer: zTimerInput.nullable(),
     change_note: z.string().max(2000).optional().default('')
 });
 
@@ -1357,7 +1610,7 @@ export const zVersionDraft = z.object({
         zEnumQuestionInput
     ])).min(0).max(100),
     base_version: z.int().gte(1).nullish(),
-    timer: zTimer.nullish()
+    timer: zTimerInput.nullish()
 });
 
 /**
@@ -1403,6 +1656,7 @@ export const zListTopicsQuery = z.object({
         '-activity'
     ]).optional().default('due'),
     due_only: z.boolean().optional().default(false),
+    tag: z.string().max(24).nullish(),
     limit: z.int().gte(1).lte(200).optional().default(50),
     offset: z.int().gte(0).optional().default(0)
 });

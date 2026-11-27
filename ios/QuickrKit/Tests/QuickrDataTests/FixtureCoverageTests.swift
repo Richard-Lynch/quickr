@@ -40,7 +40,7 @@ import Testing
     /// Every key of every response object is required in `openapi.json` (nullable ones too), so
     /// a response missing any one of them must fail to decode, never default to nil (sync §2.2).
     /// Free-form maps (`meta`, `option_counts`, `json_schema`, a run's `effects`, a timing series
-    /// point's `steps`, `/health`) have no required keys.
+    /// point's `steps` and `lap_types`, `/health`) have no required keys.
     @Test(arguments: try Fixtures.apiNames().filter { $0 != "health" })
     func responseMissingAnyKeyFailsToDecode(name: String) throws {
         let fixture = try Fixtures.api(name)
@@ -48,7 +48,7 @@ import Testing
         let endpoint = try #require(Endpoints.named(fixture.operationId))
         let root = try JSONSerialization.jsonObject(with: body, options: .fragmentsAllowed)
         let variants = Self.withOneKeyRemoved(root, path: "")
-        for (path, variant) in variants {
+        for (path, variant) in variants where !Self.optionalOnTheWire(path) {
             let data = try JSONSerialization.data(withJSONObject: variant, options: .fragmentsAllowed)
             #expect(throws: (any Error).self, "\(name): decoded without \(path)") {
                 try endpoint.decodeResponse(data)
@@ -73,12 +73,58 @@ import Testing
         #expect(topic?.schedule == nil && topic?.due == nil && topic?.archivedAt == nil && topic?.timer == nil)
     }
 
+    /// getTopicTiming of a topic with lap types (timers2.md §7.4): the rows and each point's sums.
+    @Test func timingCarriesLapTypes() throws {
+        let body = try #require(try Fixtures.api("getTopicTiming.lap_types").body)
+        let timing = try #require(try Endpoints.getTopicTiming.erased.decodeResponse(body) as? TopicTimingDTO)
+        #expect(timing.lapTypes.map(\.key) == ["run", "rest"])
+        #expect(timing.lapTypes.map(\.laps) == [2, 1])
+        #expect(timing.series.first?.lapTypes == ["run": 270_000, "rest": 30_000])
+        let untyped = try #require(try Fixtures.api("getTopicTiming").body)
+        #expect(try JSONDecoder().decode(TopicTimingDTO.self, from: untyped).lapTypes.isEmpty)
+    }
+
     /// A summary carries its current version's timer (timers.md §2.1); null when untimed.
     @Test func topicSummaryCarriesTheTimer() throws {
         let body = try #require(try Fixtures.api("listTopics").body)
         let page = try #require(try Endpoints.listTopics.erased.decodeResponse(body) as? Page<TopicSummary>)
         #expect(page.items.map(\.slug) == ["water", "everything"])
         #expect(page.items.map { $0.timer?.steps.map(\.key) } == [nil, ["pour", "drink"]])
+    }
+
+    // T2-M3: the DTOs decode the server's appearance (appearance.md §1.1) into the domain.
+    @Test func topicDTOsDecodeTheAppearance() throws {
+        let topicBody = try #require(try Fixtures.api("getTopic").body)
+        let detail = try #require(try Endpoints.getTopic.erased.decodeResponse(topicBody) as? Topic)
+        #expect(detail.appearance == TopicAppearance(color: .teal, icon: .emoji("🧪"), tags: ["Health"]))
+        let body = try #require(try Fixtures.api("listTopics.tag").body)
+        let page = try #require(try Endpoints.listTopics.erased.decodeResponse(body) as? Page<TopicSummary>)
+        #expect(page.items.map(\.slug) == ["everything"])
+        #expect(page.items.first?.appearance.tags == ["Health"])
+    }
+    // end T2-M3
+
+    /// Keys that are required in `openapi.json` but that clients read as plain optionals, on
+    /// purpose: the v2 ids and lap types of a stored timing are absent on a pre-v2 one
+    /// (timers2.md §3.3: "iOS decodes all four as plain optionals"), and a `Timer`'s v2 lists
+    /// default to `[]` for the v1 shape (§1.4). A `RunState`'s own fields stay required.
+    static func optionalOnTheWire(_ path: String) -> Bool {
+        let patterns = [
+            #"/segments/\d+/(lap_type|event_id|opened_by)$"#, #"/pauses/\d+/id$"#, #"/timing/terminal_id$"#,
+            #"/timer/(laps|variables)$"#, #"/timer/(steps|laps)/\d+/alerts$"#,
+        ]
+        return patterns.contains { path.range(of: $0, options: .regularExpression) != nil }
+    }
+
+    @Test func theOptionalKeysAreOnlyThoseOfAStoredTiming() {
+        #expect(Self.optionalOnTheWire("/entry/timing/terminal_id"))
+        #expect(Self.optionalOnTheWire("/run/state/segments/1/event_id"))
+        #expect(Self.optionalOnTheWire("/run/state/pauses/0/id"))
+        #expect(!Self.optionalOnTheWire("/run/state/terminal_id"))
+        #expect(!Self.optionalOnTheWire("/run/state/lap_count"))
+        #expect(!Self.optionalOnTheWire("/run/state/next_lap_type"))
+        #expect(!Self.optionalOnTheWire("/run/state/open/lap_type"))
+        #expect(!Self.optionalOnTheWire("/run/state/segments/1/label"))
     }
 
     private static let freeFormMaps: Set<String> = ["meta", "option_counts", "json_schema", "effects"]
@@ -91,8 +137,10 @@ import Testing
                 var removed = object
                 removed[key] = nil
                 variants.append(("\(path)/\(key)", removed))
-                // A series point's `steps` is a map; a topic's `steps` is an array of objects.
-                guard !freeFormMaps.contains(key), !(key == "steps" && child is [String: Any]) else { continue }
+                // A series point's `steps` and `lap_types` are maps; a topic's `steps` and a
+                // timing's `lap_types` are arrays of objects.
+                guard !freeFormMaps.contains(key), !(["steps", "lap_types"].contains(key) && child is [String: Any])
+                else { continue }
                 for (childPath, childVariant) in withOneKeyRemoved(child, path: "\(path)/\(key)") {
                     var copy = object
                     copy[key] = childVariant

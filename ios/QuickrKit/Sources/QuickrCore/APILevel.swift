@@ -5,5 +5,5 @@
 /// `X-QuickR-Client`, and compared with the server's `X-QuickR-Min-Client-Level` and
 /// `X-QuickR-Api-Level`.
 public enum APILevel {
-    public static let current = 1
+    public static let current = 2
 }

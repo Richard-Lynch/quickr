@@ -1,0 +1,3 @@
+- **[P3] Desktop summaries use a different style from the specified row summary** — [EntriesPage.tsx:99](/Users/richie/code/quickr-worktrees/t2-m4-fentries/frontend/src/pages/topic/EntriesPage.tsx:99). The table renders the summary as `text-xs text-ink-soft`, while §3.1 specifies `text-[0.95rem] font-medium` for the summary line. Apply the specified styling to the desktop summary as well.
+
+The round 2 fallback fix guards queued value shapes before assigning answer types. Stored answers retain their wire types, and `answerText` checks those types before formatting. I found no other in-scope correctness, test, or ownership issues. I did not run the tests; this review is based on the diff and surrounding code.

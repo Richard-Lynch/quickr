@@ -1,25 +1,34 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 
-import { lastEntryOptions } from '../../api/entries';
 import { useQuickLog } from '../../api/quickLog';
 import type { TopicSummary } from '../../client';
 import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
 import { formatAnswer } from '../../lib/answerDisplay';
+import { topicStyle } from '../../lib/appearance';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { inputHints } from '../../lib/answerSchema';
 import { initialNumber, parseQuickNumber, quickLogFor, type QuickLog } from '../../lib/quickLog';
 import { dueView, type DueView } from '../../lib/schedule';
 import type { NumericQuestion } from '../../lib/questions';
+import { fmtDuration } from '../../lib/runs/format';
 import { isOpen, type LocalRun } from '../../lib/runs/localView';
+import { useRuns } from '../../lib/runs/useRuns';
 import { NumberInput } from '../answers/AnswerField';
-import { timerOf, useTopicVersions } from '../runs/context';
+import { useTopicVersions, type VersionTimer } from '../runs/context';
+import { useReopenOffer, type ReopenOffer } from '../runs/reopen';
+import { actionIcon, actionLabel } from '../runs/RunControls';
 import { RunStatus, RunTileAction } from '../runs/RunTile';
 import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon } from '../ui/Icon';
+import { TopicGlyph } from '../ui/TopicGlyph';
+import { ActiveTopicCard, isResuming } from './ActiveTopicCard';
+import { tileTags, tileTheme } from './tileTheme';
+import { TopicSummaryLine } from './TopicSummaryLine';
+import { useActiveCardControls } from './useActiveCardControls';
 
 /** Topic details are prefetched per tile: they power quick-log and an instant record screen. */
 const DETAIL_STALE_MS = 5 * 60_000;
@@ -59,62 +68,111 @@ export function TopicTile({
   topic: t,
   now,
   run,
+  onTag,
 }: {
   topic: TopicSummary;
   now: Date;
-  /** The topic's open or finishing run in the local view, if any. */
+  /** The topic's open or finishing run in the local view, if any. Open: the active card. */
   run?: LocalRun | undefined;
+  /** A tag chip's tap: the home tag filter (appearance.md §5). Without it the chips are plain. */
+  onTag?: ((tag: string) => void) | undefined;
 }) {
   const archived = t.status === 'archived';
   // Timed topics (timers.md §11.1) start a run instead of logging; their questions are
-  // answered at Stop. A run makes the tile timed even before the versions are known.
-  const versions = useTopicVersions(t.id, !archived);
-  const timed = Boolean(timerOf(versions.data, t.current_version)) || run !== undefined;
-  // Until then it may be either: the action waits, so a first load never one-tap logs an
-  // untimed entry of a timed topic, nor swaps Log for Start under the finger.
-  const unknown = !archived && run === undefined && versions.isPending;
+  // answered at Stop. The summary carries the current timer (content-display.md §2), so the
+  // tile knows at once, with no versions query of its own.
+  const timed = Boolean(t.timer) || run !== undefined;
   // A topic with no questions logs with one tap: the tile and its Log button log it at once.
-  const single = !archived && !timed && !unknown && t.question_count === 0;
+  const single = !archived && !timed && t.question_count === 0;
   const logSingle = useSingleLog(t);
   const detail = useQuery({
     ...getTopicOptions({ path: { ref: t.slug } }),
     staleTime: DETAIL_STALE_MS,
-    enabled: !archived,
+    // An archived topic's too when it has entries: its summary line labels them.
+    enabled: !archived || t.entry_count > 0,
   });
   // Only trust details that match the list's version (a publish elsewhere = refetch).
   const questions =
     detail.data?.current_version === t.current_version ? detail.data.questions : null;
   const found = !archived && questions ? quickLogFor(questions) : null;
   // A single topic logs from the tile itself (`single` above); chips and numbers answer a question.
-  const quick = found && found.kind !== 'single' && !timed && !unknown ? found : null;
-  // Quick tiles show (and number tiles start from) the last answer.
-  const last = useQuery({
-    ...lastEntryOptions(t.slug),
-    staleTime: DETAIL_STALE_MS,
-    enabled: quick !== null && t.entry_count > 0,
-  });
-  const lastAnswer = quick
-    ? last.data?.items[0]?.answers.find((a) => a.key === quick.question.key)
-    : undefined;
+  const quick = found && found.kind !== 'single' && !timed ? found : null;
+  // The current version, as Start and Resume read it: its timer from the summary, its questions
+  // (whether answers are required) from the details. Until those load, Start waits.
+  const current = useMemo<VersionTimer[] | undefined>(
+    () => (questions ? [{ version: t.current_version, timer: t.timer, questions }] : undefined),
+    [questions, t.current_version, t.timer],
+  );
+  // An idle timed tile offers Resume of its latest stop (active-surfaces.md §3.3, §6.3).
+  const idleTimed = timed && !archived && run === undefined;
+  // The latest entry rides on the summary (content-display.md §2): quick tiles show (and number
+  // tiles start from) its answer, idle timed ones resume it, every idle tile summarises it.
+  const lastEntry = t.last_entry ?? undefined;
+  // A stop on an older version (a publish since) resumes on that version: only then does the
+  // tile read the versions list, for that version's timer. The stop may be the server's latest
+  // entry, or only this device's (a queued stop, not in `last_entry` yet).
+  const { runs: localRunList } = useRuns();
+  const olderStop =
+    idleTimed &&
+    ((lastEntry?.timing != null && lastEntry.version !== t.current_version) ||
+      localRunList.some((r) => r.topic_id === t.id && r.version !== t.current_version));
+  const versions = useTopicVersions(t.id, olderStop);
+  // The current version always resolves from what the tile has; the list adds the older ones
+  // (and a failed or stale list never hides a Resume on the current version).
+  const known = useMemo(
+    () => (olderStop && versions.data ? [...(current ?? []), ...versions.data] : current),
+    [olderStop, versions.data, current],
+  );
+  const reopen = useReopenOffer(
+    { id: t.id, slug: t.slug, name: t.name },
+    known,
+    lastEntry,
+    idleTimed,
+  );
+  // An answer of another version is never read with the current question (its options and
+  // unit may differ): the tile falls back to the count, as the summary line does.
+  const lastAnswer =
+    quick && lastEntry?.version === t.current_version
+      ? lastEntry.answers.find((a) => a.key === quick.question.key)
+      : undefined;
   const lastText = quick && lastAnswer ? formatAnswer(quick.question, lastAnswer) : null;
   const due = dueView(t.due, now);
-  // An open run stands in for the due state; a finishing one doesn't (timers.md §11.1).
-  const running = run !== undefined && isOpen(run);
-  const isDue = !running && (due.tone === 'due' || due.tone === 'overdue');
+  // An open run makes the tile the active card (active-surfaces.md §6.2), which stands in
+  // for the due state; a finishing one doesn't (timers.md §11.1).
+  if (run !== undefined && isOpen(run)) return <ActiveTile topic={t} run={run} />;
+  const isDue = due.tone === 'due' || due.tone === 'overdue';
   const base = `/t/${t.slug}`;
+  const theme = tileTheme(t.appearance);
+  const tags = tileTags(t.appearance.tags);
+  // The glyph before the name: an emoji, or the initial only on a topic with a colour (§4.3).
+  const glyph = Boolean(t.appearance.icon) || theme.tinted;
+  // The entry's own version's questions label it; another version's never do (timing part only).
+  const summaryQuestions = lastEntry && lastEntry.version !== t.current_version ? [] : questions;
+  const countLine =
+    t.entry_count === 0
+      ? 'No entries yet'
+      : `${plural(t.entry_count, 'entry', 'entries')} · ${formatRelative(t.last_captured_at, now)}`;
 
   return (
     <article
       className={cn(
         'group relative flex overflow-hidden rounded-card border bg-surface shadow-card transition-[border-color] hover:border-line-strong',
-        isDue ? 'border-accent/45' : 'border-line',
+        isDue ? theme.dueBorder : 'border-line',
       )}
+      style={topicStyle(t.appearance)}
       aria-label={t.name}
     >
-      {isDue ? <span aria-hidden className="absolute inset-y-0 left-0 w-1 bg-accent" /> : null}
+      {theme.showsBar(isDue) ? (
+        <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', theme.bar)} />
+      ) : null}
       <div className="flex min-w-0 flex-1 flex-col gap-2.5 py-3.5 pr-3 pl-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <h2 className="font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
+          <h2 className="flex min-w-0 items-center gap-2 font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
+            {glyph ? (
+              <span aria-hidden className="contents">
+                <TopicGlyph appearance={t.appearance} name={t.name} size={24} />
+              </span>
+            ) : null}
             {single ? (
               <>
                 {/* The whole tile logs it; its name still opens the topic, above the overlay.
@@ -141,27 +199,68 @@ export function TopicTile({
           </h2>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.8rem] text-muted">
             {run ? <RunStatus run={run} /> : null}
-            {running ? null : <DueBadge view={due} />}
+            <DueBadge view={due} />
             {archived ? (
               <Badge tone="warn">
                 <Icon name="archive" className="size-3.5" /> Archived
               </Badge>
             ) : null}
-            <span className={running ? 'hidden' : undefined}>
-              {t.entry_count === 0 ? (
-                'No entries yet'
-              ) : lastText ? (
-                <>
-                  Last <strong className="font-semibold text-ink-soft">{lastText}</strong> ·{' '}
+            {t.entry_count > 0 && lastEntry ? (
+              // The latest entry's summary line and when (content-display.md §5).
+              <span className="flex max-w-full min-w-0 items-baseline">
+                <TopicSummaryLine
+                  entry={lastEntry}
+                  questions={summaryQuestions}
+                  timer={t.timer}
+                  fallback={
+                    lastText ? (
+                      <>
+                        Last <strong className="font-semibold text-ink-soft">{lastText}</strong>
+                      </>
+                    ) : (
+                      plural(t.entry_count, 'entry', 'entries')
+                    )
+                  }
+                />
+                <span className="shrink-0 whitespace-pre">
+                  {' · '}
                   {formatRelative(t.last_captured_at, now)}
-                </>
-              ) : (
-                `${plural(t.entry_count, 'entry', 'entries')} · ${formatRelative(t.last_captured_at, now)}`
-              )}
-            </span>
+                </span>
+              </span>
+            ) : (
+              <span>{countLine}</span>
+            )}
           </div>
+          {tags.shown.length > 0 ? (
+            <ul aria-label="Tags" className="relative z-10 flex flex-wrap gap-1.5">
+              {tags.shown.map((tag) => (
+                <li key={tag}>
+                  {onTag ? (
+                    <button
+                      type="button"
+                      onClick={() => onTag(tag)}
+                      aria-label={`Filter by tag ${tag}`}
+                      className="inline-flex min-h-6 items-center rounded-full bg-sunken px-2.5 text-xs font-semibold text-ink-soft hover:bg-line"
+                    >
+                      {tag}
+                    </button>
+                  ) : (
+                    <Badge>{tag}</Badge>
+                  )}
+                </li>
+              ))}
+              {tags.more > 0 ? (
+                <li>
+                  <Badge>
+                    <span aria-label={`and ${String(tags.more)} more`}>+{tags.more}</span>
+                  </Badge>
+                </li>
+              ) : null}
+            </ul>
+          ) : null}
         </div>
         {quick ? <QuickArea topic={t} quick={quick} last={lastAnswer?.value} /> : null}
+        {reopen ? <ResumeButton offer={reopen} /> : null}
       </div>
       {single ? (
         <button
@@ -171,29 +270,20 @@ export function TopicTile({
           onClick={logSingle.log}
           className={cn(
             'relative z-10 flex w-[5.25rem] shrink-0 flex-col items-center justify-center gap-1 border-l text-[0.95rem] font-semibold transition-[background-color,transform] select-none active:scale-[0.97] disabled:cursor-wait',
-            logSingle.logged
-              ? 'border-ok bg-ok text-white'
-              : isDue
-                ? 'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong'
-                : 'border-line bg-accent-soft text-accent-strong hover:brightness-[0.97]',
+            logSingle.logged ? 'border-ok bg-ok text-white' : isDue ? theme.loud : theme.soft,
           )}
         >
           <Icon name={logSingle.logged ? 'check' : 'plus'} className="size-6" strokeWidth={2.6} />
           Log
         </button>
-      ) : unknown ? (
-        <span
-          aria-hidden
-          data-testid="tile-action-pending"
-          className="relative z-10 w-[5.25rem] shrink-0 border-l border-line bg-sunken/40"
-        />
       ) : timed && (!archived || run) ? (
         <RunTileAction
           topic={{ id: t.id, slug: t.slug, name: t.name }}
           run={run}
-          versions={versions.data}
+          versions={current}
           currentVersion={t.current_version}
           loud={isDue}
+          appearance={t.appearance}
         />
       ) : !archived ? (
         <Link
@@ -202,9 +292,7 @@ export function TopicTile({
           className={cn(
             // Full-height, thumb-side action. Due topics get the loud version.
             'relative z-10 flex w-[5.25rem] shrink-0 flex-col items-center justify-center gap-1 border-l text-[0.95rem] font-semibold transition-[background-color,transform] select-none active:scale-[0.97]',
-            isDue
-              ? 'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong'
-              : 'border-line bg-accent-soft text-accent-strong hover:brightness-[0.97]',
+            isDue ? theme.loud : theme.soft,
           )}
         >
           <Icon name="plus" className="size-6" strokeWidth={2.6} />
@@ -212,6 +300,40 @@ export function TopicTile({
         </Link>
       ) : null}
     </article>
+  );
+}
+
+/**
+ * "Resume · 1:44" in the tile's quick slot, under the meta line, while its latest stop is
+ * resumable (§3.3): a text button with a 44 px target, above the tile's link overlay.
+ */
+function ResumeButton({ offer }: { offer: ReopenOffer }) {
+  const kind = { type: 'reopen', target: '' } as const;
+  return (
+    <button
+      type="button"
+      data-testid="run-reopen"
+      aria-label={actionLabel(kind, offer.topic)}
+      onClick={offer.onReopen}
+      className="relative z-10 -my-1 -ml-3 inline-flex min-h-11 items-center gap-1.5 self-start rounded-full px-3 text-sm font-semibold text-accent-strong transition-colors hover:bg-accent-soft active:scale-[0.97] motion-reduce:active:scale-none"
+    >
+      <Icon name={actionIcon(kind)} className="size-4" strokeWidth={2.4} />
+      Resume · <span className="font-mono tabular">{fmtDuration(offer.totalMs)}</span>
+    </button>
+  );
+}
+
+/** A tile whose topic has an open run: the active card, with the run's controls. */
+function ActiveTile({ topic: t, run }: { topic: TopicSummary; run: LocalRun }) {
+  const { controls, timer } = useActiveCardControls({ id: t.id, slug: t.slug, name: t.name }, run);
+  return (
+    <ActiveTopicCard
+      topic={t}
+      run={run}
+      timer={timer}
+      controls={controls}
+      resuming={isResuming(run)}
+    />
   );
 }
 

@@ -47,7 +47,23 @@ public enum TopicWriteMessage {
     public static let notReady = "This server hasn’t finished syncing yet. Try again in a moment."
     public static let switched = "quickR switched to another server. Open this topic again."
     public static let resyncing = "quickR is resyncing, try again in a moment."
-    public static let staleRevision = "This topic was changed elsewhere. It shows the latest now; try again."
+    /// The latest copy couldn't be read, so nothing on screen moved.
+    public static let staleRevision = "This topic was changed elsewhere. Try again."
+    /// A Details save still answered `staleRevision` after its last attempt (``TopicSettingsModel``).
+    public static let contention = "This topic keeps changing elsewhere. Try again in a moment."
+    /// A Details save's edited fields were changed elsewhere: the other fields show the latest copy
+    /// and the edits stay, so the next save keeps them. `fields` as on screen ("colour").
+    public static func conflict(_ fields: [String]) -> String {
+        let list: String
+        switch fields.count {
+        case 0, 1: list = fields.first ?? "topic"
+        case 2: list = "\(fields[0]) and \(fields[1])"
+        default: list = fields.dropLast().joined(separator: ", ") + " and " + fields[fields.count - 1]
+        }
+        return fields.count > 1
+            ? "The \(list) were changed elsewhere. Your edits are still here; save again to keep them."
+            : "The \(list) was changed elsewhere. Your edit is still here; save again to keep it."
+    }
     public static let notFound = "This topic isn’t on the server any more."
     public static let busy = "Sync is busy, try again in a moment."
 }
@@ -69,8 +85,16 @@ public enum TopicWriteError: Error, Sendable, Hashable, CustomStringConvertible 
 /// outcome; archive and unarchive are queued, so they work offline.
 @MainActor
 public protocol TopicWriter: AnyObject {
-    func create(_ creation: TopicDraft.Creation, schedule: Schedule?) async -> TopicWriteOutcome<Topic>
-    func saveDetails(_ change: TopicDetailsChange, topicId: UUID) async -> TopicWriteOutcome<Topic>
+    /// "Create topic", with the appearance the topic starts with (`.empty`: the server's defaults).
+    func create(_ creation: TopicDraft.Creation, schedule: Schedule?, appearance: TopicAppearance) async
+        -> TopicWriteOutcome<Topic>
+    /// "Save details": one PATCH of the changed fields with `expected_revision: expectedRevision`
+    /// (the Details base's), so a topic changed elsewhere meanwhile answers `staleRevision`
+    /// instead of being overwritten.
+    func saveDetails(_ change: TopicDetailsChange, topicId: UUID, expectedRevision: Int) async
+        -> TopicWriteOutcome<Topic>
+    /// The server's topic now: the fresh copy a `staleRevision` details save is checked against.
+    func latestTopic(topicId: UUID) async -> TopicWriteOutcome<Topic>
     /// Sets the schedule, or removes it (nil).
     func saveSchedule(_ schedule: Schedule?, topicId: UUID) async -> TopicWriteOutcome<Topic>
     /// Deletes an archived topic.

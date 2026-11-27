@@ -46,4 +46,22 @@ import Testing
             #expect(silent == nil, "\(reason)")
         }
     }
+
+    // MARK: - timers2.md §9.3
+
+    @Test("§9.3 · reverted, not_stopped and no_target have texts; deleted is silent")
+    func reopenAndRemoveReasons() {
+        let reverted: String? = text(.reopen, .reverted)
+        #expect(reverted == "Dishwasher’s resume was undone by a discard elsewhere.")
+        let notStopped: String? = text(.reopen, .notStopped)
+        #expect(notStopped == "Dishwasher isn’t stopped, so there was nothing to resume.")
+        let resume: String? = text(.reopen, .noTarget)
+        #expect(resume == "Couldn’t resume: Dishwasher’s run changed.")
+        let remove: String? = text(.remove, .noTarget)
+        #expect(remove == "Couldn’t remove that: Dishwasher’s run changed.")
+        let deleted: String? = text(.remove, .deleted)
+        #expect(deleted == nil)
+        let deletedLap: String? = text(.lap, .deleted)
+        #expect(deletedLap == nil)
+    }
 }

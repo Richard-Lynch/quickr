@@ -1,4 +1,5 @@
 #if os(iOS)
+import QuickrCore
 import SwiftUI
 
 /// Every token and component on four pages, with local sample values. A debug aid and the
@@ -89,6 +90,16 @@ private struct ColorsPage: View {
                     QuickrBadge(String(describing: tone), tone: tone)
                 }
             }
+            SectionHeader("Topic colours")
+            VStack(spacing: 8) {
+                TopicThemeRow(theme: TopicTheme(appearance: .init(icon: .emoji("🚬")), name: "Smoking"), label: "none")
+                ForEach(ColorName.allCases, id: \.self) { name in
+                    TopicThemeRow(
+                        theme: TopicTheme(appearance: .init(color: name), name: name.rawValue), label: name.rawValue)
+                }
+            }
+            .padding(12)
+            .qrCard()
             SectionHeader("Surfaces")
             HStack(spacing: 12) {
                 Card { Text("Card · 18 pt").font(.qr(.callout)) }
@@ -124,6 +135,34 @@ private struct Swatch: View {
         let c = color.resolve(in: environment)
         let v = [c.red, c.green, c.blue].map { Int(($0 * 255).rounded()) }
         return String(format: "#%02x%02x%02x", v[0], v[1], v[2])
+    }
+}
+
+/// One palette entry: the glyph, the name, then `tint`, `tintSoft` (ink on it) and `onTint` on `tint`
+/// (appearance.md §4.3's two text rules).
+private struct TopicThemeRow: View {
+    let theme: TopicTheme
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TopicGlyphView(theme: theme, size: 28)
+            Text(label).font(.qr(.caption)).foregroundStyle(.qr.ink)
+            Spacer()
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(theme.tint)
+                .frame(width: 44, height: 28)
+            Text("Aa")
+                .font(.qr(.caption))
+                .foregroundStyle(.qr.ink)
+                .frame(width: 44, height: 28)
+                .background(theme.tintSoft, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            Text("Aa")
+                .font(.qr(.caption))
+                .foregroundStyle(theme.onTint)
+                .frame(width: 44, height: 28)
+                .background(theme.tint, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
     }
 }
 
@@ -326,42 +365,6 @@ private struct TilesPage: View {
             }
             .buttonStyle(.qr(.secondary, size: .small))
         }
-    }
-}
-
-/// Wraps children onto new lines (for badges).
-private struct FlowRow: Layout {
-    var spacing: CGFloat = 6
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(proposal.width ?? .infinity, subviews).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        for (point, subview) in zip(arrange(bounds.width, subviews).points, subviews) {
-            subview.place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), proposal: .unspecified)
-        }
-    }
-
-    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> (points: [CGPoint], size: CGSize) {
-        var points: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var row: CGFloat = 0
-        var widest: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0 && x + size.width > width {
-                x = 0
-                y += row + spacing
-                row = 0
-            }
-            points.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
-            widest = max(widest, x - spacing)
-            row = max(row, size.height)
-        }
-        return (points, CGSize(width: widest, height: y + row))
     }
 }
 

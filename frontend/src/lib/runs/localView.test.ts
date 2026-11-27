@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
-import { STEPS, T0, ev, runItem, serverRun } from '../../test/runs';
+import { LAPS, STEPS, T0, entryOf, entryPayload, ev, runItem, serverRun } from '../../test/runs';
 import {
+  hiddenEntryIds,
   localRuns,
   openPauseId,
   openRunOf,
   openRunTopics,
   optimisticEntries,
+  projectedEntryTiming,
   runById,
 } from './localView';
 import { RUNS_POLL_MS, runsPollInterval } from './useRuns';
@@ -180,7 +182,7 @@ describe('local run view (timers.md §8.3)', () => {
       ev('k1', 'skip', T0 + 11 * S, { seg: 1, step: 'breakfast' }),
       ev('l1', 'lap', T0 + 20 * S, { seg: 1 }),
     ];
-    const queued = taps.map((e) => runItem(e.type, { ...e, run: 'r1', at: e.at }));
+    const queued = taps.map(({ type, ...e }) => runItem(type, { ...e, run: 'r1', at: e.at }));
     const local = localRuns([], queued)[0]?.state;
     const acked = localRuns([serverRun('r1', taps)], [])[0]?.state;
     expect(local).toEqual(acked);
@@ -260,7 +262,7 @@ describe('review fixes', () => {
       );
       const [running] = localRuns([server], [pause, resume]);
       expect(running?.status).toBe('running');
-      expect(running?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 100 * S }]);
+      expect(running?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 100 * S, id: 'p1' }]);
     });
 
     it('an offline Stop closes it; a Next waits for the server', () => {
@@ -335,7 +337,7 @@ describe('review fixes', () => {
       expect(run?.state.effects.p1).toEqual({ effect: 'void', reason: 'after_stop' });
       expect(run?.state.effects.l1).toEqual({ effect: 'applied', reason: null });
       expect(run?.state.effects.u1).toEqual({ effect: 'applied', reason: null });
-      expect(run?.state.pauses).toEqual([{ start: T0 + 70 * S, end: T0 + 80 * S }]);
+      expect(run?.state.pauses).toEqual([{ start: T0 + 70 * S, end: T0 + 80 * S, id: 'p0' }]);
       expect(run?.state.segments.map((x) => [x.label, x.active_ms])).toEqual([
         ['Shower', 60 * S],
         ['Breakfast', 20 * S],
@@ -378,7 +380,7 @@ describe('review fixes', () => {
       const [run] = localRuns([server], [pause, stop]);
       expect(run?.status).toBe('stopped');
       expect(run?.state.paused_since).toBeNull();
-      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S }]);
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: 'p1' }]);
       expect(run?.state.segments.at(-1)).toMatchObject({
         label: 'Breakfast',
         active_ms: 30 * S,
@@ -400,6 +402,25 @@ describe('review fixes', () => {
       expect(run?.state.effects.s1).toEqual({ effect: 'void', reason: 'too_long' });
     });
 
+    it('a pause or lap more than 7 days after the start is void too_long, as the fold (P3-2)', () => {
+      const late = T0 + 8 * 24 * 3600 * S;
+      for (const item of [
+        blind(runItem('pause', { id: 'p1', run: 'r1', at: late })),
+        blind(runItem('lap', { id: 'l1', run: 'r1', at: late, seg: 1 })),
+      ]) {
+        const [run] = localRuns([server], [item]);
+        expect(run?.status).toBe('running');
+        expect(run?.state.effects[item.id]).toEqual({ effect: 'void', reason: 'too_long' });
+        expect(run?.state.open?.index).toBe(1);
+      }
+      // A tap before the start is before_start, as the fold has it.
+      const early = blind(runItem('pause', { id: 'p0', run: 'r1', at: T0 - S }));
+      expect(localRuns([server], [early])[0]?.state.effects.p0).toEqual({
+        effect: 'void',
+        reason: 'before_start',
+      });
+    });
+
     it('a tap the server lists already isn’t applied twice', () => {
       const listed = serverRun('r1', [start, ev('p1', 'pause', T0 + 30 * S)]);
       const pause = blind(runItem('pause', { id: 'p1', run: 'r1', at: T0 + 30 * S }));
@@ -410,7 +431,432 @@ describe('review fixes', () => {
       expect(run?.status).toBe('paused');
       const [resumed] = localRuns([listed], [resume], [pause]);
       expect(resumed?.status).toBe('running');
-      expect(resumed?.state.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 40 * S }]);
+      expect(resumed?.state.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 40 * S, id: 'p1' }]);
+    });
+  });
+});
+
+describe('reopen and remove in the local view (timers2.md §5.3)', () => {
+  const next = ev('n1', 'next', T0 + 60 * S, { seg: 0 });
+  const stop = ev('s1', 'stop', T0 + 90 * S);
+  const TIKTOK = { steps: [], laps: LAPS };
+  const q = (e: ReturnType<typeof ev>, extra: Partial<Parameters<typeof runItem>[1]> = {}) => {
+    const { type, at, ...rest } = e;
+    return runItem(type, { ...rest, run: 'r1', at, ...extra });
+  };
+
+  it('a queued reopen of a locally stopped run shows it open at once; the entry is hidden', () => {
+    const items = [q(start), q(next), q(stop, { makes_entry: true })];
+    const stopped = localRuns([], items);
+    expect(stopped[0]?.status).toBe('stopped');
+    expect(optimisticEntries(stopped)).toHaveLength(1);
+    const reopen = q(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }));
+    const runs = localRuns([], [...items, reopen]);
+    const run = runs[0];
+    expect(run?.status).toBe('running');
+    expect(run?.resuming).toBe(false);
+    // The fold's reopen: the last segment open again, the gap a pause with the stop's id.
+    expect(run?.state.open).toMatchObject({ index: 1, step: 'breakfast', started_at: T0 + 60 * S });
+    expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: 's1' }]);
+    expect(run?.state.terminal_id).toBeNull();
+    expect(optimisticEntries(runs)).toEqual([]);
+    expect([...hiddenEntryIds(runs)]).toEqual(['r1']);
+    expect([...openRunTopics(runs)]).toEqual(['topic-1']);
+  });
+
+  it('a reopen folds over a server run too (another device stopped it, finishing)', () => {
+    const server = serverRun('r1', [start, next, stop], { status: 'finishing' });
+    const reopen = q(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }));
+    const [run] = localRuns([server], [reopen]);
+    expect(run?.status).toBe('running');
+  });
+
+  it('a re-stop projects the entry once, with the re-stopped timing', () => {
+    const items = [
+      q(start),
+      q(next),
+      q(stop, { makes_entry: true }),
+      q(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' })),
+      q(ev('s2', 'stop', T0 + 150 * S)),
+    ];
+    const runs = localRuns([], items);
+    expect(runs[0]?.status).toBe('stopped');
+    const [entry] = optimisticEntries(runs);
+    expect(entry?.timing).toMatchObject({
+      ended_at: T0 + 150 * S,
+      paused_ms: 30 * S,
+      active_ms: 120 * S,
+      terminal_id: 's2',
+    });
+    expect(hiddenEntryIds(runs).size).toBe(0);
+  });
+
+  it("a re-stop of a run reopened with its entry isn't finishing, even with a required question", () => {
+    const server = serverRun('r1', [
+      start,
+      next,
+      stop,
+      ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }),
+    ]);
+    // This device's stop carried the answers: it made the entry, so the re-stop never leaves
+    // the run finishing (timers2.md §4.1).
+    const answered = q(stop, { requires_answers: true, answers: { mood: 1 }, makes_entry: true });
+    const restop = q(ev('s2', 'stop', T0 + 150 * S), { requires_answers: true });
+    const [run] = localRuns([server], [restop], [answered]);
+    expect(run?.status).toBe('stopped');
+    // Without the answers the reopened stop left it finishing: so does the re-stop.
+    const bare = q(stop, { requires_answers: true });
+    expect(localRuns([server], [restop], [bare])[0]?.status).toBe('finishing');
+  });
+
+  it('a finishing run finished, reopened and re-stopped offline closes: the finish made the entry', () => {
+    const server = serverRun('r1', [start, next, stop], { status: 'finishing' });
+    const items = [
+      q(ev('f1', 'finish', T0 + 100 * S), {
+        requires_answers: true,
+        answers: {},
+        makes_entry: true,
+      }),
+      q(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }), { requires_answers: true }),
+      q(ev('s2', 'stop', T0 + 150 * S), { requires_answers: true }),
+    ];
+    const [run] = localRuns([server], items);
+    expect(run?.status).toBe('stopped');
+    expect(run?.has_entry).toBe(true);
+  });
+
+  it("a server finish that didn't apply is no entry: the revert of the reopen discards", () => {
+    const voidFinish = serverRun('r1', [
+      start,
+      next,
+      stop,
+      ev('f1', 'finish', T0 + 100 * S),
+      ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }),
+    ]);
+    const finish = voidFinish.events.find((e) => e.id === 'f1');
+    if (finish) finish.effect = 'void';
+    const discard = q(ev('d1', 'discard', T0 + 130 * S), { requires_answers: true });
+    expect(localRuns([voidFinish], [discard])[0]?.status).toBe('discarded');
+    if (finish) finish.effect = 'applied';
+    expect(localRuns([voidFinish], [discard])[0]?.status).toBe('stopped');
+  });
+
+  describe('a revert (a discard after a reopen)', () => {
+    it('of a run with its entry: stopped as before, the entry restored', () => {
+      const server = serverRun('r1', [
+        start,
+        next,
+        stop,
+        ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }),
+      ]);
+      const discard = q(ev('d1', 'discard', T0 + 130 * S));
+      const runs = localRuns([server], [discard]);
+      expect(runs[0]?.status).toBe('stopped');
+      expect(runs[0]?.state.terminal_id).toBe('s1');
+      expect(optimisticEntries(runs)).toEqual([]);
+      expect(hiddenEntryIds(runs).size).toBe(0);
+    });
+
+    it('of a reopened finishing run (no entry): discarded, and no optimistic entry (A15)', () => {
+      const server = serverRun('r1', [
+        start,
+        next,
+        stop,
+        ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }),
+      ]);
+      const discard = q(ev('d1', 'discard', T0 + 130 * S), { requires_answers: true });
+      const runs = localRuns([server], [discard]);
+      expect(runs[0]?.status).toBe('discarded');
+      expect(optimisticEntries(runs)).toEqual([]);
+    });
+
+    it('reopen → revert → reopen again is running (vector reopen-revert-then-reopen-again)', () => {
+      // start, next, stop s1, reopen o1→s1, discard (revert), reopen o2→s1: o1 stays void
+      // `reverted`, but the run is open again.
+      const o1 = ev('o1', 'reopen', T0 + 120 * S, { target: 's1' });
+      const d1 = ev('d1', 'discard', T0 + 130 * S);
+      const o2 = ev('o2', 'reopen', T0 + 140 * S, { target: 's1' });
+      const check = (runs: ReturnType<typeof localRuns>) => {
+        expect(runs[0]?.status).toBe('running');
+        expect(runs[0]?.state.status).toBe('running');
+        expect(openRunOf(runs, 'topic-1')?.id).toBe('r1');
+        expect([...hiddenEntryIds(runs)]).toEqual(['r1']);
+        expect([...openRunTopics(runs)]).toEqual(['topic-1']);
+      };
+      // All on the server (the reopens done on another device), nothing queued here.
+      check(localRuns([serverRun('r1', [start, next, stop, o1, d1, o2])], []));
+      // The second reopen queued here, on the server's reverted run.
+      check(localRuns([serverRun('r1', [start, next, stop, o1, d1])], [q(o2)]));
+      // All queued here.
+      check(
+        localRuns([], [q(start), q(next), q(stop, { makes_entry: true }), q(o1), q(d1), q(o2)]),
+      );
+    });
+
+    it('with the reopen still queued on a finishing server run: discarded too', () => {
+      const server = serverRun('r1', [start, next, stop], { status: 'finishing' });
+      const items = [
+        q(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }), { requires_answers: true }),
+        q(ev('d1', 'discard', T0 + 130 * S), { requires_answers: true }),
+      ];
+      const runs = localRuns([server], items);
+      expect(runs[0]?.status).toBe('discarded');
+      expect(optimisticEntries(runs)).toEqual([]);
+    });
+  });
+
+  describe('from an entry with no run row', () => {
+    const entry = entryOf('r1', [start, next, stop]);
+    const fromEntry = (e: ReturnType<typeof ev>) => q(e, { entry: entryPayload(entry) });
+
+    it('a reopen projects a run in state "resuming", built from the timing', () => {
+      const runs = localRuns([], [fromEntry(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }))]);
+      expect(runs).toHaveLength(1);
+      const run = runs[0];
+      expect(run).toMatchObject({
+        id: 'r1',
+        topic_id: 'topic-1',
+        status: 'running',
+        resuming: true,
+      });
+      expect(run?.state.segments.map((x) => x.label)).toEqual(['Shower']);
+      expect(run?.state.open).toMatchObject({
+        index: 1,
+        step: 'breakfast',
+        label: 'Breakfast',
+        started_at: T0 + 60 * S,
+      });
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: 's1' }]);
+      expect(run?.state.started_at).toBe(T0);
+      expect([...hiddenEntryIds(runs)]).toEqual(['r1']);
+      expect(optimisticEntries(runs)).toEqual([]);
+    });
+
+    it('a pre-v2 entry (target null) resumes the same way', () => {
+      const preV2 = entryPayload({ ...entry, timing: { ...entry.timing, terminal_id: null } });
+      const reopen = q(ev('o1', 'reopen', T0 + 120 * S, { target: null }), { entry: preV2 });
+      const [run] = localRuns([], [reopen]);
+      expect(run).toMatchObject({ status: 'running', resuming: true });
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: null }]);
+    });
+
+    it('a discard queued after it reverts: stopped, no optimistic entry, the entry shown', () => {
+      const runs = localRuns(
+        [],
+        [
+          fromEntry(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' })),
+          q(ev('d1', 'discard', T0 + 130 * S)),
+        ],
+      );
+      expect(runs[0]).toMatchObject({ status: 'stopped', resuming: false });
+      expect(optimisticEntries(runs)).toEqual([]);
+      expect(hiddenEntryIds(runs).size).toBe(0);
+    });
+
+    it('labels a resumed lap from the version’s lap types', () => {
+      const laps = entryOf('r1', [start, ev('l1', 'lap', T0 + 60 * S, { seg: 0 }), stop], TIKTOK);
+      const reopen = q(ev('o1', 'reopen', T0 + 120 * S, { target: 's1' }), {
+        steps: [],
+        laps: LAPS,
+        entry: entryPayload(laps),
+      });
+      const [run] = localRuns([], [reopen]);
+      expect(run?.state.open).toMatchObject({ index: 1, label: 'Rest 1', lap_type: 'rest' });
+      expect(run?.state.next_lap_type).toBe('run');
+    });
+
+    it('a remove projects no run: the entry stays, re-projected, with a pending mark (A14)', () => {
+      const paused = entryOf('r1', [
+        start,
+        ev('p1', 'pause', T0 + 10 * S),
+        ev('u1', 'resume', T0 + 30 * S, { pause_id: 'p1' }),
+        next,
+        stop,
+      ]);
+      const remove = q(ev('x1', 'remove', T0 + 120 * S, { target: 'p1' }), {
+        entry: entryPayload(paused),
+      });
+      expect(localRuns([], [remove])).toEqual([]);
+      expect(projectedEntryTiming(paused, [])).toEqual({ timing: paused.timing, pending: false });
+      const { timing, pending } = projectedEntryTiming(paused, [remove]);
+      expect(pending).toBe(true);
+      expect(timing.pauses).toEqual([]);
+      expect(timing).toMatchObject({ active_ms: 90 * S, paused_ms: 0, ended_at: T0 + 90 * S });
+      expect(timing.segments.map((x) => [x.label, x.active_ms, x.paused_ms])).toEqual([
+        ['Shower', 60 * S, 0],
+        ['Breakfast', 30 * S, 0],
+      ]);
+      // What the server's fold makes of it.
+      const removed = ev('x1', 'remove', T0 + 120 * S, { target: 'p1' });
+      const folded = entryOf('r1', [
+        start,
+        ev('p1', 'pause', T0 + 10 * S),
+        ev('u1', 'resume', T0 + 30 * S, { pause_id: 'p1' }),
+        next,
+        stop,
+        removed,
+      ]);
+      expect(timing).toEqual(folded.timing);
+    });
+
+    it('a removed lap joins the previous segment; later laps renumber and flip type', () => {
+      const laps = entryOf(
+        'r1',
+        [
+          start,
+          ev('l1', 'lap', T0 + 10 * S, { seg: 0 }),
+          ev('l2', 'lap', T0 + 11 * S, { seg: 1 }), // the double tap
+          ev('l3', 'lap', T0 + 20 * S, { seg: 2 }),
+          ev('s1', 'stop', T0 + 30 * S),
+        ],
+        TIKTOK,
+      );
+      expect(laps.timing.segments.map((x) => x.label)).toEqual([
+        'Run 1',
+        'Rest 1',
+        'Run 2',
+        'Rest 2',
+      ]);
+      const remove = q(ev('x1', 'remove', T0 + 60 * S, { target: 'l2' }), {
+        steps: [],
+        laps: LAPS,
+        entry: entryPayload(laps),
+      });
+      const { timing, pending } = projectedEntryTiming(laps, [remove]);
+      expect(pending).toBe(true);
+      expect(timing.segments.map((x) => [x.label, x.lap_type, x.event_id, x.active_ms])).toEqual([
+        ['Run 1', 'run', null, 10 * S],
+        ['Rest 1', 'rest', 'l1', 10 * S],
+        ['Run 2', 'run', 'l3', 10 * S],
+      ]);
+      expect(timing.active_ms).toBe(laps.timing.active_ms);
+      const folded = entryOf(
+        'r1',
+        [
+          start,
+          ev('l1', 'lap', T0 + 10 * S, { seg: 0 }),
+          ev('l2', 'lap', T0 + 11 * S, { seg: 1 }),
+          ev('l3', 'lap', T0 + 20 * S, { seg: 2 }),
+          ev('s1', 'stop', T0 + 30 * S),
+          ev('x1', 'remove', T0 + 60 * S, { target: 'l2' }),
+        ],
+        TIKTOK,
+      );
+      expect(timing).toEqual(folded.timing);
+    });
+
+    it('remove → reopen offline: the resuming run has the queued remove applied (P2-5)', () => {
+      const events = [
+        start,
+        ev('p1', 'pause', T0 + 10 * S),
+        ev('u1', 'resume', T0 + 30 * S, { pause_id: 'p1' }),
+        next,
+        stop,
+      ];
+      const paused = entryOf('r1', events);
+      const remove = q(ev('x1', 'remove', T0 + 100 * S, { target: 'p1' }), {
+        entry: entryPayload(paused),
+      });
+      const reopenEv = ev('o1', 'reopen', T0 + 120 * S, { target: 's1' });
+      const reopen = q(reopenEv, { entry: entryPayload(paused) });
+      const [run] = localRuns([], [remove, reopen]);
+      expect(run).toMatchObject({ status: 'running', resuming: true });
+      // What the server's fold makes of the same events.
+      const folded = serverRun('r1', [
+        ...events,
+        ev('x1', 'remove', T0 + 100 * S, { target: 'p1' }),
+        reopenEv,
+      ]);
+      const want = folded.state;
+      expect(run?.state.pauses).toEqual([{ start: T0 + 90 * S, end: T0 + 120 * S, id: 's1' }]);
+      expect(run?.state.segments.map((x) => [x.label, x.active_ms, x.paused_ms])).toEqual(
+        want.segments.map((x) => [x.label, x.active_ms, x.paused_ms]),
+      );
+      expect(run?.state.open?.started_at).toBe(T0 + 60 * S);
+      // A remove queued after the reopen (none is offered while resuming) isn't applied early.
+      const [later] = localRuns(
+        [],
+        [reopen, { ...remove, created_at: new Date(T0 + 200 * S).toISOString() }],
+      );
+      expect(later?.state.pauses).toHaveLength(2);
+    });
+
+    it('a removed gap pause that absorbed a user pause keeps it, under the user pause id (P3-1)', () => {
+      // Vector reopen-while-paused-ends-pause: the gap s1 took over p1 (0:30–1:30); with s1
+      // removed, p1 runs on to the reopen under its own id.
+      const events = [
+        start,
+        ev('p1', 'pause', T0 + 30 * S),
+        ev('s1', 'stop', T0 + 60 * S),
+        ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+        ev('u1', 'resume', T0 + 100 * S, { pause_id: 'p1' }),
+        ev('s2', 'stop', T0 + 120 * S),
+      ];
+      const stopped = entryOf('r1', events);
+      expect(stopped.timing.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 90 * S, id: 's1' }]);
+      const removed = ev('x1', 'remove', T0 + 150 * S, { target: 's1' });
+      const want = entryOf('r1', [...events, removed]).timing;
+      expect(want.pauses).toEqual([{ start: T0 + 30 * S, end: T0 + 90 * S, id: 'p1' }]);
+      const remove = q(removed, { entry: entryPayload(stopped) });
+      remove.payload.gap = { absorbs: 'p1' };
+      expect(projectedEntryTiming(stopped, [remove])).toEqual({ timing: want, pending: true });
+      // A gap that absorbed nothing goes, its time active.
+      const plainEvents = [
+        start,
+        ev('s1', 'stop', T0 + 60 * S),
+        ev('o1', 'reopen', T0 + 90 * S, { target: 's1' }),
+        ev('s2', 'stop', T0 + 120 * S),
+      ];
+      const plain = entryOf('r1', plainEvents);
+      const plainRemove = q(removed, { entry: entryPayload(plain) });
+      plainRemove.payload.gap = { absorbs: null };
+      expect(projectedEntryTiming(plain, [plainRemove]).timing).toEqual(
+        entryOf('r1', [...plainEvents, removed]).timing,
+      );
+    });
+
+    it('only pending removes of that entry count; a failed one shows no mark', () => {
+      const other = q(ev('x1', 'remove', T0 + 120 * S, { target: 'p1' }), { run: 'r2' });
+      const failed = q(ev('x2', 'remove', T0 + 120 * S, { target: 'n1' }), { status: 'failed' });
+      expect(projectedEntryTiming(entry, [other, failed])).toEqual({
+        timing: entry.timing,
+        pending: false,
+      });
+    });
+  });
+
+  describe('lap labels from the version’s lap types', () => {
+    it('queued laps fold typed ("Run 1, Rest 1")', () => {
+      const items = [
+        q(start, { steps: [], laps: LAPS }),
+        q(ev('l1', 'lap', T0 + 10 * S, { seg: 0 }), { steps: [], laps: LAPS }),
+      ];
+      const [run] = localRuns([], items);
+      expect(run?.state.segments.map((x) => x.label)).toEqual(['Run 1']);
+      expect(run?.state.open).toMatchObject({ label: 'Rest 1', lap_type: 'rest' });
+      expect(run?.laps).toEqual(LAPS);
+    });
+
+    it('the overlay (steps unknown here) labels a lap from the lap types it knows', () => {
+      const server = serverRun('r1', [start, ev('l1', 'lap', T0 + 10 * S, { seg: 0 })], {
+        timer: TIKTOK,
+      });
+      const lap = q(ev('l2', 'lap', T0 + 20 * S, { seg: 1 }), { steps: null, laps: LAPS });
+      const [run] = localRuns([server], [lap]);
+      expect(run?.steps).toBeNull();
+      expect(run?.state.segments.map((x) => [x.label, x.lap_type])).toEqual([
+        ['Run 1', 'run'],
+        ['Rest 1', 'rest'],
+      ]);
+      expect(run?.state.open).toMatchObject({ index: 2, label: 'Run 2', lap_type: 'run' });
+      expect(run?.state.next_lap_type).toBe('rest');
+    });
+
+    it('with no lap types known, an overlay lap stays untyped', () => {
+      const server = serverRun('r1', [start], { timer: TIKTOK });
+      const lap = q(ev('l1', 'lap', T0 + 20 * S, { seg: 0 }), { steps: null });
+      const [run] = localRuns([server], [lap]);
+      expect(run?.state.open).toMatchObject({ label: 'Lap 2', lap_type: null });
     });
   });
 });

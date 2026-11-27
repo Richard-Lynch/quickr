@@ -34,10 +34,13 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, tzinfo
 from typing import Any, Self
+from uuid import UUID
 
 import httpx
 import pytest
 
+from app.db import get_sessionmaker
+from app.models import Entry
 from tests.fake_apns import FakeApns
 from tests.helpers import backdate_schedule, make_topic, record
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_json, stale_message, updating
@@ -65,6 +68,10 @@ RECORD_PATHS = frozenset(
         ("body", "deleted", "*"),
         # recordRunEvent: the run's entry.
         ("body", "entry"),
+        # T2-M4: a topic's last_entry (content-display.md §2), wherever a topic record sits.
+        ("body", "last_entry"),
+        ("body", "items", "*", "last_entry"),
+        ("body", "items", "*", "topic", "last_entry"),
     }
 )
 FIXED_PUBLIC_KEY = "B" + "A" * 86
@@ -97,7 +104,13 @@ E1, E2, E3, E4, E5 = ENTRY_IDS
 RUN_IDS = [f"0a000000-0000-4000-8000-{n:012d}" for n in range(1, 6)]
 R1, R2, R3, R4, R5 = RUN_IDS
 EVENT_IDS = [f"0e000000-0000-4000-8000-{n:012d}" for n in range(1, 13)]
-CLIENT_IDS = [*ENTRY_IDS, *RUN_IDS, *EVENT_IDS]
+# Reopen and remove (timers2.md §12.1).
+REOPEN_IDS = [f"0e000000-0000-4000-8000-{n:012d}" for n in range(13, 22)]
+# A run of a topic with lap types (timers2.md §7.4): its run id, then its laps and stop.
+LAP_TYPE_IDS = ["0a000000-0000-4000-8000-000000000006"] + [
+    f"0e000000-0000-4000-8000-{n:012d}" for n in range(22, 25)
+]
+CLIENT_IDS = [*ENTRY_IDS, *RUN_IDS, *EVENT_IDS, *REOPEN_IDS, *LAP_TYPE_IDS]
 
 EVERYTHING: list[dict[str, Any]] = [
     {"key": "glasses", "label": "Glasses of water", "type": "int", "min": 0, "max": 30, "unit": "glasses"},
@@ -250,6 +263,9 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
             "description": "One of each question type.",
             "questions": EVERYTHING,
             "schedule": {"kind": "daily", "times": ["08:00", "21:30"], "timezone": "Europe/London"},
+            # T2-M3
+            "appearance": {"color": "teal", "icon": {"kind": "emoji", "value": "🧪"}, "tags": ["Health"]},
+            # end T2-M3
         },
         status=201,
     )
@@ -325,12 +341,22 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
     )
 
     # --- topic lifecycle -------------------------------------------------------------
-    await rec("updateTopic", "PATCH", "/topics/old-habit", {"description": "Retired."}, status=200)
+    await rec(
+        "updateTopic",
+        "PATCH",
+        "/topics/old-habit",
+        {"description": "Retired.", "appearance": {"color": "amber", "tags": ["Habit", "health"]}},  # T2-M3
+        status=200,
+    )
     await rec("archiveTopic", "POST", "/topics/old-habit/archive", status=200)
 
     # --- reads ------------------------------------------------------------------
     await rec("listTopics", "GET", "/topics", status=200)
     await rec("listTopics", "GET", "/topics", status=200, variant="all", params={"status": "all"})
+    # T2-M3: the tag filter matches the stored spelling exactly ("health" on Old habit doesn't)
+    tag = {"status": "all", "tag": "Health"}
+    await rec("listTopics", "GET", "/topics", status=200, variant="tag", params=tag)
+    # end T2-M3
     await rec("getTopic", "GET", "/topics/everything", status=200)
     await rec("getTopic", "GET", "/topics/water", status=200, variant="interval")
     await rec("listTopicVersions", "GET", "/topics/everything/versions", status=200)
@@ -448,7 +474,27 @@ async def scenario(client: httpx.AsyncClient) -> dict[str, str]:
     )
     await runs(client, rec)
     await live_activities(client, rec)
+    await lap_types(client, rec)
     return rec.files
+
+
+async def lap_types(client: httpx.AsyncClient, rec: Recorder) -> None:
+    """``getTopicTiming`` of a topic with lap types (timers2.md §7.4): one run whose laps cycle
+    Run, Rest, Run."""
+    run_id, lap1, lap2, stop = LAP_TYPE_IDS
+    timer = {"steps": [], "laps": [{"key": "run", "label": "Run"}, {"key": "rest", "label": "Rest"}]}
+    topic = (await client.post("/topics", json={"name": "Intervals", "questions": [], "timer": timer})).json()
+    post = f"/runs/{run_id}/events"
+    start = run_event(run_id, "start", "2026-03-04T11:50:00Z", topic_id=topic["id"], version=1)
+    for body in (
+        start,
+        run_event(lap1, "lap", "2026-03-04T11:52:00Z", seg=0),
+        run_event(lap2, "lap", "2026-03-04T11:52:30Z", seg=1),
+        run_event(stop, "stop", "2026-03-04T11:55:00Z"),
+    ):
+        r = await client.post(post, json=body)
+        assert r.status_code < 300, r.text
+    await rec("getTopicTiming", "GET", "/topics/intervals/timing", status=200, variant="lap_types")
 
 
 async def live_activities(client: httpx.AsyncClient, rec: Recorder) -> None:
@@ -595,6 +641,7 @@ async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
     )
     # The same span once every run has closed: their entries, and one run deletion each.
     await rec("listChanges", "GET", f"/changes?after={runs_from}", status=200, variant="run_deletion")
+    await reopen_and_remove(client, rec, post)
 
     # --- problems ---
     await rec(
@@ -656,6 +703,79 @@ async def runs(client: httpx.AsyncClient, rec: Recorder) -> None:
     )
 
 
+async def reopen_and_remove(client: httpx.AsyncClient, rec: Recorder, post: Any) -> None:
+    """Reopen and remove (timers2.md §4, §6.1 to §6.5) on R3, the dishwasher run its stop at
+    11:14:05.5 (``ev9``) closed with an entry."""
+    ev9 = EVENT_IDS[8]
+    reopen, lap, pause, resume, remove, restop, remove_late, again, discard = REOPEN_IDS
+    before = (await client.get("/changes", params={"after": 0, "limit": 1})).json()["head"]
+    # The accidental stop: the gap 11:14:05.5 to 11:15 becomes a pause; the entry stays.
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R3),
+        run_event(reopen, "reopen", "2026-03-04T11:15:00Z", target=ev9),
+        status=200,
+        variant="reopen",
+    )
+    await client.post(post(R3), json=run_event(lap, "lap", "2026-03-04T11:16:00Z", seg=0))
+    await client.post(post(R3), json=run_event(pause, "pause", "2026-03-04T11:16:30Z"))
+    await client.post(post(R3), json=run_event(resume, "resume", "2026-03-04T11:17:00Z", pause_id=pause))
+    # A pause removed while the run is open: it and its resume are void `deleted`.
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R3),
+        run_event(remove, "remove", "2026-03-04T11:17:30Z", target=pause),
+        status=200,
+        variant="remove",
+    )
+    # The re-stop replaces the entry's timing and captured_at (revision 2).
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R3),
+        run_event(restop, "stop", "2026-03-04T11:18:00Z"),
+        status=200,
+        variant="restop",
+    )
+    # The feed from the reopen to the re-stop: the entry, and one run deletion carrying the run's
+    # revision (timers2.md §5.1, §5.2).
+    await rec("listChanges", "GET", f"/changes?after={before}", status=200, variant="reopened_run")
+    # Removing the lap from the stopped run's entry: a late merge (revision 3, not edited).
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R3),
+        run_event(remove_late, "remove", "2026-03-04T11:19:00Z", target=lap),
+        status=200,
+        variant="remove_late",
+    )
+    # Reopened again with no target (the server resolves it to the re-stop), then reverted.
+    await client.post(post(R3), json=run_event(again, "reopen", "2026-03-04T11:20:00Z"))
+    await rec(
+        "recordRunEvent",
+        "POST",
+        post(R3),
+        run_event(discard, "discard", "2026-03-04T11:21:00Z"),
+        status=200,
+        variant="revert",
+    )
+    # A timing stored before v2 is served as stored: its ids and lap types are null (§3.3).
+    async with get_sessionmaker()() as db:
+        entry = await db.get_one(Entry, UUID(R3))
+        timing = dict(entry.timing or {})
+        timing.pop("terminal_id")
+        timing["segments"] = [
+            {k: v for k, v in seg.items() if k not in ("lap_type", "event_id", "opened_by")}
+            for seg in timing["segments"]
+        ]
+        timing["pauses"] = [{k: v for k, v in p.items() if k != "id"} for p in timing["pauses"]]
+        entry.timing = timing
+        await db.commit()
+    await rec("getEntry", "GET", f"/entries/{R3}", status=200, variant="v1_timing")
+
+
 async def test_api_fixtures_match_committed(
     client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch, fake_apns: FakeApns
 ) -> None:
@@ -702,8 +822,10 @@ def test_normaliser_only_touches_known_paths() -> None:
         "meta": {"created_at": "not a date"},
         "answers": [{"key": "k", "value": db_time}],
         "due": {"due_since": "2026-03-04T08:00:00Z", "next_due_at": None},
+        "last_entry": {"created_at": db_time, "captured_at": "2026-03-01T08:00:00Z"},
     }
     assert rec.normalise(body, ("body",), "x.json") == {
         **body,
         "created_at": SERVER_TIME,
+        "last_entry": {"created_at": SERVER_TIME, "captured_at": "2026-03-01T08:00:00Z"},
     }

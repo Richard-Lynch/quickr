@@ -1,0 +1,3 @@
+- **P1 — The pixel check still does not verify the selected emoji.** [BuilderUITests+T2M3.swift:63](/Users/richie/code/quickr-worktrees/t2-m3a-uitest/ios/UITests/BuilderUITests+T2M3.swift:63) checks only that the glyph area contains enough non-background pixels and is not mostly teal. A different emoji, a black symbol, or other non-teal content can pass even if the selected 🏃 is never rendered. The settings summary verifies the stored value, but cannot establish which glyph the header displays.
+
+The chip frame checks address the reported placement issue. The rule sample is positioned inside the 4-point rule, and the screenshot scaling, 1×1 draw origin, and sRGB comparison are consistent with the current header layout. I did not run the simulator tests for this review.

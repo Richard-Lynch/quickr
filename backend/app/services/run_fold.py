@@ -2,8 +2,10 @@
 
 Pure functions (no DB, no clock), mirrored by the PWA (``lib/runs/fold.ts``) and the iOS app
 (QuickrCore ``RunFold``): ``shared/fixtures/run-fold-vectors.json`` (generated from this
-module) is the contract all three check. The rules are docs/specs/timers.md §4 (the fold),
-§2.3 (the ``Timing`` projection and its invariants T1 to T5) and §11.1 (the duration format).
+module) is the contract all three check. The rules are docs/specs/timers.md §4 (the fold)
+as changed by docs/specs/timers2.md §3 (fold v4: the version's ``timer`` with its lap types,
+``reopen`` and ``remove``, the gap pause, ghost boundaries), timers.md §2.3 (the ``Timing``
+projection and its invariants T1 to T5) and §11.1 (the duration format).
 
 Every instant is an integer count of milliseconds since the Unix epoch, so every duration is
 an exact integer difference and segment sums equal the totals exactly (§2.3). Wire strings
@@ -11,19 +13,20 @@ are truncated to the millisecond by :func:`parse_instant`, never rounded, and ne
 through a float.
 
 - :func:`fold` replays a run's events (in server arrival order) into a :class:`RunState`:
-  terminal events by arrival, everything else by ``(at, id)``, except that a resume at the
-  same instant as the pause it names comes right after it (§4.1, §4.2).
+  terminals, reopens and removes by arrival (pass 1), everything else by time (pass 2) with
+  the reopened stops and their reopens taking part as gap pause and gap resume roles
+  (timers2.md §3.4). Effects are outputs of one fold only: nothing is retained between folds.
 - :func:`project_timing` turns a stopped run's state into the entry's :class:`Timing`, and
-  :func:`make_timing` builds one from segment boundaries and pauses (a fold, or an edit).
+  :func:`make_timing` builds one from segment boundaries and pauses (an edit).
   :func:`check_timing` enforces T1 to T5.
 - :func:`fmt_duration` is the ``m:ss`` / ``h:mm:ss`` duration format of every client.
 
-Decided outside the fold, by the server (§3.6, §3.7, §4.4): ``finish`` (it gets no effect
-here), the discard of a finishing run, ``finishing`` versus ``stopped`` (the fold says
-``stopped``), and the void reasons ``run_edited``, ``entry_deleted`` and ``already_closed``
-for events that arrive once the run is edited, its entry deleted or the run discarded. The
-server passes that cut-off as ``frozen``: later arrivals are void and the run isn't refolded
-past it.
+Decided outside the fold, by the server (timers.md §3.6, §3.7, §4.4; timers2.md §3.6):
+``finish`` (it gets no effect here), the discard of a finishing run, ``finishing`` versus
+``stopped`` (the fold says ``stopped``), and the void reasons ``run_edited``,
+``entry_deleted`` and ``already_closed`` for events that arrive once the run is edited, its
+entry deleted or the run discarded. The server passes that cut-off as ``frozen``: later
+arrivals are void and the run isn't refolded past it.
 """
 
 from __future__ import annotations
@@ -34,7 +37,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-type EventType = Literal["start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"]
+type EventType = Literal[
+    "start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard", "reopen", "remove"
+]
 type VoidReason = Literal[
     "merged",
     "already_closed",
@@ -47,13 +52,18 @@ type VoidReason = Literal[
     "no_step",
     "already_paused",
     "not_paused",
+    "reverted",
+    "not_stopped",
+    "deleted",
+    "no_target",
 ]
 type FrozenReason = Literal["run_edited", "entry_deleted", "already_closed"]
 type Status = Literal["running", "paused", "stopped", "discarded"]
 type SegmentKind = Literal["step", "lap"]
+type OpenedBy = Literal["start", "next", "lap", "skip"]
 
 EVENT_TYPES: frozenset[str] = frozenset(
-    {"start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard"}
+    {"start", "next", "lap", "skip", "pause", "resume", "stop", "finish", "discard", "reopen", "remove"}
 )
 MAX_RUN_MS = 7 * 24 * 60 * 60 * 1000  # §5: at most 7 days from started_at
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
@@ -97,9 +107,29 @@ class Step:
 
 
 @dataclass(frozen=True, slots=True)
+class LapType:
+    key: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class Timer:
+    """What the fold needs of a version's timer (timers2.md §3.1): its steps and lap types.
+    Variables and alerts are not fold inputs."""
+
+    steps: Sequence[Step] = ()
+    laps: Sequence[LapType] = ()
+
+    def __post_init__(self) -> None:  # stored as tuples: hashable, and equal whatever was passed
+        object.__setattr__(self, "steps", tuple(self.steps))
+        object.__setattr__(self, "laps", tuple(self.laps))
+
+
+@dataclass(frozen=True, slots=True)
 class Event:
     """One stored tap. ``at`` is epoch milliseconds; ``seg`` is set for next, lap and skip,
-    ``step`` for skip, ``pause_id`` for resume (§3.2)."""
+    ``step`` for skip, ``pause_id`` for resume (§3.2), ``target`` for reopen and remove
+    (timers2.md §3)."""
 
     id: str
     type: EventType
@@ -107,6 +137,7 @@ class Event:
     seg: int | None = None
     step: str | None = None
     pause_id: str | None = None
+    target: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,12 +159,20 @@ APPLIED = Effect("applied")
 
 @dataclass(frozen=True, slots=True)
 class Pause:
+    """``id`` is the ``pause`` event's id (a gap pause carries its stop's id); None on a
+    pre-v2 stored timing and after an edit (timers2.md §3.3)."""
+
     start: int
     end: int
+    id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class Segment:
+    """``event_id`` and ``opened_by`` name the event that opened the segment: the start
+    (``event_id`` None, ``opened_by`` "start"), a next or a lap. Both None on a pre-v2 stored
+    timing and after an edit; ``skip`` never opens a segment and is reserved."""
+
     kind: SegmentKind
     step: str | None
     label: str
@@ -141,6 +180,9 @@ class Segment:
     ended_at: int
     active_ms: int
     paused_ms: int
+    lap_type: str | None = None
+    event_id: str | None = None
+    opened_by: OpenedBy | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,15 +192,19 @@ class OpenSegment:
     step: str | None
     label: str
     started_at: int
+    lap_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class RunState:
-    """The fold's output (§4.3), plus the run's start and (when stopped) end.
+    """The fold's output (§4.3, timers2.md §3.3), plus the run's start and (when stopped) end.
 
     ``segments``, ``skipped`` and ``pauses`` are the closed ones; an open pause is
     ``paused_since``. ``effects`` maps each event id (lowercase) to its effect; ``finish``
-    events are left out (the server decides them).
+    events are left out (the server decides them). ``terminal_id`` is the applied stop that
+    closed the run: None while open, after a reopen, and for a discarded run.
+    ``next_lap_type`` is the type of the lap a ``lap`` tap would open now (None when untyped
+    or the run isn't open); ``lap_count`` the closed lap segments.
     """
 
     status: Status
@@ -171,11 +217,15 @@ class RunState:
     skipped: tuple[str, ...]
     pauses: tuple[Pause, ...]
     effects: Mapping[str, Effect]
+    terminal_id: str | None
+    next_lap_type: str | None
+    lap_count: int
 
 
 @dataclass(frozen=True, slots=True)
 class Timing:
-    """``entries.timing`` (§2.3)."""
+    """``entries.timing`` (§2.3). ``terminal_id`` is the applied stop; None on a pre-v2 stored
+    timing (an edit keeps it)."""
 
     started_at: int
     ended_at: int
@@ -186,20 +236,28 @@ class Timing:
     segments: tuple[Segment, ...]
     skipped: tuple[str, ...]
     pauses: tuple[Pause, ...]
+    terminal_id: str | None = None
 
 
 # --- the fold ---------------------------------------------------------------------------
 
 
-def lap_label(n: int) -> str:
-    """The label of the run's ``n``-th lap segment (1-based)."""
-    return f"Lap {n}"
+def lap_typing(n: int, laps: Sequence[LapType]) -> tuple[str | None, str]:
+    """The lap type key and label of the run's ``n``-th lap segment (1-based): laps cycle
+    through the lap types in order with a per-type ordinal (timers2.md §3.2); with no lap
+    types, ``(None, "Lap n")``."""
+    if not laps:
+        return None, f"Lap {n}"
+    lap_type = laps[(n - 1) % len(laps)]
+    return lap_type.key, f"{lap_type.label} {(n - 1) // len(laps) + 1}"
 
 
-def fold(
-    run_id: str, steps: Sequence[Step], events: Sequence[Event], *, frozen: Frozen | None = None
-) -> RunState:
-    """Replay ``events`` (in arrival order) of run ``run_id`` over its version's ``steps``.
+def lap_label(n: int, laps: Sequence[LapType] = ()) -> str:
+    return lap_typing(n, laps)[1]
+
+
+def fold(run_id: str, timer: Timer, events: Sequence[Event], *, frozen: Frozen | None = None) -> RunState:
+    """Replay ``events`` (in arrival order) of run ``run_id`` over its version's ``timer``.
 
     The run's own start (the event whose id is ``run_id``) must be among them. A stop
     before the start or more than 7 days after it is void (``before_start``,
@@ -211,121 +269,261 @@ def fold(
     if start is None:
         raise ValueError("the run's start event is missing")
     effects: dict[str, Effect] = {}
-    terminal, accepted = _arrival_pass(run_id, start, events, frozen, effects)
+    arrival = _arrival_pass(run_id, start, events, frozen, effects)
+    terminal = arrival.terminal
 
-    clock = _Clock(steps, start.at)
+    clock = _Clock(timer, start.at, arrival.removed)
     end = terminal.at if terminal is not None else None
-    for e in sorted(accepted, key=_time_order(accepted)):
-        if e.at < start.at:
+    items: list[Event | _Role] = [*arrival.accepted, *arrival.gaps()]
+    for item in sorted(items, key=_time_order(arrival.accepted)):
+        if isinstance(item, _Role):  # never recorded; skipped outside the run
+            if item.at >= start.at and (end is None or item.at <= end):
+                clock.role(item)
+            continue
+        if item.at < start.at:
             reason: VoidReason | None = "before_start"
-        elif end is not None and e.at > end:
+        elif end is not None and item.at > end:
             reason = "after_stop"
-        elif e.at > start.at + MAX_RUN_MS:
+        elif item.at > start.at + MAX_RUN_MS:
             reason = "too_long"
         else:
-            reason = clock.apply(e)
-        effects[e.id.lower()] = APPLIED if reason is None else Effect("void", reason)
+            reason = clock.apply(item)
+        effects[item.id.lower()] = APPLIED if reason is None else Effect("void", reason)
 
     return clock.state(start.at, terminal, effects)
 
 
-def _time_order(accepted: Sequence[Event]) -> Callable[[Event], tuple[int, str, int, str]]:
-    """Pass 2's order: ``(at, id)`` ascending, ids lowercase, except that a resume at the same
-    instant as the pause it names comes right after that pause."""
-    pauses = {e.id.lower(): e.at for e in accepted if e.type == "pause"}
+@dataclass(frozen=True, slots=True)
+class _Role:
+    """A reopened stop's gap pause (id = the stop's) or a reopen's gap resume (id = the
+    reopen's) in pass 2 (timers2.md §3.4)."""
 
-    def key(e: Event) -> tuple[int, str, int, str]:
-        named = (e.pause_id or "").lower()
-        if e.type == "resume" and pauses.get(named) == e.at:
-            return (e.at, named, 1, e.id.lower())
-        return (e.at, e.id.lower(), 0, "")
+    kind: Literal["gap_pause", "gap_resume"]
+    at: int
+    id: str
 
-    return key
+
+class _Arrival:
+    """Pass 1's state and outcome (§4.2, timers2.md §3.4): the terminal, the events left for
+    pass 2, every applied (stop, reopen) role pair and the removed targets."""
+
+    def __init__(self, run_id: str, start: Event, effects: dict[str, Effect]) -> None:
+        self.run_id = run_id
+        self.start = start
+        self.effects = effects
+        self.seen: dict[str, Event] = {}  # the first occurrence of each id
+        self.terminal: Event | None = None
+        self.accepted: list[Event] = []
+        self.open_reopen: tuple[Event, Event] | None = (
+            None  # the (stop, reopen) that cleared the CURRENT terminal
+        )
+        self.roles: list[tuple[Event, Event]] = []
+        self.removed: dict[str, Event] = {}  # target id (lowercase) -> the remove that applied
+
+    def gaps(self) -> list[_Role]:
+        return [
+            _Role("gap_pause", s.at, s.id.lower()) for s, _ in self.roles if s.id.lower() not in self.removed
+        ] + [_Role("gap_resume", r.at, r.id.lower()) for _, r in self.roles]
+
+    def stop(self, e: Event) -> VoidReason | None:
+        # An out-of-range stop is never a terminal, whenever it arrives (the server refuses it).
+        if e.at < self.start.at:
+            return "before_start"
+        if e.at > self.start.at + MAX_RUN_MS:
+            return "too_long"
+        if self.terminal is not None:
+            return "already_closed"
+        self.terminal, self.open_reopen = e, None  # a new terminal ends the reopen transaction
+        return None
+
+    def discard(self, e: Event) -> VoidReason | None:
+        if self.terminal is not None:
+            return "already_closed"
+        if self.open_reopen is None:
+            self.terminal = e
+            return None
+        stop, reopen = self.open_reopen  # the terminal was cleared by a reopen: revert (OQ-2)
+        self.open_reopen = None
+        self.effects[reopen.id.lower()] = Effect("void", "reverted")
+        self.terminal = stop
+        self.roles.remove((stop, reopen))
+        if stop.id.lower() in self.removed:  # the gap pause had been removed: a terminal again
+            self.effects[stop.id.lower()] = APPLIED
+            self.effects[self.removed.pop(stop.id.lower()).id.lower()] = Effect("void", "no_target")
+        return None  # the discard closed what the reopen opened
+
+    def reopen(self, e: Event) -> VoidReason | None:
+        target = (e.target or "").lower()
+        t = self.seen.get(target)
+        if t is None or t.type != "stop":
+            return "no_target"
+        if self.terminal is not None and self.terminal.type == "discard":
+            return "already_closed"
+        if self.terminal is None or self.terminal.id.lower() != target:
+            return "not_stopped"  # not the current terminal
+        if e.at <= t.at:
+            return "stale"
+        if e.at > self.start.at + MAX_RUN_MS:
+            return "too_long"
+        self.open_reopen = (t, e)
+        self.roles.append((t, e))
+        self.terminal = None
+        return None
+
+    def remove(self, e: Event) -> VoidReason | None:
+        """Eligibility is by type and identity only: a pause, a lap, or a reopened stop, not yet
+        removed, with ``e.at`` after it; there is no 7-day bound."""
+        target = (e.target or "").lower()
+        t = self.seen.get(target)
+        if t is None or target in self.removed or e.at <= t.at:
+            return "no_target"
+        if t.type == "stop":
+            if not any(s.id.lower() == target for s, _ in self.roles):
+                return "no_target"
+            self.effects[target] = Effect("void", "deleted")  # the gap pause goes; its reopen stays applied
+        elif t.type not in ("pause", "lap"):
+            return "no_target"
+        self.removed[target] = e
+        return None
 
 
 def _arrival_pass(
     run_id: str, start: Event, events: Sequence[Event], frozen: Frozen | None, effects: dict[str, Effect]
-) -> tuple[Event | None, list[Event]]:
-    """Pass 1, arrival order (§4.2): duplicates, starts, terminals and the frozen cut-off.
-    Records their effects; returns the terminal and the events left for pass 2."""
-    seen: set[str] = set()
-    terminal: Event | None = None
-    accepted: list[Event] = []
+) -> _Arrival:
+    """Pass 1, arrival order: duplicates, starts, the frozen cut-off, terminals, reopens (and
+    their revert by a discard) and removes. Records their effects."""
+    st = _Arrival(run_id, start, effects)
     for i, e in enumerate(events):
         if e.type not in EVENT_TYPES:
             raise ValueError(f"unknown event type {e.type!r}")
         eid = e.id.lower()
-        if eid in seen:
+        if eid in st.seen:
             continue
-        seen.add(eid)
+        st.seen[eid] = e
         if e.type == "finish":
             continue
-        reason: VoidReason | None = None
+        reason: VoidReason | None
         if frozen is not None and i >= frozen.after:
             reason = frozen.reason
         elif e.type == "start":
             reason = None if eid == run_id else "merged"
-        elif e.type in ("stop", "discard"):
-            # An out-of-range stop is never a terminal, whenever it arrives (the server refuses it).
-            if e.type == "stop" and e.at < start.at:
-                reason = "before_start"
-            elif e.type == "stop" and e.at > start.at + MAX_RUN_MS:
-                reason = "too_long"
-            elif terminal is not None:
-                reason = "already_closed"
-            else:
-                terminal = e
+        elif e.type == "stop":
+            reason = st.stop(e)
+        elif e.type == "discard":
+            reason = st.discard(e)
+        elif e.type == "reopen":
+            reason = st.reopen(e)
+        elif e.type == "remove":
+            reason = st.remove(e)
         else:
-            accepted.append(e)
+            st.accepted.append(e)  # next, lap, skip, pause, resume
             continue
         effects[eid] = APPLIED if reason is None else Effect("void", reason)
-    return terminal, accepted
+    return st
+
+
+def _time_order(accepted: Sequence[Event]) -> Callable[[Event | _Role], tuple[int, int, str, int, str]]:
+    """Pass 2's order ``(at, rank, id)``: at equal ``at`` a gap pause (rank 0) comes before
+    every user event (rank 1) and a gap resume (rank 2) after them; user events by lowercase
+    id, except that a resume at the same instant as the pause it names comes right after that
+    pause (several such resumes by lowercase id)."""
+    pauses = {e.id.lower(): e.at for e in accepted if e.type == "pause"}
+
+    def key(x: Event | _Role) -> tuple[int, int, str, int, str]:
+        if isinstance(x, _Role):
+            return (x.at, 0 if x.kind == "gap_pause" else 2, x.id, 0, "")
+        named = (x.pause_id or "").lower()
+        if x.type == "resume" and pauses.get(named) == x.at:
+            return (x.at, 1, named, 1, x.id.lower())
+        return (x.at, 1, x.id.lower(), 0, "")
+
+    return key
+
+
+@dataclass(frozen=True, slots=True)
+class _Closed:
+    step: Step | None  # None: a lap
+    started_at: int
+    ended_at: int
+    event_id: str | None
+    opened_by: OpenedBy | None
 
 
 class _Clock:
-    """Pass 2's state: the open segment, the steps still to come, and what has closed."""
+    """Pass 2's state: the open segment, the steps still to come, what has closed, the open
+    pause and its owner, and the ghost boundaries of removed laps."""
 
-    def __init__(self, steps: Sequence[Step], started_at: int) -> None:
-        self.pending: deque[Step] = deque(steps)
+    def __init__(self, timer: Timer, started_at: int, removed: Mapping[str, Event]) -> None:
+        self.timer = timer
+        self.pending: deque[Step] = deque(timer.steps)
         self.open_step: Step | None = self.pending.popleft() if self.pending else None  # None: a lap
         self.open_start = started_at
-        self.closed: list[tuple[Step | None, int, int]] = []  # (step or lap, started_at, ended_at)
+        self.open_event: tuple[str | None, OpenedBy | None] = (None, "start")
+        self.closed: list[_Closed] = []
         self.skipped: list[str] = []
         self.pauses: list[Pause] = []
         self.paused_since: int | None = None
         self.pause_id: str | None = None
+        self.removed = removed
+        self.ghosts: list[tuple[int, int]] = []  # (lap.at, remove.at) of removed lap boundaries
 
     def pop(self) -> Step | None:
         """The next step, or a lap once the steps run out."""
         return self.pending.popleft() if self.pending else None
 
-    def close(self, at: int, then: Step | None) -> None:
-        self.closed.append((self.open_step, self.open_start, at))
-        self.open_step, self.open_start = then, at
+    def expected_seg(self, at: int) -> int:
+        """§3.5: the closed segments plus the removed boundaries a device tapping at ``at``
+        still saw (removed later than ``at``)."""
+        return len(self.closed) + sum(1 for lap_at, removed_at in self.ghosts if lap_at < at < removed_at)
+
+    def close(self, at: int, then: Step | None, event_id: str | None, opened_by: OpenedBy | None) -> None:
+        self.closed.append(_Closed(self.open_step, self.open_start, at, *self.open_event))
+        self.open_step, self.open_start, self.open_event = then, at, (event_id, opened_by)
+
+    def end_pause(self, at: int) -> None:
+        if self.paused_since is not None:
+            self.pauses.append(Pause(self.paused_since, at, self.pause_id))
+            self.paused_since = self.pause_id = None
+
+    def role(self, role: _Role) -> None:
+        """A gap pause or gap resume in range (timers2.md §3.4)."""
+        if role.kind == "gap_pause":
+            if self.paused_since is None:
+                self.paused_since = role.at
+            self.pause_id = role.id  # the gap OWNS the open pause: a user resume inside it is stale
+        else:
+            self.end_pause(role.at)  # ends WHATEVER pause is open
 
     def apply(self, e: Event) -> VoidReason | None:
         """Apply one in-range event; its void reason, or None when it applied."""
-        if e.type in ("next", "lap", "skip") and e.seg != len(self.closed):
+        eid = e.id.lower()
+        if eid in self.removed:  # a deleted boundary or pause
+            if e.type == "lap" and e.seg == self.expected_seg(e.at):
+                self.ghosts.append((e.at, self.removed[eid].at))
+            return "deleted"
+        if e.type in ("next", "lap", "skip") and e.seg != self.expected_seg(e.at):
             return "stale"
         match e.type:
             case "next":
-                self.close(e.at, self.pop())
+                self.close(e.at, self.pop(), eid, "next")
             case "lap":
-                self.close(e.at, None)
+                self.close(e.at, None, eid, "lap")
             case "skip":
                 return self.skip(e.step)
             case "pause":
                 if self.paused_since is not None:
                     return "already_paused"
-                self.paused_since, self.pause_id = e.at, e.id.lower()
+                self.paused_since, self.pause_id = e.at, eid
             case "resume":
+                named = (e.pause_id or "").lower()
+                if named in self.removed:
+                    return "deleted"
                 if self.paused_since is None:
                     return "not_paused"
-                if (e.pause_id or "").lower() != self.pause_id:
-                    return "stale"  # it ends an older pause
-                self.pauses.append(Pause(self.paused_since, e.at))
-                self.paused_since = self.pause_id = None
-            case _:  # start, stop, discard and finish never reach pass 2
+                if named != self.pause_id:
+                    return "stale"  # it ends an older pause, or one the gap took over
+                self.end_pause(e.at)
+            case _:  # start, stop, discard, finish, reopen and remove never reach pass 2
                 raise AssertionError(e.type)
         return None
 
@@ -346,29 +544,34 @@ class _Clock:
     def state(self, started_at: int, terminal: Event | None, effects: Mapping[str, Effect]) -> RunState:
         status: Status
         ended_at: int | None = None
+        terminal_id: str | None = None
         if terminal is not None and terminal.type == "stop":
-            if self.paused_since is not None:  # stop while paused ends the pause
-                self.pauses.append(Pause(self.paused_since, terminal.at))
-                self.paused_since = None
-            self.close(terminal.at, None)
-            status, ended_at = "stopped", terminal.at
+            self.end_pause(terminal.at)  # stop while paused ends the pause
+            self.close(terminal.at, None, None, None)
+            status, ended_at, terminal_id = "stopped", terminal.at, terminal.id.lower()
         elif terminal is not None:
-            status, self.paused_since = "discarded", None
+            status, self.paused_since, self.pause_id = "discarded", None, None
         else:
             status = "paused" if self.paused_since is not None else "running"
 
-        segments = _segments(self.closed, self.pauses, open_pause=self.paused_since)
+        laps = self.timer.laps
+        segments = _segments(self.closed, self.pauses, laps, open_pause=self.paused_since)
+        lap_count = sum(s.kind == "lap" for s in segments)
         open_seg: OpenSegment | None = None
+        next_lap_type: str | None = None
         if status in ("running", "paused"):
-            laps = sum(s.kind == "lap" for s in segments)
             step = self.open_step
+            lap_type, label = lap_typing(lap_count + 1, laps) if step is None else (None, step.label)
             open_seg = OpenSegment(
                 index=len(self.closed),
                 kind="lap" if step is None else "step",
                 step=None if step is None else step.key,
-                label=lap_label(laps + 1) if step is None else step.label,
+                label=label,
                 started_at=self.open_start,
+                lap_type=lap_type,
             )
+            if laps:  # the lap a `lap` tap would open now
+                next_lap_type = lap_typing(lap_count + (1 if step is None else 0) + 1, laps)[0]
         return RunState(
             status=status,
             started_at=started_at,
@@ -380,6 +583,9 @@ class _Clock:
             skipped=tuple(self.skipped),
             pauses=tuple(self.pauses),
             effects=dict(effects),
+            terminal_id=terminal_id,
+            next_lap_type=next_lap_type,
+            lap_count=lap_count,
         )
 
 
@@ -391,25 +597,35 @@ def _overlap(start: int, end: int, pauses: Sequence[Pause], open_pause: int | No
 
 
 def _segments(
-    closed: Sequence[tuple[Step | None, int, int]], pauses: Sequence[Pause], *, open_pause: int | None = None
+    closed: Sequence[_Closed],
+    pauses: Sequence[Pause],
+    laps: Sequence[LapType],
+    *,
+    open_pause: int | None = None,
 ) -> list[Segment]:
-    """Closed segments with their labels. Pauses stay whole; each segment's paused_ms is its
-    overlap with them (T5)."""
+    """Closed segments with their labels and lap types (timers2.md §3.2). Pauses stay whole;
+    each segment's paused_ms is its overlap with them (T5)."""
     out: list[Segment] = []
-    laps = 0
-    for step, started_at, ended_at in closed:
-        if step is None:
-            laps += 1
-        paused = _overlap(started_at, ended_at, pauses, open_pause)
+    lap_n = 0
+    for c in closed:
+        if c.step is None:
+            lap_n += 1
+            lap_type, label = lap_typing(lap_n, laps)
+        else:
+            lap_type, label = None, c.step.label
+        paused = _overlap(c.started_at, c.ended_at, pauses, open_pause)
         out.append(
             Segment(
-                kind="lap" if step is None else "step",
-                step=None if step is None else step.key,
-                label=lap_label(laps) if step is None else step.label,
-                started_at=started_at,
-                ended_at=ended_at,
-                active_ms=ended_at - started_at - paused,
+                kind="lap" if c.step is None else "step",
+                step=None if c.step is None else c.step.key,
+                label=label,
+                started_at=c.started_at,
+                ended_at=c.ended_at,
+                active_ms=c.ended_at - c.started_at - paused,
                 paused_ms=paused,
+                lap_type=lap_type,
+                event_id=c.event_id,
+                opened_by=c.opened_by,
             )
         )
     return out
@@ -424,31 +640,36 @@ def make_timing(
     skipped: Sequence[str],
     pauses: Sequence[Pause],
     *,
-    steps: Sequence[Step],
+    timer: Timer,
     edited: bool = False,
+    terminal_id: str | None = None,
 ) -> Timing:
     """A ``Timing`` from its boundaries: ``parts`` is each segment's step (None for a lap)
-    and end, in order; the last end is the run's end. ``steps`` are the run version's steps,
-    for ``complete`` (:func:`is_complete`)."""
+    and end, in order; the last end is the run's end. ``timer`` is the run version's: its
+    steps for ``complete`` (:func:`is_complete`), its lap types for the laps' labels. A timing
+    built this way is an edit's (timers2.md §3.3): its segments and pauses carry no event ids,
+    and ``terminal_id`` is whatever the caller keeps."""
     if not parts:
         raise ValueError("a timing has at least one segment")
-    closed: list[tuple[Step | None, int, int]] = []
+    closed: list[_Closed] = []
     previous = started_at
     for step, ended_at in parts:
-        closed.append((step, previous, ended_at))
+        closed.append(_Closed(step, previous, ended_at, None, None))
         previous = ended_at
-    segments = _segments(closed, pauses)
-    paused = sum(p.end - p.start for p in pauses)
+    plain = [Pause(p.start, p.end) for p in pauses]
+    segments = _segments(closed, plain, timer.laps)
+    paused = sum(p.end - p.start for p in plain)
     return Timing(
         started_at=started_at,
         ended_at=previous,
         active_ms=previous - started_at - paused,
         paused_ms=paused,
-        complete=is_complete(steps, segments, skipped),
+        complete=is_complete(timer.steps, segments, skipped),
         edited=edited,
         segments=tuple(segments),
         skipped=tuple(skipped),
-        pauses=tuple(pauses),
+        pauses=tuple(plain),
+        terminal_id=terminal_id,
     )
 
 
@@ -459,9 +680,9 @@ def is_complete(steps: Sequence[Step], segments: Sequence[Segment], skipped: Seq
     return not skipped and all(step.key in done for step in steps)
 
 
-def project_timing(state: RunState, steps: Sequence[Step]) -> Timing:
-    """A stopped run's ``Timing``: exactly its fold state (§4.3). ``steps`` are the run
-    version's steps, the ones it was folded over."""
+def project_timing(state: RunState, timer: Timer) -> Timing:
+    """A stopped run's ``Timing``: exactly its fold state (§4.3). ``timer`` is the run
+    version's, the one it was folded over."""
     if state.status != "stopped" or state.ended_at is None:
         raise ValueError("only a stopped run has a timing")
     paused = sum(p.end - p.start for p in state.pauses)
@@ -470,11 +691,12 @@ def project_timing(state: RunState, steps: Sequence[Step]) -> Timing:
         ended_at=state.ended_at,
         active_ms=state.ended_at - state.started_at - paused,
         paused_ms=paused,
-        complete=is_complete(steps, state.segments, state.skipped),
+        complete=is_complete(timer.steps, state.segments, state.skipped),
         edited=False,
         segments=state.segments,
         skipped=state.skipped,
         pauses=state.pauses,
+        terminal_id=state.terminal_id,
     )
 
 
@@ -537,15 +759,28 @@ def segment_json(s: Segment) -> dict[str, Any]:
         "ended_at": format_instant(s.ended_at),
         "active_ms": s.active_ms,
         "paused_ms": s.paused_ms,
+        "lap_type": s.lap_type,
+        "event_id": s.event_id,
+        "opened_by": s.opened_by,
     }
 
 
 def pause_json(p: Pause) -> dict[str, Any]:
-    return {"start": format_instant(p.start), "end": format_instant(p.end)}
+    return {"start": format_instant(p.start), "end": format_instant(p.end), "id": p.id}
+
+
+def stored_lap_count(state: Mapping[str, Any]) -> int:
+    """A stored state's ``lap_count``: a state stored before fold v4 has none, so its closed lap
+    segments are counted, as the fold counts them."""
+    count = state.get("lap_count")
+    if count is not None:
+        return int(count)
+    return sum(1 for s in state.get("segments") or () if s.get("kind") == "lap")
 
 
 def state_json(state: RunState) -> dict[str, Any]:
-    """``RunState`` as the API carries it (§4.3), plus ``started_at`` and ``ended_at``."""
+    """``RunState`` as the API carries it (§4.3, timers2.md §3.3), plus ``started_at`` and
+    ``ended_at``."""
     o = state.open
     return {
         "status": state.status,
@@ -559,6 +794,7 @@ def state_json(state: RunState) -> dict[str, Any]:
             "step": o.step,
             "label": o.label,
             "started_at": format_instant(o.started_at),
+            "lap_type": o.lap_type,
         },
         "next_step": state.next_step,
         "paused_since": None if state.paused_since is None else format_instant(state.paused_since),
@@ -566,6 +802,9 @@ def state_json(state: RunState) -> dict[str, Any]:
         "skipped": list(state.skipped),
         "pauses": [pause_json(p) for p in state.pauses],
         "effects": {k: {"effect": v.effect, "reason": v.reason} for k, v in state.effects.items()},
+        "terminal_id": state.terminal_id,
+        "next_lap_type": state.next_lap_type,
+        "lap_count": state.lap_count,
     }
 
 
@@ -580,10 +819,13 @@ def timing_json(t: Timing) -> dict[str, Any]:
         "segments": [segment_json(s) for s in t.segments],
         "skipped": list(t.skipped),
         "pauses": [pause_json(p) for p in t.pauses],
+        "terminal_id": t.terminal_id,
     }
 
 
 def timing_from_json(d: Mapping[str, Any]) -> Timing:
+    """A stored timing. The v2 fields (``terminal_id``, ``lap_type``, ``event_id``,
+    ``opened_by``, a pause's ``id``) are None when absent: a pre-v2 stored timing (§3.3)."""
     return Timing(
         started_at=parse_instant(d["started_at"]),
         ended_at=parse_instant(d["ended_at"]),
@@ -600,11 +842,17 @@ def timing_from_json(d: Mapping[str, Any]) -> Timing:
                 ended_at=parse_instant(s["ended_at"]),
                 active_ms=s["active_ms"],
                 paused_ms=s["paused_ms"],
+                lap_type=s.get("lap_type"),
+                event_id=s.get("event_id"),
+                opened_by=s.get("opened_by"),
             )
             for s in d["segments"]
         ),
         skipped=tuple(d["skipped"]),
-        pauses=tuple(Pause(parse_instant(p["start"]), parse_instant(p["end"])) for p in d["pauses"]),
+        pauses=tuple(
+            Pause(parse_instant(p["start"]), parse_instant(p["end"]), p.get("id")) for p in d["pauses"]
+        ),
+        terminal_id=d.get("terminal_id"),
     )
 
 

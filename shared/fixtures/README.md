@@ -19,7 +19,7 @@ result.
 | `entries-vectors.json`         | `backend/tests/test_entries_vectors.py` (`list_entries`, test database)                           | pytest drift check; Swift topic entry list filters, order and sources (M2)                                                                    |
 | `entries-range-vectors.json`   | `frontend/src/lib/entries.vectors.test.ts` (`rangeStart`, `parseRange`)                           | vitest drift check; Swift entries range filter (M2)                                                                                           |
 | `stats-vectors.json`           | `backend/tests/test_stats_vectors.py` (the app, via ASGI)                                         | pytest drift check; input of `stats-chart-vectors.json`; Swift stats decoding and requests (M6)                                               |
-| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code)                     | vitest drift check; Swift chart models and Overview summaries (M6)                                                                            |
+| `stats-chart-vectors.json`     | `frontend/src/components/charts/stats.vectors.test.ts` (the PWA's chart code; also reads `timing-stats-vectors.json`) | vitest drift check; Swift chart models and Overview summaries (M6), activity strip, sparklines and lap-type stats (T2 M4) |
 | `builder-vectors.json`         | `backend/tests/test_builder_vectors.py` (`schemas/questions.py`, `services/compat.py`, `slugify`) | pytest drift check; Swift `BuilderVectorTests`                                                                                                |
 | `schedule-vectors.json`        | `frontend/src/lib/schedule.vectors.test.ts` (`schedule.ts`, vitest)                               | vitest drift check; Swift schedule editor (TOPIC, M2)                                                                                         |
 | `builder-ui-vectors.json`      | `frontend/src/lib/builderUi.vectors.test.ts` (`builder.ts`, `questionSummary.ts`, vitest)         | vitest drift check; Swift builder screens and versions list (BUILDER-UI, M6; timed cases I-MANAGE)                                            |
@@ -27,6 +27,9 @@ result.
 | `timing-stats-vectors.json`    | `backend/tests/test_timing_stats_vectors.py` (`services/timing_stats.py`)                         | pytest drift check; `getTopicTiming` (T-STATS); vitest `timingStats.vectors.test.ts` (`lib/runs/stats.ts`, F-CORE); Swift timing chart models |
 | `duration-format-vectors.json` | `backend/tests/test_duration_vectors.py` (`run_fold.fmt_duration`)                                | pytest drift check; vitest `format.vectors.test.ts` (`lib/runs/format.ts` `fmtDuration`, F-CORE); Swift `fmtDuration` (I-CORE)                |
 | `live-activity-vectors.json`   | `backend/tests/test_live_activity_vectors.py` (`services/push/live_activity.py`)                  | pytest drift check; Swift `LiveActivityVectorTests` (I-LA)                                                                                    |
+| `entry-summary-vectors.json`   | `backend/tests/test_entry_summary_vectors.py` (`services/summary.py`)                             | pytest drift check; vitest `entrySummary.vectors.test.ts` (F4-SUMMARYLINE); Swift `EntrySummaryVectorTests` (I4-SUMMARYLINE)                  |
+| `timer-expr-vectors.json`      | `backend/tests/test_timer_expr_vectors.py` (`services/timer_expr.py`)                             | pytest drift check; vitest `timerExpr.vectors.test.ts` (F1-BUILDER); Swift `TimerExprVectorTests` (I1-CORE)                                   |
+| `appearance-vectors.json`      | `backend/tests/test_appearance_vectors.py` (`services/appearance.py`)                             | pytest drift check; vitest `appearance.test.ts`; Swift `TopicThemeTests` (palette, icons, tags)                                               |
 | `api/*.json`                   | `backend/tests/test_api_fixtures.py` (the app, via ASGI)                                          | pytest drift check; Swift `QuickrData` decoding tests (M1)                                                                                    |
 
 ## Drift checks
@@ -292,17 +295,41 @@ version, whose key never changes.
   is every step key the topic's versions have used, with its latest label
   (`stepHistory`): a label equal, ignoring case and surrounding space, to a
   historic step's whose key isn't in `taken` takes that key back.
-- `from_timer[]`: `{timer, expected: {timed, steps}}` (`draftFromTimer`: the
-  steps a published timer opens as).
+- `from_timer[]`: `{timer, expected: {timed, steps, laps, variables}}`
+  (`draftFromTimer`: the draft a published timer opens as, every step, lap type
+  and alert locked, each variable's ms as its duration text).
 - `step_label[]`: `{name, step, label, taken, history, expected}`
   (`withStepLabel`: a locked step keeps its key, a new one re-derives it as
   `new_step` does).
-- `timer_output[]`: `{name, timed, steps, expected: {timer, issues}}`
-  (`timerFromDraft`: the `timer` a publish sends, or the issues at paths
-  relative to the steps list, with `timer` null). Keys must be unique; labels may
-  repeat, as on the server.
+- `timer_output[]`: `{name, draft: {timed, steps, laps, variables}, expected:
+  {timer, issues}}` (`timerFromDraft`: the normalised timer a publish sends,
+  with `at_ms` filled, or every issue at the draft's paths, `["steps", 0,
+  "key"]`, `["laps", 0, "key"]`, `["steps", 0, "alerts", 1, "at"]`,
+  `["variables"]`, with `timer` null). Keys of steps and lap types share one
+  namespace; labels may repeat, as on the server. The steps-only cases are the
+  v1 builder's.
 - `timer_changes[]`: `{name, base, next, expected}` (`timerChanges`: the review
-  sheet's timing lines).
+  sheet's timing lines, steps then lap types, variables and alerts). `steps
+  only: …` cases are v1 timers.
+
+Timer v2 (timers2.md §1.6, §12.1). A step draft gains `alerts`; a lap-type draft
+is `{key, label, locked, alerts}`; an alert draft is `{key, label, at, locked}`
+(`at` as typed, never trimmed); a variable draft is `{name, duration}` (the
+duration as typed, `m:ss` or `h:mm:ss`). A timer history is `{steps, laps}`,
+each `[{key, label}]` (`timerHistory`).
+
+- `new_lap_type[]`: `{label, taken, history, expected}` (`newDraftLapType`: as
+  `new_step`, with `lap` for a label with no usable characters; `taken` holds the
+  draft's other lap types' and steps' keys; it avoids every historic key of both
+  kinds, and takes back only a retired lap type's key).
+- `lap_type_label[]`: `{name, lap_type, label, taken, history, expected}`
+  (`withLapTypeLabel`).
+- `variable[]`: `{name, duration, expected: {name, variable, issues}}`: the name as
+  entered (lowercased), then `convertDraftVariable`: `{name, ms}` or the issues at
+  `["name"]` / `["duration"]`.
+- `alert_expr[]`: `{name, at, variables, expected}` (`alertPreview`: `{ms, text}`
+  with `text` = `fmtDuration(ms)`, or `{error, pos}` with the server's message as
+  the PWA shows it; only valid, first-named variables count).
 
 ## `entries-vectors.json`
 
@@ -359,12 +386,19 @@ the iOS builder (`QuickrCore/Builder`) can prove it agrees offline.
   `expected` is `check_compatibility`'s report. Python visits option sets in
   hash order, so `issues` are sorted by `(level, question_key, message)` and
   each change's `details` are sorted; compare them sorted.
-- `timers[]`: `{name, timer, expected: {errors}}`. `timer` is a version's timer
-  as a client sends it (`{steps: [{key, label}]}`; no steps is a plain
-  stopwatch). `errors` lists the sorted dotted locations, relative to the timer,
-  where `Timer` rejects it (`steps`, `steps.2.key`); `[]` means accepted. Step
-  keys follow the question key rule and are unique; labels follow the question
-  label limit and need not be unique; at most 30 steps (timers.md §2.1, §5).
+- `timers[]`: `{name, timer, expected: {errors, timer}}` (generator version 4,
+  timers2.md §1.3). `timer` is a version's timer as a client sends it: v2
+  `{steps, laps, variables}` with alerts on steps and lap types, or the v1
+  shape `{steps: [{key, label}]}` (no steps is a plain stopwatch). `errors`
+  lists the sorted dotted locations, relative to the timer, where `Timer`
+  rejects it (`steps`, `steps.2.key`, `laps.0.key`, `variables.1.ms`,
+  `laps.0.alerts.0.at`); `[]` means accepted. `expected.timer` is the
+  normalised timer the server stores when accepted (every list present, labels
+  stripped, variable names lowercase, `at_ms` evaluated, a sent `at_ms`
+  ignored), else null. Keys of steps and lap types follow the question key rule
+  and share one namespace; step labels follow the question label limit and need
+  not be unique; lap-type and alert labels are at most 64; at most 30 steps, 8
+  lap types, 16 variables and 8 alerts per step or lap type.
 - `slugs[]`: `{input, expected}`: `slugify` (`services/topics.py`), which gives
   `topic` when nothing is left.
 - `casefold[]`: `[code point, [folded code points]]` for every code point whose
@@ -468,25 +502,111 @@ What the PWA's Overview makes of each `stats-vectors.json` case (same `name`), e
 - `default_bucket`, `ticks` (`niceTicks` and `formatTick`), `numbers` (`formatNumber`; NaN and
   null as strings), `percents` (`formatPercent`) and `pick` (`pickLabels`): the helpers alone.
 
+Generator version 2 adds three sections (content-display.md §4.2, §4.3); the models are in
+`frontend/src/components/charts/timingModels.ts`:
+
+- `activity[]`: the Overview's activity strip, `activityStrip(captured_at, today, tz)`. Input:
+  `tz` (IANA), `today` (the local date in `tz`, `YYYY-MM-DD`) and `captured_at` (epoch
+  milliseconds, integers). Expected: `first_day`, the Monday 11 weeks before `today`'s week's
+  Monday (calendar arithmetic on dates, never `now − 84 days`); `from`, the `listEntries`
+  `captured_from` bound: the first instant of `first_day` in `tz`, as UTC with `Z`; `cells`,
+  one `[day, count, level]` per local day from `first_day` to `today` inclusive (78 cells when
+  `today` is a Monday, 84 on a Sunday; the grid's slots after today are blank and not listed),
+  where an entry counts in the day of its `captured_at` in `tz` and `level` is the intensity
+  step (0, 1, 2–3, 4+ → 0–3); `max`, the largest count; `total`, the entries that fell in a
+  cell (entries outside the grid are dropped). Cases: empty, the grid's edges, one instant
+  (2026-10-25 23:30 UTC) that is 2026-10-26 in `Pacific/Auckland` and 2026-10-25 in
+  `America/Los_Angeles` (the day before Auckland's), a `Europe/London` spring-forward and
+  fall-back week, `today` on a Monday and on a Sunday.
+- `sparklines[]`: a numeric card's sparkline, `sparkline(points, width)`, `H` = 48 px high with
+  an inset `P` = 4 px (`SPARK_LAYOUT`). A case named like a `stats-vectors.json` int/double
+  series case uses that response's `points` at `meta.spark_width`; the synthetic ones carry
+  `points`. Only the points with a non-null `mean` are drawn (call them `d[0..n-1]`, in
+  response order); `empty: true` when there are none. Otherwise, with `t` a point's `start` in
+  epoch ms, `lo`/`hi` the smallest/largest mean of `d`:
+  - `x = P + (t - t(d[0])) / (t(d[n-1]) - t(d[0])) * (width - 2P)`, or `width - P` when
+    `t(d[0]) = t(d[n-1])` (one point). Elapsed time, not equal spacing, and not the requested
+    range: the first drawn point is at `P`, the last at `width - P`.
+  - `y = P + (hi - mean) / (hi - lo) * (H - 2P)` (y grows downward: `hi` at `P`, `lo` at
+    `H - P`), or `H / 2` when `hi = lo`.
+  - `path` is `[x, y]` per drawn point, each rounded half up to 0.01 (`Math.round(v * 100) /
+    100`); `last` is `{x, y, value}` of `d[n-1]` (the rounded coordinates and the unrounded
+    mean), the marked point; `min` = `lo` and `max` = `hi`, the end labels.
+- `timing_models[]`: `stepsByBucket(series, bucket)` for the `timing-stats-vectors.json` case of
+  the same `name` (its `expected.series`), bucketed in `tz`: `steps_by_bucket` is `SeriesPoint[]`
+  with `option_counts` keyed by step key (the floored mean per run, a run without the step
+  counting 0) and `start` the bucket's local start with its offset.
+
+Generator version 3 adds the lap-type stats (content-display.md §4.1; models in
+`timingModels.ts`, cards in `src/components/runs/TimingOverview.tsx`):
+
+- `timing_models[]` gains `lap_types_by_bucket`: `lapTypesByBucket(series, bucket)`, the same
+  rule as `steps_by_bucket` over each run's `series[].lap_types` instead of its `steps`. Per
+  bucket (runs grouped by the bucket of their `captured_at` in `tz`, oldest first): `count` =
+  the runs in the bucket; `option_counts[k]` = `floor(sum of lap_types[k] over the bucket's
+  runs / count)` for every lap-type key `k` any of those runs has, a run without `k` counting
+  0; `mean`, `min`, `max` null. A bucket whose runs have no typed laps is still listed, with
+  `option_counts` `{}`. Lap-type keys and step keys are separate: a lap type `run` never reads
+  a step `run`'s time (case `lap_types_in_series`), nor the other way round. Untyped laps are
+  in neither.
+- `lap_types[]`: the Overview's lap-type section for the `timing-stats-vectors.json` cases that
+  have `expected.lap_types`, plus `laps` (untyped laps only), by `name`, bucketed in `tz`:
+  - `cards`: one per `expected.lap_types` row, in that order (the server's: the current
+    version's types first): `key`, `label`, `laps` (`plural(laps, 'lap')`: "1 lap", "4
+    laps"), `median`, `best`, `mean` (`fmtDuration` of `median_ms`, `best_ms`, `mean_ms`,
+    or "—" when null) and `color` (`optionColors` over the lap-type keys in card order: the
+    `n`th key gets `var(--color-series-n)` for `n ≤ 6`, then `var(--color-line-strong)`). The median
+    is the big figure. `cards` empty (`laps`) means no lap-type section: the v1 "Runs with
+    laps" and "Lap time (median)" tiles show instead; with cards those two tiles are hidden
+    and the pause tiles stay.
+  - `charts`: the stacked "Time per lap type, per {bucket}" chart under the cards, one per
+    bucket (`day`, `week`, `month`): `stackedModel(lapTypesByBucket(series, bucket), options)`
+    with the lap types (`key`, `label`, card order) as the options. `empty: true` when there
+    are no cards (no chart is drawn). Otherwise every bucket of `lap_types_by_bucket` is drawn
+    (each has at least one run, so none is dropped), in order, and: `max` = the largest bar
+    total, at least 1; `totals` = each bar's sum of `option_counts` (0 for a bucket without
+    typed laps: an empty bar); `legend` = `[key, label]` of the lap types some bar has, in
+    card order, then keys with no card (none in these cases) as `[key, key]`; `segments` =
+    per bar, `[key, ms]` bottom up in legend order, zeros left out; `labelled` per chart
+    width `W` (`meta.widths`) as for a stacked `series[]` chart: with `n` bars, gap `g` = 3
+    (`BARS_LAYOUT`), bar width `bw = min(36, (W - g(n-1)) / n)` and `offset = (W - (bw·n +
+    g(n-1))) / 2`, bar `i`'s label centre is `offset + i(bw + g) + bw/2`, and `pickLabels(xs,
+    52)` keeps, from the last bar backwards, each bar whose centre is at least 52 px left of
+    the last kept one (the last bar is always kept; the `pick[]` cases pin this rule);
+    `labels.short` / `labels.long` = `formatBucket(start)` in `tz`.
+    Values are milliseconds; the tooltip shows them with `fmtDuration`.
+
 ## `run-fold-vectors.json`
 
 The run fold ([docs/specs/timers.md](../../docs/specs/timers.md) §4) and the
-timing projection (§2.3). Every client folds a run's events with its own port
-and must reach the same state, effects and timing.
+timing projection (§2.3), as changed by fold v4
+([timers2.md](../../docs/specs/timers2.md) §3: lap types, `reopen`, `remove`;
+its §3.4 pseudocode is normative). Every client folds a run's events with its
+own port and must reach the same state, effects and timing. Generator version
+4; the case list is timers2.md §12.1, read from the spec by the generator's
+coverage test.
 
 - `meta`: `run_id` (every case's run), `max_run_ms` (7 days) and `semantics`:
   the rules in prose.
-- `step_sets`: `id -> [{key, label}]`, the run version's steps. Cases refer to
-  them by id.
-- `cases[]`: `{name, steps, events, frozen, expected}`. `events` are
-  `{id, type, at, seg, step, pause_id}` in server arrival order. `frozen` is
+- `timer_sets`: `id -> {steps: [{key, label}], laps: [{key, label}]}`, what the
+  fold reads of the run version's timer (timers2.md §3.1). Cases refer to them
+  by id.
+- `cases[]`: `{name, timer, events, frozen, expected}`. `events` are
+  `{id, type, at, seg, step, pause_id, target}` in server arrival order
+  (`target` names the stop a `reopen` reopens or the event a `remove` removes). `frozen` is
   `null` or `{after, reason}`: events from arrival index `after` on are void
   with `reason` (`run_edited`, `entry_deleted` or `already_closed`) and not
   folded, as the server does once a run is edited, its entry deleted or the run
   discarded. `expected` is `{state, timing}`: `state` is `RunState` (§4.3) plus
   `started_at` and `ended_at`; `effects` maps each lowercase event id to
   `{effect, reason}` (`finish` events have none: the server decides them).
-  `timing` is the entry's `Timing` for a stopped run, else `null`.
+  `timing` is the entry's `Timing` for a stopped run, else `null`. v4 adds
+  `terminal_id`, `next_lap_type` and `lap_count` to the state, `lap_type`,
+  `event_id` and `opened_by` to segments (`lap_type` to `open`), `id` to
+  pauses and `terminal_id` to the timing (timers2.md §3.3).
+- `timings[]`: `{name, stored, expected}`: a stored entry timing as every client
+  decodes it; a pre-v2 timing's ids and lap types read `null`
+  (`timing-pre-v2-null-ids`).
 
 Input `at` values are wire strings, some with sub-millisecond digits or a
 non-UTC offset: parse each to integer epoch milliseconds, truncating, and do
@@ -499,25 +619,28 @@ Notes for the ports:
 - An open pause covers a closed segment up to that segment's end. Measure it to
   the segment's end; don't stand in a large number for "not resumed" (`2**62`
   is past JavaScript's `Number.MAX_SAFE_INTEGER`).
-- Time order is `(at, lowercase id)`, except that a resume with the same `at`
-  as the pause it names sorts right after that pause
+- Time order is `(at, rank, lowercase id)`: a reopened stop's gap pause ranks 0,
+  user events 1 and a reopen's gap resume 2. Among user events a resume with the
+  same `at` as the pause it names sorts right after that pause
   (`resume-at-the-pause-instant`).
 
 ## `timing-stats-vectors.json`
 
-Timing stats ([timers.md](../../docs/specs/timers.md) §9.1): what
-`getTopicTiming` answers for a set of entries, and what the clients' timing
-chart models are checked against.
+Timing stats ([timers.md](../../docs/specs/timers.md) §9.1, with lap types per
+[timers2.md](../../docs/specs/timers2.md) §7.4): what `getTopicTiming` answers
+for a set of entries, and what the clients' timing chart models are checked
+against. Generator version 3.
 
 - `cases[]`: `{name, versions, current_version, entries, expected}`. `versions`
-  maps a version number (a string) to its steps, or `null` for an untimed
-  version. `entries` are `{entry_id, captured_at, timing}`, with `timing` in
+  maps a version number (a string) to its timer (`{steps, laps}`), or `null`
+  for an untimed version. `entries` are `{entry_id, captured_at, timing}`, with `timing` in
   the `run-fold-vectors.json` form or `null` for an untimed entry. `expected`
-  is `TopicTiming` (§9.2): `runs`, `complete_runs`, `total`, `steps`, `laps`,
-  `paused` and `series`, in integer milliseconds.
+  is `TopicTiming` (§9.2): `runs`, `complete_runs`, `total`, `steps`,
+  `lap_types`, `laps`, `paused` and `series` (each point with `steps` and
+  `lap_types`), in integer milliseconds.
 - `meta.semantics`: the rules in prose: complete runs only for `total`; floored
-  medians and means; which step keys are listed, in which order, with which
-  label.
+  medians and means; which step and lap-type keys are listed, in which order,
+  with which label; step and lap-type buckets are keyed separately.
 
 ## `duration-format-vectors.json`
 
@@ -527,15 +650,66 @@ chart models are checked against.
 
 ## `live-activity-vectors.json`
 
-- `cases[]`: `{name, event, steps, run, payload, bytes}`: the exact APNs body the server sends
-  for a run whose events are folded as in `run-fold-vectors.json`
-  ([timers.md](../../docs/specs/timers.md) §10.3, §10.4). `run` is that run: its `events` (in
-  `run-fold-vectors.json`'s event shape), the server's `status` when it isn't the fold's
-  (`finishing`), and its `revision`; the app builds the same content state from it for its
-  local updates. `payload.aps["content-state"]` is
-  `RunActivityState`; a `start`'s `attributes` are `RunActivityAttributes`. `bytes` is the
-  encoded size (at most `meta.max_bytes`). `meta.headers` are the request headers, and
-  `meta.apple` the documentation every `aps` key was checked against.
+- `timer_sets`: the normalised `Timer` v2 each case's run is pinned to: the run-fold vectors'
+  sets ([timers2.md](../../docs/specs/timers2.md) §3.1) with alerts and variables on top (the fold
+  ignores them; `alert_at` reads them), plus `long`, `budget` and `escapes` for the byte budget.
+- `cases[]`: `{name, event, timer, topic_name, run, payload, bytes, budget?}`: the exact APNs body
+  the server sends at `meta.timestamp` for a run whose events are folded as in
+  `run-fold-vectors.json` ([timers.md](../../docs/specs/timers.md) §10.3, §10.4; timers2.md §8).
+  `run` is that run: its `events` (in `run-fold-vectors.json`'s event shape), the server's
+  `status` when it isn't the fold's (`finishing`), and its `revision`; the app builds the same
+  content state from it, over `timer_sets[timer]` at `meta.timestamp`, for its local updates.
+  `payload.aps["content-state"]` is `RunActivityState`; a `start`'s `attributes` are
+  `RunActivityAttributes` (from `topic_name`). `bytes` is the encoded size (at most
+  `meta.max_bytes`). `meta.headers` are the request headers, and `meta.apple` the documentation
+  every `aps` key was checked against.
+- `budget` (the byte budget, timers2.md §8.2): `{limit, steps}`, the limit the body was fitted
+  to and the truncation steps that fired, in `meta.budget.steps` order (each label truncated to
+  `meta.budget.label_length` characters, then `terminal`). With the 64-character caps no M1 body
+  reaches 4 096 bytes, so the two budget cases use a lower `limit` to pin the order; the app
+  applies `steps` to the state it builds before comparing. `meta.budget.fixed_bound` is the
+  computed worst case after the terminal step.
+
+## `entry-summary-vectors.json`
+
+- `meta`: `max_length` (80), `separator` (`" · "`) and `semantics`, the prose of
+  [content-display.md](../../docs/specs/content-display.md) §1.2.
+- `question_sets`: name → the entry's version's questions (API shape, in order);
+  `timer_sets`: name → the topic's current `Timer`, or `null` for an untimed
+  topic. `tiktok` (lap types `run`, `rest`) and `renamed` (`cig`) declare M1's
+  lap types; a typed lap segment carries its `lap_type` (timers2.md §3.2).
+- `cases[]`: `{name, questions, timer, answers, timing, expected}`: `questions`
+  and `timer` name a set; `answers` are wire `AnswerOut` objects, `timing` a wire
+  `Timing` or `null`; `expected` is
+  `entrySummary(answers, timing, questions, timer)`. Lengths are extended
+  grapheme clusters: more than 80 keeps the first 79 and appends `…`, never
+  inside a flag, keycap, ZWJ sequence or base-plus-combining-mark (the
+  `long_truncation_*` cases). Strings are not Unicode-normalised, so decode them
+  as they are. `""` means the entry has nothing to say and the caller shows its
+  fallback.
+
+## `timer-expr-vectors.json`
+
+- `meta`: `generator`, `generator_version`, `max_ms` (7 days), `max_length` (64), and
+  `semantics`: the grammar, types, error positions and precedence in prose
+  ([timers2.md](../../docs/specs/timers2.md) §2).
+- `cases[]`: `{name, expr, variables, expected}`. `variables` maps lowercase names to ms.
+  `expected` is `{ms}` (whole ms, truncated toward zero) or `{error, pos}`, `pos` a 0-based
+  offset in Unicode code points (not UTF-16 units, not grapheme clusters: count
+  `unicodeScalars` in Swift and code points in TypeScript). The list holds every case of
+  §2.5 plus the edges §2 leaves open (error precedence, the bound on a negative duration,
+  sub-ms checks, which whitespace and letters count).
+
+## `appearance-vectors.json`
+
+- `palette[]`: the twelve colour names in palette order with their light and dark `tint`,
+  `tint_soft` and `on_tint`; every `on_tint` on its `tint` is at least `meta.min_contrast`.
+- `icons[]`: `value` in, `expected` `{ok, value}` (the stored emoji) or `{ok: false, message}`
+  out. `note` says where a platform's predicate needs care (docs/specs/appearance.md §2).
+- `tags[]`: `input` in, `expected` `{ok, value}` or `{ok: false, loc, message}`; `loc` is
+  `tags.{i}` for a tag or `tags` for the count.
+- `reminder_titles[]`: the due reminder's title for `topic_name` and `icon`, cut to
+  `meta.max_title_length`.
 
 ## `provisioning/`
 

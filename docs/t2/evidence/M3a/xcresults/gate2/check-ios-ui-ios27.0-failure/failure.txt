@@ -1,0 +1,6 @@
+TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete() - iOS 27.0 clone 95DA5A17, UI plan, head ab46f445b048de067fc4387f2b06d278161b9cda
+Message: XCTAssertTrue failed (TopicUITests.swift:45: "deleteTopic.confirmation" TextField didn't exist within 10 s of tap("topicSettings.delete"))
+Hierarchy at failure: still on Topic settings, archived; topicSettings.delete Button {{16.0, 858.7}, {370.0, 52.0}} in a 874-pt window: its centre (y 884.7) is off screen.
+TopicUITests.scrollTo (from #6, 1ca2b943) stops at exists && isHittable; it lacks the "whole on screen" check BuilderUITests.scrollTo got in #72 (0d7ba41f), so the tap at the row's centre misses.
+Class: M3a-exposed. The helper gap is pre-existing, but M3a I3-EDIT (#238, d1b29181) added the Appearance row to TopicSettingsView, which pushed Lifecycle below the fold (the same PR patched only the preview's scroll). Intermittent: passed on iOS 26.0 in check-ios and in the UI-classes run here.
+Fix: port BuilderUITests' app.frame.contains(element.frame) condition into TopicUITests.scrollTo.

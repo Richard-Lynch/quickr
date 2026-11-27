@@ -1,0 +1,378 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "25F3C58A-4849-44E1-9A10-6ABE243888FC",
+        "deviceName" : "quickR iOS27 t2-m3a-gate-dfa2ac",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "24A434",
+        "osVersion" : "27.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 37,
+      "passedTests" : 6138,
+      "skippedTests" : 28,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "Unit · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 36,
+  "finishTime" : 1795719341.94,
+  "passedTests" : 1571,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    }
+  ],
+  "skippedTests" : 28,
+  "startTime" : 1795718692.653,
+  "statistics" : [
+    {
+      "subtitle" : "4674 test runs",
+      "title" : "106 tests ran with dynamic parameters"
+    }
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1131,
+      "testIdentifierString" : "NotificationActionHandlerTests/actionsThatDontMatchTheirReminderWriteNothing()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/actionsThatDontMatchTheirReminderWriteNothing()",
+      "testName" : "actionsThatDontMatchTheirReminderWriteNothing()"
+    },
+    {
+      "failureText" : "Caught error: Error Domain=NSCocoaErrorDomain Code=256 \"The file “listChanges.bootstrap.json” couldn’t be opened.\" UserInfo={NSFilePath=/Users/richie/code/quickr-worktrees/t2-m3a-gate/shared/fixtures/api/listChanges.bootstrap.json, NSURL=file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/shared/fixtures/api/listChanges.bootstrap.json, NSUnderlyingError=0x1203f93b0 {Error Domain=NSPOSIXErrorDomain Code=24 \"Too many open files\"}}",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1174,
+      "testIdentifierString" : "AppSessionTests/activeScopeIsTheBoundStoreAndNothingDuringASwitch()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/AppSessionTests/activeScopeIsTheBoundStoreAndNothingDuringASwitch()",
+      "testName" : "activeScopeIsTheBoundStoreAndNothingDuringASwitch()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `PRAGMA journal_mode = WAL`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1307,
+      "testIdentifierString" : "WidgetLogTests/aCurrentWidgetsChipLogsIntoItsStore()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/WidgetLogTests/aCurrentWidgetsChipLogsIntoItsStore()",
+      "testName" : "aCurrentWidgetsChipLogsIntoItsStore()"
+    },
+    {
+      "failureText" : "Expectation failed: center.ids == [w.realCategory.category.id]\ncenter.ids → [\"quickr.t.d8-1-a.59d01e55c3c834b7\", \"quickr.t.d8-1-b.f22d6c7853796577\"]\n[w.realCategory.category.id] → [\"quickr.t.1d86455c-b3b5-4ec0-8e2d-5bf2f62b3b7a.6ee16f066c818c4f\"]: the real set is back, not the probe's",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1328,
+      "testIdentifierString" : "DeviceProbeTests/aD8RegistrationOvertakenByACancellationIsUndone()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/DeviceProbeTests/aD8RegistrationOvertakenByACancellationIsUndone()",
+      "testName" : "aD8RegistrationOvertakenByACancellationIsUndone()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1450,
+      "testIdentifierString" : "NotificationStartActionTests/aHangingLiveActivityRequestDoesntHoldTheStartBack()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationStartActionTests/aHangingLiveActivityRequestDoesntHoldTheStartBack()",
+      "testName" : "aHangingLiveActivityRequestDoesntHoldTheStartBack()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1128,
+      "testIdentifierString" : "NotificationActionHandlerTests/aLocalReminderWhoseRemoteOneIsDeliveredIsNotPresented()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/aLocalReminderWhoseRemoteOneIsDeliveredIsNotPresented()",
+      "testName" : "aLocalReminderWhoseRemoteOneIsDeliveredIsNotPresented()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1125,
+      "testIdentifierString" : "NotificationActionHandlerTests/anArchivedOrDeletedTopicIsRefused()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/anArchivedOrDeletedTopicIsRefused()",
+      "testName" : "anArchivedOrDeletedTopicIsRefused()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `PRAGMA journal_mode = WAL`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1446,
+      "testIdentifierString" : "NotificationStartActionTests/anInactiveStoresStartIsQueuedThereOnly()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationStartActionTests/anInactiveStoresStartIsQueuedThereOnly()",
+      "testName" : "anInactiveStoresStartIsQueuedThereOnly()"
+    },
+    {
+      "failureText" : "Caught error: Error Domain=NSCocoaErrorDomain Code=256 \"The file “listChanges.bootstrap.json” couldn’t be opened.\" UserInfo={NSFilePath=/Users/richie/code/quickr-worktrees/t2-m3a-gate/shared/fixtures/api/listChanges.bootstrap.json, NSURL=file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/shared/fixtures/api/listChanges.bootstrap.json, NSUnderlyingError=0x10ad2fc00 {Error Domain=NSPOSIXErrorDomain Code=24 \"Too many open files\"}}",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1178,
+      "testIdentifierString" : "AppSessionTests/anotherProcessDeselectingTheServerUnbinds()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/AppSessionTests/anotherProcessDeselectingTheServerUnbinds()",
+      "testName" : "anotherProcessDeselectingTheServerUnbinds()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1303,
+      "testIdentifierString" : "WidgetLogTests/aNumberLogsAsTheQuestionsType()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/WidgetLogTests/aNumberLogsAsTheQuestionsType()",
+      "testName" : "aNumberLogsAsTheQuestionsType()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1112,
+      "testIdentifierString" : "NotificationActionHandlerTests/aReminderTheActiveStoreAlreadySatisfiesIsNotPresented()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/aReminderTheActiveStoreAlreadySatisfiesIsNotPresented()",
+      "testName" : "aReminderTheActiveStoreAlreadySatisfiesIsNotPresented()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `SELECT * FROM sqlite_master LIMIT 1`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1113,
+      "testIdentifierString" : "NotificationActionHandlerTests/aReminderWhoseSharedIdIsUsedIsNotPresented()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/aReminderWhoseSharedIdIsUsedIsNotPresented()",
+      "testName" : "aReminderWhoseSharedIdIsUsedIsNotPresented()"
+    },
+    {
+      "failureText" : "Caught error: Error Domain=NSCocoaErrorDomain Code=256 \"The file “listChanges.bootstrap.json” couldn’t be opened.\" UserInfo={NSFilePath=/Users/richie/code/quickr-worktrees/t2-m3a-gate/shared/fixtures/api/listChanges.bootstrap.json, NSURL=file:///Users/richie/code/quickr-worktrees/t2-m3a-gate/shared/fixtures/api/listChanges.bootstrap.json, NSUnderlyingError=0x1203f9320 {Error Domain=NSPOSIXErrorDomain Code=24 \"Too many open files\"}}",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1172,
+      "testIdentifierString" : "AppSessionTests/aResetRebindsToTheNewGeneration()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/AppSessionTests/aResetRebindsToTheNewGeneration()",
+      "testName" : "aResetRebindsToTheNewGeneration()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `SELECT * FROM sqlite_master LIMIT 1`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1173,
+      "testIdentifierString" : "AppSessionTests/aSchedulerPublishedAfterAnActivationIsResumed()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/AppSessionTests/aSchedulerPublishedAfterAnActivationIsResumed()",
+      "testName" : "aSchedulerPublishedAfterAnActivationIsResumed()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1111,
+      "testIdentifierString" : "NotificationActionHandlerTests/aServerSwitchDuringTheHandlerKeepsTheBadgeAndTheFlushOffTheOldStore()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/aServerSwitchDuringTheHandlerKeepsTheBadgeAndTheFlushOffTheOldStore()",
+      "testName" : "aServerSwitchDuringTheHandlerKeepsTheBadgeAndTheFlushOffTheOldStore()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1132,
+      "testIdentifierString" : "NotificationActionHandlerTests/aSingleTopicsLogItLogsAnEntryWithNoAnswers()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/aSingleTopicsLogItLogsAnEntryWithNoAnswers()",
+      "testName" : "aSingleTopicsLogItLogsAnEntryWithNoAnswers()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `BEGIN IMMEDIATE TRANSACTION`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1306,
+      "testIdentifierString" : "WidgetLogTests/aSingleTopicsLogItLogsWithNoAnswers()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/WidgetLogTests/aSingleTopicsLogItLogsWithNoAnswers()",
+      "testName" : "aSingleTopicsLogItLogsWithNoAnswers()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1302,
+      "testIdentifierString" : "WidgetLogTests/aStaleWidgetRefusesAndReloads()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/WidgetLogTests/aStaleWidgetRefusesAndReloads()",
+      "testName" : "aStaleWidgetRefusesAndReloads()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1451,
+      "testIdentifierString" : "NotificationStartActionTests/aStartEnqueuesOneStartWithTheDerivedIdAndFlushesIt()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationStartActionTests/aStartEnqueuesOneStartWithTheDerivedIdAndFlushesIt()",
+      "testName" : "aStartEnqueuesOneStartWithTheDerivedIdAndFlushesIt()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `SELECT * FROM sqlite_master LIMIT 1`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1133,
+      "testIdentifierString" : "NotificationActionHandlerTests/aStoreRetiredBeforeTheWriteIsReopenedAndLogsOnce()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/aStoreRetiredBeforeTheWriteIsReopenedAndLogsOnce()",
+      "testName" : "aStoreRetiredBeforeTheWriteIsReopenedAndLogsOnce()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1129,
+      "testIdentifierString" : "NotificationActionHandlerTests/aSwitchWhileTheBadgeIsSetEndsWithTheNewStoresBadge()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/aSwitchWhileTheBadgeIsSetEndsWithTheNewStoresBadge()",
+      "testName" : "aSwitchWhileTheBadgeIsSetEndsWithTheNewStoresBadge()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1301,
+      "testIdentifierString" : "WidgetLogTests/aTimedTopicIsNeverLoggedUntimed()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/WidgetLogTests/aTimedTopicIsNeverLoggedUntimed()",
+      "testName" : "aTimedTopicIsNeverLoggedUntimed()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `SELECT * FROM sqlite_master LIMIT 1`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1399,
+      "testIdentifierString" : "OutboxUndoTests/case30()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/OutboxUndoTests/case30()",
+      "testName" : "30 · Undo of a held delete keeps a pending update to a server row"
+    },
+    {
+      "failureText" : "Expectation failed: w.records(\"done\").first?.ok == true\nw.records(\"done\").first?.ok → false: restored after the deadline",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1338,
+      "testIdentifierString" : "DeviceProbeTests/d9AReadbackAfterTheDeadlineIsNotASuccess()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/DeviceProbeTests/d9AReadbackAfterTheDeadlineIsNotASuccess()",
+      "testName" : "d9AReadbackAfterTheDeadlineIsNotASuccess()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1171,
+      "testIdentifierString" : "AppSessionTests/holdsResumeASuspendedStoreAndSuspendItAgain()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/AppSessionTests/holdsResumeASuspendedStoreAndSuspendItAgain()",
+      "testName" : "holdsResumeASuspendedStoreAndSuspendItAgain()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1453,
+      "testIdentifierString" : "NotificationStartActionTests/inTheBackgroundTheStartStillGoesOut()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationStartActionTests/inTheBackgroundTheStartStillGoesOut()",
+      "testName" : "inTheBackgroundTheStartStillGoesOut()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `SELECT * FROM sqlite_master LIMIT 1`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1123,
+      "testIdentifierString" : "NotificationActionHandlerTests/n7AnActionFromARemovedServerIsDroppedWithAnExplanation()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/n7AnActionFromARemovedServerIsDroppedWithAnExplanation()",
+      "testName" : "n7AnActionFromARemovedServerIsDroppedWithAnExplanation()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `BEGIN IMMEDIATE TRANSACTION`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1127,
+      "testIdentifierString" : "NotificationActionHandlerTests/n15LoggingClearsTheTopicsRemindersAndSatisfiedLocalOnes()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/n15LoggingClearsTheTopicsRemindersAndSatisfiedLocalOnes()",
+      "testName" : "n15LoggingClearsTheTopicsRemindersAndSatisfiedLocalOnes()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1296,
+      "testIdentifierString" : "WidgetWritesTests/onlineTheFlushSendsIt()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/WidgetWritesTests/onlineTheFlushSendsIt()",
+      "testName" : "onlineTheFlushSendsIt()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1138,
+      "testIdentifierString" : "NotificationActionHandlerTests/racingActionsOnOneReminderLogOnce()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/racingActionsOnOneReminderLogOnce()",
+      "testName" : "racingActionsOnOneReminderLogOnce()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `SELECT * FROM sqlite_master LIMIT 1`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1452,
+      "testIdentifierString" : "NotificationStartActionTests/racingStartsOnOneReminderStartOnce()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationStartActionTests/racingStartsOnOneReminderStartOnce()",
+      "testName" : "racingStartsOnOneReminderStartOnce()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `BEGIN IMMEDIATE TRANSACTION`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1130,
+      "testIdentifierString" : "NotificationActionHandlerTests/theActionBadgeLeavesOutATopicWithAnOpenRun(_:)",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/theActionBadgeLeavesOutATopicWithAnOpenRun(_:)",
+      "testName" : "theActionBadgeLeavesOutATopicWithAnOpenRun(_:)"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `PRAGMA journal_mode = WAL`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1126,
+      "testIdentifierString" : "NotificationActionHandlerTests/theBodyOpensTheRecordScreenAndMoreDoesTooWithoutLogging()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationActionHandlerTests/theBodyOpensTheRecordScreenAndMoreDoesTooWithoutLogging()",
+      "testName" : "theBodyOpensTheRecordScreenAndMoreDoesTooWithoutLogging()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `PRAGMA journal_mode = WAL`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1177,
+      "testIdentifierString" : "AppSessionTests/theReadOnlyTopicsNeverCreateAStoreFile()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/AppSessionTests/theReadOnlyTopicsNeverCreateAStoreFile()",
+      "testName" : "theReadOnlyTopicsNeverCreateAStoreFile()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1455,
+      "testIdentifierString" : "NotificationStartActionTests/theRunIdIsTheVectorsActionEntryId()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationStartActionTests/theRunIdIsTheVectorsActionEntryId()",
+      "testName" : "theRunIdIsTheVectorsActionEntryId()"
+    },
+    {
+      "failureText" : "Caught error: SQLite error 14: unable to open database file - while executing `BEGIN IMMEDIATE TRANSACTION`",
+      "targetName" : "QuickrDataTests",
+      "testIdentifier" : 1456,
+      "testIdentifierString" : "NotificationStartActionTests/withoutATokenNoLiveActivityIsAskedFor()",
+      "testIdentifierURL" : "test://com.apple.xcode/QuickrKit/QuickrDataTests/NotificationStartActionTests/withoutATokenNoLiveActivityIsAskedFor()",
+      "testName" : "withoutATokenNoLiveActivityIsAskedFor()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Common Failures",
+      "impact" : "50% of failures",
+      "text" : "18 runs of 18 tests failed with Caught error: SQLite error 14: unable to open database file"
+    },
+    {
+      "category" : "Common Failures",
+      "impact" : "16% of failures",
+      "text" : "6 runs of 6 tests failed with Caught error: SQLite error 14: unable to open database file - while executing `SELECT * FROM sqlite_master LIMIT 1`"
+    },
+    {
+      "category" : "Common Failures",
+      "impact" : "11% of failures",
+      "text" : "4 runs of 4 tests failed with Caught error: SQLite error 14: unable to open database file - while executing `PRAGMA journal_mode = WAL`"
+    }
+  ],
+  "totalTestCount" : 1635
+}

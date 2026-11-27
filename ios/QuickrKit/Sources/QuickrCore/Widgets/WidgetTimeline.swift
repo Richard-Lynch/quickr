@@ -46,17 +46,33 @@ public enum WidgetTimeline {
         return [now] + all.sorted()
     }
 
-    /// When WidgetKit should ask for the next timeline: after the last entry.
-    public static func reloadDate(after dates: [Date], now: Date) -> Date {
-        dates.last.map { max($0, now.addingTimeInterval(15 * 60)) } ?? now.addingTimeInterval(horizon)
+    /// A timeline whose content changes at `changes` (each value from its date on; the first is
+    /// the value at `dates[0]`): an entry at each of `dates` and each change, sorted and distinct,
+    /// with the value current then; at most `maxEntries`.
+    public static func entries<Value>(_ dates: [Date], changes: [(from: Date, value: Value)])
+        -> [(date: Date, value: Value)]
+    {
+        guard let first = changes.first else { return [] }
+        let all = Set(dates).union(changes.dropFirst().map(\.from)).sorted().prefix(maxEntries)
+        return all.map { date in (date, changes.last { $0.from <= date }?.value ?? first.value) }
+    }
+
+    /// When WidgetKit should ask for the next timeline: after the last entry, or at `alert` (a
+    /// pending alert the entries don't follow past, device time) when that comes first, so the
+    /// alert line moves on to the next alert, or goes, instead of staying at 0:00.
+    public static func reloadDate(after dates: [Date], now: Date, alert: Date? = nil) -> Date {
+        let last = dates.last.map { max($0, now.addingTimeInterval(15 * 60)) } ?? now.addingTimeInterval(horizon)
+        guard let alert, alert > now else { return last }
+        return min(last, alert)
     }
 }
 
 /// What the widgets show, reduced to a value the app compares to decide whether to reload them
 /// (`WidgetCenter.reloadAllTimelines`). Covers each active topic's identity, questions, schedule,
-/// last entry and last quick answer, its queued and failed counts and the run it shows (its
+/// appearance, last entry (its summary line) and last quick answer, its queued and failed counts and the run it shows (its
 /// content state, which changes with each tap, not as it ticks), and the store's skew; due
-/// state itself follows from these and the clock, which the timelines already handle.
+/// state itself follows from these and the clock, which the timelines already handle, as they
+/// do the run's pending alert (`alert_at` moves on as each passes: not compared).
 public struct WidgetFingerprint: Sendable, Hashable {
     struct Topic: Sendable, Hashable {
         var id: UUID
@@ -69,10 +85,16 @@ public struct WidgetFingerprint: Sendable, Hashable {
         var lastCapturedAt: Date?
         var entryCount: Int
         var lastAnswer: AnswerValue?
+        /// The summary line and the colours and glyph (T2-WIRE): what the widget draws of them.
+        var lastSummary: String
+        var appearance: TopicAppearance
         var queued: Int
         var failed: Int
         var scope: EntryScope?
         var run: RunActivityState?
+        /// The one Auto chip's press (`WidgetTopic.runAuto`): the run's local state can change it
+        /// while the activity state reads the same.
+        var runAuto: WidgetRunButton?
         var updateRequired: Bool
     }
 
@@ -88,8 +110,9 @@ public struct WidgetFingerprint: Sendable, Hashable {
                 id: $0.topic.id, name: $0.topic.name, slug: $0.topic.slug, status: $0.topic.status,
                 currentVersion: $0.topic.currentVersion, schedule: $0.topic.schedule,
                 scheduleUpdatedAt: $0.topic.scheduleUpdatedAt, lastCapturedAt: $0.topic.lastCapturedAt,
-                entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, queued: $0.queued, failed: $0.failed,
-                scope: $0.scope, run: $0.run, updateRequired: $0.updateRequired)
+                entryCount: $0.topic.entryCount, lastAnswer: $0.lastAnswer, lastSummary: $0.lastSummary,
+                appearance: $0.topic.appearance, queued: $0.queued, failed: $0.failed,
+                scope: $0.scope, run: $0.run?.withoutAlert, runAuto: $0.runAuto, updateRequired: $0.updateRequired)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
     }
@@ -97,8 +120,8 @@ public struct WidgetFingerprint: Sendable, Hashable {
 
 /// What a topic's Control shows and does (`TopicControl`): its name, whether it logs and what
 /// (questions version, last answer, the run a timer Control advances), and the store its action
-/// is pinned to. Not "queued" or the
-/// schedule: a Control doesn't show them, so they don't spend its reloads.
+/// is pinned to. Not "queued", the schedule or the run's pending alert: a Control doesn't show
+/// them, so they don't spend its reloads.
 public struct ControlFingerprint: Sendable, Hashable {
     struct Topic: Sendable, Hashable {
         var id: UUID
@@ -108,6 +131,8 @@ public struct ControlFingerprint: Sendable, Hashable {
         var lastAnswer: AnswerValue?
         var scope: EntryScope?
         var run: RunActivityState?
+        /// What the Control's one press does (`WidgetTopic.runAuto`), its detail and icon.
+        var runAuto: WidgetRunButton?
     }
 
     let topics: [Topic]
@@ -116,9 +141,21 @@ public struct ControlFingerprint: Sendable, Hashable {
         self.topics = topics.map {
             Topic(
                 id: $0.topic.id, name: $0.topic.name, status: $0.topic.status,
-                currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope, run: $0.run)
+                currentVersion: $0.topic.currentVersion, lastAnswer: $0.lastAnswer, scope: $0.scope,
+                run: $0.run?.withoutAlert, runAuto: $0.runAuto)
         }
         .sorted { $0.id.uuidString < $1.id.uuidString }
+    }
+}
+
+extension RunActivityState {
+    /// The state without its pending alert, which changes with time alone (the next after the
+    /// instant it's read for), not with a tap.
+    fileprivate var withoutAlert: RunActivityState {
+        var state = self
+        state.alertAt = nil
+        state.alertLabel = nil
+        return state
     }
 }
 

@@ -24,6 +24,7 @@ final class TopicUITests: XCTestCase {
         // Schedule: Daily at 08:00, every day.
         app.buttons["Daily"].firstMatch.tap()
         let preview = app.staticTexts["topicSettings.schedule.preview"]
+        scrollTo(preview, in: app)  // below the fold since the Appearance row (a lazy List row)
         XCTAssertTrue(preview.waitForExistence(timeout: 5))
         XCTAssertEqual(preview.label, "Daily 08:00")
         tap("topicSettings.saveSchedule", in: app)
@@ -82,6 +83,7 @@ final class TopicUITests: XCTestCase {
         name.tap()
         name.typeText("Water")
         XCTAssertEqual(app.textFields["newTopic.slug"].value as? String, "water", "the slug follows the name")
+        dismissKeyboard(app)  // the Add question row is below the fold with it open
         addNumberQuestion(in: app)  // a new topic starts with none
         let label = app.textFields["newTopic.q0.label"]
         label.tap()
@@ -272,7 +274,10 @@ final class TopicUITests: XCTestCase {
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         choice.tap()
         // The new card opens with its header in view; at accessibility sizes its label is below the
-        // screen until scrolled to.
+        // screen until scrolled to. Wait for the card before scrolling: on iOS 26.0 the list adds it
+        // only once the dialog has closed (~1 s after the tap), and a drag before then scrolls past
+        // where it appears, which `scrollTo` (downwards only) never comes back to (#235).
+        XCTAssertTrue(element("newTopic.q0.header", in: app).waitForExistence(timeout: 5), "the new card")
         let label = element("newTopic.q0.label", in: app)
         scrollTo(label, in: app)
         XCTAssertTrue(label.waitForExistence(timeout: 5))
@@ -308,7 +313,9 @@ final class TopicUITests: XCTestCase {
     /// fold only once they scroll in.
     @MainActor
     private func scrollTo(_ element: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<12 where !(element.exists && element.isHittable) {
+        // Whole on screen: a row half under the home indicator is hittable, but a tap at its centre
+        // misses it.
+        for _ in 0..<12 where !(element.exists && element.isHittable && app.frame.contains(element.frame)) {
             // Above where a keyboard would be.
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
             start.press(
@@ -316,10 +323,19 @@ final class TopicUITests: XCTestCase {
         }
     }
 
+    /// Closes the keyboard, so rows below the fields (Appearance, Save details, Add question) aren't
+    /// under it. A tap on the bar doesn't end editing in SwiftUI; the lists close it on a drag down
+    /// into it (`.scrollDismissesKeyboard(.interactively)`).
     @MainActor
     private func dismissKeyboard(_ app: XCUIApplication) {
-        guard app.keyboards.firstMatch.exists else { return }
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return }
         app.navigationBars.firstMatch.tap()
+        if keyboard.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.98)))
+        }
+        XCTAssertTrue(keyboard.waitForNonExistence(timeout: 5), "the keyboard closes")
     }
 
     @MainActor

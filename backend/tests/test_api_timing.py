@@ -17,10 +17,10 @@ from sqlalchemy import func, null, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Channel, Entry, Topic, TopicVersion
-from app.services import run_fold
-from app.services.timing_stats import timing_stats
+from app.services import run_fold, timing_stats
 from tests.helpers import make_topic, record
-from tests.test_timing_stats_vectors import stats_json, to_entry
+from tests.spec_cases import timing_stats_v3_cases
+from tests.test_timing_stats_vectors import stats_json, to_entry, to_timer
 from tests.vectors import FIXTURES_DIR
 
 VECTORS = json.loads((FIXTURES_DIR / "timing-stats-vectors.json").read_text())["cases"]
@@ -40,9 +40,12 @@ async def seed(
     topic = Topic(slug=SLUG, name="Routine", current_version=case["current_version"])
     db.add(topic)
     rows: dict[int, TopicVersion] = {}
-    for number, steps in case["versions"].items():
+    for number, timer in case["versions"].items():
         rows[int(number)] = TopicVersion(
-            topic=topic, version=int(number), questions=[], timer=None if steps is None else {"steps": steps}
+            topic=topic,
+            version=int(number),
+            questions=[],
+            timer=timer,  # the normalised Timer v2, lap types included
         )
         db.add(rows[int(number)])
     await db.flush()
@@ -73,18 +76,49 @@ async def timing(client: httpx.AsyncClient, ref: str = SLUG, **params: Any) -> d
 
 def expected(case: dict[str, Any], indices: list[int]) -> dict[str, Any]:
     """The reference stats over a subset of the case's entries, with every version."""
-    versions = {
-        int(n): None if s is None else [run_fold.Step(x["key"], x["label"]) for x in s]
-        for n, s in case["versions"].items()
-    }
+    versions = {int(n): to_timer(t) for n, t in case["versions"].items()}
     entries = [to_entry(case["entries"][i]) for i in indices]
-    return stats_json(timing_stats(entries, versions, case["current_version"]))
+    return stats_json(timing_stats.timing_stats(entries, versions, case["current_version"]))
 
 
 @pytest.mark.parametrize("name", list(CASES))
 async def test_endpoint_matches_the_vectors(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
     await seed(db, CASES[name])
     assert await timing(client) == CASES[name]["expected"]
+
+
+@pytest.mark.parametrize("name", timing_stats_v3_cases())
+async def test_lap_types_are_served(name: str, db: AsyncSession, client: httpx.AsyncClient) -> None:
+    """T31 (timers2.md §7.4): every v3 case through the endpoint carries the vector's
+    ``lap_types``, top level and per series point."""
+    case = CASES[name]
+    assert case["expected"]["lap_types"]  # the case does carry lap types
+    await seed(db, case)
+    body = await timing(client)
+    assert body == case["expected"]
+    assert [p["lap_types"] for p in body["series"]] == [p["lap_types"] for p in case["expected"]["series"]]
+
+
+async def test_an_untyped_topic_answers_no_lap_types(db: AsyncSession, client: httpx.AsyncClient) -> None:
+    """Untyped laps count only toward ``laps``: ``lap_types`` is empty and so is each point's."""
+    case = CASES["laps"]
+    assert all(not t or not t.get("laps") for t in case["versions"].values())
+    await seed(db, case)
+    body = await timing(client)
+    assert body["laps"]["runs_with_laps"] > 0
+    assert body["lap_types"] == []
+    assert {json.dumps(p["lap_types"]) for p in body["series"]} == {"{}"}
+
+
+async def test_lap_types_follow_the_version_filter(db: AsyncSession, client: httpx.AsyncClient) -> None:
+    """A renamed lap type keeps the latest version's label whatever the filter (§7.4)."""
+    case = CASES["lap_types_renamed_across_versions"]
+    versions = sorted(int(n) for n in case["versions"])
+    of = {i: versions[min(i, len(versions) - 1)] for i in range(len(case["entries"]))}
+    await seed(db, case, versions_of=of)
+    for number in versions:
+        indices = [i for i, v in of.items() if v == number]
+        assert await timing(client, version=number) == expected(case, indices)
 
 
 async def test_untimed_entries_are_sql_null(db: AsyncSession, client: httpx.AsyncClient) -> None:
@@ -137,7 +171,7 @@ async def test_a_removed_step_keeps_its_last_versions_label(
     """Labels come from every version, not only the current one or those in range: 'teeth' is
     renamed in v2 and removed in v3, and its only run was on v1."""
     case = copy.deepcopy(CASES["renamed-and-removed-steps"])
-    case["versions"]["2"].append({"key": "teeth", "label": "Brush teeth"})
+    case["versions"]["2"]["steps"].append({"key": "teeth", "label": "Brush teeth"})
     await seed(db, case, versions_of={0: 1, 1: 2, 2: 3, 3: 3})
     body = await timing(client)
     assert body == expected(case, [0, 1, 2, 3])

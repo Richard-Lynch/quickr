@@ -65,8 +65,11 @@ import Testing
         #expect(RegistrySchema.migrations[1].identifier == "v2")
         #expect(RegistrySchema.migrations[1].statements == Self.frozen.registryV2)
         for migrations in [StoreSchema.migrations, RegistrySchema.migrations] {
-            #expect(
-                migrations.map(\.identifier) == migrations.indices.map { "v\($0 + 1)" }, "migrations are v1, v2, …")
+            // The `v` series first, then the T2 milestones' own (`t2m1_*` before `t2m3_*`, t2-plan.md
+            // "iOS store migrations"; `StoreMigrationOrderTests`).
+            let series = migrations.map(\.identifier).prefix { $0.hasPrefix("v") }
+            #expect(Array(series) == series.indices.map { "v\($0 + 1)" }, "migrations are v1, v2, …")
+            #expect(migrations.dropFirst(series.count).allSatisfy { $0.identifier.hasPrefix("t2m") })
         }
     }
 
@@ -92,13 +95,17 @@ import Testing
     }
 
     /// The store's columns that "nothing lost" compares: v2's `timer_json`, v3's `timing_json`,
-    /// v4's `sync_state.server_offset_ms` and v6's `client_outdated_min` and `server_api_level` are
-    /// new, and v2 and v3 set `sync_state.rebuilding` (checked on their own).
+    /// v4's `sync_state.server_offset_ms`, v6's `client_outdated_min` and `server_api_level` and
+    /// t2m3's topic `color`, `icon` and `tags_json` are new, v2, v3 and t2m3 set
+    /// `sync_state.rebuilding`, and t2m1 moves `sync_state.layer_gen` (checked on their own).
     static func storeV1Columns(_ db: Database, tables: [String]) throws -> [String: [String]] {
         let added: [String: Set<String>] = [
             "topic_version": ["timer_json"], "stage_topic_version": ["timer_json"], "entry": ["timing_json"],
             "stage_entry": ["timing_json"],
-            "sync_state": ["rebuilding", "server_offset_ms", "client_outdated_min", "server_api_level"],
+            "sync_state": [
+                "rebuilding", "server_offset_ms", "client_outdated_min", "server_api_level", "layer_gen",
+            ],
+            "topic": ["color", "icon", "tags_json"], "stage_topic": ["color", "icon", "tags_json"],
         ]
         var columns: [String: [String]] = [:]
         for table in tables {
@@ -217,10 +224,19 @@ import Testing
             try Self.dump(db, tables: storeTables, columns: try Self.storeV1Columns(db, tables: storeTables))
         }
         // Today's topic reads join v2's `topic_version.timer_json` (a v1 file has none, so every
-        // timer is null): add the column, read, and roll back, leaving the file v1.
+        // timer is null), and today's entry reads consult v3's runs (an open run hides its entry,
+        // timers2.md §5.3; a v1 file has none): add them, read, and roll back, leaving the file v1.
         var viewsBefore: Views?
         try before.inTransaction { db in
             try db.execute(sql: "ALTER TABLE topic_version ADD COLUMN timer_json TEXT")
+            try db.execute(
+                sql: """
+                    CREATE TABLE run (
+                      id TEXT PRIMARY KEY NOT NULL, topic_id TEXT NOT NULL, status TEXT NOT NULL,
+                      revision INTEGER NOT NULL, started_at INTEGER NOT NULL, run_json TEXT NOT NULL);
+                    CREATE TABLE run_alias (
+                      id TEXT PRIMARY KEY NOT NULL, run_id TEXT NOT NULL, topic_id TEXT NOT NULL);
+                    """)
             viewsBefore = try Self.views(db)
             return .rollback
         }
@@ -246,7 +262,8 @@ import Testing
         #expect(
             try await registry.read { db in try Self.migrations(db) } == RegistrySchema.migrations.map(\.identifier))
         #expect(
-            try await store.writer.read { db in try Self.migrations(db) } == StoreSchema.migrations.map(\.identifier))
+            try await store.writer.read { db in try Self.migrations(db) }
+                == StoreSchema.migrations.map(\.identifier).sorted())
 
         // Nothing lost: every v1 row, column for column.
         let storeV1Columns = try await store.writer.read { db in try Self.storeV1Columns(db, tables: storeTables) }
@@ -266,6 +283,8 @@ import Testing
         // …and a rebuild of the epoch it has, so the server's timers arrive (store v2).
         let state = try await store.state()
         #expect(state.epoch != nil && state.rebuilding == state.epoch)
+        // t2m1_run_closed fences every outcome from before it (timers2.md §5.2 invariant 1).
+        #expect(state.layerGen == 2)
         #expect(
             try await store.writer.read { db in try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM topic_version") } ?? 0
                 > 0)
@@ -581,10 +600,10 @@ import Testing
         let expectedTiming: Timing? = try SyncRunTests.domainEntry(stopped).timing
         let storedTiming: Timing? = try await store.entries.entry(id: entryId)?.entry.timing
         #expect(storedTiming == expectedTiming && expectedTiming != nil)
-        let runTombstones: [String] = try await store.writer.read { db in
-            try String.fetchAll(db, sql: "SELECT id FROM tombstone WHERE kind = 'run'")
-        }
-        #expect(runTombstones == [SyncRunTests.runA])
+        // A stopped run is closed, not tombstoned: its marker is the deletion's revision
+        // (timers2.md §5.2).
+        #expect(try await SyncRunTests.markers(store) == [SyncRunTests.runA: 4])
+        #expect(try await SyncRunTests.tombstones(store, kind: "run").isEmpty)
     }
 
     /// The same, stopped mid-bootstrap (an epoch, `bootstrap_complete = 0`): v3's rebuild of that

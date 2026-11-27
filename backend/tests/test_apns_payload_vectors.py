@@ -20,6 +20,7 @@ from pydantic import TypeAdapter
 
 from app.schemas.questions import DoubleQuestion, EnumQuestion, IntQuestion, Question, StrQuestion
 from app.services import notification
+from app.services.appearance import reminder_title
 from app.services.push import apns
 from app.services.push.base import Notification
 from tests.vectors import FIXTURES_DIR, check_or_write, dump_cases
@@ -155,6 +156,18 @@ TIMED_CASES: dict[str, tuple[int, str, str, int, str, list[dict[str, Any]], dict
         [MINUTES],
         {"steps": [{"key": "shower", "label": "Shower"}, {"key": "breakfast", "label": "Breakfast"}]},
     ),
+    # T2-M3: a topic with an emoji icon (appearance.md §6.7): the scheduler's title is
+    # appearance.reminder_title, "{emoji} {name}".
+    "timed_with_icon": (
+        12,
+        "run",
+        reminder_title("Run", "🏃"),
+        1,
+        "2026-10-21T07:30:00Z",
+        [],
+        {"steps": []},
+    ),
+    # end T2-M3
 }
 
 
@@ -216,7 +229,8 @@ def build() -> dict[str, Any]:
             "generator_version": GENERATOR_VERSION,
             "semantics": [
                 "expected: apns.render of a due Notification built as the scheduler builds it: "
-                "title = the topic name, url = /t/{slug}/record, the descriptor from "
+                "title = the topic name, or '{emoji} {name}' when the topic has an icon "
+                "(appearance-vectors.json reminder_titles), url = /t/{slug}/record, the descriptor from "
                 "notification.descriptor(questions, counts, last) (notification-vectors.json); "
                 "timed (timer != null) whatever the questions.",
                 "aps.alert.title is cut to 120 Unicode scalars with '…'; aps.alert.body is body + "
@@ -256,6 +270,8 @@ def test_vectors_cover_the_payload() -> None:
     assert title.endswith("…")
     assert cases["timed"]["quickr"]["quick_log"] == {"type": "timed"}
     assert cases["timed"]["aps"]["category"].startswith("quickr.t.")
+    assert cases["timed_with_icon"]["aps"]["alert"]["title"] == "🏃 Run"
+    assert cases["timed_with_icon"]["quickr"]["quick_log"] == {"type": "timed"}
     assert len(json.dumps(cases["timed"]).encode()) <= apns.MAX_PAYLOAD_BYTES
     # A last value is part of the actions, so it changes the category.
     assert cases["int-last"]["aps"]["category"] != cases["int-no-last"]["aps"]["category"]

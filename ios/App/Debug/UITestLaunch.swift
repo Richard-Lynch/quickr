@@ -13,7 +13,8 @@ import Synchronization
 /// - `-QuickrServer <url>` presets the server (launch connects, skipping onboarding);
 /// - `-QuickrOpen <url>` opens a link once the root is up (screenshots, deep-link checks);
 /// - `-QuickrSeedRejectedEntry` first queues a Workout entry the server refuses (duration 900),
-///   with the id `rejectedEntryId`, and waits until it has failed (fix mode);
+///   with the id `rejectedEntryId`, and waits until it can be fixed (fix mode); a seed that can't
+///   be made crashes the app, naming why;
 /// - `-QuickrStalePublish`: someone else publishes a version of the topic just before this
 ///   device's first version check or publish, which therefore conflicts (409);
 /// - `-QuickrSecondServer` also registers a second server, "Other" (`secondServerId`), that isn't
@@ -25,7 +26,19 @@ import Synchronization
 ///   (client-versions.md §4.5). Without it, or the controls' level switches, the fake server sends
 ///   no level headers and refuses nothing;
 /// - `-QuickrServerOutdated`: the fake server refuses this build from the start (a fresh install's
-///   first connect, client-versions.md §4.1).
+///   first connect, client-versions.md §4.1);
+/// - `-QuickrHoldLaterFeed`: the first feed request (the launch's connect) is answered, every
+///   later one is held for the rest of the launch, so the launch's next pull is still in flight
+///   whenever a test taps (#239);
+/// - `-QuickrSeedTikTok` (T2-M1): the fake server also has TikTok, timed with no steps and the lap
+///   types Run and Rest (timers2.md §3.1's `tiktok`), and no questions; with
+///   `-QuickrTikTokAlert`, Run has an alert 5 s in. `-QuickrRunControls` shows
+///   `UITestRunControls` (another device's reopen or remove of the latest run);
+/// - `-QuickrSeedAppearance` (T2-WIRE): the fake server's Mood is teal with 🙂 and the tags
+///   Daily, Health, Home and Evening, and Morning blue with ☀️ and Daily (appearance.md §1.1);
+///   Workout keeps the default theme;
+/// - `-QuickrClockControl` shows `UITestClockControl` ("+16 min": the fake server's clock jumps
+///   ahead, then this device pulls), for the 15-minute Resume window (active-surfaces.md §3.3).
 enum UITestLaunch {
     static let argument = "-QuickrUITest"
     static let fakeServer = URL(string: "https://quickr.test")!
@@ -64,6 +77,7 @@ enum UITestLaunch {
         if ProcessInfo.processInfo.arguments.contains("-QuickrStalePublish") { server.publishElsewhereFirst() }
         if ProcessInfo.processInfo.arguments.contains("-QuickrServerBehind") { server.levels = .behind }
         if ProcessInfo.processInfo.arguments.contains("-QuickrServerOutdated") { server.levels = .outdated }
+        if ProcessInfo.processInfo.arguments.contains("-QuickrHoldLaterFeed") { server.holdLaterFeed() }
         return environment
     }
 
@@ -73,7 +87,8 @@ enum UITestLaunch {
         return value(after: "-QuickrOpen").flatMap(URL.init(string:))
     }
 
-    /// Before `-QuickrOpen`: the seeds the launch asked for. Bounded: gives up after 20 s.
+    /// Before `-QuickrOpen`: the seeds the launch asked for. Bounded: 20 s, after which the second
+    /// server is left out and a rejected entry that isn't fixable yet crashes the app.
     @MainActor static func prepare(_ environment: AppEnvironment) async {
         let arguments = ProcessInfo.processInfo.arguments
         guard isActive, arguments.contains("-QuickrSecondServer") || arguments.contains("-QuickrSeedRejectedEntry")
@@ -93,18 +108,34 @@ enum UITestLaunch {
                 serverId: secondServerId, baseURL: "https://other.example", displayName: "Other", now: Date())
         }
         guard arguments.contains("-QuickrSeedRejectedEntry") else { return }
-        guard await waitFor({ environment.session?.outbox != nil }), let session = environment.session,
-            let outbox = session.outbox, let store = session.store
-        else { return }
+        // After the launch's connect has finished binding: it binds twice (the registry's signal,
+        // then its own forced rebind, both inside it), and the second swap cancels the first
+        // outbox's flush, which leaves the entry maybe delivered (outbox.md S3), so never fixable
+        // (§11). A later rebind of the same binding isn't forced and keeps the outbox.
+        guard await waitFor({ environment.session?.outbox != nil && environment.session?.isBinding == false }),
+            let session = environment.session, let outbox = session.outbox, let store = session.store
+        else { fatalError("-QuickrSeedRejectedEntry: the session didn't bind within 20 s") }
         let body = EntryCreateDTO(
             id: nil, answers: ["type": .string("run"), "duration": .int(900)], source: nil,
             capturedAt: Date().addingTimeInterval(-3600), notes: "Long run", version: 1)
-        try? await outbox.createEntry(
-            id: rejectedEntryId, topic: TopicRef(id: FakeServer.workoutId, slug: "workout", name: "Workout"),
-            body: body,
-            origin: .app)
+        do {
+            try await outbox.createEntry(
+                id: rejectedEntryId, topic: TopicRef(id: FakeServer.workoutId, slug: "workout", name: "Workout"),
+                body: body,
+                origin: .app)
+        } catch {
+            fatalError("-QuickrSeedRejectedEntry: createEntry failed: \(error)")
+        }
         await session.scheduler?.requestFlush(reason: .enqueue)
-        _ = await waitFor { (try? await store.outbox.item(id: rejectedEntryId.wireString))?.state == .failed }
+        // Fixable, as the record screen will ask: failed `rejected`, never maybe delivered.
+        func item() async -> OutboxItem? { try? await store.outbox.item(id: rejectedEntryId.wireString) }
+        guard await waitFor({ await item()?.entryFixDraft(questions: []) != nil }) else {
+            let item = await item()
+            fatalError(
+                "-QuickrSeedRejectedEntry: not fixable within 20 s: state \(String(describing: item?.state)), "
+                    + "reason \(String(describing: item?.failureReason)), "
+                    + "maybe delivered \(String(describing: item?.maybeDelivered))")
+        }
     }
 
     private static func value(after flag: String) -> String? {
@@ -145,6 +176,8 @@ final class FakeServerState: Sendable {
         var levels: FakeServerLevels?
         var rejectNext = false
         var holdFeed = false
+        /// `holdLaterFeed()`: the next feed request is admitted and turns `holdFeed` on.
+        var holdAfterNextFeed = false
         var requests = 0
         /// "METHOD /path" of each request, in order.
         var sent: [String] = []
@@ -154,14 +187,18 @@ final class FakeServerState: Sendable {
         var held: [UUID: CheckedContinuation<Void, any Error>] = [:]
         /// Topics as the server holds them now (`TopicDetail` JSON), after the online-only writes
         /// and archives the tests made (TOPIC). Seeded with the feed's two.
-        var topics: [String: Data] = FakeServer.seedTopics()
+        var topics: [String: Data] = FakeServer.seedTopics().merging(FakeServer.tikTokTopics()) { $1 }
         /// Feed items after the seeded page (seq 7, 8, …): the topic and version rows of the
         /// versions published here, and the entries runs made, as the change feed lists them.
-        /// `-QuickrSeedTimedTopic` starts it with Morning's finished run (`FakeTiming`).
-        var feed: [String] = FakeTiming.seedFeed()
+        /// `-QuickrSeedTimedTopic` starts it with Morning's finished run (`FakeTiming`),
+        /// `-QuickrSeedTikTok` with the TikTok topic (`FakeServer.seedFeed`).
+        var feed: [String] = FakeServer.seedFeed()
         var publishElsewhere = false
         /// The runs started here (`FakeRuns`, UITestRuns.swift).
         var runs = FakeRunBook()
+        /// How far the server's clock runs ahead of the device's (`UITestClockControl`): its
+        /// `X-QuickR-Server-Time` and feed `server_time`, so the app's run clock moves with it.
+        var clockAheadMs = 0
 
         /// The seq of the next feed item.
         var nextSeq: Int { FakeServer.seededHead + 1 + feed.count }
@@ -178,6 +215,14 @@ final class FakeServerState: Sendable {
         get { state.withLock { $0.levels } }
         set { state.withLock { $0.levels = newValue } }
     }
+
+    var clockAheadMs: Int {
+        get { state.withLock { $0.clockAheadMs } }
+        set { state.withLock { $0.clockAheadMs = newValue } }
+    }
+
+    /// Now on the fake server's clock.
+    var now: Date { Date().addingTimeInterval(Double(clockAheadMs) / 1000) }
 
     /// Requests that reached the server (any host path), held ones included.
     var requestCount: Int { state.withLock { $0.requests } }
@@ -200,6 +245,9 @@ final class FakeServerState: Sendable {
             return state.rejectNext
         }
     }
+
+    /// Admits the next feed request, then holds every later one (`holdFeed`).
+    func holdLaterFeed() { state.withLock { $0.holdAfterNextFeed = true } }
 
     /// Holds feed requests until `releaseFeed()` (a cancelled one stops waiting, as URLSession's does).
     func holdFeed() { state.withLock { $0.holdFeed = true } }
@@ -257,6 +305,7 @@ final class FakeServerState: Sendable {
     /// into the feed. Returns the updated topic.
     fileprivate func publish(_ id: String, questions: [[String: Any]], timer: Any?, note: String) -> [String: Any]? {
         guard var topic = topic(id) else { return nil }
+        let timer = timer.map(FakeServer.normalisedTimer)
         let now = ISO8601DateFormatter().string(from: Date())
         let number = (topic["current_version"] as? Int ?? 1) + 1
         topic["current_version"] = number
@@ -337,6 +386,12 @@ final class FakeServerState: Sendable {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                 let proceed = state.withLock { state -> Bool in
+                    // `holdLaterFeed()`: this one goes, and turns the hold on in the same lock.
+                    if state.holdAfterNextFeed, !state.holdFeed {
+                        state.holdAfterNextFeed = false
+                        state.holdFeed = true
+                        return true
+                    }
                     guard state.holdFeed, !Task.isCancelled else { return true }
                     state.held[id] = continuation
                     return false
@@ -412,24 +467,42 @@ enum FakeServer {
                       {"archived": false, "label": "Bad", "value": "bad"}]}]
         """#
     static let morningTimer = #"""
-        {"steps": [{"key": "shower", "label": "Shower"}, {"key": "dress", "label": "Dress"},
-                   {"key": "breakfast", "label": "Breakfast"}, {"key": "teeth", "label": "Teeth"}]}
+        {"steps": [{"key": "shower", "label": "Shower", "alerts": []}, {"key": "dress", "label": "Dress", "alerts": []},
+                   {"key": "breakfast", "label": "Breakfast", "alerts": []},
+                   {"key": "teeth", "label": "Teeth", "alerts": []}],
+         "laps": [], "variables": []}
         """#
 
     /// The seeded page's last seq: three topics, each a version row and a topic row.
     static let seededHead = 6
 
+    /// `-QuickrSeedAppearance`'s appearances, by slug, as wire JSON.
+    static let seededAppearances = [
+        "mood":
+            #"{"color": "teal", "icon": {"kind": "emoji", "value": "🙂"}, "tags": ["Daily", "Health", "Home", "Evening"]}"#,
+        "morning": #"{"color": "blue", "icon": {"kind": "emoji", "value": "☀️"}, "tags": ["Daily"]}"#,
+    ]
+
     static func topic(
         _ id: UUID, slug: String, name: String, questions: String, count: Int, seq: Int, timer: String = "null"
     ) -> String {
-        #"""
-        {"kind": "topic", "seq": \#(seq), "topic": {"archived_at": null, "created_at": "2026-01-01T00:00:00Z",
-         "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
-         "last_captured_at": null, "name": "\#(name)", "question_count": \#(count), "questions": \#(questions),
-         "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
-         "timer": \#(timer), "updated_at": "2026-01-01T00:00:00Z"}}
-        """#
+        let appearance =
+            ProcessInfo.processInfo.arguments.contains("-QuickrSeedAppearance")
+            ? seededAppearances[slug] ?? emptyAppearance : emptyAppearance
+        // T2-M3: the template's first line carries the topic's `appearance` (a raw string can't hold
+        // the marker).
+        return #"""
+            {"kind": "topic", "seq": \#(seq), "topic": {"appearance": \#(appearance),
+             "archived_at": null, "created_at": "2026-01-01T00:00:00Z",
+             "current_version": 1, "description": "", "due": null, "entry_count": 0, "id": "\#(id.wireString)",
+             "last_captured_at": null, "last_entry": null, "name": "\#(name)", "question_count": \#(count),
+             "questions": \#(questions),
+             "revision": 1, "schedule": null, "schedule_updated_at": null, "slug": "\#(slug)", "status": "active",
+             "timer": \#(timer), "updated_at": "2026-01-01T00:00:00Z"}}
+            """#
     }
+
+    static let emptyAppearance = #"{"color": null, "icon": null, "tags": []}"#
 
     static func version(
         _ topicId: UUID, versionId: String, questions: String, seq: Int, timer: String = "null"
@@ -442,7 +515,7 @@ enum FakeServer {
     }
 
     static func page(after cursor: Int, state: FakeServerState) -> String {
-        let now = ISO8601DateFormatter().string(from: Date())
+        let now = ISO8601DateFormatter().string(from: state.now)
         let (published, head) = state.feed(after: cursor)
         let seeded =
             cursor == 0
@@ -557,7 +630,7 @@ private struct FakeServerTransport: Transport {
         if state.offline { throw TransportError.unreachable("offline (UI test)") }
         var headers: HTTPHeaders = [
             QuickrHeader.serverId: UITestLaunch.fakeServerId, QuickrHeader.epoch: FakeServer.epoch,
-            "Content-Type": "application/json", RunClock.serverTimeHeader: String(RunInstant.milliseconds(Date())),
+            "Content-Type": "application/json", RunClock.serverTimeHeader: String(RunInstant.milliseconds(state.now)),
         ]
         let levels = state.levels
         levels?.add(to: &headers)
@@ -667,10 +740,12 @@ private struct FakeServerTransport: Transport {
                 "id": UUID().wireString, "slug": slug, "name": name,
                 "description": body["description"] as? String ?? "",
                 "status": "active", "current_version": 1, "revision": 1, "question_count": questions.count,
-                "entry_count": 0, "last_captured_at": NSNull(), "created_at": now, "updated_at": now,
+                "entry_count": 0, "last_captured_at": NSNull(), "last_entry": NSNull(),  // T2-M4: last_entry
+                "created_at": now, "updated_at": now,
                 "archived_at": NSNull(), "schedule": schedule,
                 "schedule_updated_at": schedule is NSNull ? NSNull() : now as Any, "due": NSNull(),
                 "timer": body["timer"] ?? NSNull(), "questions": questions,
+                "appearance": body["appearance"] ?? ["color": NSNull(), "icon": NSNull(), "tags": [String]()],  // T2-M3
             ]
             state.put(topic)
             // Its v1, in the feed like the backend's: an entry's screen loads its version's questions.
@@ -696,6 +771,13 @@ private struct FakeServerTransport: Transport {
                 return problem(409, "conflict", "slug '\(slug)' is already taken")
             }
             for key in ["name", "slug", "description"] where body[key] != nil { topic[key] = body[key] }
+            // T2-M3: an omitted appearance field is unchanged; null and [] clear (appearance.md §1.1).
+            if let patch = body["appearance"] as? [String: Any] {
+                var appearance = topic["appearance"] as? [String: Any] ?? [:]
+                for (key, value) in patch where ["color", "icon", "tags"].contains(key) { appearance[key] = value }
+                topic["appearance"] = appearance
+            }
+            // end T2-M3
             if let input = body["schedule"] {
                 // Like the backend: an unchanged schedule keeps its reference point; a removed one
                 // clears it.
@@ -762,7 +844,7 @@ private struct FakeServerTransport: Transport {
             history: [FakeServer.questions(topic["questions"] ?? [Any]())], proposed: FakeServer.questions(inputs))
         // Like the backend's `_report`: with the draft's timer, a timer-only change is a change.
         if let timer = body["timer"], report.changes.isEmpty,
-            !(timer as AnyObject).isEqual(topic["timer"] ?? NSNull())
+            !(FakeServer.normalisedTimer(timer) as AnyObject).isEqual(topic["timer"] ?? NSNull())
         {
             report.issues.removeAll { $0.questionKey == nil }
             report.ok = !report.issues.contains { $0.level == .error }
@@ -846,4 +928,135 @@ private struct FakeServerTransport: Transport {
         return HTTPResponse(status: 201, headers: headers, body: json)
     }
 }
+// T2-M1: the server returns a timer normalised (timers2.md §1.4)
+extension FakeServer {
+    /// A sent timer as the server stores and returns it: every list present, `at_ms` 0 (the fake
+    /// doesn't evaluate expressions). `NSNull` stays null.
+    static func normalisedTimer(_ timer: Any) -> Any {
+        guard var object = timer as? [String: Any] else { return timer }
+        func withAlerts(_ items: Any?) -> [[String: Any]] {
+            ((items as? [[String: Any]]) ?? []).map { item in
+                var item = item
+                item["alerts"] = ((item["alerts"] as? [[String: Any]]) ?? []).map { alert in
+                    var alert = alert
+                    alert["at_ms"] = alert["at_ms"] ?? 0
+                    return alert
+                }
+                return item
+            }
+        }
+        object["steps"] = withAlerts(object["steps"])
+        object["laps"] = withAlerts(object["laps"])
+        object["variables"] = object["variables"] ?? [[String: Any]]()
+        return object
+    }
+}
+
+// T2-M1: another device's reopen or remove (timers2.md §3.4, §6.2, §6.6), naming its `target`
+extension FakeServerState {
+    /// Another device reopens the run `runId` routes to (its terminal stop, or `target`): recorded
+    /// on the fake server, and the run, open again, logged in the feed as a `run` item (a reopen
+    /// upsert above this device's closed marker). False when the server refused it or has no
+    /// such run.
+    @discardableResult
+    func reopenElsewhere(runId: String, target: String? = nil) -> Bool {
+        elsewhere(.reopen, runId: runId, target: target)
+    }
+
+    /// Another device removes `target` (a pause, a lap boundary or a reopened stop) of the run
+    /// `runId` routes to: an open run is logged in the feed as a `run` item; a stopped run's late
+    /// merge logs its entry.
+    @discardableResult
+    func removeElsewhere(runId: String, target: String) -> Bool {
+        elsewhere(.remove, runId: runId, target: target)
+    }
+
+    private func elsewhere(_ type: RunEventType, runId: String, target: String?) -> Bool {
+        var openRun: [String: Any]?
+        let outcome = recordRun { book in
+            guard let (outcome, run) = book.elsewhere(type, runId: runId, target: target) else {
+                return FakeRunOutcome(result: .problem(status: 404, code: "not_found", detail: "run not found"))
+            }
+            openRun = run
+            return outcome
+        }
+        if let openRun { appendItem(kind: "run", key: "run", openRun) }
+        guard case .answer(let status, _) = outcome.result else { return false }
+        return status == 200
+    }
+}
+// end T2-M1
+
+// T2-M1: TikTok (timers2.md §3.1), and which run and lap another device's write names
+extension FakeServer {
+    static let tikTokId = UUID(uuidString: "00000000-0000-4000-8000-0000000000c4")!
+    static var seedsTikTok: Bool {
+        UITestLaunch.isActive && ProcessInfo.processInfo.arguments.contains("-QuickrSeedTikTok")
+    }
+
+    /// No steps; Run and Rest, Run with a 5 s alert under `-QuickrTikTokAlert`. As the server
+    /// returns it (`at_ms` evaluated).
+    static var tikTokTimer: String {
+        let alerts =
+            ProcessInfo.processInfo.arguments.contains("-QuickrTikTokAlert")
+            ? #"[{"key": "cue", "label": "Cue", "at": "5s", "at_ms": 5000}]"# : "[]"
+        return #"""
+            {"steps": [], "laps": [{"key": "run", "label": "Run", "alerts": \#(alerts)},
+                                   {"key": "rest", "label": "Rest", "alerts": []}],
+             "variables": []}
+            """#
+    }
+
+    /// The feed after the seeded page: `FakeTiming`'s entry, then TikTok's version and topic rows.
+    static func seedFeed() -> [String] {
+        let timing = FakeTiming.seedFeed()
+        guard seedsTikTok else { return timing }
+        let seq = seededHead + 1 + timing.count
+        return timing + [
+            version(
+                tikTokId, versionId: "00000000-0000-4000-8000-0000000000d4", questions: "[]", seq: seq,
+                timer: tikTokTimer),
+            topic(
+                tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: seq + 1, timer: tikTokTimer),
+        ]
+    }
+
+    /// TikTok as `TopicDetail`, when seeded.
+    static func tikTokTopics() -> [String: Data] {
+        guard seedsTikTok else { return [:] }
+        let item = topic(
+            tikTokId, slug: "tiktok", name: "TikTok", questions: "[]", count: 0, seq: 0, timer: tikTokTimer)
+        guard let object = try? JSONSerialization.jsonObject(with: Data(item.utf8)) as? [String: Any],
+            let detail = object["topic"], let data = try? JSONSerialization.data(withJSONObject: detail)
+        else { return [:] }
+        return [tikTokId.wireString: data]
+    }
+}
+
+extension FakeServerState {
+    /// The run started last here (by its start), lowercase.
+    var latestRunId: String? {
+        state.withLock { state in state.runs.runs.values.max { $0.state.startedAt < $1.state.startedAt }?.id }
+    }
+
+    /// The latest run as the server holds it, for a test to wait on: "stopped · laps 3".
+    var latestRunSummary: String? {
+        state.withLock { state in
+            state.runs.runs.values.max { $0.state.startedAt < $1.state.startedAt }.map { run in
+                "\(run.status.rawValue) · laps \(run.events.filter { $0.event.type == .lap }.count)"
+            }
+        }
+    }
+
+    /// The id of the run's `n`th lap event (1-based, in time order).
+    func lapEventId(runId: String, n: Int) -> String? {
+        state.withLock { state in
+            let path = runId.lowercased()
+            guard let run = state.runs.runs[state.runs.aliases[path] ?? path] else { return nil }
+            let laps = run.events.map(\.event).filter { $0.type == .lap }.sorted { $0.at < $1.at }
+            return laps.indices.contains(n - 1) ? laps[n - 1].id : nil
+        }
+    }
+}
+// end T2-M1
 #endif

@@ -5,25 +5,41 @@
  * new step's key, the steps a published timer opens as, renaming, the timer a draft publishes
  * (or its issues) and the review sheet's timing lines), for the iOS port (BUILDER-UI, I-MANAGE). What the server decides is builder-vectors.json (backend).
  *
+ * Timer v2 (timers2.md §1.6, §12.1; I1-BUILDER): a new lap type's key and renaming one
+ * (`new_lap_type`, `lap_type_label`), a variable as entered (`variable`), an alert's live
+ * evaluation (`alert_expr`). `from_timer`, `timer_output` and `timer_changes` are v2: the draft a
+ * v2 timer opens as, the normalised `Timer` a draft publishes (issue paths relative to the draft,
+ * such as `["steps", 0, "key"]` or `["laps", 0, "alerts", 1, "at"]`) and the review sheet's
+ * lines; their steps-only cases are the v1 shape.
+ *
  * Text is en-US (the test checks the locale). With QUICKR_UPDATE_VECTORS=1 (`make vectors`)
  * this writes the file; otherwise it fails when the committed file differs.
  */
 import { describe, expect, it } from 'vitest';
 
 import {
+  alertPreview,
+  convertDraftVariable,
   draftFromQuestion,
   draftFromTimer,
+  newDraftLapType,
   newDraftQuestion,
   newDraftStep,
   previewQuestion,
   timerChanges,
   timerFromDraft,
+  withLapTypeLabel,
   withStepLabel,
+  withVariableName,
+  type DraftAlert,
+  type DraftLapType,
   type DraftOption,
   type DraftQuestion,
   type DraftStep,
+  type DraftVariable,
+  type TimerHistory,
 } from './builder';
-import type { Timer } from '../client';
+import type { TimerInput as Timer } from '../client';
 import { QUESTION_TYPES, type Question } from './questions';
 import { constraintText } from './questionSummary';
 
@@ -429,13 +445,19 @@ const QUESTIONS: Question[] = [
 // Timed topics (timers.md §2.1)
 // ---------------------------------------------------------------------------
 
-type PlainStep = Omit<DraftStep, 'uid'>;
+type PlainStep = Pick<DraftStep, 'key' | 'label' | 'locked'>;
 const plainStep = ({ key, label, locked }: DraftStep): PlainStep => ({ key, label, locked });
-const step = (key: string, label: string, locked = false): DraftStep => ({
+const step = (
+  key: string,
+  label: string,
+  locked = false,
+  alerts: DraftAlert[] = [],
+): DraftStep => ({
   uid: 's',
   key,
   label,
   locked,
+  alerts,
 });
 
 const HISTORY = [
@@ -467,6 +489,22 @@ const TIMERS: (Timer | null)[] = [
     steps: [
       { key: 'shower', label: 'Shower' },
       { key: 'dress', label: 'Get dressed' },
+    ],
+  },
+  {
+    steps: [{ key: 'warm', label: 'Warm up', alerts: [{ key: 'go', label: 'Go', at: '1m' }] }],
+    laps: [
+      {
+        key: 'run',
+        label: 'Run',
+        alerts: [{ key: 'half', label: 'Half', at: 't/2', at_ms: 30_000 }],
+      },
+      { key: 'rest', label: 'Rest', alerts: [] },
+    ],
+    variables: [
+      { name: 't', ms: 60_000 },
+      { name: 'fine', ms: 90_500 },
+      { name: 'long', ms: 5_400_000 },
     ],
   },
 ];
@@ -554,6 +592,458 @@ const TIMER_CHANGES: { name: string; base: Timer | null; next: Timer | null }[] 
   { name: 'reordered', base: { steps: [shower, dress] }, next: { steps: [dress, shower] } },
 ];
 
+// ---------------------------------------------------------------------------
+// Timer v2 (timers2.md §1)
+// ---------------------------------------------------------------------------
+
+type PlainAlert = Omit<DraftAlert, 'uid'>;
+type PlainLapType = Omit<DraftLapType, 'uid' | 'alerts'> & { alerts: PlainAlert[] };
+type PlainStepV2 = PlainStep & { alerts: PlainAlert[] };
+type PlainVariable = Omit<DraftVariable, 'uid'>;
+const plainAlert = ({ key, label, at, locked }: DraftAlert): PlainAlert => ({
+  key,
+  label,
+  at,
+  locked,
+});
+const plainLapType = ({ key, label, locked, alerts }: DraftLapType): PlainLapType => ({
+  key,
+  label,
+  locked,
+  alerts: alerts.map(plainAlert),
+});
+const plainStepV2 = (st: DraftStep): PlainStepV2 => ({
+  ...plainStep(st),
+  alerts: st.alerts.map(plainAlert),
+});
+const plainVariable = ({ name, duration }: DraftVariable): PlainVariable => ({ name, duration });
+
+const alertOf = (key: string, label: string, at: string, locked = false): DraftAlert => ({
+  uid: 'a',
+  key,
+  label,
+  at,
+  locked,
+});
+const lapOf = (
+  key: string,
+  label: string,
+  locked = false,
+  alerts: DraftAlert[] = [],
+): DraftLapType => ({
+  uid: 'l',
+  key,
+  label,
+  locked,
+  alerts,
+});
+const varOf = (name: string, duration: string): DraftVariable => ({ uid: 'v', name, duration });
+
+const TIMER_HISTORY: TimerHistory = {
+  steps: [
+    { key: 'prep', label: 'Prep' },
+    { key: 'run', label: 'Run' },
+  ],
+  laps: [
+    { key: 'jog', label: 'Jog' },
+    { key: 'cig', label: 'Cig' },
+  ],
+};
+const NO_HISTORY: TimerHistory = { steps: [], laps: [] };
+
+const NEW_LAP_TYPE: { label: string; taken: string[]; history?: TimerHistory }[] = [
+  { label: '', taken: [] },
+  { label: '   ', taken: [] },
+  { label: 'Run', taken: [] },
+  { label: '  Rest  ', taken: [] },
+  { label: 'Run', taken: ['run'] },
+  { label: 'Run', taken: ['run', 'run_2'] },
+  { label: '123', taken: [] },
+  { label: '123', taken: ['lap'] },
+  { label: 'Café!', taken: [] },
+  { label: 'x'.repeat(80), taken: [] },
+  { label: 'Jog', taken: [], history: TIMER_HISTORY },
+  { label: ' CIG ', taken: [], history: TIMER_HISTORY },
+  { label: 'Jog', taken: ['jog'], history: TIMER_HISTORY },
+  { label: 'Prep', taken: [], history: TIMER_HISTORY },
+  { label: 'Run', taken: [], history: TIMER_HISTORY },
+  { label: 'Walk', taken: [], history: TIMER_HISTORY },
+];
+
+const LAP_TYPE_LABEL: {
+  name: string;
+  lap: DraftLapType;
+  label: string;
+  taken: string[];
+  history?: TimerHistory;
+}[] = [
+  { name: 'published: key kept', lap: lapOf('run', 'Run', true), label: 'Jog', taken: [] },
+  { name: 'published: blank keeps key', lap: lapOf('run', 'Run', true), label: '', taken: [] },
+  { name: 'new: key follows', lap: lapOf('run', 'Run'), label: 'Sprint', taken: [] },
+  { name: 'new: blank clears key', lap: lapOf('run', 'Run'), label: ' ', taken: [] },
+  { name: 'new: a step’s key is taken', lap: lapOf('', ''), label: 'Warm', taken: ['warm'] },
+  {
+    name: 'new: a retired lap type again',
+    lap: lapOf('', ''),
+    label: 'jog',
+    taken: [],
+    history: TIMER_HISTORY,
+  },
+  {
+    name: 'new: never a retired step’s key',
+    lap: lapOf('', ''),
+    label: 'Run',
+    taken: [],
+    history: TIMER_HISTORY,
+  },
+  {
+    name: 'published: history ignored',
+    lap: lapOf('walk', 'Walk', true),
+    label: 'Jog',
+    taken: [],
+    history: TIMER_HISTORY,
+  },
+];
+
+const VARIABLE: { name: string; duration: string }[] = [
+  { name: 't', duration: '1:00' },
+  { name: 'T', duration: '1:00' },
+  { name: 'Rest', duration: '0:30' },
+  { name: 'work_2', duration: '25:00' },
+  { name: 'long', duration: '1:30:00' },
+  { name: 'fine', duration: '0:01.5' },
+  { name: 'zero', duration: '0:00' },
+  { name: 'week', duration: '168:00:00' },
+  { name: 'week', duration: '168:00:01' },
+  { name: '', duration: '1:00' },
+  { name: 'x', duration: '' },
+  { name: 'm', duration: '1:00' },
+  { name: 'MS', duration: '1:00' },
+  { name: '2t', duration: '1:00' },
+  { name: 'a'.repeat(17), duration: '1:00' },
+  { name: 'x', duration: '90' },
+  { name: 'x', duration: '1:60' },
+  { name: 'x', duration: '-1:00' },
+];
+
+const T1 = [varOf('t', '1:00')];
+const ALERT_EXPR: { name: string; at: string; variables: DraftVariable[] }[] = [
+  { name: 'user half', at: 't*0.5', variables: T1 },
+  { name: 'user half spaced', at: 't * 0.5', variables: T1 },
+  { name: 'user divide', at: 't/2', variables: T1 },
+  { name: 'user plus', at: 't+30s', variables: T1 },
+  { name: 'user parens', at: '(t/2)+30s', variables: T1 },
+  { name: 'uppercase variable', at: 'T/2', variables: T1 },
+  {
+    name: 'two variables',
+    at: 'work+rest',
+    variables: [varOf('work', '25:00'), varOf('rest', '5:00')],
+  },
+  { name: 'plain seconds', at: '30s', variables: [] },
+  { name: 'over an hour', at: '1.5h', variables: [] },
+  { name: 'sub-second shows whole seconds', at: '1500ms', variables: [] },
+  { name: 'zero', at: 't-t', variables: T1 },
+  { name: 'empty', at: '', variables: T1 },
+  { name: 'blank', at: '   ', variables: T1 },
+  { name: 'trailing operator', at: 't+', variables: T1 },
+  { name: 'unknown variable', at: 'x/2', variables: T1 },
+  { name: 'variable with a bad duration is unknown', at: 'rest', variables: [varOf('rest', '5')] },
+  { name: 'variable with a reserved name is unknown', at: 'm', variables: [varOf('m', '1:00')] },
+  { name: 'bare number', at: '30', variables: [] },
+  { name: 'duration plus number', at: 't+30', variables: T1 },
+  { name: 'division by zero', at: 't/0', variables: T1 },
+  { name: 'negative', at: '-t', variables: T1 },
+  { name: 'too long value', at: 't*2000', variables: [varOf('t', '1:00:00')] },
+  { name: 'too long text', at: `${'t+'.repeat(32)}t`, variables: T1 },
+  { name: 'unknown unit', at: '30d', variables: [] },
+  { name: 'space before unit', at: '30 s', variables: [] },
+  { name: 'unknown character', at: 't\u00a0+30s', variables: T1 },
+  { name: 'astral character', at: '😀', variables: T1 },
+];
+
+const TIMER_OUTPUT_V2: {
+  name: string;
+  timed: boolean;
+  steps: DraftStep[];
+  laps: DraftLapType[];
+  variables: DraftVariable[];
+}[] = [
+  {
+    name: 'not timed ignores everything',
+    timed: false,
+    steps: [],
+    laps: [lapOf('', '')],
+    variables: [],
+  },
+  { name: 'stopwatch, normalised', timed: true, steps: [], laps: [], variables: [] },
+  {
+    name: 'one lap type renames laps',
+    timed: true,
+    steps: [],
+    laps: [lapOf('cig', ' Cig ')],
+    variables: [],
+  },
+  {
+    name: 'two lap types with alerts and a variable',
+    timed: true,
+    steps: [step('warm', 'Warm up', false, [alertOf('go', ' Go ', '1m')])],
+    laps: [
+      lapOf('run', 'Run', true, [alertOf('half', 'Half', 'T/2'), alertOf('end', 'End', 't')]),
+      lapOf('rest', 'Rest', false, [alertOf('up', 'Up', 'rest-10s')]),
+    ],
+    variables: [varOf('T', '1:00'), varOf('rest', '0:30')],
+  },
+  {
+    name: 'lap key collides with a step',
+    timed: true,
+    steps: [step('run', 'Run')],
+    laps: [lapOf('run', 'Run')],
+    variables: [],
+  },
+  {
+    name: 'duplicate lap key',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run'), lapOf('run', 'run')],
+    variables: [],
+  },
+  {
+    name: 'lap label 65',
+    timed: true,
+    steps: [],
+    laps: [lapOf('l', 'x'.repeat(65))],
+    variables: [],
+  },
+  { name: 'blank lap label', timed: true, steps: [], laps: [lapOf('', ' ')], variables: [] },
+  { name: 'bad lap key', timed: true, steps: [], laps: [lapOf('Run', 'Run')], variables: [] },
+  {
+    name: 'laps max',
+    timed: true,
+    steps: [],
+    laps: Array.from({ length: 8 }, (_, i) => lapOf(`l${String(i)}`, `L${String(i)}`)),
+    variables: [],
+  },
+  {
+    name: 'laps too many',
+    timed: true,
+    steps: [],
+    laps: Array.from({ length: 9 }, (_, i) => lapOf(`l${String(i)}`, `L${String(i)}`)),
+    variables: [],
+  },
+  {
+    name: 'variables max',
+    timed: true,
+    steps: [],
+    laps: [],
+    variables: Array.from({ length: 16 }, (_, i) => varOf(`v${String(i)}`, '0:01')),
+  },
+  {
+    name: 'variables too many',
+    timed: true,
+    steps: [],
+    laps: [],
+    variables: Array.from({ length: 17 }, (_, i) => varOf(`v${String(i)}`, '0:01')),
+  },
+  {
+    name: 'variable name duplicate case',
+    timed: true,
+    steps: [],
+    laps: [],
+    variables: [varOf('t', '1:00'), varOf('T', '2:00')],
+  },
+  {
+    name: 'variable name reserved unit',
+    timed: true,
+    steps: [],
+    laps: [],
+    variables: [varOf('m', '1:00')],
+  },
+  {
+    name: 'variable over 7 days',
+    timed: true,
+    steps: [],
+    laps: [],
+    variables: [varOf('t', '168:00:01')],
+  },
+  {
+    name: 'alerts max',
+    timed: true,
+    steps: [],
+    laps: [
+      lapOf(
+        'run',
+        'Run',
+        false,
+        Array.from({ length: 8 }, (_, i) => alertOf(`a${String(i)}`, `A${String(i)}`, '1s')),
+      ),
+    ],
+    variables: [],
+  },
+  {
+    name: 'alerts too many',
+    timed: true,
+    steps: [
+      step(
+        'warm',
+        'Warm',
+        false,
+        Array.from({ length: 9 }, (_, i) => alertOf(`a${String(i)}`, `A${String(i)}`, '1s')),
+      ),
+    ],
+    laps: [],
+    variables: [],
+  },
+  {
+    name: 'alert key duplicate',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run', false, [alertOf('a', 'A', '1s'), alertOf('a', 'B', '2s')])],
+    variables: [],
+  },
+  {
+    name: 'alert blank label',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run', false, [alertOf('', ' ', '1s')])],
+    variables: [],
+  },
+  {
+    name: 'alert label 65',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run', false, [alertOf('a', 'x'.repeat(65), '1s')])],
+    variables: [],
+  },
+  {
+    name: 'alert expression syntax',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run', false, [alertOf('a', 'A', 't+')])],
+    variables: [varOf('t', '1:00')],
+  },
+  {
+    name: 'alert expression unknown variable',
+    timed: true,
+    steps: [step('warm', 'Warm', false, [alertOf('a', 'A', 'x/2')])],
+    laps: [],
+    variables: [varOf('t', '1:00')],
+  },
+  {
+    name: 'alert expression type',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run', false, [alertOf('a', 'A', 't+30')])],
+    variables: [varOf('t', '1:00')],
+  },
+  {
+    name: 'alert expression 65 chars',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run', false, [alertOf('a', 'A', `${'t+'.repeat(32)}t`)])],
+    variables: [varOf('t', '1:00')],
+  },
+  {
+    name: 'alert expression not trimmed',
+    timed: true,
+    steps: [],
+    laps: [lapOf('run', 'Run', false, [alertOf('a', 'A', ' t / 2 ')])],
+    variables: [varOf('t', '1:00')],
+  },
+];
+
+const run = { key: 'run', label: 'Run', alerts: [] };
+const rest = { key: 'rest', label: 'Rest', alerts: [] };
+const half = { key: 'half', label: 'Half', at: 't/2', at_ms: 30_000 };
+const tVar = { name: 't', ms: 60_000 };
+const v2 = (over: Partial<Timer> = {}): Timer => ({
+  steps: [{ key: 'warm', label: 'Warm up', alerts: [] }],
+  laps: [{ ...run, alerts: [half] }, rest],
+  variables: [tVar],
+  ...over,
+});
+const TIMER_CHANGES_V2: { name: string; base: Timer | null; next: Timer | null }[] = [
+  { name: 'unchanged', base: v2(), next: v2() },
+  {
+    name: 'v1 shape equals its normalised form',
+    base: { steps: [shower] },
+    next: { steps: [{ ...shower, alerts: [] }], laps: [], variables: [] },
+  },
+  { name: 'turned on with lap types', base: null, next: v2({ steps: [] }) },
+  { name: 'turned on with steps and lap types', base: null, next: v2() },
+  { name: 'turned off', base: v2(), next: null },
+  {
+    name: 'lap type renamed',
+    base: v2(),
+    next: v2({ laps: [{ ...run, label: 'Jog', alerts: [half] }, rest] }),
+  },
+  {
+    name: 'lap type added',
+    base: v2(),
+    next: v2({
+      laps: [{ ...run, alerts: [half] }, rest, { key: 'walk', label: 'Walk', alerts: [] }],
+    }),
+  },
+  { name: 'lap type removed', base: v2(), next: v2({ laps: [{ ...run, alerts: [half] }] }) },
+  {
+    name: 'lap types reordered',
+    base: v2(),
+    next: v2({ laps: [rest, { ...run, alerts: [half] }] }),
+  },
+  {
+    name: 'variable added',
+    base: v2(),
+    next: v2({ variables: [tVar, { name: 'rest', ms: 30_000 }] }),
+  },
+  { name: 'variable changed', base: v2(), next: v2({ variables: [{ name: 't', ms: 90_500 }] }) },
+  { name: 'variable removed', base: v2(), next: v2({ variables: [] }) },
+  {
+    name: 'alert added',
+    base: v2(),
+    next: v2({
+      laps: [
+        { ...run, alerts: [half] },
+        { ...rest, alerts: [{ key: 'up', label: 'Up', at: '20s' }] },
+      ],
+    }),
+  },
+  { name: 'alert removed', base: v2(), next: v2({ laps: [run, rest] }) },
+  {
+    name: 'alert renamed',
+    base: v2(),
+    next: v2({ laps: [{ ...run, alerts: [{ ...half, label: 'Halfway' }] }, rest] }),
+  },
+  {
+    name: 'alert changed',
+    base: v2(),
+    next: v2({ laps: [{ ...run, alerts: [{ ...half, at: 't/3', at_ms: 20_000 }] }, rest] }),
+  },
+  {
+    name: 'alert at_ms alone is no change',
+    base: v2(),
+    next: v2({ laps: [{ ...run, alerts: [{ ...half, at_ms: 1 }] }, rest] }),
+  },
+  {
+    name: 'alert on a step',
+    base: v2(),
+    next: v2({
+      steps: [{ key: 'warm', label: 'Warm up', alerts: [{ key: 'go', label: 'Go', at: '1m' }] }],
+    }),
+  },
+  { name: 'alerts of a removed lap type are not listed', base: v2(), next: v2({ laps: [rest] }) },
+  {
+    name: 'everything at once',
+    base: v2(),
+    next: {
+      steps: [{ key: 'cool', label: 'Cool down', alerts: [] }],
+      laps: [{ ...rest, label: 'Breathe', alerts: [{ key: 'up', label: 'Up', at: 't' }] }],
+      variables: [
+        { name: 't', ms: 120_000 },
+        { name: 'r', ms: 1_000 },
+      ],
+    },
+  },
+];
+
 function generate() {
   return {
     meta: { generator: 'frontend/src/lib/builderUi.vectors.test.ts', version: 1, locale: 'en-US' },
@@ -583,7 +1073,15 @@ function generate() {
     })),
     from_timer: TIMERS.map((timer) => {
       const d = draftFromTimer(timer);
-      return { timer, expected: { timed: d.timed, steps: d.steps.map(plainStep) } };
+      return {
+        timer,
+        expected: {
+          timed: d.timed,
+          steps: d.steps.map(plainStepV2),
+          laps: d.laps.map(plainLapType),
+          variables: d.variables.map(plainVariable),
+        },
+      };
     }),
     step_label: STEP_LABEL.map(({ name, step: st, label, taken, history = [] }) => ({
       name,
@@ -593,23 +1091,69 @@ function generate() {
       history,
       expected: plainStep(withStepLabel(st, label, taken, history)),
     })),
-    timer_output: TIMER_OUTPUT.map(({ name, timed, steps }) => {
-      const r = timerFromDraft({ timed, steps });
+    timer_output: [
+      ...TIMER_OUTPUT.map((c) => ({ ...c, laps: [], variables: [] })),
+      ...TIMER_OUTPUT_V2,
+    ].map(({ name, timed, steps, laps, variables }) => {
+      const r = timerFromDraft({ timed, steps, laps, variables });
       return {
         name,
-        timed,
-        steps: steps.map(plainStep),
+        draft: {
+          timed,
+          steps: steps.map(plainStepV2),
+          laps: laps.map(plainLapType),
+          variables: variables.map(plainVariable),
+        },
         expected: r.ok
           ? { timer: r.timer, issues: [] }
           : { timer: null, issues: r.issues.map((i) => ({ path: i.path, message: i.message })) },
       };
     }),
-    timer_changes: TIMER_CHANGES.map(({ name, base, next }) => ({
+    timer_changes: [
+      ...TIMER_CHANGES.map((c) => ({ ...c, name: `steps only: ${c.name}` })),
+      ...TIMER_CHANGES_V2,
+    ].map(({ name, base, next }) => ({
       name,
       base,
       next,
       expected: timerChanges(base, next),
     })),
+    new_lap_type: NEW_LAP_TYPE.map(({ label, taken, history = NO_HISTORY }) => ({
+      label,
+      taken,
+      history,
+      expected: plainLapType(newDraftLapType(label, taken, history)),
+    })),
+    lap_type_label: LAP_TYPE_LABEL.map(({ name, lap, label, taken, history = NO_HISTORY }) => ({
+      name,
+      lap_type: plainLapType(lap),
+      label,
+      taken,
+      history,
+      expected: plainLapType(withLapTypeLabel(lap, label, taken, history)),
+    })),
+    variable: VARIABLE.map(({ name, duration }) => {
+      const entered = withVariableName({ uid: 'v', name: '', duration }, name);
+      const r = convertDraftVariable(entered);
+      return {
+        name,
+        duration,
+        expected: {
+          name: entered.name,
+          variable: r.ok ? r.variable : null,
+          issues: r.ok ? [] : r.issues.map((i) => ({ path: i.path, message: i.message })),
+        },
+      };
+    }),
+    alert_expr: ALERT_EXPR.map(({ name, at, variables }) => {
+      const r = alertPreview(at, variables);
+      return {
+        name,
+        at,
+        variables: variables.map(plainVariable),
+        expected: r.ok ? { ms: r.ms, text: r.text } : { error: r.message, pos: r.pos },
+      };
+    }),
   };
 }
 
@@ -628,6 +1172,10 @@ function serialise(data: ReturnType<typeof generate>): string {
       'step_label',
       'timer_output',
       'timer_changes',
+      'new_lap_type',
+      'lap_type_label',
+      'variable',
+      'alert_expr',
     ] as const
   )
     .map((k) => `  "${k}": ${section(data[k])}`)
@@ -643,6 +1191,52 @@ describe('builder UI vectors', () => {
     const data = generate();
     expect(data.new_step.length).toBeGreaterThanOrEqual(10);
     expect(data.timer_output.some((c) => c.expected.issues.length > 0)).toBe(true);
+    expect(data.from_timer.some((c) => c.expected.laps.length > 0)).toBe(true);
+  });
+
+  it('has the timer v2 cases (timers2.md §1.3, §1.6, §12.1)', () => {
+    const data = generate();
+    expect(data.new_lap_type.length).toBeGreaterThanOrEqual(14);
+    expect(data.lap_type_label.length).toBeGreaterThanOrEqual(8);
+    expect(data.variable.some((c) => c.expected.issues.length > 0)).toBe(true);
+    expect(data.variable.some((c) => c.expected.name !== c.name)).toBe(true);
+    expect(data.alert_expr.some((c) => 'ms' in c.expected)).toBe(true);
+    expect(
+      new Set(
+        data.alert_expr.map((c) => ('error' in c.expected ? c.expected.error.split(' ')[0] : 'ok')),
+      ),
+    ).toEqual(
+      new Set(['ok', 'Syntax', 'Unknown_variable', 'Type', 'Div_zero', 'Negative', 'Too_long']),
+    );
+    // Every §1.3 builder rule the client checks has a case, by name.
+    const names = new Set(data.timer_output.map((c) => c.name));
+    for (const n of [
+      'one lap type renames laps',
+      'two lap types with alerts and a variable',
+      'lap key collides with a step',
+      'lap label 65',
+      'laps max',
+      'laps too many',
+      'variables max',
+      'variables too many',
+      'variable name duplicate case',
+      'variable name reserved unit',
+      'variable over 7 days',
+      'alerts max',
+      'alerts too many',
+      'alert key duplicate',
+      'alert expression syntax',
+      'alert expression unknown variable',
+      'alert expression type',
+      'alert expression 65 chars',
+    ])
+      expect(names, n).toContain(n);
+    expect(data.timer_output.some((c) => c.expected.issues.some((i) => i.path[0] === 'laps'))).toBe(
+      true,
+    );
+    expect(data.timer_changes.length).toBeGreaterThanOrEqual(28);
+    expect(new Set(data.timer_output.map((c) => c.name)).size).toBe(data.timer_output.length);
+    expect(new Set(data.timer_changes.map((c) => c.name)).size).toBe(data.timer_changes.length);
   });
 
   it(`${FILE_LABEL} matches builder.ts and questionSummary.ts`, async () => {

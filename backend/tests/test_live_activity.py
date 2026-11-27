@@ -622,3 +622,37 @@ async def test_an_unexpected_send_failure_is_logged_without_the_token(
     assert "RuntimeError: no route for <token>" in record.getMessage()
     assert b not in caplog.text
     assert set(await tokens()) == {b}  # not gone: kept
+
+
+# T2-M3: the start push carries the topic's appearance (appearance.md §6.5)
+
+
+async def test_push_to_start_carries_the_topics_appearance(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    a = await start_token(client, 1, PHONE_A)
+    topic = await routine(client, "Morning routine")
+    appearance = {"color": "teal", "icon": {"kind": "emoji", "value": "🚿"}, "tags": ["Home", "Daily"]}
+    r = await client.patch(f"/topics/{topic['slug']}", json={"appearance": appearance})
+    assert r.status_code == 200, r.text
+    await Driver(client, topic).start(device=device(PHONE_B))
+
+    [sent] = to(fake_apns, a)
+    body = aps(sent)
+    assert body["event"] == "start"
+    assert body["attributes"]["appearance"] == appearance
+    assert sent.size <= MAX_PAYLOAD_BYTES
+
+
+async def test_push_to_start_of_an_unthemed_topic_sends_the_default_appearance(
+    client: httpx.AsyncClient, fake_apns: FakeApns
+) -> None:
+    a = await start_token(client, 1, PHONE_A)
+    topic = await routine(client, "Morning routine")
+    await Driver(client, topic).start(device=device(PHONE_B))
+
+    [sent] = to(fake_apns, a)
+    assert aps(sent)["attributes"]["appearance"] == {"color": None, "icon": None, "tags": []}
+
+
+# end T2-M3

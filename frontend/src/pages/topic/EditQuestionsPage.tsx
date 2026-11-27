@@ -20,7 +20,7 @@ import {
   listTopicVersionsOptions,
   publishTopicVersionMutation,
 } from '../../client/@tanstack/react-query.gen';
-import type { CompatibilityReport, Timer, TopicDetail } from '../../client';
+import type { CompatibilityReport, TimerInput as Timer, TopicDetail } from '../../client';
 import { Page, StickyActions, TopBar } from '../../components/AppShell';
 import { CompatReport } from '../../components/builder/CompatReport';
 import { builderFieldFor } from '../../components/builder/serverErrors';
@@ -35,9 +35,9 @@ import { useToast } from '../../components/ui/Toast';
 import {
   draftFromTopic,
   makeVersionDraftSchema,
-  stepHistory,
   timerChanges,
-  type HistoricStep,
+  timerHistory,
+  type TimerHistory,
   type TopicDraft,
   type VersionDraftOutput,
 } from '../../lib/builder';
@@ -84,7 +84,7 @@ export function EditQuestionsPage() {
       key={base.current_version}
       base={base}
       baseTimer={version.timer}
-      history={stepHistory(versions.data ?? [])}
+      history={timerHistory(versions.data ?? [])}
       onRebase={setBase}
     />
   );
@@ -98,7 +98,7 @@ function Editor({
 }: {
   base: TopicDetail;
   baseTimer: Timer | null;
-  history: readonly HistoricStep[];
+  history: TimerHistory;
   onRebase: (t: TopicDetail) => void;
 }) {
   const navigate = useNavigate();
@@ -237,7 +237,8 @@ function Editor({
       <Page>
         <TopicBuilder
           form={form}
-          stepHistory={history}
+          timerHistory={history}
+          limits={limits}
           defaultExpanded="new"
           onSubmit={(e) => void onReview(e)}
           header={
@@ -393,7 +394,9 @@ function TimerChanges({ changes }: { changes: string[] }) {
           </li>
         ))}
       </ul>
-      <p className="text-xs text-muted">Past runs keep the steps they were timed with.</p>
+      <p className="text-xs text-muted">
+        Past runs keep the steps, lap types and alerts they were timed with.
+      </p>
     </section>
   );
 }

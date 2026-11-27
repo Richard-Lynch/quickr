@@ -17,9 +17,15 @@ later refold keeps them:
   entry deleted (``entry_deleted``) or its times edited (``run_edited``). Such a run is
   never folded again, which is the fold's ``frozen`` cut-off at the first such event.
 
-Change log (§2.4): a run upsert while it is open or finishing; on close the stop's entry
-upsert (if any) first, then the run's delete and its tombstone. A late merge into a
-stopped run changes the entry, never the run item.
+Change log (§2.4, timers2.md §4.4): a run upsert while it is open or finishing; on close the
+stop's entry upsert (if any) first, then the run's delete. Only a discard that leaves the run
+``discarded`` tombstones it: a stopped run keeps its id (its row reserves it) and can be
+reopened. A late merge into a stopped run changes the entry, never the run item.
+
+Reopen and remove (timers2.md §4): a ``reopen`` naming the terminal stop opens a stopped or
+finishing run again (its entry stays, as of the last stop); the next stop is a re-stop that
+replaces the entry's timing, and a discard reverts the reopen. A ``remove`` deletes a pause, a
+lap boundary or a reopened stop's gap pause: on a stopped run it is a late merge like a late tap.
 
 Push work (Live Activities, T-LAPUSH) never runs in the writer: the route schedules
 :func:`after_run_event` as a background task once the response is sent.
@@ -39,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import read_snapshot
 from app.errors import (
     BeforeStart,
+    Conflict,
     EventConflict,
     IdConflict,
     InvalidRequest,
@@ -104,6 +111,7 @@ class Recorded:
     result: RunEventResult
     created: bool  # the call created the run (or merged its start): 201
     replayed: bool = False  # the same event again: nothing changed
+    reopened: bool = False  # an applied reopen: the run is open again (timers2.md §4.6)
 
 
 # --- reads ------------------------------------------------------------------------------
@@ -143,6 +151,7 @@ async def run_out(db: AsyncSession, run: Run) -> RunOut:
                 seg=e.seg,
                 step=e.step,
                 pause_id=e.pause_id,
+                target=e.target_id,
                 arrival=e.arrival,
                 effect=effects[str(e.id)]["effect"],
                 reason=effects[str(e.id)]["reason"],
@@ -218,19 +227,42 @@ async def record_event(db: AsyncSession, run_id: UUID, body: RunEventIn, channel
     if await db.get(RunEvent, body.id) is not None:
         return Recorded(await _replay(db, run, body, at), created=False, replayed=True)
     await _check_capacity(db, run)
+    target = body.target
+    if body.type == "reopen":
+        await _check_reopen(db, run)
+        if target is None:  # "the current terminal" (timers2.md §4.2): stored resolved
+            target = await _terminal_id(db, run)
     effect = _decide(run, body)
     if body.type == "stop" and effect is None:  # a decided stop is never folded: its time can't hurt
         _check_stop_at(run, at)
-    event = _new_event(run.id, body, at, channel, decided=effect)
+    event = _new_event(run.id, body, at, channel, decided=effect, target=target)
     db.add(event)
     await db.flush()
-    run.revision += 1
+    run.revision += 1  # the one bump: a reopen, re-stop or revert adds none (timers2.md §4.5)
+    was_open = run.status in OPEN
     if effect is not None:
         await _apply_decided(db, run, body, event, effect)
     else:
         await _apply_folded(db, run, body)
     await db.flush()
-    return Recorded(await _result(db, run, body.id), created=False)
+    result = await _result(db, run, body.id)
+    reopened = body.type == "reopen" and not was_open and run.status in OPEN
+    return Recorded(result, created=False, reopened=reopened)
+
+
+async def _check_reopen(db: AsyncSession, run: Run) -> None:
+    """A reopen of a run that isn't open, while the topic has another open run, is refused
+    (``ux_runs_one_open``, timers2.md §4.2): nothing is stored, whether or not it would apply."""
+    if run.status in OPEN:
+        return  # the fold voids it (not_stopped)
+    other = await db.scalar(
+        select(Run.id).where(Run.topic_id == run.topic_id, Run.status.in_(OPEN), Run.id != run.id)
+    )
+    if other is not None:
+        raise Conflict(
+            "another run of this topic is open: stop or discard it first",
+            [FieldIssue(loc=["type"], message=f"run '{other}' is open")],
+        )
 
 
 async def _replay(db: AsyncSession, run: Run, body: RunEventIn, at: datetime) -> RunEventResult:
@@ -244,6 +276,9 @@ async def _replay(db: AsyncSession, run: Run, body: RunEventIn, at: datetime) ->
         and stored.seg == body.seg
         and stored.step == body.step
         and stored.pause_id == body.pause_id
+        # A reopen sent without a target stored the one it resolved to (timers2.md §4.2): the
+        # target as sent is compared, not the resolved one.
+        and (None if stored.payload.get("target_resolved") else stored.target_id) == body.target
         and (body.type != "start" or body.topic_id == run.topic_id)
     )
     if not same:
@@ -275,7 +310,13 @@ def _check_stop_at(run: Run, at: datetime) -> None:
 
 
 def _new_event(
-    run_id: UUID, body: RunEventIn, at: datetime, channel: Channel, *, decided: Effect | None = None
+    run_id: UUID,
+    body: RunEventIn,
+    at: datetime,
+    channel: Channel,
+    *,
+    decided: Effect | None = None,
+    target: UUID | None = None,
 ) -> RunEvent:
     payload: dict[str, Any] = {}
     if body.type == "start":
@@ -285,6 +326,8 @@ def _new_event(
             payload[name] = value
     if decided is not None:
         payload["effect"] = {"effect": decided[0], "reason": decided[1]}
+    if body.type == "reopen" and body.target is None:
+        payload["target_resolved"] = True  # sent without one: target_id is the server's choice
     return RunEvent(
         id=body.id,
         run_id=run_id,
@@ -293,6 +336,7 @@ def _new_event(
         seg=body.seg,
         step=body.step,
         pause_id=body.pause_id,
+        target_id=target if target is not None else body.target,
         payload=payload,
         source=body.source or channel.value,
     )
@@ -408,7 +452,7 @@ async def _apply_decided(
     if body.type == "discard":
         run.status = RunStatus.discarded
         run.state = {**run.state, "status": RunStatus.discarded.value}
-        await _close(db, run)
+        await _discard(db, run)
     elif run.status == RunStatus.finishing:
         version = await db.get_one(TopicVersion, run.topic_version_id)
         state = _fold(run, version, await _events(db, run.id))
@@ -433,7 +477,7 @@ def _effect_json(effect: Effect) -> dict[str, Any]:
 def _fold(run: Run, version: TopicVersion, events: Sequence[RunEvent]) -> run_fold.RunState:
     return run_fold.fold(
         str(run.id),
-        entry_svc.version_steps(version),
+        entry_svc.version_timer(version),
         [
             run_fold.Event(
                 id=str(e.id),
@@ -442,6 +486,7 @@ def _fold(run: Run, version: TopicVersion, events: Sequence[RunEvent]) -> run_fo
                 seg=e.seg,
                 step=e.step,
                 pause_id=None if e.pause_id is None else str(e.pause_id),
+                target=None if e.target_id is None else str(e.target_id),
             )
             for e in events
         ],
@@ -460,23 +505,34 @@ def _state_json(run: Run, state: run_fold.RunState, events: Sequence[RunEvent]) 
 
 
 async def _apply_folded(db: AsyncSession, run: Run, body: RunEventIn) -> None:
-    """Fold the run again with the new event, then follow its status (§4.4)."""
+    """Fold the run again with the new event, then follow its status (§4.4, timers2.md §4.1)."""
     version = await db.get_one(TopicVersion, run.topic_version_id)
     events = await _events(db, run.id)
     state = _fold(run, version, events)
     before = run.status
-    if before in OPEN and state.status in ("running", "paused"):
+    if state.status in ("running", "paused") and before != RunStatus.discarded:
+        # Open, or open again: a reopen of a stopped or finishing run. A stopped run keeps its
+        # entry (as of the last stop); nothing is logged for it.
         run.status = RunStatus(state.status)
+        run.ended_at = None
+        run.state = _state_json(run, state, events)
+        await log_change(db, FeedKind.run, FeedOp.upsert, run.id, run.topic_id)
+        return
     run.state = _state_json(run, state, events)
     if before in OPEN and state.status == "stopped":
-        await _stopped(db, run, version, state, body)
+        if body.type == "discard":
+            await _reverted(db, run, version, state)
+        elif run.entry_id is not None:
+            await _restopped(db, run, version, state, body)
+        else:
+            await _stopped(db, run, version, state, body)
     elif before in OPEN and state.status == "discarded":
         run.status = RunStatus.discarded
         run.state = _state_json(run, state, events)
-        await _close(db, run)
+        await _discard(db, run)
     elif before == RunStatus.stopped:
         await _merge_into_entry(db, run, version, state)
-    else:  # still open, or finishing: the run item changed
+    else:  # finishing: the run item changed
         await log_change(db, FeedKind.run, FeedOp.upsert, run.id, run.topic_id)
 
 
@@ -487,6 +543,13 @@ async def _stopped(
     are missing."""
     assert state.ended_at is not None
     run.ended_at = run_fold.from_ms(state.ended_at)
+    if await is_deleted(db, FeedKind.entry, run.id):
+        # Its entry was deleted while the run was open again (it had stopped before): delete is
+        # gone for good, so it stops without one, and later events are void entry_deleted.
+        run.status = RunStatus.stopped
+        run.state = {**run.state, "status": run.status.value}
+        await _close(db, run)
+        return
     questions = parse_questions(version.questions)
     if stop.answers is None and any(q.required for q in questions):
         run.status = RunStatus.finishing
@@ -502,7 +565,7 @@ async def _create_entry(
     """The run's entry (§3.5): checked as ``createEntry`` checks one, except that an archived
     topic doesn't block it. Then the run is closed."""
     typed = validate_answers(parse_questions(version.questions), body.answers or {})
-    timing = run_fold.project_timing(state, entry_svc.version_steps(version))
+    timing = run_fold.project_timing(state, entry_svc.version_timer(version))
     assert state.ended_at is not None
     run_fold.check_timing(timing, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
     stop = await _terminal_stop(db, run)
@@ -530,8 +593,68 @@ async def _create_entry(
     await _close(db, run)
 
 
+async def _restopped(
+    db: AsyncSession, run: Run, version: TopicVersion, state: run_fold.RunState, body: RunEventIn
+) -> None:
+    """The stop after a reopen, on a run with an entry (timers2.md §4.1): the entry gets the new
+    times and ``captured_at`` (T1), and the stop's answers, notes and meta as a finish merges
+    them (required questions enforced: a 422 stores nothing). Never ``finishing``."""
+    assert state.ended_at is not None
+    assert run.entry_id is not None
+    timing = run_fold.project_timing(state, entry_svc.version_timer(version))
+    run_fold.check_timing(timing, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
+    entry = await db.get_one(Entry, run.entry_id, populate_existing=True)
+    entry.timing = run_fold.timing_json(timing)
+    entry.captured_at = run_fold.from_ms(state.ended_at)
+    await db.flush()
+    if body.answers is not None or body.notes is not None or body.meta is not None:
+        meta = None if body.meta is None else {**entry.meta, **body.meta}
+        # Bumps the revision once and logs the entry upsert.
+        await entry_svc.update_entry(
+            db, entry.id, EntryUpdate(answers=body.answers, notes=body.notes, meta=meta)
+        )
+    else:
+        entry.revision += 1
+        entry.updated_at = func.now()
+        await log_change(db, FeedKind.entry, FeedOp.upsert, entry.id, entry.topic_id)
+    run.status = RunStatus.stopped
+    run.ended_at = run_fold.from_ms(state.ended_at)
+    run.state = {**run.state, "status": run.status.value}
+    await _close(db, run)  # after the entry's upsert
+
+
+async def _reverted(db: AsyncSession, run: Run, version: TopicVersion, state: run_fold.RunState) -> None:
+    """A discard after a reopen (timers2.md §4.1): the reopen is void ``reverted`` and the
+    restored stop is the terminal again. With an entry the run is stopped again (the entry
+    changes only if its timing did); a reopened finishing run, which has none, is discarded."""
+    assert state.ended_at is not None
+    if run.entry_id is None:
+        run.status = RunStatus.discarded
+        run.state = {**run.state, "status": run.status.value}
+        await _discard(db, run)
+        return
+    await _merge_into_entry(db, run, version, state)  # before the run's delete
+    run.status = RunStatus.stopped
+    run.ended_at = run_fold.from_ms(state.ended_at)
+    run.state = {**run.state, "status": run.status.value}
+    await _close(db, run)
+
+
+async def _terminal_id(db: AsyncSession, run: Run) -> UUID | None:
+    """The run's current terminal stop, for a reopen sent without a target: None while the run
+    is open or once it is discarded (the fold voids the reopen ``no_target``)."""
+    if run.status not in (RunStatus.stopped, RunStatus.finishing):
+        return None
+    return (await _terminal_stop(db, run)).id
+
+
 async def _terminal_stop(db: AsyncSession, run: Run) -> RunEvent:
-    """The stop that closed the run (the first applied one by arrival)."""
+    """The stop that closed the run: the fold's terminal (timers2.md §4.1). A state stored
+    before fold v4 has no ``terminal_id``: then the first applied stop by arrival (v1)."""
+    if (terminal := run.state.get("terminal_id")) is not None:
+        stop = await db.get(RunEvent, UUID(terminal))
+        if stop is not None and stop.type == RunEventType.stop:
+            return stop
     effects = run.state["effects"]
     for e in await _events(db, run.id):
         if e.type == RunEventType.stop and effects.get(str(e.id), {}).get("effect") == "applied":
@@ -540,8 +663,14 @@ async def _terminal_stop(db: AsyncSession, run: Run) -> RunEvent:
 
 
 async def _close(db: AsyncSession, run: Run) -> None:
-    """The run left the feed: it is stopped (its entry carries it on) or discarded (§2.4)."""
+    """The run left the feed as an open run: stopped (its entry carries it on), and possibly
+    reopened later. No tombstone: the row reserves the id (timers2.md §4.3)."""
     await log_change(db, FeedKind.run, FeedOp.delete, run.id, run.topic_id)
+
+
+async def _discard(db: AsyncSession, run: Run) -> None:
+    """The run is discarded: gone for good, so its id is tombstoned too (§2.4)."""
+    await _close(db, run)
     await tombstone(db, FeedKind.run, run.id, run.topic_id)
 
 
@@ -549,7 +678,7 @@ async def _merge_into_entry(
     db: AsyncSession, run: Run, version: TopicVersion, state: run_fold.RunState
 ) -> None:
     """A late event on a stopped run (§4.4): when it changes the times, the entry gets them."""
-    projected = run_fold.project_timing(state, entry_svc.version_steps(version))
+    projected = run_fold.project_timing(state, entry_svc.version_timer(version))
     run_fold.check_timing(projected, captured_at=state.ended_at)  # T1 to T5: a guard on the fold
     timing = run_fold.timing_json(projected)
     entry = await db.get_one(Entry, run.id, populate_existing=True)
@@ -572,5 +701,6 @@ async def after_run_event(path_id: UUID, recorded: Recorded, device: RunDevice |
     if recorded.replayed or recorded.result.event.effect != "applied":
         return
     run = recorded.result.run
-    created = recorded.created and run.id == path_id
+    # An applied reopen is a start for push-to-start tokens (timers2.md §4.6, §8.3).
+    created = (recorded.created and run.id == path_id) or recorded.reopened
     await live_activity.notify(run.id, run.topic_id, device, created=created)

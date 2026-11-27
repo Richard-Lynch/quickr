@@ -36,7 +36,10 @@ know (deleted, or its start not synced yet) is not kept either: the app register
 start is acknowledged. A topic's deletion drops its tokens (``topics.delete_topic``).
 
 The payloads (:func:`content_state`, :func:`payload`) are pinned by
-``shared/fixtures/live-activity-vectors.json`` (``tests/test_live_activity_vectors.py``).
+``shared/fixtures/live-activity-vectors.json`` (``tests/test_live_activity_vectors.py``). The
+content state carries timers2.md §8.1's lap and alert fields (``alert_at`` is computed at send
+time), and :func:`encode` holds every body to Apple's 4 KB by truncating labels in a fixed order
+(:func:`fit`, timers2.md §8.2).
 """
 
 from __future__ import annotations
@@ -59,14 +62,23 @@ from app import client_versions
 from app.db import get_sessionmaker
 from app.errors import InvalidRequest
 from app.models import LiveActivityToken, Run, RunAlias, RunStatus, Topic, TopicVersion
-from app.schemas.api import ApnsEnvironment, FieldIssue, LiveActivityIn, LiveActivityOut, RunDevice
+from app.schemas.api import (
+    ApnsEnvironment,
+    FieldIssue,
+    LiveActivityIn,
+    LiveActivityOut,
+    RunDevice,
+    TopicAppearance,  # T2-M3
+)
+from app.schemas.questions import Alert
+from app.schemas.questions import Timer as StoredTimer
 from app.services import run_fold
 from app.services.feed import feed_identity, writer
 from app.services.notification import truncate
 from app.services.push import apns
 from app.services.push.apns import MAX_PAYLOAD_BYTES
 from app.services.push.base import PushFailed, PushGone
-from app.services.topics import parse_timer
+from app.services.topics import appearance_of, parse_timer  # T2-M3: appearance_of
 
 log = logging.getLogger(__name__)
 
@@ -100,10 +112,15 @@ def _instant(text: str | None) -> int | None:
 
 
 def content_state(
-    run_id: UUID | str, revision: int, state: Mapping[str, Any], steps: Sequence[run_fold.Step]
+    run_id: UUID | str,
+    revision: int,
+    state: Mapping[str, Any],
+    timer: StoredTimer | None,
+    *,
+    now: int,
 ) -> dict[str, Any]:
-    """``RunActivityState`` (§10.3) from a run's stored state (``RunOut.state``) and its version's
-    steps.
+    """``RunActivityState`` (§10.3, timers2.md §8.1) from a run's stored state (``RunOut.state``)
+    and its version's timer, at ``now`` (epoch ms, the send time).
 
     While the run is open, the segment fields describe the open segment. Once it closed, they
     describe its last segment (none for a run discarded before Next: segment 0 from the start),
@@ -111,29 +128,50 @@ def content_state(
     (null when discarded). ``step_index`` is the open step's 0-based position in the version's
     steps (null in a lap). The paused fields count ended pauses only, split at the segment's
     start; an open pause is ``paused_at``, and the timers freeze there.
+
+    ``lap_type`` is the segment's lap type and ``lap_count`` the closed laps. ``next_label`` is
+    what Next would start in a step, and in a lap the lap type the next lap would have (null when
+    laps are untyped), never a step still pending. ``alert_at`` (Unix seconds) and
+    ``alert_label`` are the open segment's next alert (:func:`next_alert`); null while paused,
+    once closed, or when none remain.
     """
+    steps = [] if timer is None else timer.steps
+    laps = [] if timer is None else timer.laps
     started_at = run_fold.parse_instant(state["started_at"])
     pauses = [(run_fold.parse_instant(p["start"]), run_fold.parse_instant(p["end"])) for p in state["pauses"]]
     keys = [s.key for s in steps]
     open_seg = state["open"]
     segments = state["segments"]
+    lap_type: str | None
     if open_seg is not None:
         seg, kind, step, label = open_seg["index"], open_seg["kind"], open_seg["step"], open_seg["label"]
         seg_started_at = run_fold.parse_instant(open_seg["started_at"])
+        lap_type = open_seg.get("lap_type")
     elif segments:
         last = segments[-1]
         seg, kind, step, label = len(segments) - 1, last["kind"], last["step"], last["label"]
         seg_started_at = run_fold.parse_instant(last["started_at"])
+        lap_type = last.get("lap_type")
     else:
-        seg, kind, step, label, seg_started_at = 0, "lap", None, "", started_at
+        seg, kind, step, label, seg_started_at, lap_type = 0, "lap", None, "", started_at, None
     next_label = None
-    if open_seg is not None and state["next_step"] is not None:
+    # In a lap, never the pending step: a lap opened mid-steps names the next lap's type (§8.1).
+    if open_seg is not None and kind == "step" and state["next_step"] is not None:
         next_label = truncate(steps[keys.index(state["next_step"])].label, MAX_LABEL_LENGTH)
+    elif open_seg is not None and kind == "lap" and state.get("next_lap_type") is not None:
+        lap_labels = {lap.key: lap.label for lap in laps}
+        if (next_lap := lap_labels.get(state["next_lap_type"])) is not None:
+            next_label = truncate(next_lap, MAX_LABEL_LENGTH)
     paused_at = _instant(state["paused_since"])
     ended_at = _instant(state["ended_at"])
     closed = state["status"] in ("finishing", "stopped")
     if not closed:  # open, or discarded (a finishing run that is discarded keeps its stop's at)
         ended_at = None
+    paused_in_seg = sum(max(0, end - max(start, seg_started_at)) for start, end in pauses)
+    alert = None
+    if open_seg is not None and paused_at is None and timer is not None:
+        owner = step if kind == "step" else lap_type
+        alert = next_alert(_alerts(timer, owner), seg_started_at + paused_in_seg, now)
     return {
         "v": CONTENT_STATE_VERSION,
         "run_id": str(run_id),
@@ -148,19 +186,63 @@ def content_state(
         "next_label": next_label,
         "paused_at": None if paused_at is None else _seconds(paused_at),
         "paused_ms_before_seg": sum(max(0, min(end, seg_started_at) - start) for start, end in pauses),
-        "paused_ms_in_seg": sum(max(0, end - max(start, seg_started_at)) for start, end in pauses),
+        "paused_ms_in_seg": paused_in_seg,
         "ended_at": None if ended_at is None else _seconds(ended_at),
         "active_ms": sum(s["active_ms"] for s in segments) if ended_at is not None else None,
+        "lap_type": lap_type,
+        "lap_count": run_fold.stored_lap_count(state),
+        "alert_at": None if alert is None else _seconds(alert[0]),
+        "alert_label": None if alert is None else truncate(alert[1], MAX_LABEL_LENGTH),
     }
 
 
-def attributes(server_id: str, topic_id: UUID | str, topic_name: str) -> dict[str, Any]:
+def _alerts(timer: StoredTimer, owner: str | None) -> Sequence[Alert]:
+    """The alerts of the step or lap type keyed ``owner`` (one key namespace per timer)."""
+    for step in timer.steps:
+        if step.key == owner:
+            return step.alerts
+    for lap in timer.laps:
+        if lap.key == owner:
+            return lap.alerts
+    return ()
+
+
+def next_alert(alerts: Sequence[Alert], active_from: int, now: int) -> tuple[int, str] | None:
+    """The next alert of a running segment and its instant (epoch ms), timers2.md §8.1: the
+    first by ``at_ms``, then position, with ``at_ms`` above the segment's active time at ``now``.
+    ``active_from`` is the segment's start plus its ended pauses (``paused_ms_in_seg``), so the
+    instant is ``active_from + at_ms``; None when every alert has passed."""
+    active = now - active_from
+    pending = [(a.at_ms, i, a.label) for i, a in enumerate(alerts) if a.at_ms > active]
+    if not pending:
+        return None
+    at_ms, _, label = min(pending)
+    return active_from + at_ms, label
+
+
+def attributes(
+    server_id: str,
+    topic_id: UUID | str,
+    topic_name: str,
+    appearance: TopicAppearance | None = None,  # T2-M3
+) -> dict[str, Any]:
     """``RunActivityAttributes``: one activity per (server, topic), and no step list (§10.3)."""
-    return {
+    attrs: dict[str, Any] = {
         "server_id": server_id,
         "topic_id": str(topic_id),
         "topic_name": truncate(topic_name, MAX_LABEL_LENGTH),
     }
+    # T2-M3: the topic's appearance at start (appearance.md §6.5), in the §1.1 wire shape; the
+    # key is optional (absent: the default theme). Bounded by §1.3 and never truncated by the
+    # byte budget (§15).
+    if appearance is not None:
+        attrs["appearance"] = appearance.model_dump(mode="json")
+    # end T2-M3
+    return attrs
+
+
+def _alert_of(state: Mapping[str, Any], attrs: Mapping[str, Any]) -> dict[str, Any]:
+    return {"title": attrs["topic_name"], "body": state["label"] or attrs["topic_name"]}
 
 
 def payload(
@@ -191,18 +273,76 @@ def payload(
         assert attrs is not None
         aps["attributes-type"] = ATTRIBUTES_TYPE
         aps["attributes"] = attrs
-        aps["alert"] = {"title": attrs["topic_name"], "body": state["label"] or attrs["topic_name"]}
+        aps["alert"] = _alert_of(state, attrs)
         aps["input-push-token"] = 1
     return {"aps": aps}
 
 
-def encode(body: dict[str, Any]) -> bytes:
-    """The request body. Raises :class:`PushFailed` (our bug) above Apple's 4 KB limit."""
-    data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
-    if len(data) > MAX_PAYLOAD_BYTES:
-        log.error("Live Activity payload is %d bytes, over the %d limit", len(data), MAX_PAYLOAD_BYTES)
+# --- the byte budget (timers2.md §8.2) --------------------------------------------------------
+
+type BudgetStep = Literal["alert_label", "next_label", "label", "topic_name", "terminal"]
+
+BUDGET_LABEL_LENGTH = 32
+BUDGET_STEPS: tuple[BudgetStep, ...] = ("alert_label", "next_label", "label", "topic_name", "terminal")
+
+
+def dump(body: Mapping[str, Any]) -> bytes:
+    """The request body's bytes: compact UTF-8 JSON."""
+    return json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
+
+
+def shrink(body: Mapping[str, Any], step: BudgetStep) -> dict[str, Any]:
+    """``body`` after one budget step (a copy): the named label truncated to
+    :data:`BUDGET_LABEL_LENGTH` characters, or the terminal step (``next_label`` and
+    ``alert_label`` null, ``attributes.topic_name`` empty). A start's ``alert`` follows its label
+    and topic name. A field the body doesn't carry is left alone (an update has no attributes)."""
+    aps = dict(body["aps"])
+    if "content-state" not in aps:
+        return dict(body)
+    state = dict(aps["content-state"])
+    attrs = dict(aps["attributes"]) if "attributes" in aps else None
+    if step == "terminal":
+        state["next_label"] = None
+        state["alert_label"] = None
+        if attrs is not None:
+            attrs["topic_name"] = ""
+    elif step == "topic_name":
+        if attrs is not None:
+            attrs["topic_name"] = truncate(attrs["topic_name"], BUDGET_LABEL_LENGTH)
+    elif state.get(step) is not None:
+        state[step] = truncate(state[step], BUDGET_LABEL_LENGTH)
+    aps["content-state"] = state
+    if attrs is not None:
+        aps["attributes"] = attrs
+        if "alert" in aps:
+            aps["alert"] = _alert_of(state, attrs)
+    return {**body, "aps": aps}
+
+
+def fit(body: Mapping[str, Any], *, limit: int = MAX_PAYLOAD_BYTES) -> tuple[bytes, tuple[BudgetStep, ...]]:
+    """The request body within ``limit`` bytes, and the budget steps it took (timers2.md §8.2):
+    while the encoded body is over the limit, truncate ``alert_label``, then ``next_label``,
+    then ``label``, then ``attributes.topic_name``, re-encoding after each, then the terminal
+    step. Raises :class:`PushFailed` (our bug) if it still doesn't fit."""
+    data = dump(body)
+    steps: list[BudgetStep] = []
+    for step in BUDGET_STEPS:
+        if len(data) <= limit or "content-state" not in body["aps"]:
+            break
+        body = shrink(body, step)
+        steps.append(step)
+        data = dump(body)
+    if len(data) > limit:
+        log.error("Live Activity payload is %d bytes, over the %d limit", len(data), limit)
         raise PushFailed(f"payload too large ({len(data)} bytes)")
-    return data
+    if steps:
+        log.warning("Live Activity payload truncated to %d bytes: %s", len(data), ", ".join(steps))
+    return data, tuple(steps)
+
+
+def encode(body: Mapping[str, Any]) -> bytes:
+    """The request body, fitted to Apple's 4 KB limit (:func:`fit`)."""
+    return fit(body)[0]
 
 
 # --- tokens ---------------------------------------------------------------------------------
@@ -364,12 +504,11 @@ def _describe(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {_HEX_TOKEN.sub('<token>', apns.redact(str(exc)))}"
 
 
-async def _state(db: AsyncSession, run: Run) -> dict[str, Any]:
-    """The run's content state, from its stored state and its version's steps."""
+async def _state(db: AsyncSession, run: Run, now: int) -> dict[str, Any]:
+    """The run's content state at ``now`` (Unix seconds), from its stored state and its
+    version's timer."""
     version = await db.get_one(TopicVersion, run.topic_version_id)
-    timer = parse_timer(version.timer)
-    steps = [] if timer is None else [run_fold.Step(s.key, s.label) for s in timer.steps]
-    return content_state(run.id, run.revision, run.state, steps)
+    return content_state(run.id, run.revision, run.state, parse_timer(version.timer), now=now * 1000)
 
 
 async def _plan(
@@ -385,8 +524,8 @@ async def _plan(
     aliases = (await db.execute(select(RunAlias.id).where(RunAlias.run_id == run.id))).scalars()
     ids = [run.id, *aliases]
     ended = run.status in CLOSED
-    state = await _state(db, run)
     now = sender.now()
+    state = await _state(db, run, now)
 
     # A token below the iOS minimum gets nothing: its content state may have changed shape, and
     # its buttons can't sync (client-versions.md §3.4).
@@ -400,7 +539,7 @@ async def _plan(
         if t.device_token != job.except_device:
             sends.append(_Send(t.token, _environment(t.environment), "end" if ended else "update", update))
     if job.start and not ended:
-        attrs = attributes(server_id, topic.id, topic.name)
+        attrs = attributes(server_id, topic.id, topic.name, appearance_of(topic))  # T2-M3: appearance
         start = encode(payload("start", state, timestamp=now, attrs=attrs))
         stmt = select(LiveActivityToken).where(LiveActivityToken.kind == "start", supported)
         for t in (await db.execute(stmt)).scalars():
@@ -449,11 +588,12 @@ async def send_late_end(body: LiveActivityIn, run_id: UUID) -> None:
     sender = apns.get_sender()
     if sender is None:
         return
+    now = sender.now()
     async with get_sessionmaker()() as db:
         run = await db.get(Run, run_id)
-        state = None if run is None else await _state(db, run)
+        state = None if run is None else await _state(db, run, now)
         await db.rollback()
     if state is None:
         return
-    end = encode(payload("end", state, timestamp=sender.now()))
+    end = encode(payload("end", state, timestamp=now))
     await _send_all(sender, [_Send(body.token, body.environment, "end", end)])

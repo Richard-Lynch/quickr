@@ -1,0 +1,5 @@
+- **P2 — [RunAlerts.tsx:156](/Users/richie/code/quickr-worktrees/t2-m1-alerts-fe/frontend/src/components/runs/RunAlerts.tsx:156):** The clock-offset finding is only partially fixed. If an offset correction moves an alert from one second in the future to 39 seconds in the past, the next poll drops it as more than 30 seconds late, even though the page stayed visible. Polling every 10 seconds cannot bound the size of an offset correction.
+
+- **P2 — [useRunAudio.ts:125](/Users/richie/code/quickr-worktrees/t2-m1-alerts-fe/frontend/src/components/runs/useRunAudio.ts:125):** Mute defaults to off when no preference is stored, while §9.2 specifies a global mute defaulting to on. On a fresh install, an alert can therefore sound and vibrate before the user changes the setting.
+
+The first review’s muted-notification finding is fixed: muted alerts now return after the toast.

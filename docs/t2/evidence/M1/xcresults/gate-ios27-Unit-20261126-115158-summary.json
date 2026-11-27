@@ -1,0 +1,91 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "EBDB3CEF-02BD-410D-A9D4-FCB0CE6C50E4",
+        "deviceName" : "quickR iOS27 t2-m1-gate-f08e14",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "24A434",
+        "osVersion" : "27.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 0,
+      "passedTests" : 6124,
+      "skippedTests" : 28,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "Unit · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 0,
+  "finishTime" : 1795695653.335,
+  "passedTests" : 1570,
+  "result" : "Passed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m1-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m1-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m1-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m1-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m1-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    },
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Thread running at User-initiated quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class. Investigate ways to avoid priority inversions",
+      "sourceURL" : "file:///Users/richie/code/quickr-worktrees/t2-m1-gate/ios/build/spm/checkouts/GRDB.swift/GRDB/Utils/Pool.swift"
+    }
+  ],
+  "skippedTests" : 28,
+  "startTime" : 1795694995.541,
+  "statistics" : [
+    {
+      "subtitle" : "4659 test runs",
+      "title" : "105 tests ran with dynamic parameters"
+    }
+  ],
+  "testFailures" : [
+
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "4% of duration",
+      "text" : "28 longest test runs with outlier durations exceeding 7.64s (three standard deviations)"
+    },
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "0% of duration",
+      "text" : "1 longest test run with outlier durations exceeding 3.56s (three standard deviations)"
+    },
+    {
+      "category" : "Longest Test Runs",
+      "impact" : "11% of duration",
+      "text" : "3 longest test runs with outlier durations exceeding 0.84s (three standard deviations)"
+    }
+  ],
+  "totalTestCount" : 1598
+}

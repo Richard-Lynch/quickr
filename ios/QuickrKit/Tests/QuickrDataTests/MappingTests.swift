@@ -1,8 +1,10 @@
 import Foundation
+import GRDB
 import QuickrCore
-import QuickrData
 import QuickrTestSupport
 import Testing
+
+@testable import QuickrData
 
 private func decode<Response: WireResponse>(_ type: Response.Type, _ name: String) throws -> Response.Domain {
     let fixture = try Fixtures.api(name)
@@ -39,6 +41,31 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(topic.due?.isDue == true)
         #expect(topic.due?.dueSince == (try date("2026-03-04T08:00:00Z")))
         #expect(topic.revision == 2)
+    }
+
+    /// The normalised v2 `Timer` (timers2.md §1.4) reaches the domain whole: lap types,
+    /// variables and alerts with their `at_ms`, not only the steps.
+    @Test func aV2TimerMapsLapTypesVariablesAndAlerts() throws {
+        let json = #"""
+            {"steps": [{"key": "warmup", "label": "Warmup", "alerts": [
+                {"key": "half", "label": "Half", "at": "t/2", "at_ms": 30000}]}],
+             "laps": [{"key": "run", "label": "Run", "alerts": []},
+                      {"key": "rest", "label": "Rest", "alerts": [{"key": "go", "label": "Go", "at": "rest", "at_ms": 20000}]}],
+             "variables": [{"name": "t", "ms": 60000}, {"name": "rest", "ms": 20000}]}
+            """#
+        let timer = try WireCoding.decoder().decode(TopicTimerDTO.self, from: Data(json.utf8)).toDomain()
+        #expect(
+            timer.steps == [
+                .init(
+                    key: "warmup", label: "Warmup", alerts: [.init(key: "half", label: "Half", at: "t/2", atMs: 30000)])
+            ])
+        #expect(
+            timer.laps == [
+                .init(key: "run", label: "Run"),
+                .init(key: "rest", label: "Rest", alerts: [.init(key: "go", label: "Go", at: "rest", atMs: 20000)]),
+            ])
+        #expect(timer.variables == [.init(name: "t", ms: 60000), .init(name: "rest", ms: 20000)])
+        #expect(TopicTimerDTO(timer).toDomain() == timer)
     }
 
     @Test func intervalScheduleAndNullDue() throws {
@@ -165,7 +192,7 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
     @Test func unknownFeedKindsAreSkipped() throws {
         let deletion =
             #"{"kind":"entry","seq":3,"id":"\#(UUID().wireString)","topic_id":"\#(UUID().wireString)","#
-            + #""deleted_at":"2026-06-01T12:00:00Z"}"#
+            + #""deleted_at":"2026-06-01T12:00:00Z","revision":null}"#
         let json = """
             {"items":[{"kind":"comment","seq":1,"comment":{"text":"hi"}}],
              "deleted":[{"kind":"comment","seq":2,"id":"c1","topic_id":"t1","deleted_at":"2026-06-01T12:00:00Z"},
@@ -179,6 +206,30 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         #expect(itemCount == 0)
         #expect(deletedSeqs == [3])
         #expect(next == 3)
+    }
+
+    /// timers2.md §5.2 (sync-protocol.md F3): a deletion carries `revision`, the run's revision in
+    /// the page's snapshot, or null (topic cascade, other kinds). The key is required.
+    @Test func aFeedDeletionDecodesItsRevision() throws {
+        func deletion(_ kind: String, _ revision: String?) -> Data {
+            let tail = revision.map { #","revision":\#($0)}"# } ?? "}"
+            return Data(
+                (#"{"kind":"\#(kind)","seq":3,"id":"\#(UUID().wireString)","topic_id":"\#(UUID().wireString)","#
+                    + #""deleted_at":"2026-06-01T12:00:00Z""# + tail).utf8)
+        }
+        let decoder = WireCoding.decoder()
+        #expect(try decoder.decode(FeedDeletionDTO.self, from: deletion("run", "4")).revision == 4)
+        #expect(try decoder.decode(FeedDeletionDTO.self, from: deletion("run", "null")).revision == nil)
+        #expect(try decoder.decode(FeedDeletionDTO.self, from: deletion("entry", "null")).revision == nil)
+        #expect(throws: DecodingError.self) {
+            try decoder.decode(FeedDeletionDTO.self, from: deletion("run", nil))
+        }
+        // The shipped fixture: a stopped run's deletion carries its revision.
+        let body = try #require(try Fixtures.api("listChanges.run_deletion").body)
+        let page = try ChangePageDTO.decode(body, using: decoder)
+        let runs = page.deleted.filter { $0.kind == .run }
+        #expect(!runs.isEmpty)
+        #expect(runs.allSatisfy { $0.revision != nil })
     }
 
     /// A known kind that doesn't decode still fails the page (sync-protocol.md §2.2).
@@ -257,10 +308,71 @@ private func date(_ text: String) throws -> Date { try #require(WireDate.parse(t
         let limits = try decode(LimitsDTO.self, "getLimits")
         #expect(limits.capturedAtMin == (try date("2000-01-01T00:00:00Z")))
         #expect(limits.capturedAtMaxFutureHours == 24)
+        // Timer v2 rows (timers2.md §1.2) reach the domain value.
+        let rows: [Int] = [
+            limits.maxSteps, limits.maxLapTypes, limits.maxVariables, limits.maxAlerts, limits.maxExprLength,
+            limits.maxVarNameLength, limits.maxShortLabelLength,
+        ]
+        #expect(rows == [30, 8, 16, 8, 64, 16, 64])
+        var tight = try LimitsDTO.decode(
+            try #require(try Fixtures.api("getLimits").body), using: WireCoding.decoder())
+        (tight.maxSteps, tight.maxLapTypes, tight.maxVariables, tight.maxAlerts) = (1, 2, 3, 4)
+        (tight.maxExprLength, tight.maxVarNameLength, tight.maxShortLabelLength) = (5, 6, 7)
+        let domain = tight.toDomain()
+        let mapped: [Int] = [
+            domain.maxSteps, domain.maxLapTypes, domain.maxVariables, domain.maxAlerts, domain.maxExprLength,
+            domain.maxVarNameLength, domain.maxShortLabelLength,
+        ]
+        #expect(mapped == [1, 2, 3, 4, 5, 6, 7])
+        // T2-M3: the appearance rows (appearance.md §1.3)
+        let appearanceRows: [Int] = [limits.maxTags, limits.maxTagLength, limits.maxIconLength]
+        #expect(appearanceRows == [10, 24, 16])
+        #expect(limits.colorNames == ColorName.allCases.map(\.rawValue))
+        (tight.maxTags, tight.maxTagLength, tight.maxIconLength, tight.colorNames) = (8, 9, 10, ["red"])
+        let themed = tight.toDomain()
+        let themedRows: [Int] = [themed.maxTags, themed.maxTagLength, themed.maxIconLength]
+        #expect(themedRows == [8, 9, 10])
+        #expect(themed.colorNames == ["red"])
+        // end T2-M3
         let types = try decode([QuestionTypeInfoDTO].self, "listQuestionTypes")
         #expect(types.map(\.type) == [.int, .double, .str, .enum])
         #expect(types.first?.jsonSchema["title"] == .string("IntQuestion"))
     }
+
+    // T2-M3
+    /// The appearance of a feed `topic` item reaches `ViewTopic` through the store (appearance.md
+    /// §8), in both layers (a rebuild stages it and the swap copies it), and a later item that
+    /// clears it clears it.
+    @Test func feedTopicsCarryTheirAppearanceToTheView() async throws {
+        let page = try decode(ChangePageDTO.self, "listChanges.bootstrap")
+        let topics = page.items.compactMap { item -> Topic? in
+            if case .topic(_, let topic) = item { return topic }
+            return nil
+        }
+        let s = try TestStore()
+        try s.write { db in
+            for topic in topics {
+                _ = try ServerLayer.upsert(db, topic: topic)
+                _ = try ServerLayer.upsert(db, topic: topic, into: .stage)
+            }
+        }
+        let views = try await s.store.topics.topics()
+        #expect(Set(views.map(\.appearance)) == Set(topics.map(\.appearance)))
+        let themed = try #require(views.first { $0.topic.slug == "everything" })
+        #expect(themed.appearance == TopicAppearance(color: .teal, icon: .emoji("🧪"), tags: ["Health"]))
+        #expect(themed.topic.appearance == themed.appearance)
+        let staged = try s.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM stage_topic").map { try TopicAppearance(serverRow: $0) }
+        }
+        #expect(Set(staged) == Set(topics.map(\.appearance)))
+
+        var cleared = themed.topic
+        cleared.revision += 1
+        cleared.appearance = .empty
+        try s.write { db in _ = try ServerLayer.upsert(db, topic: cleared) }
+        #expect(try await s.store.topics.topic(id: cleared.id)?.appearance == .empty)
+    }
+    // end T2-M3
 }
 
 @Suite(.timeLimit(.minutes(5))) struct RequestDTOTests {

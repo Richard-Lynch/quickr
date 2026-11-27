@@ -37,6 +37,7 @@
         "pauses": [
           {
             "end": "2026-03-04T11:04:00Z",
+            "id": "0e000000-0000-4000-8000-000000000003",
             "start": "2026-03-04T11:03:00Z"
           }
         ],
@@ -44,8 +45,11 @@
           {
             "active_ms": 150125,
             "ended_at": "2026-03-04T11:02:30.125000Z",
+            "event_id": null,
             "kind": "step",
             "label": "Pour",
+            "lap_type": null,
+            "opened_by": "start",
             "paused_ms": 0,
             "started_at": "2026-03-04T11:00:00Z",
             "step": "pour"
@@ -53,8 +57,11 @@
           {
             "active_ms": 149875,
             "ended_at": "2026-03-04T11:06:00Z",
+            "event_id": "0e000000-0000-4000-8000-000000000001",
             "kind": "lap",
             "label": "Lap 1",
+            "lap_type": null,
+            "opened_by": "next",
             "paused_ms": 60000,
             "started_at": "2026-03-04T11:02:30.125000Z",
             "step": null
@@ -63,7 +70,8 @@
         "skipped": [
           "drink"
         ],
-        "started_at": "2026-03-04T11:00:00Z"
+        "started_at": "2026-03-04T11:00:00Z",
+        "terminal_id": "0e000000-0000-4000-8000-000000000006"
       },
       "topic_id": "00000000-0000-4000-8000-000000000001",
       "updated_at": "2026-06-01T12:00:00.123456Z",
@@ -91,6 +99,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -103,6 +112,7 @@
           "seg": null,
           "source": "widget",
           "step": null,
+          "target": null,
           "type": "start"
         },
         {
@@ -115,6 +125,7 @@
           "seg": 0,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "next"
         },
         {
@@ -127,6 +138,7 @@
           "seg": 0,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "next"
         },
         {
@@ -139,6 +151,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "pause"
         },
         {
@@ -151,6 +164,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "resume"
         },
         {
@@ -163,6 +177,7 @@
           "seg": 1,
           "source": "api",
           "step": "drink",
+          "target": null,
           "type": "skip"
         },
         {
@@ -175,6 +190,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "stop"
         },
         {
@@ -187,6 +203,7 @@
           "seg": null,
           "source": "api",
           "step": null,
+          "target": null,
           "type": "finish"
         }
       ],
@@ -233,12 +250,15 @@
           }
         },
         "ended_at": "2026-03-04T11:06:00Z",
+        "lap_count": 1,
+        "next_lap_type": null,
         "next_step": null,
         "open": null,
         "paused_since": null,
         "pauses": [
           {
             "end": "2026-03-04T11:04:00Z",
+            "id": "0e000000-0000-4000-8000-000000000003",
             "start": "2026-03-04T11:03:00Z"
           }
         ],
@@ -246,8 +266,11 @@
           {
             "active_ms": 150125,
             "ended_at": "2026-03-04T11:02:30.125000Z",
+            "event_id": null,
             "kind": "step",
             "label": "Pour",
+            "lap_type": null,
+            "opened_by": "start",
             "paused_ms": 0,
             "started_at": "2026-03-04T11:00:00Z",
             "step": "pour"
@@ -255,8 +278,11 @@
           {
             "active_ms": 149875,
             "ended_at": "2026-03-04T11:06:00Z",
+            "event_id": "0e000000-0000-4000-8000-000000000001",
             "kind": "lap",
             "label": "Lap 1",
+            "lap_type": null,
+            "opened_by": "next",
             "paused_ms": 60000,
             "started_at": "2026-03-04T11:02:30.125000Z",
             "step": null
@@ -266,7 +292,8 @@
           "drink"
         ],
         "started_at": "2026-03-04T11:00:00Z",
-        "status": "stopped"
+        "status": "stopped",
+        "terminal_id": "0e000000-0000-4000-8000-000000000006"
       },
       "status": "stopped",
       "topic_id": "00000000-0000-4000-8000-000000000001",

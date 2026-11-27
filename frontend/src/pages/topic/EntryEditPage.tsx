@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Navigate, useNavigate, useParams } from 'react-router';
 
 import { errorMessage } from '../../api/errors';
 import { useDeleteEntryWithUndo, useUpdateEntry } from '../../api/mutations';
 import { getEntryOptions, listTopicVersionsOptions } from '../../client/@tanstack/react-query.gen';
 import { Page, TopBar } from '../../components/AppShell';
 import { EntryForm, type EntryFormValues } from '../../components/answers/EntryForm';
+import { contextFor } from '../../components/runs/context';
 import { TimingSection } from '../../components/runs/TimingSection';
 import { Button } from '../../components/ui/Button';
 import { ChannelBadge } from '../../components/ChannelBadge';
@@ -16,6 +17,7 @@ import { PageSpinner } from '../../components/ui/Spinner';
 import { useToast } from '../../components/ui/Toast';
 import { answerValuesFromEntry, archivedValuesInEntry } from '../../lib/answerSchema';
 import { formatDateTime, toLocalInputValue } from '../../lib/dates';
+import { useRuns } from '../../lib/runs/useRuns';
 import { useTopic } from './TopicLayout';
 
 export function EntryEditPage() {
@@ -29,6 +31,7 @@ export function EntryEditPage() {
   const versions = useQuery(listTopicVersionsOptions({ path: { ref: topic.slug } }));
   const update = useUpdateEntry();
   const deleteWithUndo = useDeleteEntryWithUndo();
+  const { hiddenEntries } = useRuns();
 
   const version = useMemo(
     () => versions.data?.find((v) => v.version === entry.data?.version),
@@ -77,6 +80,10 @@ export function EntryEditPage() {
 
   const back = `${base}/entries`;
 
+  // OQ-14 (timers2.md §5.3): an entry whose run is open or finishing here (a reopen) is
+  // represented by the run, not shown as an entry.
+  if (hiddenEntries.has(entryId.toLowerCase())) return <Navigate to={`${base}/record`} replace />;
+
   if (entry.isPending || versions.isPending) {
     return (
       <>
@@ -121,7 +128,16 @@ export function EntryEditPage() {
         ) : null}
 
         {s.timing ? (
-          <TimingSection entry={{ ...s, timing: s.timing }} steps={version.timer?.steps ?? []} />
+          <TimingSection
+            entry={{ ...s, timing: s.timing }}
+            steps={version.timer?.steps ?? []}
+            laps={version.timer?.laps ?? []}
+            ctx={contextFor(
+              { id: topic.id, slug: topic.slug, name: topic.name },
+              versions.data,
+              s.version,
+            )}
+          />
         ) : null}
 
         {changedElsewhere && dirty ? (

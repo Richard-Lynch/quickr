@@ -2,14 +2,17 @@
 import 'fake-indexeddb/auto';
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { TopicSummary } from '../../client';
+import { client } from '../../client/client.gen';
 import { outbox } from '../../lib/outbox/client';
 import type { EntryCreatePayload } from '../../lib/outbox/kinds';
+import { lapTopic, reopens, seedStopped, STOP_ID, WINDOW_MS } from '../../test/resume';
+import { renderRunApp, seedRun, type Harness } from '../../test/runUi';
 import { ToastProvider } from '../ui/Toast';
 import { TopicTile } from './TopicTile';
 
@@ -31,6 +34,8 @@ const vitamins: TopicSummary = {
   schedule_updated_at: null,
   due: null,
   timer: null,
+  last_entry: null,
+  appearance: { color: null, icon: null, tags: [] }, // T2-M3
 };
 
 function renderTile(topic: TopicSummary) {
@@ -114,15 +119,246 @@ describe('a single topic tile', () => {
     expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
   });
 
-  it('waits, neutral, until it knows whether the topic is timed (no one-tap log yet)', async () => {
-    // The versions never come: the action stays a placeholder.
+  it('knows from its summary that it isn’t timed: one-tap Log at once, while nothing has loaded', async () => {
+    // T2-WIRE (content-display.md §2): the summary carries the timer, so no versions wait.
     vi.stubGlobal(
       'fetch',
       vi.fn(() => new Promise<Response>(() => undefined)),
     );
     renderTile(vitamins);
-    expect(await screen.findByTestId('tile-action-pending')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Log Vitamins now' })).toBeNull();
-    expect(screen.queryByTestId('tile-log')).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Log Vitamins now' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Start/ })).toBeNull();
+  });
+});
+
+describe('an archived tile’s summary line', () => {
+  it('labels its latest entry with the details’ questions (Codex WIRE r1 #4)', async () => {
+    const question = {
+      key: 'mood',
+      label: 'Mood',
+      type: 'enum',
+      required: true,
+      help_text: null,
+      multiple: false,
+      min_selected: null,
+      max_selected: null,
+      options: [{ value: 'good', label: 'Good', archived: false }],
+    };
+    const at = new Date(Date.now() - 3_600_000).toISOString();
+    const archived: TopicSummary = {
+      ...vitamins,
+      status: 'archived',
+      archived_at: at,
+      question_count: 1,
+      entry_count: 2,
+      last_captured_at: at,
+      last_entry: {
+        id: '0d6c0000-0000-4000-8000-0000000000f1',
+        topic_id: vitamins.id,
+        version: 1,
+        captured_at: at,
+        created_at: at,
+        updated_at: at,
+        answers: [{ key: 'mood', type: 'enum', value: 'good' }],
+        notes: '',
+        meta: {},
+        timing: null,
+        revision: 1,
+        source: 'ui',
+        channel: 'ui',
+      },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ ...archived, questions: [question] }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        ),
+      ),
+    );
+    // Node's Request needs an absolute URL (as the run harness sets it).
+    client.setConfig({ baseUrl: 'http://quickr.test' });
+    try {
+      renderTile(archived);
+      expect(await screen.findByTestId('topic-summary')).toHaveTextContent('Mood: Good');
+    } finally {
+      client.setConfig({ baseUrl: '' });
+    }
+  });
+});
+
+describe('an idle timed tile’s Resume (active-surfaces.md §3.3, §6.3)', () => {
+  let h: Harness | null = null;
+  /** The harness's fake server (the test has rendered the app). */
+  const server = () => {
+    if (!h) throw new Error('no harness');
+    return h.server;
+  };
+  afterEach(async () => {
+    await h?.teardown();
+    h = null;
+  });
+  const tile = () => screen.getByRole('article', { name: 'Morning' });
+
+  it('within 15 minutes: "Resume · 1:44" under the meta line, aimed at the entry’s terminal stop', async () => {
+    h = renderRunApp('/', lapTopic(), (s) => seedStopped(s, 114_000, 10_000));
+    const user = userEvent.setup();
+    const resume = await screen.findByTestId('run-reopen');
+    expect(tile()).toContainElement(resume);
+    expect(resume).toHaveTextContent('Resume · 1:44');
+    expect(resume).toHaveAccessibleName('Resume the last run of Morning');
+    // Start keeps its place: Resume is the quick slot's, not the action block's.
+    expect(within(tile()).getByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
+
+    await user.click(resume);
+    await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
+    expect(reopens(server())[0]?.target).toBe(STOP_ID);
+    expect(server().entries[0]?.timing?.terminal_id).toBe(STOP_ID);
+    // The tile is the active card now.
+    expect(await screen.findByTestId('active-card')).toBeInTheDocument();
+    expect(screen.queryByTestId('run-reopen')).toBeNull();
+  });
+
+  it('past the window: no Resume, Start only', async () => {
+    h = renderRunApp('/', lapTopic(), (s) =>
+      seedStopped(s, WINDOW_MS + 120_000, WINDOW_MS + 1_000),
+    );
+    // Enabled once the details are in (whether Stop asks for answers).
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Start Morning' })).toBeEnabled(),
+    );
+    expect(screen.queryByTestId('run-reopen')).toBeNull();
+    // The latest entry came with the list: no per-tile entries or versions query (T2-WIRE-F).
+    const paths = server().requests.map((r) => r.path);
+    expect(paths.filter((p) => p.endsWith('/entries') || p.endsWith('/versions'))).toEqual([]);
+  });
+
+  it('a stop on an older version (published since) still offers Resume, from that version', async () => {
+    // Codex WIRE r1 #1: the tile reads the versions list only for such a stop.
+    const fixture = lapTopic();
+    const [v1] = fixture.versions;
+    if (!v1) throw new Error('no version 1');
+    const v2 = { ...v1, version: 2 };
+    h = renderRunApp(
+      '/',
+      { topic: { ...fixture.topic, current_version: 2 }, versions: [...fixture.versions, v2] },
+      (s) => seedStopped(s, 114_000, 10_000),
+    );
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    expect(server().requests.some((r) => r.path.endsWith('/versions'))).toBe(true);
+  });
+
+  it('a queued stop of a run on an older version still offers Resume (Codex WIRE r2 #1)', async () => {
+    const fixture = lapTopic();
+    const [v1] = fixture.versions;
+    if (!v1) throw new Error('no version 1');
+    h = renderRunApp(
+      '/',
+      {
+        topic: { ...fixture.topic, current_version: 2 },
+        versions: [...fixture.versions, { ...v1, version: 2 }],
+      },
+      (s) => seedRun(s),
+    );
+    const user = userEvent.setup();
+    // The v1 run's stop stays queued: no server entry, so no `last_entry` to name its version.
+    server().override = (body) =>
+      body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByTestId('card-stop'));
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    expect(server().entries).toHaveLength(0);
+  });
+
+  it('goes when the window ends', async () => {
+    // Stopped 14:59 ago: offered now, gone a couple of seconds later (the offer ticks).
+    h = renderRunApp('/', lapTopic(), (s) => seedStopped(s, WINDOW_MS + 60_000, WINDOW_MS - 1_000));
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId('run-reopen')).toBeNull(), {
+      timeout: 4000,
+    });
+    expect(screen.getByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
+  });
+
+  it('a re-stop still queued: the offer takes the newer stop’s time, not the server entry’s', async () => {
+    // The first stop ends its window in 3 s; the re-stop (queued, 503) is recent.
+    h = renderRunApp('/', lapTopic(), (s) => seedStopped(s, WINDOW_MS + 60_000, WINDOW_MS - 3_000));
+    const user = userEvent.setup();
+    let hold = false;
+    h.server.override = (body) =>
+      body.type === 'stop' && hold ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByTestId('run-reopen'));
+    const stop = await screen.findByTestId('card-stop');
+    await waitFor(() => expect(stop).toBeEnabled());
+    hold = true;
+    await user.click(stop);
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    // Past the first stop's window: still offered, from the queued re-stop.
+    await new Promise((r) => setTimeout(r, 4_000));
+    expect(screen.getByTestId('run-reopen')).toBeInTheDocument();
+    expect(server().entries[0]?.timing?.terminal_id).toBe(STOP_ID);
+  }, 10_000);
+
+  it('a just-stopped run, its stop queued, and a later entry logged without the timer: no Resume', async () => {
+    h = renderRunApp('/', lapTopic());
+    const user = userEvent.setup();
+    server().override = (body) =>
+      body.type === 'stop' ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByRole('button', { name: 'Start Morning' }));
+    await user.click(await screen.findByTestId('card-stop'));
+    expect(await screen.findByTestId('run-reopen')).toBeInTheDocument();
+    // Another device logs Morning without the timer, after the stop.
+    const logged = new Date(Date.now() + 1_000).toISOString();
+    server().entries.unshift({
+      id: '0d6c0000-0000-4000-8000-0000000000e1',
+      topic_id: lapTopic().topic.id,
+      version: 1,
+      captured_at: logged,
+      created_at: logged,
+      updated_at: logged,
+      answers: [],
+      notes: '',
+      meta: {},
+      timing: null,
+      revision: 1,
+      source: 'ios',
+      channel: 'ios',
+    });
+    // The list refetches (every 60 s, on focus, on an entry ack) and carries it as `last_entry`.
+    await h.qc.invalidateQueries({ queryKey: [{ _id: 'listTopics' }] });
+    await waitFor(() => expect(screen.queryByTestId('run-reopen')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Start Morning' })).toBeInTheDocument();
+  });
+
+  it('a just-stopped run’s tile offers it from the optimistic entry, before the server’s', async () => {
+    h = renderRunApp('/', lapTopic());
+    const user = userEvent.setup();
+    let hold = true;
+    server().override = (body) =>
+      body.type === 'stop' && hold ? new Response('{}', { status: 503 }) : undefined;
+    await user.click(await screen.findByRole('button', { name: 'Start Morning' }));
+    await user.click(await screen.findByTestId('card-stop'));
+    // The stop is queued (503): its optimistic entry makes the offer, no server entry yet.
+    const resume = await screen.findByTestId('run-reopen');
+    expect(server().entries).toHaveLength(0);
+    const stop = (await outbox.list()).find(
+      (i) => (i.payload as { event: { type: string } }).event.type === 'stop',
+    );
+    // The tap is async: the reopen must be queued while the stop still is (the case under
+    // test), so the stop stays held until then. Released earlier, the outbox's retry could ack
+    // the stop first, and the tap would find neither the optimistic entry nor a local row.
+    await user.click(resume);
+    await waitFor(async () => {
+      const queued = await outbox.list();
+      expect(
+        queued.some((i) => (i.payload as { event: { type: string } }).event.type === 'reopen'),
+      ).toBe(true);
+    });
+    hold = false;
+    await outbox.retry(stop?.id ?? '');
+    await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
+    expect(reopens(server())[0]?.target).toBe(stop?.id);
   });
 });

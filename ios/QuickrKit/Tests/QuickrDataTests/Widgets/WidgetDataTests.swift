@@ -82,6 +82,26 @@ import Testing
         #expect(shown.lastAnswer == .string("good"))
     }
 
+    /// T2-WIRE (content-display.md §5): every topic carries its latest entry, quick-log or not,
+    /// and its summary line uses the current questions only for an entry of the current version.
+    @Test func aTopicCarriesItsLatestEntryForTheSummaryLine() async throws {
+        let notes = Question(key: "notes", label: "Notes", kind: .string(.init()))
+        let journal = Self.topic("Journal", questions: [notes])
+        let entry = Make.entry(topicId: journal.id, answers: ["notes": .string("  slept   well ")])
+        let store = try seeded([journal], entries: [entry])
+        let shown = try #require(try await WidgetReader(store: store.store).topic(id: journal.id))
+        #expect(shown.quick == nil)
+        #expect(shown.lastEntry?.id == entry.id)
+        #expect(shown.lastSummary == "Notes: slept well")
+
+        var older = shown
+        older.topic.currentVersion = entry.version + 1
+        #expect(older.lastSummary == "", "another version's labels are never used")
+        var none = shown
+        none.lastEntry = nil
+        #expect(none.lastSummary == "")
+    }
+
     @Test func aMissingTopicIsNil() async throws {
         let store = try seeded([Self.topic("Mood")])
         #expect(try await WidgetReader(store: store.store).topic(id: UUID()) == nil)
@@ -114,6 +134,38 @@ import Testing
         #expect(offsets.dropFirst(9).allSatisfy { ($0 - 120) % 60 == 0 })
         #expect(offsets.last == 12 * 60)
         #expect(WidgetTimeline.reloadDate(after: dates, now: now) == dates.last)
+    }
+
+    /// A shown run's pending alert rebuilds the timeline when it passes, if that comes before the
+    /// last entry; one past, or after the last entry, changes nothing.
+    @Test func aPendingAlertRebuildsTheTimelineWhenItPasses() {
+        let now = Make.t0
+        let dates = WidgetTimeline.entryDates(for: [], now: now, skew: 0)
+        let last = WidgetTimeline.reloadDate(after: dates, now: now)
+        let alert = now.addingTimeInterval(12)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: alert) == alert)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: now.addingTimeInterval(-1)) == last)
+        #expect(WidgetTimeline.reloadDate(after: dates, now: now, alert: last.addingTimeInterval(60)) == last)
+    }
+
+    /// The entries follow content changes (a run's alerts): one at each date and each change,
+    /// each with the value current then.
+    @Test func entriesTakeTheValueCurrentAtTheirDate() {
+        let now = Make.t0
+        let dates = [now, now.addingTimeInterval(900), now.addingTimeInterval(1800)]
+        let change = now.addingTimeInterval(1000)
+        let entries = WidgetTimeline.entries(dates, changes: [(now, "before"), (change, "after")])
+        #expect(entries.map(\.date) == [dates[0], dates[1], change, dates[2]])
+        #expect(entries.map(\.value) == ["before", "before", "after", "after"])
+        // A change past the cap is dropped with the later dates: the last entry keeps the value
+        // before it, whose pending alert the reload then follows (`reloadDate(alert:)`).
+        let full = (0..<WidgetTimeline.maxEntries).map { now.addingTimeInterval(Double($0) * 60) }
+        let capped = WidgetTimeline.entries(full, changes: [(now, "before"), (now.addingTimeInterval(1e6), "after")])
+        #expect(capped.count == WidgetTimeline.maxEntries)
+        #expect(capped.last?.value == "before")
+        let unchanged = WidgetTimeline.entries(dates, changes: [(now, "only")])
+        #expect(unchanged.map(\.date) == dates)
+        #expect(unchanged.allSatisfy { $0.value == "only" })
     }
 
     /// A due change gets its own entry, so the widget turns due at the minute it does.
@@ -285,6 +337,10 @@ import Testing
             return WidgetFingerprint([copy]) != WidgetFingerprint([base])
         }
         #expect(changed { $0.lastAnswer = .string("meh") })
+        #expect(changed { $0.topic.appearance = TopicAppearance(color: .teal) }, "the widget draws the colour")
+        #expect(
+            changed { $0.lastEntry = Make.entry(topicId: mood.id, answers: ["mood": .string("meh")]) },
+            "the summary line")
         #expect(changed { $0.queued = 1 })
         #expect(changed { $0.failed = 1 })
         #expect(changed { $0.topic.name = "Feelings" })

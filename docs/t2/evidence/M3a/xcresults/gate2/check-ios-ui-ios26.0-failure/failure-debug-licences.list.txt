@@ -1,0 +1,5 @@
+Query chain:
+ →Find: Target Application 'com.bahumia.quickr'
+  ↪︎Find: Descendants matching type Any
+    ↪︎Find: Elements matching predicate '"licences.list" IN identifiers'
+      ↪︎Find: First Match

@@ -9,12 +9,15 @@ final class FakeTimingWriter: EntryTimingWriting {
     private(set) var saves: [(edit: TimingDraft.Edit, revision: Int)] = []
     private(set) var reloads = 0
     var saveResult: TopicWriteOutcome<Entry>?
+    /// Runs while a save is in flight (before it answers).
+    var duringSave: (@MainActor () -> Void)?
     var latest: Entry?
     /// The server's entry after a save: the edit's times at revision + 1.
     var steps: [TopicTimer.Step] = []
 
     func saveTiming(_ edit: TimingDraft.Edit, entryId: UUID, expectedRevision: Int) async -> TopicWriteOutcome<Entry> {
         saves.append((edit, expectedRevision))
+        duringSave?()
         if let saveResult { return saveResult }
         guard var entry = latest else { return .failed("no entry") }
         entry.timing = edit.timing(steps: steps)
@@ -300,5 +303,91 @@ private let utc = TimingEditClock(timeZone: TimeZone(identifier: "UTC")!)
         #expect(m.timingEditUnavailable == "Edit times once this run has synced.")
         m.openTimingEditor()
         #expect(m.timingEditor == nil)
+    }
+
+    /// Review R1 (content-display.md §3.2): while a Remove is queued, Edit times waits for its
+    /// ack. Saving times over the projection would void the Remove (`run_edited`).
+    @Test func editTimesWaitsForAQueuedRemove() {
+        let m = editModel()
+        #expect(m.timingEditUnavailable == nil)
+        m.removeQueued = true
+        #expect(m.timingEditUnavailable == "Edit times once the removal has synced.")
+        m.openTimingEditor()
+        #expect(m.timingEditor == nil)
+        m.removeQueued = false
+        m.openTimingEditor()
+        #expect(m.timingEditor != nil, "after the ack it opens")
+    }
+
+    /// Review R1 (Codex): a remove queued while the sheet is open closes it, and nothing is saved.
+    @Test func aRemoveQueuedWhileEditingClosesTheSheet() async throws {
+        let m = editModel()
+        _ = try editor(m)
+        m.removeQueued = true
+        #expect(m.timingEditor == nil)
+        await m.saveTiming()
+        #expect(writer.saves.isEmpty)
+    }
+
+    /// Review R1 (Codex r2): a remove queued while a save is in flight, which then fails, closes
+    /// the sheet: it isn't left open with its saves refused.
+    @Test func aRemoveQueuedDuringAFailedSaveClosesTheSheet() async throws {
+        let m = editModel()
+        _ = try editor(m)
+        writer.saveResult = .failed("offline")
+        writer.duringSave = { m.removeQueued = true }
+        await m.saveTiming()
+        #expect(writer.saves.count == 1)
+        #expect(m.timingEditor == nil)
+    }
+
+    // MARK: - Lap types (content-display.md §3.2, timers2.md §3.2)
+
+    /// With the version's lap types, a lap row's choice names the type its position gives it, and
+    /// the hints and the save are typed the server's way (laps by position; TimingEdit carries no
+    /// type). Without lap types it's plain "Lap".
+    @Test func lapRowsAreTypedByPosition() throws {
+        let laps: [TopicTimer.LapType] = [.init(key: "run", label: "Run"), .init(key: "rest", label: "Rest")]
+        func lap(_ n: Int, _ a: String, _ b: String) -> RunSegment {
+            RunSegment(
+                kind: .lap, step: nil, label: "Lap \(n)", startedAt: ms(a), endedAt: ms(b),
+                activeMs: ms(b) - ms(a), pausedMs: 0)
+        }
+        let typed = Timing(
+            startedAt: ms("07:00:00"), endedAt: ms("07:09:00"), activeMs: 540_000, pausedMs: 0, complete: true,
+            edited: false,
+            segments: [
+                timing.segments[0], lap(1, "07:04:00", "07:06:00"), lap(2, "07:06:00", "07:09:00"),
+            ], skipped: ["dress"], pauses: [])
+        let editor = TimingEditModel(
+            entryId: timedEntry.id, timing: typed, revision: 3, steps: steps, lapTypes: laps, writer: writer,
+            clock: utc, now: { now })
+        #expect(editor.lapChoice(1) == "Lap · Run 1")
+        #expect(editor.lapChoice(2) == "Lap · Rest 1")
+        #expect(editor.lapChoice(0) == "Lap · Run 1", "the step row, as a lap, would be the first")
+        #expect(editor.checked.segments.map(\.label) == ["Shower", "Run 1", "Rest 1"])
+        let edit = try #require(editor.checked.edit)
+        let saved = edit.timing(timer: TopicTimer(steps: steps, laps: laps), terminalId: nil)
+        #expect(saved.segments.map(\.lapType) == [nil, "run", "rest"])
+
+        // Turning the step into a lap retypes every lap after it.
+        editor.draft.setSegmentStep(0, nil)
+        #expect(editor.checked.segments.map(\.label) == ["Run 1", "Rest 1", "Run 2"])
+        #expect(editor.lapChoice(2) == "Lap · Run 2")
+
+        let plain = TimingEditModel(
+            entryId: timedEntry.id, timing: typed, revision: 3, steps: steps, writer: writer, clock: utc, now: { now })
+        #expect(plain.lapChoice(1) == "Lap")
+        #expect(plain.checked.segments.map(\.label) == ["Shower", "Lap 1", "Lap 2"])
+    }
+
+    /// The edit screen hands the version's lap types to Edit times.
+    @Test func theEditScreenPassesTheLapTypes() throws {
+        let laps: [TopicTimer.LapType] = [.init(key: "run", label: "Run")]
+        let m = EditModel(
+            topic: topic, entry: timedEntry, questions: [question], localOnly: false, writer: entryWriter,
+            toasts: EntryToasts(center: center, writer: RecordFakeWriter()), scope: EntryScope("server-A/1"),
+            timerSteps: steps, timerLapTypes: laps, timingWriter: writer, timingClock: utc, now: { now })
+        #expect(try editor(m).lapTypes == laps)
     }
 }

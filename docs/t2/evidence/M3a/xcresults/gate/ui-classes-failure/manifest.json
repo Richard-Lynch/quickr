@@ -1,0 +1,16 @@
+[
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Default",
+        "deviceId" : "A22E5317-133E-4259-86CC-331336227A28",
+        "deviceName" : "quickR iOS-26-0 t2-m3a-gate-dfa2ac",
+        "exportedFileName" : "071B7C13-1E78-4E36-8433-D906D0999D8A.txt",
+        "isAssociatedWithFailure" : true,
+        "suggestedHumanReadableName" : "Complete Issue Description.txt"
+      }
+    ],
+    "testIdentifier" : "BuilderUITests/testPublishingATimerV2Topic()",
+    "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/BuilderUITests/testPublishingATimerV2Topic"
+  }
+]

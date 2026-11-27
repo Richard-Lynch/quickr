@@ -44,13 +44,18 @@ enum FakeTiming {
         ).timing(steps: steps)
     }
 
-    /// The feed items the server starts with: the run's entry (Morning and its version are
-    /// `FakeServer`'s seeded page).
-    static func seedFeed() -> [String] {
+    // T2-M4: the feed is this file's own items (M1's body, unchanged, in `timedSeedFeed`), then
+    // `-QuickrSeedTypedTopic`'s topic and runs, through one hook call into `FakeLapTypes`.
+    /// The feed items the server starts with: `timedSeedFeed()`, then `FakeLapTypes`'s.
+    static func seedFeed() -> [String] { FakeLapTypes.seedFeed(after: timedSeedFeed()) }
+
+    /// The run's entry (Morning and its version are `FakeServer`'s seeded page).
+    static func timedSeedFeed() -> [String] {
         guard isEnabled else { return [] }
         let entry: [String: Any] = ["kind": "entry", "seq": FakeServer.seededHead + 1, "entry": entryJSON()]
         return [entry].compactMap(json)
     }
+    // end T2-M4
 
     /// The run's entry as `EntryOut`.
     static func entryJSON() -> [String: Any] {
@@ -90,6 +95,11 @@ enum FakeTiming {
     static func route(
         _ request: HTTPRequest, headers: HTTPHeaders, appendToFeed: (_ kind: String, _ key: String, Any) -> Void
     ) -> HTTPResponse? {
+        // T2-M4: `-QuickrSeedTypedTopic`'s reads and run events (`FakeLapTypes`)
+        if let response = FakeLapTypes.route(request, headers: headers, appendToFeed: appendToFeed) {
+            return response
+        }
+        // end T2-M4
         guard isEnabled else { return nil }
         let path = request.url.path()
         let entryPath = "/api/v1/entries/\(entryId.wireString)"
@@ -141,8 +151,8 @@ enum FakeTiming {
                 ]))
         case "timing":
             let stats = TimingStats.compute(
-                [.init(entryId: entryId.wireString, capturedAt: timing.endedAt, timing: timing)], versions: [1: steps],
-                currentVersion: 1)
+                [.init(entryId: entryId.wireString, capturedAt: timing.endedAt, timing: timing)],
+                versions: [1: TopicTimer(steps: steps)], currentVersion: 1)
             return HTTPResponse(status: 200, headers: headers, body: data(timingStatsJSON(stats)))
         default:
             return nil
@@ -189,6 +199,12 @@ enum FakeTiming {
                     "mean_ms": value(step.meanMs),
                 ]
             },
+            "lap_types": s.lapTypes.map { type -> [String: Any] in
+                [
+                    "key": type.key, "label": type.label, "laps": type.laps, "best_ms": value(type.bestMs),
+                    "median_ms": value(type.medianMs), "mean_ms": value(type.meanMs),
+                ]
+            },
             "laps": [
                 "runs_with_laps": s.laps.runsWithLaps, "median_ms": value(s.laps.medianMs),
                 "mean_ms": value(s.laps.meanMs),
@@ -198,7 +214,7 @@ enum FakeTiming {
                 [
                     "entry_id": p.entryId, "captured_at": RunInstant.format(p.capturedAt),
                     "started_at": RunInstant.format(p.startedAt), "active_ms": p.activeMs, "paused_ms": p.pausedMs,
-                    "complete": p.complete, "steps": p.steps,
+                    "complete": p.complete, "steps": p.steps, "lap_types": p.lapTypes,
                 ]
             },
         ]

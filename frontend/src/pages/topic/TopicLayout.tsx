@@ -1,16 +1,18 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import {
   Link,
   NavLink,
   Outlet,
   useLocation,
+  useNavigate,
   useOutletContext,
   useParams,
   useSearchParams,
 } from 'react-router';
 
 import { errorMessage } from '../../api/errors';
-import { getTopicOptions } from '../../client/@tanstack/react-query.gen';
+import { getTopicOptions, getTopicQueryKey } from '../../client/@tanstack/react-query.gen';
 import type { TopicDetail } from '../../client';
 import { Page, TopBar } from '../../components/AppShell';
 import { Button, ButtonLink } from '../../components/ui/Button';
@@ -18,11 +20,15 @@ import { Badge, Banner, EmptyState, VersionTag } from '../../components/ui/Card'
 import { cn } from '../../components/ui/cn';
 import { Icon } from '../../components/ui/Icon';
 import { PageSpinner } from '../../components/ui/Spinner';
+import { TopicGlyph } from '../../components/ui/TopicGlyph';
+import { topicStyle } from '../../lib/appearance';
+import { navigateKeepingPage } from '../../lib/unsavedChanges';
 import { formatRelative } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { describeSchedule, dueView } from '../../lib/schedule';
 import { DueBadge } from '../../components/topics/TopicTile';
 import { zProblem } from '../../client/zod.gen';
+import { appearanceOf } from '../../lib/topicAppearanceSeam';
 
 interface TopicContext {
   topic: TopicDetail;
@@ -37,10 +43,50 @@ export function useTopicRef(): string {
   return ref ?? '';
 }
 
+const isNotFound = (error: unknown) => {
+  const p = zProblem.safeParse(error);
+  return p.success && p.data.code === 'not_found';
+};
+
+/**
+ * A slug changed elsewhere makes a refetch of `/t/<old slug>` 404 while the query still holds the
+ * topic. Look it up by its id and move the route to the new slug (seeding its cache, so the page
+ * stays mounted); meanwhile, and while the lookup fails, return the topic last loaded. `null` when
+ * there's nothing to follow, or the topic is gone by id too (deleted): the caller shows the error.
+ */
+function useFollowRename(
+  ref: string,
+  query: { isError: boolean; error: unknown; data: TopicDetail | undefined },
+): TopicDetail | null {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const last = query.data;
+  const lost = query.isError && isNotFound(query.error) && last !== undefined && last.id !== ref;
+  const byId = useQuery({
+    ...getTopicOptions({ path: { ref: last?.id ?? '' } }),
+    enabled: lost,
+    staleTime: 0,
+  });
+  const found = lost && byId.data && byId.data.slug !== ref ? byId.data : null;
+  useEffect(() => {
+    if (!found) return;
+    qc.setQueryData(getTopicQueryKey({ path: { ref: found.slug } }), found);
+    const rest = location.pathname.slice(`/t/${ref}`.length);
+    void navigateKeepingPage(navigate, `/t/${found.slug}${rest}${location.search}`);
+  }, [found, qc, navigate, location.pathname, location.search, ref]);
+  // Only a 404 by id too means it's gone; a failed lookup keeps the page as it was.
+  if (!lost || (byId.isError && isNotFound(byId.error))) return null;
+  return found ?? last;
+}
+
 /** Loads the topic for every /t/:ref route and hands it down via outlet context. */
 export function TopicLayout() {
   const ref = useTopicRef();
   const query = useQuery(getTopicOptions({ path: { ref } }));
+  const moved = useFollowRename(ref, query);
+  // Keep the page (and any unsaved form in it) while a rename elsewhere is being followed.
+  if (moved) return <Outlet context={{ topic: moved } satisfies TopicContext} />;
 
   if (query.isPending && query.fetchStatus === 'paused') {
     return (
@@ -122,6 +168,14 @@ export function TopicTabs() {
   const search = range ? `?range=${range}` : '';
   const archived = topic.status === 'archived';
   const base = `/t/${topic.slug}`;
+  // appearance.md §6.3, §4.3: no colour leaves the header exactly as it was (no style, accent
+  // chrome); a colour themes the header and the active-tab rule. The glyph shows for an emoji, or
+  // the initial when there's a colour; the chips are neutral badges (§5).
+  const appearance = appearanceOf(topic);
+  const tinted = appearance?.color != null;
+  const theme = topicStyle(appearance);
+  const showGlyph = tinted || appearance?.icon != null;
+  const tags = appearance?.tags ?? [];
 
   return (
     <>
@@ -152,7 +206,7 @@ export function TopicTabs() {
         }
       />
       <Page className="gap-4">
-        <section className="flex flex-col gap-3">
+        <section className="flex flex-col gap-3" style={theme}>
           <div className="flex flex-wrap items-center gap-2">
             <VersionTag version={topic.current_version} />
             {archived ? (
@@ -168,6 +222,15 @@ export function TopicTabs() {
               {formatRelative(topic.last_captured_at)}
             </span>
           </div>
+          {tags.length > 0 ? (
+            <ul aria-label="Tags" className="flex flex-wrap gap-1.5">
+              {tags.map((tag) => (
+                <li key={tag}>
+                  <Badge>{tag}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {topic.schedule && !archived ? (
             <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
               <DueBadge view={dueView(topic.due)} />
@@ -180,6 +243,16 @@ export function TopicTabs() {
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
               <h1 className="font-display text-3xl leading-[1.05] font-bold tracking-tight text-balance sm:text-5xl">
+                {showGlyph ? (
+                  // The name follows, so the glyph's own label would only repeat it.
+                  <span
+                    aria-hidden="true"
+                    data-testid="topic-glyph"
+                    className="mr-2 align-[-0.12em]"
+                  >
+                    <TopicGlyph appearance={appearance} name={topic.name} size={32} />
+                  </span>
+                ) : null}
                 {topic.name}
               </h1>
               {topic.description ? (
@@ -207,6 +280,7 @@ export function TopicTabs() {
 
         <nav
           aria-label="Topic sections"
+          style={theme}
           className="sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-20 -mx-4 border-b border-line bg-paper/90 px-4 backdrop-blur-md select-none sm:top-[calc(4rem+env(safe-area-inset-top))] sm:-mx-6 sm:px-6"
         >
           <ul className="flex gap-1">
@@ -219,7 +293,10 @@ export function TopicTabs() {
                     cn(
                       'relative flex h-12 items-center gap-2 px-3 text-sm font-semibold transition-colors',
                       isActive
-                        ? 'text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full after:bg-accent'
+                        ? cn(
+                            'text-ink after:absolute after:inset-x-2 after:-bottom-px after:h-0.5 after:rounded-full',
+                            tinted ? 'after:bg-topic-tint' : 'after:bg-accent',
+                          )
                         : 'text-muted hover:text-ink',
                     )
                   }

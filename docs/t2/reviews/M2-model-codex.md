@@ -1,0 +1,15 @@
+1. **[P2] Hero buttons can overflow on narrow screens or at increased text sizes** — [Button.tsx](/Users/richie/code/quickr-worktrees/t2-m2-model/frontend/src/components/ui/Button.tsx:27). The new size inherits `whitespace-nowrap` from `base`. A primary such as `Next: {label}` can therefore exceed the available width rather than wrap, especially at mobile widths or browser zoom. Allow the hero label to wrap and test a long step name at increased text size.
+
+2. **[P2] The iOS hero style prevents the specified two-line label at ordinary Dynamic Type sizes** — [Buttons.swift](/Users/richie/code/quickr-worktrees/t2-m2-model/ios/QuickrKit/Sources/QuickrUI/Components/Buttons.swift:79). The shared style limits every button to one line until an accessibility size is reached. Long step or lap-type labels can consequently truncate in the 72-point primary, while §2.3 requires the primary to accommodate a two-line label and grow. Give the hero style the specified two-line behavior, including its scale factor, and verify it with long labels at default and accessibility sizes.
+
+3. **[P3] The 14-row tests do not exercise the action model for several required states** — [RunControlsLayoutTests.swift](/Users/richie/code/quickr-worktrees/t2-m2-model/ios/QuickrKit/Tests/QuickrCoreTests/Surfaces/RunControlsLayoutTests.swift:64) and [controlsLayout.test.ts](/Users/richie/code/quickr-worktrees/t2-m2-model/frontend/src/components/runs/controlsLayout.test.ts:75). Idle, reopened, queued-reopen, resumable and busy rows supply hand-built action arrays, so they prove placement for those inputs but cannot detect a mismatch between the real model and the spec. Some depend on later M1 behavior, as the comments acknowledge; those cases need integration coverage when that behavior lands. The current suite should not be treated as evidence that all 14 state-to-layout paths pass.
+
+The review is limited to the M2-MODEL-ADOPT work package; the run-screen and card implementations are assigned to later packages. I did not run tests.
+
+---
+
+## Resolutions (m2-model-adopt)
+
+1. **Fixed.** `whitespace-nowrap` moved from `base` onto `sm`/`md`/`lg` (unchanged for them); `hero` wraps (`py-3 text-center leading-tight`) and grows from its 72 px minimum. `make check-frontend` green after the change.
+2. **Fixed.** `QuickrButtonStyle` gives `.hero` `lineLimit(2)` and `minimumScaleFactor(0.8)` at every size (active-surfaces.md §2.3); other sizes unchanged. QuickrUI compiled for `generic/platform=iOS Simulator` (no simulator booted). The long-label visual check belongs to I2-CONTROLS / I2-UITEST, which render the run screen.
+3. **Stands, follow-up #153.** Rows 1-3, 10, 11, 13 (resumable) and 14 can't come from M1's `actions` yet (stub half: `[]` for a closed run, no reopen event, no cooldown), so they are the §1.2 table's lists by hand; this WP's acceptance is the layout over those lists. M1's `RunPresentationTests` / `model.test.ts` pin the model side. #153 switches those rows to folded inputs when M1 lands the states.

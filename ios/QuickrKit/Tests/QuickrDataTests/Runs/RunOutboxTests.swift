@@ -144,7 +144,10 @@ import Testing
         let run = try #require(h.server.run(runId))
         #expect(run.status == .discarded)
         #expect(try h.runItems.isEmpty)
-        #expect(try h.read { db in try ServerLayer.isTombstoned(db, kind: .run, id: runId) })
+        // Closed, not tombstoned: the discard's ack writes the marker at the run's revision
+        // (timers2.md §5.2).
+        #expect(try h.read { db in try ServerLayer.closedMarker(db, id: runId) } == run.revision)
+        #expect(try !h.read { db in try ServerLayer.isTombstoned(db, kind: .run, id: runId) })
     }
 
     // MARK: Classification (§8.1)
@@ -378,7 +381,7 @@ import Testing
         #expect(local.id == first.wireString, "the alias routes to the run")
     }
 
-    @Test("R7 · the server's run is already closed: tombstoned here, and the queued taps void with notices")
+    @Test("R7 · the server's run is already closed: closed here, and the queued taps void with notices")
     func startKnownClosed() async throws {
         let h = try OutboxHarness()
         try h.timed()
@@ -393,8 +396,8 @@ import Testing
         let report = try await h.outbox().flushNow()
         let acked: Int = report.acked
         #expect(acked == 3)
-        let tombstoned: Bool = try h.read { db in try ServerLayer.isTombstoned(db, kind: .run, id: id.wireString) }
-        #expect(tombstoned)
+        let closed: Bool = try h.read { db in try ServerLayer.isClosedRun(db, id: id.wireString) }
+        #expect(closed)
         let reasons: [VoidReason] = report.runVoids.map(\.reason)
         #expect(reasons == [.afterStop, .alreadyClosed])
         let notices: Int = try await h.store.runNotices.all().count

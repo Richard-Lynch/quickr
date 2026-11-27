@@ -1,5 +1,15 @@
 {
   "body": {
+    "appearance": {
+      "color": "teal",
+      "icon": {
+        "kind": "emoji",
+        "value": "🧪"
+      },
+      "tags": [
+        "Health"
+      ]
+    },
     "archived_at": null,
     "created_at": "2026-06-01T12:00:00.123456Z",
     "current_version": 1,
@@ -13,6 +23,7 @@
     "entry_count": 0,
     "id": "00000000-0000-4000-8000-000000000001",
     "last_captured_at": null,
+    "last_entry": null,
     "name": "Everything",
     "question_count": 5,
     "questions": [
@@ -130,6 +141,16 @@
   "operation_id": "createTopic",
   "request": {
     "body": {
+      "appearance": {
+        "color": "teal",
+        "icon": {
+          "kind": "emoji",
+          "value": "🧪"
+        },
+        "tags": [
+          "Health"
+        ]
+      },
       "description": "One of each question type.",
       "name": "Everything",
       "questions": [

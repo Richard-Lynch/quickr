@@ -1,0 +1,2386 @@
+{
+  "testIdentifier" : "AppSettingsUITests/testAccessibilityXXXL()",
+  "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/AppSettingsUITests/testAccessibilityXXXL",
+  "testName" : "testAccessibilityXXXL()",
+  "testRuns" : [
+    {
+      "activities" : [
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Screen Recording 2026-11-26 at 08.31.52 PM.mp4",
+              "payloadId" : "0~LVenSG5gteNTo73_Ap6wX0cSpgn-dYbIZajvKfazlm2i3KWm59PlUaGSGz4Xufpp09vB-azCInnputfQy3LLAg==",
+              "timestamp" : 1795725112.465,
+              "uuid" : "B2809AED-71BF-49EF-A551-2DA8CF72EB1D"
+            }
+          ],
+          "childActivities" : [
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725112.465,
+              "title" : "kXCTAttachmentScreenRecording"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725112.121,
+          "title" : "Start Test at 2026-11-26 20:31:52.121"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725112.466,
+          "title" : "Set Up"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725114.219,
+                  "title" : "Setting up automation session"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725115.17,
+                  "title" : "Wait for com.bahumia.quickr to idle"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725112.473,
+              "title" : "Launch com.bahumia.quickr"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725112.472,
+          "title" : "Open com.bahumia.quickr"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725117.853,
+                  "title" : "Checking existence of `\"settings.serverURL\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725117.852,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.serverURL\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725116.796,
+          "title" : "Waiting 15.0s for \"settings.serverURL\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_BEAF5598-FF82-4801-A116-64ED92671004.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725122.7,
+              "uuid" : "C0F08B7A-C0E2-43F5-90D4-312079044621"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_24DF18E0-5BE6-46AB-9478-47F8C99F9903.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725123.596,
+              "uuid" : "20DAF770-D386-4AF8-AF84-1A4DA02BA9C7"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_0475F2D4-DC74-4A54-9111-E2989E44223B.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725124.678,
+              "uuid" : "503D8A75-D464-45CB-A9AB-82628DDF2C6B"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_3FE93831-B62A-4369-811D-E91917F0EE14.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725125.596,
+              "uuid" : "28F717BB-DE3B-4ECE-B537-A08D9AEA220C"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_EA8E20C4-D64B-49C9-AEAC-112057A94A26.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725126.603,
+              "uuid" : "E2A78826-F007-44FA-A5E8-43C257131B32"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_962DAF12-596B-436E-A0D3-34EEC3653A29.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725127.654,
+              "uuid" : "95E14D43-073A-4CB2-B403-079385728B8A"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_21ACDB34-7E27-436C-ADC1-C92A62F6FE17.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725128.548,
+              "uuid" : "98405963-B613-4CE1-8044-A801427FE378"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_198D59BE-9CA2-4295-BFE7-5338CACCCD15.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725129.542,
+              "uuid" : "8F8E02E9-F277-466A-845E-08761CE96010"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_E3048ABE-7D88-4000-83D0-4FEA4568C13C.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725130.552,
+              "uuid" : "A1A8556B-079B-4446-BE76-E717969E8916"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.sync.headline\" Any`_0_58EDB355-EA52-4538-B9D0-CF471793A60E.txt",
+              "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+              "timestamp" : 1795725131.614,
+              "uuid" : "52652F0D-4766-4462-A9E1-6A1FB88DB796"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_BEAF5598-FF82-4801-A116-64ED92671004.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725122.7,
+                  "uuid" : "C0F08B7A-C0E2-43F5-90D4-312079044621"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725122.535,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725122.699,
+                  "title" : "Capturing element debug description"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725122.7,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725122.535,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_24DF18E0-5BE6-46AB-9478-47F8C99F9903.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725123.596,
+                  "uuid" : "20DAF770-D386-4AF8-AF84-1A4DA02BA9C7"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725123.529,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725123.596,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725123.596,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725123.529,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_0475F2D4-DC74-4A54-9111-E2989E44223B.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725124.678,
+                  "uuid" : "503D8A75-D464-45CB-A9AB-82628DDF2C6B"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725124.538,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725124.678,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725124.678,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725124.538,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_3FE93831-B62A-4369-811D-E91917F0EE14.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725125.596,
+                  "uuid" : "28F717BB-DE3B-4ECE-B537-A08D9AEA220C"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725125.519,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725125.596,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725125.596,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725125.519,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_EA8E20C4-D64B-49C9-AEAC-112057A94A26.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725126.603,
+                  "uuid" : "E2A78826-F007-44FA-A5E8-43C257131B32"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725126.53,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725126.603,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725126.603,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725126.53,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_962DAF12-596B-436E-A0D3-34EEC3653A29.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725127.654,
+                  "uuid" : "95E14D43-073A-4CB2-B403-079385728B8A"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725127.564,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725127.653,
+                  "title" : "Capturing element debug description"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725127.654,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725127.564,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_21ACDB34-7E27-436C-ADC1-C92A62F6FE17.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725128.548,
+                  "uuid" : "98405963-B613-4CE1-8044-A801427FE378"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725128.479,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725128.548,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725128.548,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725128.478,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_198D59BE-9CA2-4295-BFE7-5338CACCCD15.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725129.542,
+                  "uuid" : "8F8E02E9-F277-466A-845E-08761CE96010"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725129.477,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725129.541,
+                  "title" : "Capturing element debug description"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725129.542,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725129.477,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_E3048ABE-7D88-4000-83D0-4FEA4568C13C.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725130.552,
+                  "uuid" : "A1A8556B-079B-4446-BE76-E717969E8916"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725130.492,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725130.552,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725130.552,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725130.49,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.sync.headline\" Any`_0_58EDB355-EA52-4538-B9D0-CF471793A60E.txt",
+                  "payloadId" : "0~qU3kofyswDiIOBPt6A55Mm7gEskphNDmmzlC9HWhT35aJDE7jkyJ5lhw5BJiaT8iKHG7nYuntmZe110g9a1Btw==",
+                  "timestamp" : 1795725131.614,
+                  "uuid" : "52652F0D-4766-4462-A9E1-6A1FB88DB796"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725131.484,
+                  "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725131.614,
+                  "title" : "Debug description for `\"settings.sync.headline\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725131.614,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.484,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.sync.headline\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.615,
+              "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725121.475,
+          "title" : "Waiting 10.0s for \"settings.sync.headline\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "App UI hierarchy for com.bahumia_0_FB760413-0CBA-45F3-9515-E867B5795163.quickr",
+              "payloadId" : "0~hgkiIm0LW8MRPHPQWMuyCDABDp_l0Z2sAuE0JlkRf5pnFrGjN4jO7Cv7ytYRbieOIulxBkZjGgGh656lLD3o2g==",
+              "timestamp" : 1795725131.717,
+              "uuid" : "4ADBEDD2-2EC7-4C82-BFF2-2C90B4FE912E"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.11 PM",
+              "payloadId" : "0~HAEPIG2I_QB-p51l_6AVDVfS7-J2VonqTXwMCHL7hDcWW58XVZDTSumpKoQ_SrW7SZRC6J698zy9HCiFzSlclg==",
+              "timestamp" : 1795725131.717,
+              "uuid" : "2A67FC5A-A706-42DC-A99B-3F21A6036FC5"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.683,
+              "title" : "Requesting snapshot of accessibility hierarchy for app with pid 23373"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.717,
+              "title" : "App UI hierarchy for com.bahumia.quickr"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.717,
+              "title" : "kXCTAttachmentLegacySnapshot"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725131.683,
+          "title" : "Collecting debug information to assist test failure triage"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725131.721,
+          "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.11 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725131.821,
+              "uuid" : "881DDDAE-4159-4F3C-847C-6D62737F7EC9"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.12 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725132.501,
+              "uuid" : "F64C0440-CA28-4E5B-B4A2-74C2B8545D8C"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.779,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.782,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.798,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.11 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725131.821,
+                  "uuid" : "881DDDAE-4159-4F3C-847C-6D62737F7EC9"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.12 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725132.501,
+                  "uuid" : "F64C0440-CA28-4E5B-B4A2-74C2B8545D8C"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725131.821,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725132.501,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725131.82,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725132.593,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725131.779,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725134.96,
+          "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.15 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725135.154,
+              "uuid" : "D210D393-8807-4A27-839B-FCB014938718"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.15 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725135.574,
+              "uuid" : "36784BBA-291D-47CB-B751-39978FA650AD"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725135.062,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725135.065,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725135.086,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.15 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725135.154,
+                  "uuid" : "D210D393-8807-4A27-839B-FCB014938718"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.15 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725135.574,
+                  "uuid" : "36784BBA-291D-47CB-B751-39978FA650AD"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725135.154,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725135.574,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725135.139,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725135.574,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725135.062,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725137.742,
+          "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.17 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725137.876,
+              "uuid" : "3CCB7F84-0A9C-4F24-93A9-F0E8E1F5CB81"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.18 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725138.288,
+              "uuid" : "CC65AF6A-49A5-477B-879F-9B91C8A033E1"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725137.815,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725137.818,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725137.847,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.17 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725137.876,
+                  "uuid" : "3CCB7F84-0A9C-4F24-93A9-F0E8E1F5CB81"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.18 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725138.288,
+                  "uuid" : "CC65AF6A-49A5-477B-879F-9B91C8A033E1"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725137.876,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725138.288,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725137.874,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725138.289,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725137.815,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725140.405,
+          "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.20 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725140.525,
+              "uuid" : "ADCF5E31-93FF-465B-B9C1-8BE061D0600D"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.20 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725140.951,
+              "uuid" : "9CDA596C-B521-4043-A48D-F4FDF72F6EDC"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725140.48,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725140.483,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725140.502,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.20 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725140.525,
+                  "uuid" : "ADCF5E31-93FF-465B-B9C1-8BE061D0600D"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.20 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725140.951,
+                  "uuid" : "9CDA596C-B521-4043-A48D-F4FDF72F6EDC"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725140.525,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725140.951,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725140.523,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725140.952,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725140.48,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725143.087,
+          "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.23 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725143.727,
+              "uuid" : "12C17B02-0BAC-4833-AAA2-0F5E61355E70"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.24 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725144.159,
+              "uuid" : "F23B8DC8-D584-46C0-A617-CA88190B597C"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725143.195,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725143.661,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725143.687,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.23 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725143.727,
+                  "uuid" : "12C17B02-0BAC-4833-AAA2-0F5E61355E70"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.24 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725144.159,
+                  "uuid" : "F23B8DC8-D584-46C0-A617-CA88190B597C"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725143.727,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725144.159,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725143.724,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725144.161,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725143.195,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725146.253,
+          "title" : "Checking existence of `\"settings.sync.headline\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725146.319,
+          "title" : "Find the \"settings.sync.headline\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725147.436,
+                  "title" : "Checking existence of `\"settings.syncNow\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725147.435,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.syncNow\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725146.402,
+          "title" : "Waiting 10.0s for \"settings.syncNow\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725147.555,
+          "title" : "Find the \"settings.syncNow\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725147.636,
+          "title" : "Find the NavigationBar (First Match)"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725147.645,
+          "title" : "Find the Window (First Match)"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725147.65,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725147.755,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725147.872,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725147.958,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.033,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.105,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.169,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.233,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.3,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.372,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.443,
+          "title" : "Find the Window (First Match)"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.449,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.52,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.59,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.658,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.731,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.792,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.856,
+          "title" : "Find the \"settings.sync.headline\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725148.917,
+          "title" : "Find the \"settings.syncNow\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725149.376,
+          "title" : "Find the Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.attachmentContainer",
+          "attachments" : [
+            {
+              "lifetime" : "keepAlways",
+              "name" : "appset-4-ax_0_B312026F-9E92-45EF-9F6B-02F4E6D0B342.png",
+              "payloadId" : "0~wjmFnHHVqw81FwhYSw3DFhWbfGX8fhDHR5em_JbnuqVBAE5LFU9MLMxIF52qPfqY0uHf0i_M5R3Zx48FKtsZig==",
+              "timestamp" : 1795725149.473,
+              "uuid" : "F805AA4E-B1D2-4608-A371-AB6F2EB72F7D"
+            }
+          ],
+          "childActivities" : [
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725149.473,
+              "title" : "appset-4-ax"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725149.473,
+          "title" : "Added attachment named 'appset-4-ax'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.29 PM",
+              "payloadId" : "0~BAHhZfiEdRprqMNggTffxma8V6Zi2v04PyXnBgwDotyZHRz_nGg5oQqawXbHjF9OeT2n2r7civoz7TQintSCkA==",
+              "timestamp" : 1795725149.577,
+              "uuid" : "FE5C4B34-38E2-4ADB-B3B2-C3D265A0441A"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.29 PM",
+              "payloadId" : "0~FKz9z_irBwwCd5MvN5kACwyeOFlEP25M9c4jwq1XjzAjC4QJ8z3V70PRBQ7sLevkhfpIGZrGiZreiLYjePmbVg==",
+              "timestamp" : 1795725149.867,
+              "uuid" : "3D9B7247-B90F-4246-AFA4-945A72D1D7E8"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725149.473,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725149.475,
+              "title" : "Find the \"settings.syncNow\" Any"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725149.542,
+              "title" : "Check for interrupting elements affecting \"settings.syncNow\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.29 PM",
+                  "payloadId" : "0~BAHhZfiEdRprqMNggTffxma8V6Zi2v04PyXnBgwDotyZHRz_nGg5oQqawXbHjF9OeT2n2r7civoz7TQintSCkA==",
+                  "timestamp" : 1795725149.577,
+                  "uuid" : "FE5C4B34-38E2-4ADB-B3B2-C3D265A0441A"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.29 PM",
+                  "payloadId" : "0~FKz9z_irBwwCd5MvN5kACwyeOFlEP25M9c4jwq1XjzAjC4QJ8z3V70PRBQ7sLevkhfpIGZrGiZreiLYjePmbVg==",
+                  "timestamp" : 1795725149.867,
+                  "uuid" : "3D9B7247-B90F-4246-AFA4-945A72D1D7E8"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725149.577,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725149.867,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725149.576,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725149.868,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725149.473,
+          "title" : "Tap \"settings.syncNow\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_A7FB99E6-561A-4DFC-ACC3-7FFA2C5C3BAA.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725151.23,
+              "uuid" : "876D34C2-2CAF-49BC-A897-BEFB217AE8A0"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_B5798D98-2059-480E-A10E-9EB3B74DA4BD.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725152.258,
+              "uuid" : "39D8B1F6-87AE-4DCA-BD2F-05D8FF515ED6"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_A6D050A7-D8DB-4CBF-BE33-CA1384BFE277.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725153.277,
+              "uuid" : "B449BC6D-5D90-4182-8AFC-D8B0802D4739"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_D6BA0A9A-8E60-453F-AA6A-8A2427CDB2BE.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725154.193,
+              "uuid" : "A2AD63C1-06FE-4177-947F-CF1B7B971C95"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_628EDE02-E0D4-40F1-A392-C537B1141837.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725155.196,
+              "uuid" : "E840DDDC-7D0C-4C86-8495-FAAABDA6B308"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_6B3C1748-A72D-49CB-BED5-862F3FBB9907.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725156.193,
+              "uuid" : "7E4CAEA9-FB8E-49DD-A1C0-F943AFD6B958"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_11D143F8-830E-49F7-9D60-0B2C96D38011.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725157.212,
+              "uuid" : "697A6F61-6301-49B6-82E1-E2DD12FF19B2"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_0785250A-5CFA-413E-A55B-A88FBC829823.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725158.204,
+              "uuid" : "05813E0F-0555-44DC-8F1C-125830BB4137"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_64783B03-5504-4A40-842E-22BC5BE63C09.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725159.36,
+              "uuid" : "1E08092B-9DD8-4A9D-A35A-31EF5176C218"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"settings.licences\" Any`_0_9C5B7F1C-D658-45EF-9DAB-11E9CD6AE087.txt",
+              "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+              "timestamp" : 1795725160.382,
+              "uuid" : "40D28F8B-9382-4BD9-9C22-1E4972250BB6"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_A7FB99E6-561A-4DFC-ACC3-7FFA2C5C3BAA.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725151.23,
+                  "uuid" : "876D34C2-2CAF-49BC-A897-BEFB217AE8A0"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725151.152,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725151.23,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725151.23,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725151.152,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_B5798D98-2059-480E-A10E-9EB3B74DA4BD.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725152.258,
+                  "uuid" : "39D8B1F6-87AE-4DCA-BD2F-05D8FF515ED6"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725152.168,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725152.258,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725152.258,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725152.167,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_A6D050A7-D8DB-4CBF-BE33-CA1384BFE277.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725153.277,
+                  "uuid" : "B449BC6D-5D90-4182-8AFC-D8B0802D4739"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725153.201,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725153.277,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725153.277,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725153.2,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_D6BA0A9A-8E60-453F-AA6A-8A2427CDB2BE.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725154.193,
+                  "uuid" : "A2AD63C1-06FE-4177-947F-CF1B7B971C95"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725154.124,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725154.193,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725154.193,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725154.124,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_628EDE02-E0D4-40F1-A392-C537B1141837.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725155.196,
+                  "uuid" : "E840DDDC-7D0C-4C86-8495-FAAABDA6B308"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725155.122,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725155.196,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725155.196,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725155.121,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_6B3C1748-A72D-49CB-BED5-862F3FBB9907.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725156.193,
+                  "uuid" : "7E4CAEA9-FB8E-49DD-A1C0-F943AFD6B958"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725156.124,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725156.193,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725156.193,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725156.124,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_11D143F8-830E-49F7-9D60-0B2C96D38011.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725157.212,
+                  "uuid" : "697A6F61-6301-49B6-82E1-E2DD12FF19B2"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725157.142,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725157.211,
+                  "title" : "Capturing element debug description"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725157.212,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725157.141,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_0785250A-5CFA-413E-A55B-A88FBC829823.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725158.204,
+                  "uuid" : "05813E0F-0555-44DC-8F1C-125830BB4137"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725158.138,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725158.204,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725158.204,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725158.138,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_64783B03-5504-4A40-842E-22BC5BE63C09.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725159.36,
+                  "uuid" : "1E08092B-9DD8-4A9D-A35A-31EF5176C218"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725159.149,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725159.36,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725159.36,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725159.149,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"settings.licences\" Any`_0_9C5B7F1C-D658-45EF-9DAB-11E9CD6AE087.txt",
+                  "payloadId" : "0~72hSti8M1tEkrdQGi_lQdH4mY4rtR21St6qsQjgTSez_KeB-eYjGoWupqq-1ZhD3K7jS_75e7qhqwJ04oAPZag==",
+                  "timestamp" : 1795725160.382,
+                  "uuid" : "40D28F8B-9382-4BD9-9C22-1E4972250BB6"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725160.127,
+                  "title" : "Checking existence of `\"settings.licences\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725160.382,
+                  "title" : "Debug description for `\"settings.licences\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725160.382,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.126,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"settings.licences\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.382,
+              "title" : "Checking existence of `\"settings.licences\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725150.119,
+          "title" : "Waiting 10.0s for \"settings.licences\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "App UI hierarchy for com.bahumia_0_66F06137-A990-46BC-8CBB-434948F3BC6E.quickr",
+              "payloadId" : "0~22pMX_uz7UBlqTNJcvUs4acIGPS0pEIn70IFXcdMV-vgZvu2tz7sFNQZxvtWSiZpEqCW_fbmhH9EDYA_6vpHIw==",
+              "timestamp" : 1795725160.513,
+              "uuid" : "CD1BA11F-9FD7-4963-B08E-F31115B45049"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.40 PM",
+              "payloadId" : "0~7SHmQL6wofJ1XTyPK_HFQW_3MU2hGGe1INuNH6B6HOnv2Pe0zxu4AoUl0VtittXQ3G8Xh5pYwkClKvRA7-cmbQ==",
+              "timestamp" : 1795725160.513,
+              "uuid" : "11BBB6AE-C97B-410B-81E8-91EA474F2EA8"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.472,
+              "title" : "Requesting snapshot of accessibility hierarchy for app with pid 23373"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.513,
+              "title" : "App UI hierarchy for com.bahumia.quickr"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.513,
+              "title" : "kXCTAttachmentLegacySnapshot"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725160.472,
+          "title" : "Collecting debug information to assist test failure triage"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725160.518,
+          "title" : "Checking existence of `\"settings.licences\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.40 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725160.764,
+              "uuid" : "875D19BF-3AEC-4D29-8467-E581870D66A6"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.41 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725161.192,
+              "uuid" : "19072DCD-53D1-40F3-9940-5BB46DF79B79"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.689,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.691,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.713,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.40 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725160.764,
+                  "uuid" : "875D19BF-3AEC-4D29-8467-E581870D66A6"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.41 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725161.192,
+                  "uuid" : "19072DCD-53D1-40F3-9940-5BB46DF79B79"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725160.764,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725161.192,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725160.75,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725161.193,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725160.689,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725163.358,
+          "title" : "Checking existence of `\"settings.licences\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.43 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725163.492,
+              "uuid" : "0555A35D-209D-4764-AAC8-5545DB015227"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.43 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725163.92,
+              "uuid" : "88B77AB8-2D82-4995-80BE-A9F15126DD4A"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725163.441,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725163.444,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725163.461,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.43 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725163.492,
+                  "uuid" : "0555A35D-209D-4764-AAC8-5545DB015227"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.43 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725163.92,
+                  "uuid" : "88B77AB8-2D82-4995-80BE-A9F15126DD4A"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725163.492,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725163.92,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725163.49,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725163.92,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725163.441,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725166.028,
+          "title" : "Checking existence of `\"settings.licences\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.46 PM",
+              "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+              "timestamp" : 1795725166.376,
+              "uuid" : "F3329143-F46D-408E-88CC-F1DB69C08D52"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.46 PM",
+              "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+              "timestamp" : 1795725166.803,
+              "uuid" : "A393A09A-ECEB-4121-9004-EA500B815640"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725166.269,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725166.273,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725166.297,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.46 PM",
+                  "payloadId" : "0~LM42ETtUsrSCTPePOiHn_kU3upmt9NmTE32KM5ZSj_GDxpkrlLEg5qFivQqnVwA0-BDwKjlYCVUmX1sZYB4zjw==",
+                  "timestamp" : 1795725166.376,
+                  "uuid" : "F3329143-F46D-408E-88CC-F1DB69C08D52"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.46 PM",
+                  "payloadId" : "0~4ClMlUYH7PaYhH0oYJUkwb8jKolSAkbhGBusW6w7Uad3X4Ap1iw4AH53W1nsLDfQaXi8Vr9PsDLx1dBqMlTfIA==",
+                  "timestamp" : 1795725166.803,
+                  "uuid" : "A393A09A-ECEB-4121-9004-EA500B815640"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725166.376,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725166.803,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725166.374,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725166.804,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725166.269,
+          "title" : "Swipe up Target Application 'com.bahumia.quickr'"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725167.714,
+          "title" : "Checking existence of `\"settings.licences\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725167.826,
+          "title" : "Find the \"settings.licences\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.48 PM",
+              "payloadId" : "0~UJ-ejswEQJsl7FIp7iAIgefEVe1N7Gnhsjlcqq8ymQceK2JIa2W3FQR6AOrIvqaeBG9BHYILbQO-P9RAPbcqUw==",
+              "timestamp" : 1795725168.102,
+              "uuid" : "F2DD001E-369F-43FA-979B-ACBDF7CD6D46"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 08.32.48 PM",
+              "payloadId" : "0~Gbxcdk_84rRH4hku0fg79bnNO4hgBeN3qQv6kS0GkosZKZraGmWITcKbNp5Th1rjwVi0iITRXagseSanKLX0Uw==",
+              "timestamp" : 1795725168.401,
+              "uuid" : "1C9DFE01-3083-45FA-8F11-DCDBB0365613"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725167.974,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725167.977,
+              "title" : "Find the \"settings.licences\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725168.044,
+              "title" : "Check for interrupting elements affecting \"settings.licences\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 08.32.48 PM",
+                  "payloadId" : "0~UJ-ejswEQJsl7FIp7iAIgefEVe1N7Gnhsjlcqq8ymQceK2JIa2W3FQR6AOrIvqaeBG9BHYILbQO-P9RAPbcqUw==",
+                  "timestamp" : 1795725168.102,
+                  "uuid" : "F2DD001E-369F-43FA-979B-ACBDF7CD6D46"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 08.32.48 PM",
+                  "payloadId" : "0~Gbxcdk_84rRH4hku0fg79bnNO4hgBeN3qQv6kS0GkosZKZraGmWITcKbNp5Th1rjwVi0iITRXagseSanKLX0Uw==",
+                  "timestamp" : 1795725168.401,
+                  "uuid" : "1C9DFE01-3083-45FA-8F11-DCDBB0365613"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725168.102,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725168.401,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725168.1,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725168.401,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725167.974,
+          "title" : "Tap \"settings.licences\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"licences.list\" Any`_0_5980F608-7DDC-42BC-87CC-08A307AF64C5.txt",
+              "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+              "timestamp" : 1795725169.545,
+              "uuid" : "781D3247-FED0-444E-A250-0990D2365A08"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"licences.list\" Any`_0_6CF56D20-BB0B-4682-B471-50134428136B.txt",
+              "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+              "timestamp" : 1795725170.574,
+              "uuid" : "1C411555-83F0-4727-831F-CFC8B5F19360"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"licences.list\" Any`_0_0F7B5D61-DFDB-407F-B6B2-7E01B26A953F.txt",
+              "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+              "timestamp" : 1795725171.601,
+              "uuid" : "B9EFA23D-CA57-41D3-B457-0EAAFC5FEFC8"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"licences.list\" Any`_0_DC57906B-8D49-47D5-AD26-F6DD0595A324.txt",
+              "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+              "timestamp" : 1795725172.572,
+              "uuid" : "86F2E600-32CF-4657-BF35-393B8ACBC5D8"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"licences.list\" Any`_0_D94F9664-B2BB-460F-A780-B2700C78090C.txt",
+              "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+              "timestamp" : 1795725173.542,
+              "uuid" : "34E0BEA9-F48E-4F67-9DA8-C2D29DE44FA5"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"licences.list\" Any`_0_5980F608-7DDC-42BC-87CC-08A307AF64C5.txt",
+                  "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+                  "timestamp" : 1795725169.545,
+                  "uuid" : "781D3247-FED0-444E-A250-0990D2365A08"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725169.454,
+                  "title" : "Checking existence of `\"licences.list\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725169.541,
+                  "title" : "Capturing element debug description"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725169.545,
+                  "title" : "Debug description for `\"licences.list\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725169.454,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"licences.list\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"licences.list\" Any`_0_6CF56D20-BB0B-4682-B471-50134428136B.txt",
+                  "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+                  "timestamp" : 1795725170.574,
+                  "uuid" : "1C411555-83F0-4727-831F-CFC8B5F19360"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725170.484,
+                  "title" : "Checking existence of `\"licences.list\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725170.574,
+                  "title" : "Debug description for `\"licences.list\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725170.574,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725170.484,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"licences.list\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"licences.list\" Any`_0_0F7B5D61-DFDB-407F-B6B2-7E01B26A953F.txt",
+                  "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+                  "timestamp" : 1795725171.601,
+                  "uuid" : "B9EFA23D-CA57-41D3-B457-0EAAFC5FEFC8"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725171.441,
+                  "title" : "Checking existence of `\"licences.list\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725171.601,
+                  "title" : "Debug description for `\"licences.list\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725171.601,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725171.434,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"licences.list\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"licences.list\" Any`_0_DC57906B-8D49-47D5-AD26-F6DD0595A324.txt",
+                  "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+                  "timestamp" : 1795725172.572,
+                  "uuid" : "86F2E600-32CF-4657-BF35-393B8ACBC5D8"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725172.44,
+                  "title" : "Checking existence of `\"licences.list\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725172.572,
+                  "title" : "Debug description for `\"licences.list\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725172.572,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725172.439,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"licences.list\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"licences.list\" Any`_0_D94F9664-B2BB-460F-A780-B2700C78090C.txt",
+                  "payloadId" : "0~vLaDxQXd39o4AG47Y7-mtlduvLA9-p2tNGMg2rq3LrSOVzU9boiLCG6FMPm3tkcKOlE9TlGMVMw8Gn7zSqCdZA==",
+                  "timestamp" : 1795725173.542,
+                  "uuid" : "34E0BEA9-F48E-4F67-9DA8-C2D29DE44FA5"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725173.409,
+                  "title" : "Checking existence of `\"licences.list\" Any`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725173.542,
+                  "title" : "Debug description for `\"licences.list\" Any`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795725173.542,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725173.408,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"licences.list\" Any`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725173.543,
+              "title" : "Checking existence of `\"licences.list\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725168.404,
+          "title" : "Waiting 5.0s for \"licences.list\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "App UI hierarchy for com.bahumia_0_5BEF25C9-86CE-4542-8882-5A6887C9CA11.quickr",
+              "payloadId" : "0~KHznGeNAdaiS-Vnh7hAg4AQWiFK9zFpsbp5ClbkiOat1y1hxGvcn8fwz13RUDPj-YTX6QvLg3HhomFT4VNYuQg==",
+              "timestamp" : 1795725173.708,
+              "uuid" : "08380BF4-1EA7-4CDC-AD5C-7D1FB60058EA"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 08.32.53 PM",
+              "payloadId" : "0~oPcur7UJSAl8GWJpkK6bdEn_iF1Lt_w3E0rY0erD_yt_hPu1MlagDtYRoHtG1ftrf5wFY0-J4l1w8nndZlo03A==",
+              "timestamp" : 1795725173.708,
+              "uuid" : "3E143465-5D24-4FC4-82C3-667B5778CA49"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725173.671,
+              "title" : "Requesting snapshot of accessibility hierarchy for app with pid 23373"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725173.708,
+              "title" : "App UI hierarchy for com.bahumia.quickr"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795725173.708,
+              "title" : "kXCTAttachmentLegacySnapshot"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725173.671,
+          "title" : "Collecting debug information to assist test failure triage"
+        },
+        {
+          "childActivities" : [
+            {
+              "isAssociatedWithFailure" : false,
+              "title" : ""
+            }
+          ],
+          "isAssociatedWithFailure" : true,
+          "startTime" : 1795725173.712,
+          "title" : "XCTAssertTrue failed"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795725173.751,
+          "title" : "Tear Down"
+        }
+      ],
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "75433D26-6E3C-4BE6-B850-FC7DF549E729",
+        "deviceName" : "quickR iOS-26-0 t2-m3a-gate2-a5dd99",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ]
+}

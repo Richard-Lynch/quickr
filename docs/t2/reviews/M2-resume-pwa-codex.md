@@ -1,0 +1,88 @@
+# M2-RESUME (PWA): Codex review
+
+## Round 1 (m2-resume-pwa, on the pin 4eac3ef6 + 3bbeeded)
+
+1. **[P1] Stop-toast Resume can silently do nothing during its 15-minute lifetime — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume/frontend/src/components/runs/reopen.ts:140).** Once the stopped run leaves the local view, reopening requires an entry reference. This callback only looks in the latest-entry query cache; if that query was never loaded, was removed, or now contains another entry, it passes no reference and `tapRun` returns without queueing anything. The toast still dismisses. Fetch or retain the stopped entry so Resume works throughout the offered window, and test the path after the local run has aged out.
+
+2. **[P1] An old stop toast can reopen a different stop — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume/frontend/src/components/runs/reopen.ts:143).** The callback retains the run ID but not the stop’s terminal ID. If the user resumes and stops that same run again while the first toast remains visible, tapping the first toast lets `tapRun` derive its target from the run’s *current* terminal. It therefore reopens the newer stop, rather than the stop represented by the toast. The toast also remains offered without rechecking whether its entry is still resumable. Capture and validate the intended terminal, and cover repeated stop/resume cycles.
+
+3. **[P2] A queued re-stop can show stale Resume information or hide Resume — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume/frontend/src/components/runs/reopen.ts:52).** When the server entry and an optimistic entry have the same ID, the server copy always wins. After an offline reopen and re-stop, that copy can have the previous stop time and active duration. The idle surfaces can show the old duration or consider the entry outside the 15-minute window even though the new stop is recent. Prefer the locally projected timing for that run and test an offline re-stop with an existing cached entry.
+
+4. **[P2] Idle actions bypass the specified latest-run decision — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume/frontend/src/components/runs/reopen.ts:113).** The implementation independently constructs a Resume offer from entry candidates rather than deriving the idle actions from `actions(lastRun.state, lastRun.status, timer, now)`, as the explicit idle-rows decision requires. This leaves the idle surfaces with a separate action policy and no test pinning that decision. Route the latest run through the shared model and test stopped, discarded, and no-run idle states.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `entryOfRun`): with the run's entry not in the latest-entry cache, the toast fetches it (`getEntry`, fresh). Test: "with the latest entry not cached, fetches the run's entry and reopens that stop".
+2. Fixed (`reopen.ts` `reopenStop`): the toast keeps the stop id it was made for (`useActiveCardControls`, `RecordPage` pass the stop's item id) and checks again at the tap; an older toast says "That run can't be resumed now". Tests: "an older toast whose stop was resumed and stopped again since does nothing, and says so", and the queued re-stop variant.
+3. Fixed (`reopen.ts` `candidatesOf`/`withLocalStop`): a queued re-stop's projected timing replaces the server's older entry for the offer. Test: TopicTile "a re-stop still queued: the offer takes the newer stop's time".
+4. Stands. §1.2's idle-rows decision says how the *model* derives rows 1–3 and 13 from the latest run; the surfaces can't always call it, because a stopped run drops out of `listRuns` (the local view) soon after its stop, while its entry stays resumable for 15 minutes. The offer therefore comes from the topic's latest entry (`lastEntryOptions`, or a queued stop's optimistic entry), gated by M1's `resumableInView` (the store-level half the model's doc assigns to "`resumable`'s and the surface's"). Start on idle surfaces is unconditional (rows 1–3), so routing it through `actions` would not simplify anything. The window and the gate are pinned by tests (TopicTile "past the window: no Resume, Start only", "goes when the window ends"; Resume.test "past the window: Start only"), and the mutation checks in the PR fail them.
+
+## Round 2 (m2-resume-pwa-2, `git diff origin/t2/m2...HEAD` after merging origin/t2/m2 at 4f701725)
+
+1. **[P1] The newest stop toast can reject a valid re-stop — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:202).** After a run is resumed and stopped again, the latest-entry cache can still hold the entry from the first stop, especially offline or before the re-stop is acknowledged. The terminal ID comparison then treats the *new* toast as stale and refuses to queue Resume, even though the local run has the new stop. Reconcile the cached entry with the local re-stop before validating it. The added tests cover rejecting the old toast but do not cover using the new one in this state.
+
+2. **[P2] A newer untimed entry can hide an otherwise resumable last stop — [TopicTile.tsx](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/topics/TopicTile.tsx:98).** `lastEntryOptions` requests just one entry ordered by capture time, while the required eligibility check is against the topic’s latest **stop**. If an untimed entry was recorded after the latest timed entry, `latestOf` discards that sole result and Resume disappears despite an eligible stop. The record page uses the same query. Add coverage for a newer untimed entry and obtain enough timed-entry data to identify the latest stop.
+
+3. **[P2] The new Resume button ignores Reduce Motion — [TopicTile.tsx](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/topics/TopicTile.tsx:245).** Tailwind’s `active:scale-[0.97]` changes the `scale` property; `motion-reduce:transform-none` does not reset it. The button still scales when Reduce Motion is enabled, contrary to §7. Use `motion-reduce:active:scale-none`, as specified.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `reopenStop`): while the toast's stop is still queued here, the run row is local and its terminal is that stop, so the reopen goes to the row without consulting the (stale) entry; a cached entry that doesn't end with the stop is refetched before it's judged. Test: "… the re-stop still queued, does nothing; the newer one resumes the re-stop" (mutation: dropping the queued-stop path fails it).
+2. Stands. §6.3 keys the offer on the topic's last entry ("while `resumable(lastEntry)`", `last_entry` from the topic summary): logging without the timer after a stop ends the offer, by design.
+3. Fixed (`TopicTile.tsx` `ResumeButton`): `motion-reduce:active:scale-none`, as §7 now says.
+
+## Round 3 (m2-resume-pwa-2, after the round 2 fixes)
+
+1. **[P1] An old toast can still reopen a newer stop of the same run — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:161).** If the latest-entry cache still contains the first stop after a re-stop is acknowledged, `entryOfRun` accepts that cached entry because its terminal matches the old toast. `sendReopen` then calls `tapRun`, which prefers the local run’s current terminal over the supplied entry’s terminal, so the old toast reopens the newer stop. The existing test waits for synchronization and does not cover a stale cache after the re-stop leaves the queue. Validate the intended terminal against the current local run as well, and test that cache state.
+
+2. **[P2] A stop toast can resume a run that is no longer the topic’s latest stop — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:202).** Stop run A, start and stop run B on the same topic, then tap A’s still-visible toast. The checks examine only A’s queued stops and entry; with no open run, they allow A to reopen even though B is the latest stop. The specified toast offer is gated by `resumable`, which requires the topic’s latest stop. Recheck that condition at the tap and cover two different runs in a test.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `entryOfRun`): once the toast's stop has been sent, its entry is fetched at the tap (`getEntry`, fresh), not read from the latest-entry cache; the cached one is used only when the fetch fails (offline), where the server then voids a reopen whose target is no longer the terminal (`not_stopped`, timers2.md §3.4). Test: the older-toast test now leaves a stale cache that still ends with the first stop (mutation: cache-first fails it).
+2. Fixed (`reopen.ts` `reopenStop`): the tap re-runs `resumableInView` over the view read at the tap (`viewAtTap`: `localRuns` over the cached server runs, the outbox and the acked items, as `tapRun` does; a toast's callback outlives the component that made it, so a hook's `runs` would be stale). Test: "a toast whose run is no longer the topic's latest stop does nothing" (mutation: dropping the check fails it).
+
+## Round 4 (m2-resume-pwa-2, after the round 3 fixes)
+
+1. **[P1] An old toast can reopen a newer stop while offline — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:230).** The round 3 resolution assumes the server will reject the old terminal when the fresh entry fetch fails. But if the latest-entry cache still contains the first stop and the local run contains the acknowledged re-stop, `entryOfRun` falls back to the old entry and passes the terminal check. `sendReopen` then calls `tapRun`, which targets the local run’s **current** terminal, reopening the newer stop. Compare the intended stop ID with the local row’s terminal before sending. Add an offline test with a stale cached entry and an acknowledged re-stop still in the local view.
+
+2. **[P2] An old toast can reopen a run after a newer run has left the local view — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:232).** The latest-stop check uses only the cached latest-entry query and local runs; fetching the toast’s own entry does not refresh the topic’s latest entry. For example, stop A, then stop B shortly afterward, and tap A’s toast after B has aged out of the local view but before A’s 15-minute toast expires. If the latest-entry query is absent or stale, the check admits A even though B is the newer stop. Refresh or otherwise retain the topic’s latest-stop information at the tap, and test this cache and local-view state.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `reopenStop`): while the run row is in the view at the tap, its terminal must be the toast's stop. Test: "offline, an older toast with a stale cache does nothing while the run row has the re-stop" (mutation: dropping the check fails it). This replaces round 3's note that the server decides offline.
+2. Fixed (`reopen.ts` `latestEntryNow`): once the stop is sent, the tap fetches the **topic's** latest entry (`lastEntryOptions`, fresh, which also refreshes the cache) instead of the run's own entry, and resumes only if it is the run's, ending with that stop (§6.3 keys Resume on the last entry); `resumableInView` then runs over it. Tests: the two-run test now leaves the first run's entry in the cache with the later run out of the view; "with the latest entry not cached, fetches it" counts the fetch (mutation: cache instead of fetch fails three tests).
+
+## Round 5 (m2-resume-pwa-2, after the round 4 fixes)
+
+1. **[P1] A delayed toast check can reopen a different stop — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:201).** The toast checks the local run’s terminal before awaiting the latest-entry request. If that request is slow, the user can resume and stop the run again while it is in flight. A response representing the first stop then passes the remaining checks against the earlier `runs` snapshot, but `tapRun` reads the current run and targets its newer terminal. Revalidate the terminal immediately before sending, and cover a delayed request with an intervening resume and re-stop.
+
+2. **[P2] Stop-toast Resume can hang on a stalled network request — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:154).** Once the stop is sent, Resume waits indefinitely for the latest-entry fetch if the connection stalls without rejecting. The toast dismisses on tap, so the user gets neither a reopened run nor feedback, even when a cached entry is available. Bound the fetch and fall back to the cache, as the run-tap refresh does; test a request that never settles.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `reopenStop`): the refresh comes first, and the view (queued stops, the run row's terminal, the runs `resumableInView` reads) is read after that wait, right before the send. Test: "a slow refresh, and the run resumed and stopped again meanwhile: the toast does nothing" (held refresh, a tile Resume and a queued re-stop meanwhile, released after the card's tap cooldown). The mutation "view read before the wait" does not flip it: M1's `tapRun` also returns null for that reopen in this state, so the user-visible outcome was already safe here; the re-read is kept as the M2-side guard (the acked-re-stop variant is the round 4 row check, tested).
+2. Fixed (`reopen.ts` `refreshLatestEntry`): bounded by `TAP_REFRESH_TIMEOUT_MS` and skipped offline, as `refreshRunsForTap` is; the cache decides after that. Test: "a refresh that never answers: after the tap timeout, the cached entry decides" (mutation: unbounded fails it).
+
+## Round 6 (m2-resume-pwa-2, after the round 5 fixes)
+
+1. **[P1] Idle Resume can target a different stop than the one offered — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:144).** The tile and record-page callbacks send the entry captured at render without rechecking it. If the run is resumed and stopped again before the tap is processed, `tapRun` prefers the current local run’s terminal over that entry’s terminal, so the old offer can reopen the newer stop. Revalidate the intended terminal and eligibility at tap time, as the stop-toast path does, and cover an intervening re-stop.
+
+2. **[P2] Resume from the newest stop toast can fail when the entry cache is absent — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:225).** A queued re-stop of a reopened run has no optimistic entry, so this path requires the previous server entry to be in the latest-entry cache. If that cache was removed or never populated, the current stop is valid and its local run row exists, but `entry` is undefined and the toast says the run cannot be resumed. Preserve or obtain the entry needed for a queued re-stop and test this state.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Stands. The idle surfaces' Resume (tile, record page) means "resume the topic's latest stop" (§3.3, §6.3: target `lastEntry.timing.terminal_id`), and its callback is rebuilt on every render from the current view (`useReopenOffer`), so once a re-stop is in the view the button offers that stop. In the render-latency gap Codex describes, `tapRun` aiming at the run row's current terminal is the latest stop, which is what the idle Resume offers. The stop toast differs: it names one stop for 15 minutes, hence its re-check.
+2. Fixed (`reopen.ts` `rowEntry`): with the re-stop still queued and no cached entry, the entry is the run row's own projection (`projectTiming`, `edited` from the server's run). Test: the queued re-stop test removes the latest-entry cache before the newer toast's tap (mutation: no fallback fails it).
+
+## Round 7 (m2-resume-pwa-2, after the round 6 fix)
+
+1. **[P2] Resume can be offered for an older entry after a newer untimed entry — [reopen.ts](/Users/richie/code/quickr-worktrees/t2-m2-fresume2/frontend/src/components/runs/reopen.ts:107).** `latestOf` skips untimed entries, so a still-local optimistic stop can win even when the server’s latest entry is a newer untimed entry. This can happen when a stop remains queued locally and an untimed entry is recorded on another device. The tile and record page then offer Resume for the older stop, although the prior review’s resolution establishes that a newer untimed last entry ends the offer. Compare the optimistic stop with the actual latest entry, including untimed entries, and cover this mixed local/server state.
+
+### Resolution (m2-resume-pwa-2)
+
+1. Fixed (`reopen.ts` `laterUntimed`): the offer, and the toast's re-check, end when the topic's latest served entry is untimed and captured after the candidate's stop. Test: TopicTile "a just-stopped run, its stop queued, and a later entry logged without the timer: no Resume" (mutation: dropping the check fails it).
+
+## Round 8 (m2-resume-pwa-2, after the round 7 fix)
+
+No findings.

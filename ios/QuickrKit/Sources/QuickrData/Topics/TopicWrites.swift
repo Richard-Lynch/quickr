@@ -126,6 +126,16 @@ public struct TopicWrites: Sendable {
             apply: { db, topic in _ = try ServerLayer.upsert(db, topic: topic) })
     }
 
+    /// `PATCH /topics/{ref}` with the Details change and its appearance (appearance.md §1.1, §7),
+    /// one body (``TopicRequests/details(_:expectedRevision:)``) carrying `expected_revision`: the
+    /// revision on screen. A topic changed elsewhere since answers `staleRevision`. On success the
+    /// topic, with its new appearance, is in the store (fence permitting).
+    public func updateAppearance(topicId: UUID, _ change: TopicDetailsChange, expectedRevision: Int) async
+        -> Outcome<Topic>
+    {
+        await update(topicId: topicId, TopicRequests.details(change, expectedRevision: expectedRevision))
+    }
+
     /// `DELETE /topics/{ref}` (only an archived topic; the server refuses others with a 409). On
     /// success the topic, its versions and entries are tombstoned locally, and its outbox items
     /// (entry changes, a queued archive or unarchive) resolve as for a deletion that arrived in the

@@ -5,15 +5,15 @@ import QuickrUI
 import SwiftUI
 import WidgetKit
 
-/// The run's Live Activity (timers.md §10.3, Presentation): the Lock Screen and banner, and the
-/// Dynamic Island. Everything shown comes from `RunActivityDisplay`; the timers are the system's
-/// (`Text(timerInterval:pauseTime:)`), so they tick without updates. The buttons are
+/// The run's Live Activity (timers.md §10.3; active-surfaces.md §4): the Lock Screen and banner,
+/// and the Dynamic Island. Everything shown comes from `RunActivityDisplay`; the timers are the
+/// system's (`Text(timerInterval:pauseTime:)`), so they tick without updates. The buttons are
 /// `RunActivityButtonIntent`s, which iOS runs in the app's process.
 struct RunActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: RunActivityAttributes.self) { context in
             RunActivityLockScreen(context: context)
-                .activityBackgroundTint(Color.qr.paper)
+                .activityBackgroundTint(RunActivityTheme.background(context.attributes.theme))
         } dynamicIsland: { context in
             let display = RunActivityDisplay(state: context.state, topicName: context.attributes.topicName)
             return DynamicIsland {
@@ -22,19 +22,26 @@ struct RunActivityWidget: Widget {
                         .font(.qr(.title)).monospacedDigit()
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    RunActivityTimer(timer: display.totalTimer, ended: nil)
-                        .font(.qr(.footnote)).monospacedDigit()
-                        .foregroundStyle(Color.qr.muted)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        RunActivityTimer(timer: display.totalTimer, ended: nil)
+                            .font(.qr(.footnote)).monospacedDigit()
+                            .foregroundStyle(Color.qr.muted)
+                        if let alert = display.alert {
+                            RunAlertLine(alert: alert).font(.qr(.caption))
+                        }
+                    }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(display.label).font(.qr(.label)).lineLimit(1)
+                    Text(display.headline).font(.qr(.label)).lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    RunActivityButtons(buttons: display.islandButtons, context: context)
+                    RunActivityButtonRow.island(display) { button, primary in
+                        RunActivityButton(button: button, display: display, context: context, primary: primary)
+                    }
                 }
             } compactLeading: {
-                if let number = display.stepNumber {
-                    Text(number).font(.qr(.caption)).monospacedDigit()
+                if let leading = display.compactLeading {
+                    Text(leading).font(.qr(.caption)).monospacedDigit()
                 } else {
                     Image(systemName: "timer")
                 }
@@ -50,75 +57,44 @@ struct RunActivityWidget: Widget {
     }
 }
 
-/// The Lock Screen and banner: topic, step and "2 of 5", the segment timer (large) and the total,
-/// and the buttons; once ended, "Saved · 7:42" or "Add details".
+/// The Lock Screen and banner (§4.2), drawn by QuickrUI's `RunActivityLockScreenContent` (which
+/// the app's widget gallery shows too) with this extension's intent buttons; in the topic's theme
+/// (appearance.md §6.5) from `attributes.appearance`.
+///
+/// iOS truncates a Lock Screen activity above 160 pt, so the text is two rows and the buttons
+/// one: the primary (≥ 56 pt tall) at half the width, Pause/Resume and Stop (≥ 44 pt) a quarter
+/// each.
 struct RunActivityLockScreen: View {
     let context: ActivityViewContext<RunActivityAttributes>
 
     var body: some View {
         let display = RunActivityDisplay(state: context.state, topicName: context.attributes.topicName)
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(display.topicName).font(.qr(.label)).lineLimit(1)
-                Spacer()
-                if let position = display.position {
-                    Text(position).font(.qr(.footnote)).foregroundStyle(Color.qr.muted)
-                }
+        let theme = context.attributes.theme
+        RunActivityLockScreenContent(display: display, theme: theme) {
+            RunActivityButtonRow.lockScreen(display) { button, primary in
+                RunActivityButton(button: button, display: display, context: context, primary: primary)
             }
-            if let ended = display.endedText {
-                Text(ended).font(.qr(.title))
-            } else {
-                Text(display.label).font(.qr(.body)).lineLimit(1)
-                HStack(alignment: .lastTextBaseline) {
-                    RunActivityTimer(timer: display.segmentTimer, ended: nil)
-                        .font(.qr(.largeTitle)).monospacedDigit()
-                    Spacer()
-                    RunActivityTimer(timer: display.totalTimer, ended: nil)
-                        .font(.qr(.footnote)).monospacedDigit()
-                        .foregroundStyle(Color.qr.muted)
-                }
-                RunActivityButtons(buttons: display.buttons, context: context)
-            }
-        }
-        .padding(16)
-    }
-}
-
-/// A timer frozen at its pause; the ended text (or nothing) once there is none.
-struct RunActivityTimer: View {
-    let timer: RunActivityDisplay.Timer?
-    let ended: String?
-
-    var body: some View {
-        if let timer {
-            Text(
-                timerInterval: Date(timeIntervalSince1970: timer.start)...Date.distantFuture,
-                pauseTime: timer.pausedAt.map { Date(timeIntervalSince1970: $0) }, countsDown: false)
-        } else if let ended {
-            Text(ended)
         }
     }
 }
 
-struct RunActivityButtons: View {
-    let buttons: [RunActivityDisplay.Button]
+extension RunActivityAttributes {
+    /// The topic's theme at start (appearance.md §6.5); the default without an appearance.
+    var theme: TopicTheme { TopicTheme(appearance: appearance, name: topicName) }
+}
+
+/// One button: the primary `.borderedProminent` in the topic's tint (the accent-strong without a
+/// colour), the others `.bordered`, Stop in the danger colour; titles and VoiceOver labels per §1.3.
+struct RunActivityButton: View {
+    let button: RunActivityDisplay.Button
+    let display: RunActivityDisplay
     let context: ActivityViewContext<RunActivityAttributes>
+    let primary: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(buttons, id: \.self) { button in
-                Button(intent: RunActivityButtonIntent(button, attributes: context.attributes, state: context.state)) {
-                    Text(button.title).frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.bordered)
-                .tint(button == .stop ? Color.qr.danger : Color.qr.accentStrong)
-                .accessibilityLabel(label(button))
-            }
-        }
-    }
-
-    private func label(_ button: RunActivityDisplay.Button) -> String {
-        if button == .next, let next = context.state.nextLabel { return "Next: \(next)" }
-        return button.title
+        let intent = RunActivityButtonIntent(button, attributes: context.attributes, state: context.state)
+        Button(intent: intent) { RunActivityButtonLabel(display.title(for: button), primary: primary) }
+            .runActivityButtonStyle(button, primary: primary, theme: context.attributes.theme)
+            .accessibilityLabel(display.spokenTitle(for: button))
     }
 }

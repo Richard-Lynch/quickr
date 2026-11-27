@@ -96,7 +96,7 @@ struct TimingEditorSheet: View {
                         if let step = segment.step, !editor.steps.contains(where: { $0.key == step }) {
                             Text(step).tag(String?.some(step))
                         }
-                        Text("Lap").tag(String?.none)
+                        Text(editor.lapChoice(i)).tag(String?.none)
                     }
                     .accessibilityIdentifier("timing.segment\(i).step")
                     errorText("segments.\(i).step")

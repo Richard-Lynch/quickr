@@ -37,6 +37,10 @@ public final class HomeModel {
     public var sort: TopicSort = .due {
         didSet { if sort != oldValue { relist() } }
     }
+    /// The home tag filter (appearance.md §5): only topics holding this exact tag; nil for all.
+    public var tagFilter: String? {
+        didSet { if tagFilter != oldValue { relist() } }
+    }
     /// The device clock: one instant for the whole list ("… ago" text). Due state uses `serverNow`.
     public private(set) var now: Date
     /// The bound store's server clock (sync-protocol.md §10), from its sync state.
@@ -46,10 +50,21 @@ public final class HomeModel {
 
     /// Every topic in the store (the list's input).
     public private(set) var topics: [ViewTopic] = []
+    /// Every tag on the store's topics, for the filter panel's chips (`TopicListing.tags(of:)`).
+    public private(set) var tags: [String] = []
     /// The filtered, searched and sorted list.
     public private(set) var rows: [Row] = []
     /// `rows` in sections, when `isSectioned`.
     public private(set) var sections = TopicListing.Sections<Row>()
+    /// "Active now" (active-surfaces.md §3.1): the rows with an open run (`openRuns`), the most
+    /// recently started first. A view over the listing, in the sectioned and the searched layout
+    /// alike; `TopicListing` and its vectors don't know it.
+    public private(set) var activeRows: [Row] = []
+    /// `sections` without `activeRows`: an active topic shows once, in "Active now". ("Due now"
+    /// already leaves it out: an open run isn't due.)
+    public private(set) var inactiveSections = TopicListing.Sections<Row>()
+    /// `rows` without `activeRows`: the unsectioned (searched or filtered) list under "Active now".
+    public private(set) var inactiveRows: [Row] = []
     /// Active topics due now, whatever the search or filter: the app badge.
     public private(set) var badgeCount = 0
     /// The run each timed topic's tile shows, by topic id: its open run, else its latest finishing
@@ -58,7 +73,9 @@ public final class HomeModel {
     /// The topics with an open run (running or paused): left out of "Due now" and the badge. A
     /// finishing run isn't open, so its topic keeps its due state.
     public private(set) var openRuns: TopicListing.OpenRunTopics = TopicListing.noOpenRuns
-    /// Topics read from the store at least once since the last bind.
+    /// Topics and runs read from the store at least once since the last bind. Until the runs
+    /// are, a topic's tile can't tell an idle topic from one with an open or finishing run, so
+    /// it would offer Start where the run's card or "Add details" belongs (#239).
     public private(set) var loaded = false
     /// The latest observation failure, cleared by a successful read.
     public private(set) var loadError: String?
@@ -71,6 +88,15 @@ public final class HomeModel {
     /// Tests: replaces the store's sync-state observation, to hold it back while the topics load.
     @_spi(Testing) @ObservationIgnored public var syncStatesForTesting:
         (@MainActor (LocalStore) -> AsyncThrowingStream<SyncState?, any Error>)?
+    /// Tests: replaces the store's local-run observation, to hold it back while the topics load.
+    @_spi(Testing) @ObservationIgnored public var localRunsForTesting:
+        (@MainActor (LocalStore) -> AsyncThrowingStream<[LocalRun], any Error>)?
+    /// This observation's first topics and first runs have been read (`loaded` is both).
+    @ObservationIgnored private var topicsRead = false
+    @ObservationIgnored private var runsRead = false
+    /// The runs' observation failed: the list stays back (it can't show the runs) with the error
+    /// and Retry, even as the topics keep arriving.
+    @ObservationIgnored private var runsFailure: String?
 
     public init(session: AppSession, now: Date = Date(), debounce: Duration = .milliseconds(250)) {
         self.session = session
@@ -81,11 +107,13 @@ public final class HomeModel {
     // MARK: - Derived
 
     /// A search or a non-default status: the empty state reads "No matches", not "Track anything".
-    public var isFiltered: Bool { !query.isEmpty || status != .active }
-    /// The default view (due first, active, no search) shows sections; anything else, one list.
-    public var isSectioned: Bool { TopicListing.isSectioned(status: status, sort: sort, query: query) }
+    public var isFiltered: Bool { !query.isEmpty || status != .active || tagFilter != nil }
+    /// The default view (due first, active, no search or tag) shows sections; anything else, one list.
+    public var isSectioned: Bool {
+        TopicListing.isSectioned(status: status, sort: sort, query: query, tag: tagFilter)
+    }
     /// The filter panel's button is highlighted when anything is not the default.
-    public var hasNonDefaultFilter: Bool { status != .active || sort != .due }
+    public var hasNonDefaultFilter: Bool { status != .active || sort != .due || tagFilter != nil }
 
     public var phase: Phase {
         switch session.phase {
@@ -130,6 +158,9 @@ public final class HomeModel {
         bootstrapped = false
         clock = .device
         loaded = false
+        topicsRead = false
+        runsRead = false
+        runsFailure = nil
         loadError = nil
         relist()
         guard let store = session.store else { return }
@@ -155,8 +186,9 @@ public final class HomeModel {
             for try await topics in store.observeTopics(refresh: session.refresh.stream()) {
                 guard isCurrent(observation) else { return }
                 self.topics = topics
-                loaded = true
-                loadError = nil
+                topicsRead = true
+                loaded = runsRead
+                loadError = runsFailure
                 relist()
             }
         } catch is CancellationError {
@@ -167,8 +199,13 @@ public final class HomeModel {
 
     private func observeRuns(_ store: LocalStore, _ observation: Int) async {
         do {
-            for try await runs in store.observeLocalRuns(refresh: session.refresh.stream()) {
+            let states = localRunsForTesting?(store) ?? store.observeLocalRuns(refresh: session.refresh.stream())
+            for try await runs in states {
                 guard isCurrent(observation) else { return }
+                if !runsRead {
+                    runsRead = true
+                    loaded = topicsRead
+                }
                 let shown = Self.shownRuns(runs)
                 let open = RunOverlay.openRunTopics(runs)
                 guard shown != self.runs || open != openRuns else { continue }
@@ -176,8 +213,15 @@ public final class HomeModel {
                 openRuns = open
                 relist()
             }
+        } catch is CancellationError {
         } catch {
-            // As above: the topics' observation reports store failures.
+            // Before the first runs, a list without them would offer Start on a topic with a run:
+            // it stays back, with the error and Retry. After them, the topics' observation reports
+            // store failures.
+            if isCurrent(observation), !runsRead {
+                runsFailure = String(describing: error)
+                loadError = runsFailure
+            }
         }
     }
 
@@ -244,8 +288,32 @@ public final class HomeModel {
     private func relist() {
         let now = serverNow
         rows = TopicListing.list(
-            topics, topic: \.topic, now: now, status: status, sort: sort, query: query)
+            topics, topic: \.topic, now: now, status: status, sort: sort, query: query, tag: tagFilter)
+        let tags = TopicListing.tags(of: topics.map(\.topic))
+        if tags != self.tags { self.tags = tags }
         sections = TopicListing.sections(rows, now: now, openRuns: openRuns)
         badgeCount = TopicListing.dueCount(topics.map(\.topic), now: now, openRuns: openRuns)
+        partitionActive()
+    }
+
+    /// Splits `rows` and `sections` by `openRuns` (active-surfaces.md §3.1, D-4). Only the order
+    /// of "Active now" is new: latest start first, ties (and a run not read yet) in list order.
+    private func partitionActive() {
+        let openRuns = openRuns
+        func isActive(_ row: Row) -> Bool { openRuns.contains(row.topic.id) }
+        func started(_ row: Row) -> Int {
+            guard let run = runs[row.topic.id], run.isOpen else { return .min }
+            return run.state.startedAt
+        }
+        activeRows = rows.enumerated().filter { isActive($0.element) }
+            .sorted { a, b in
+                let (x, y) = (started(a.element), started(b.element))
+                return x != y ? x > y : a.offset < b.offset
+            }
+            .map(\.element)
+        inactiveRows = rows.filter { !isActive($0) }
+        inactiveSections = TopicListing.Sections(
+            due: sections.due.filter { !isActive($0) }, upcoming: sections.upcoming.filter { !isActive($0) },
+            other: sections.other.filter { !isActive($0) })
     }
 }

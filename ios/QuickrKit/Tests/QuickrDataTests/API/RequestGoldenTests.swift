@@ -27,7 +27,7 @@ import Testing
     static let pushEndpoint = "https://web.push.apple.com/QGuQyavXutnMlB5k"
     /// The run of the timed v2 topic; its start event has the run's id (timers.md §3.2).
     static let runId = UUID(uuidString: "55555555-5555-4555-8555-000000000001")!
-    static let eventIds = (1...8).map { String(format: "66666666-6666-4666-8666-%012d", $0) }
+    static let eventIds = (1...10).map { String(format: "66666666-6666-4666-8666-%012d", $0) }
     static let device = RunEventInDTO.Device(apnsToken: apnsToken, liveActivity: false)
 
     static let directory = Fixtures.root.appendingPathComponent("requests", isDirectory: true)
@@ -126,6 +126,23 @@ import Testing
         Case(name: "updateTopic.schedule_cleared") { client in
             _ = try await client.updateTopic(ref: topicId.wireString, TopicUpdateDTO(schedule: .null))
         },
+        // T2-M3: the Details save with the appearance (appearance.md §1.1, §7): one PATCH with
+        // `expected_revision`; `null` and `[]` clear, an omitted field is unchanged.
+        Case(name: "updateTopic.appearance") { client in
+            let change = TopicDetailsChange(
+                name: "Everything themed", appearance: AppearanceUpdate(color: .some(.teal), icon: .some(nil), tags: [])
+            )
+            _ = try await client.updateTopic(
+                ref: topicId.wireString, TopicRequests.details(change, expectedRevision: 1))
+        },
+        Case(name: "createTopic.appearance") { client in
+            _ = try await client.createTopic(
+                TopicCreateDTO(
+                    name: "Smoking", slug: "smoking",
+                    questions: [Question(key: "count", label: "Count", kind: .int(.init(min: 0, max: 40)))],
+                    appearance: TopicAppearance(color: .amber, icon: .emoji("🚬"), tags: ["Habit", "Health"])))
+        },
+        // end T2-M3
         Case(name: "archiveTopic") { client in
             _ = try await client.archiveTopic(ref: topicId.wireString, expectedRevision: 1)
         },
@@ -143,6 +160,26 @@ import Testing
                     questions: everythingV2, baseVersion: 1,
                     timer: TopicTimer(steps: [.init(key: "pour", label: "Pour"), .init(key: "drink", label: "Drink")]),
                     changeNote: "Retire 'poor'"))
+        },
+        // Timer v2 (timers2.md §1.1): a step with an alert, two lap types (one with an alert) and the
+        // variables the alerts read. `at_ms` is output only, so a draft never sends it.
+        Case(name: "publishTopicVersion.timer_v2") { client in
+            _ = try await client.publishTopicVersion(
+                ref: topicId.wireString,
+                VersionCreateDTO(
+                    questions: everything, baseVersion: 1,
+                    timer: TopicTimer(
+                        steps: [
+                            .init(
+                                key: "warmup", label: "Warm up",
+                                alerts: [.init(key: "ready", label: "Ready", at: "warm - 30s")])
+                        ],
+                        laps: [
+                            .init(key: "run", label: "Run", alerts: [.init(key: "turn", label: "Turn", at: "t / 2")]),
+                            .init(key: "rest", label: "Rest"),
+                        ],
+                        variables: [.init(name: "warm", ms: 300_000), .init(name: "t", ms: 90_000)]),
+                    changeNote: "Intervals"))
         },
         Case(name: "checkTopicVersion") { client in
             _ = try await client.checkTopicVersion(
@@ -235,6 +272,14 @@ import Testing
                 answers: wire(["glasses": .int(2), "hours": .double(7.5), "mood": .string("ok")]),
                 notes: "Two glasses.")),
         runEvent("discard", RunEventInDTO(id: eventIds[7], type: "discard", at: at("2026-03-05T08:08:00Z"))),
+        // timers2.md §4: on the finished run, a reopen of its stop (the terminal, `timing.terminal_id`)
+        // and a remove of its pause (`TimingPause.id`), each replayed on its own.
+        runEvent(
+            "reopen",
+            RunEventInDTO(id: eventIds[8], type: "reopen", at: at("2026-03-05T08:09:00Z"), target: eventIds[5])),
+        runEvent(
+            "remove",
+            RunEventInDTO(id: eventIds[9], type: "remove", at: at("2026-03-05T08:09:30.5Z"), target: eventIds[3])),
         // Push
         Case(name: "createPushSubscription") { client in
             let json =

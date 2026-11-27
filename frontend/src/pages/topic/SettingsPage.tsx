@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { FormProvider, useForm } from 'react-hook-form';
+import { FormProvider, useForm, useWatch, type FieldPath } from 'react-hook-form';
 import { useNavigate } from 'react-router';
 import { z } from 'zod';
 
@@ -13,9 +13,15 @@ import {
   useUpdateTopicSchedule,
 } from '../../api/mutations';
 import { invalidateTopicData } from '../../api/queryClient';
-import { deleteTopicMutation, getTopicQueryKey } from '../../client/@tanstack/react-query.gen';
+import {
+  deleteTopicMutation,
+  getTopicOptions,
+  getTopicQueryKey,
+} from '../../client/@tanstack/react-query.gen';
 import type { TopicDetail } from '../../client';
 import { Page, TopBar } from '../../components/AppShell';
+import { AppearanceFields } from '../../components/builder/AppearanceFields';
+import { builderFieldFor } from '../../components/builder/serverErrors';
 import { ScheduleEditor } from '../../components/schedule/ScheduleEditor';
 import { Button } from '../../components/ui/Button';
 import { Banner, Card, SectionTitle } from '../../components/ui/Card';
@@ -23,16 +29,168 @@ import { Field, Input, Textarea } from '../../components/ui/Field';
 import { Icon } from '../../components/ui/Icon';
 import { ConfirmSheet } from '../../components/ui/Sheet';
 import { useToast } from '../../components/ui/Toast';
-import { makeScheduleSchema, makeTopicMetaSchema } from '../../lib/builder';
+import {
+  appearanceChanges,
+  appearanceDraftOf,
+  emptyTopicDraft,
+  makeScheduleSchema,
+  makeTopicMetaAppearanceSchema,
+} from '../../lib/builder';
+import { isBlankTag } from '../../lib/appearance';
 import { formatDateTime } from '../../lib/dates';
 import { plural } from '../../lib/format';
 import { draftFromSchedule, scheduleFieldFor, type ScheduleDraft } from '../../lib/schedule';
+import { appearanceOf, type TopicUpdateBody } from '../../lib/topicAppearanceSeam';
 import { useUnsavedChangesGuard } from '../../lib/unsavedChanges';
 import { useTopic } from './TopicLayout';
 
-type MetaSchema = ReturnType<typeof makeTopicMetaSchema>;
+type MetaSchema = ReturnType<typeof makeTopicMetaAppearanceSchema>;
 type MetaValues = z.input<MetaSchema>;
 type MetaOutput = z.output<MetaSchema>;
+
+const META_FIELDS = new Set(['name', 'slug', 'description']);
+
+/** The details form's fields, each compared on its own. */
+const DETAIL_FIELDS = [
+  'name',
+  'slug',
+  'description',
+  'appearance.color',
+  'appearance.icon',
+  'appearance.tags',
+] as const;
+type DetailField = (typeof DETAIL_FIELDS)[number];
+
+/** The fields' words in the conflict message (the same on iOS). */
+const DETAIL_WORDS: Record<DetailField, string> = {
+  name: 'name',
+  slug: 'URL slug',
+  description: 'description',
+  'appearance.color': 'colour',
+  'appearance.icon': 'emoji',
+  'appearance.tags': 'tags',
+};
+
+function fieldOf(v: MetaValues, f: DetailField): unknown {
+  if (f === 'appearance.color') return v.appearance.color;
+  if (f === 'appearance.icon') return v.appearance.icon;
+  // Text typed in the tag input but not added yet is part of the tags edit (as on iOS).
+  if (f === 'appearance.tags')
+    return isBlankTag(v.appearance.tagInput)
+      ? v.appearance.tags
+      : [v.appearance.tags, v.appearance.tagInput];
+  return v[f];
+}
+
+const sameValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** The fields where `current` differs from `base` (what the user has edited). */
+function editedFields(current: MetaValues, base: MetaValues): DetailField[] {
+  return DETAIL_FIELDS.filter((f) => !sameValue(fieldOf(current, f), fieldOf(base, f)));
+}
+
+/** Which of `fields` differ between `a` and `b`. */
+function changedOf(a: MetaValues, b: MetaValues, fields: readonly DetailField[]): DetailField[] {
+  return fields.filter((f) => !sameValue(fieldOf(a, f), fieldOf(b, f)));
+}
+
+/** The form values that hold the user's edits to `fields`, by form path. */
+function keepOf(v: MetaValues, fields: readonly DetailField[]): Keep {
+  return Object.fromEntries(
+    fields.flatMap((f): [FieldPath<MetaValues>, unknown][] =>
+      f === 'appearance.tags'
+        ? [
+            ['appearance.tags', v.appearance.tags],
+            ['appearance.tagInput', v.appearance.tagInput],
+          ]
+        : [[f, fieldOf(v, f)]],
+    ),
+  );
+}
+
+type Keep = Partial<Record<FieldPath<MetaValues>, unknown>>;
+
+/** What the form shows: a topic's values, with the user's edits (`keep`) put back on top. */
+interface Shown {
+  topic: TopicDetail;
+  keep: Keep;
+}
+
+/** Save attempts in all: the first PATCH plus re-sends over unrelated changes made meanwhile. */
+const MAX_SAVE_ATTEMPTS = 3;
+
+/** A save that stopped on purpose; `message` is the banner. */
+class SaveStopped extends Error {}
+
+function listOf(words: string[]): string {
+  return words.length < 2
+    ? (words[0] ?? '')
+    : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1] ?? ''}`;
+}
+
+/** The conflict message, worded as on iOS; `fields` in `DETAIL_FIELDS` order. */
+function conflictMessage(fields: readonly DetailField[]): string {
+  const names = listOf(fields.map((f) => DETAIL_WORDS[f]));
+  return fields.length === 1
+    ? `The ${names} was changed elsewhere. Your edit is still here; save again to keep it.`
+    : `The ${names} were changed elsewhere. Your edits are still here; save again to keep them.`;
+}
+
+const BUSY_MESSAGE = 'This topic keeps changing elsewhere. Try again in a moment.';
+const REREAD_FAILED_MESSAGE = 'This topic was changed elsewhere. Try again.';
+
+/** A field's value as the wire has it: on a topic, or in a PATCH body (`undefined`: not sent). */
+function wireOf(t: TopicDetail, f: DetailField): unknown {
+  const a = appearanceOf(t);
+  if (f === 'appearance.color') return a?.color ?? null;
+  if (f === 'appearance.icon') return a?.icon?.value ?? null;
+  if (f === 'appearance.tags') return a?.tags ?? [];
+  return t[f];
+}
+
+function sentOf(body: TopicUpdateBody, f: DetailField): unknown {
+  const a = body.appearance;
+  if (f === 'appearance.color') return a && 'color' in a ? a.color : undefined;
+  if (f === 'appearance.icon') return a && 'icon' in a ? (a.icon?.value ?? null) : undefined;
+  if (f === 'appearance.tags') return a?.tags;
+  return body[f];
+}
+
+/**
+ * The fields the save sends that `fresh` changed since `base` to something else than what's
+ * sent: a field changed elsewhere to the very value being sent overwrites nothing (as on iOS).
+ */
+function clashesOf(base: TopicDetail, fresh: TopicDetail, body: TopicUpdateBody): DetailField[] {
+  return DETAIL_FIELDS.filter((f) => {
+    const sent = sentOf(body, f);
+    return (
+      sent !== undefined &&
+      !sameValue(wireOf(base, f), wireOf(fresh, f)) &&
+      !sameValue(wireOf(fresh, f), sent)
+    );
+  });
+}
+
+/** The PATCH body for the form's (valid) values against `from`; `null` when nothing changed. */
+function detailsChanges(from: TopicDetail, v: MetaOutput): TopicUpdateBody | null {
+  const changed = appearanceChanges(appearanceOf(from), v.appearance);
+  const body: TopicUpdateBody = {
+    ...(v.name !== from.name ? { name: v.name } : {}),
+    ...(v.slug !== from.slug ? { slug: v.slug } : {}),
+    ...(v.description !== from.description ? { description: v.description } : {}),
+    ...(changed ? { appearance: changed } : {}),
+  };
+  return Object.keys(body).length > 0 ? body : null;
+}
+
+function metaValuesOf(t: TopicDetail): MetaValues {
+  return {
+    name: t.name,
+    slug: t.slug,
+    description: t.description,
+    appearance: appearanceDraftOf(appearanceOf(t)),
+  };
+}
 
 interface DirtyProps {
   /** Report unsaved edits to the page's single unsaved-changes guard. */
@@ -50,7 +208,7 @@ export function SettingsPage() {
       <TopBar back={`/t/${topic.slug}`} title="Topic settings" />
       <Page className="mx-auto max-w-2xl gap-6">
         <MetaForm
-          key={`${topic.name}\n${topic.slug}\n${topic.description}`}
+          key={topic.id}
           topic={topic}
           onDirty={(meta) => setDirty((d) => (d.meta === meta ? d : { ...d, meta }))}
           allowNavigation={guard.allowNavigation}
@@ -74,48 +232,108 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
   const navigate = useNavigate();
   const { toast } = useToast();
   const limits = useLimits();
-  const schema = useMemo(() => makeTopicMetaSchema(limits), [limits]);
+  const schema = useMemo(() => makeTopicMetaAppearanceSchema(limits), [limits]);
+  const qc = useQueryClient();
   const [banner, setBanner] = useState<string | null>(null);
   const update = useUpdateTopicMeta();
   const form = useForm<MetaValues, unknown, MetaOutput>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      name: topic.name,
-      slug: topic.slug,
-      description: topic.description,
-    },
+    defaultValues: metaValuesOf(topic),
   });
   const e = form.formState.errors;
-  const { isDirty } = form.formState;
+  const { isDirty, isSubmitting } = form.formState;
   useEffect(() => onDirty(isDirty), [isDirty, onDirty]);
+  // `base` is the topic a save diffs against and whose revision it sends. A newer topic (a higher
+  // revision: this client's own schedule or archive save, a refetch, the feed) becomes the base
+  // unless it changed a field the user is editing: the fields they haven't touched take its values
+  // and their edits (tag text not added yet included) and field errors stay. Only an edit that a
+  // newer topic also changed keeps the old base, so the save gets 409 and the conflict is shown
+  // instead of overwriting the other change. The form isn't keyed by the topic's values: the
+  // optimistic patch would remount it mid-save, and a failure would lose the edits and the 422's
+  // field errors.
+  const values = useWatch({ control: form.control }) as MetaValues;
+  const [base, setBase] = useState(topic);
+  const [shown, setShown] = useState<Shown>({ topic, keep: {} });
+  if (topic !== base && topic.revision > base.revision && !isSubmitting) {
+    const edited = editedFields(values, metaValuesOf(base));
+    if (changedOf(metaValuesOf(base), metaValuesOf(topic), edited).length === 0) {
+      setBase(topic);
+      setShown({ topic, keep: keepOf(values, edited) });
+    }
+  }
+  useEffect(() => {
+    form.reset(metaValuesOf(shown.topic), { keepErrors: true });
+    for (const [f, v] of Object.entries(shown.keep))
+      form.setValue(f as FieldPath<MetaValues>, v as never, { shouldDirty: true });
+  }, [shown, form]);
 
   const onSubmit = form.handleSubmit(async (v) => {
     setBanner(null);
-    const body = {
-      ...(v.name !== topic.name ? { name: v.name } : {}),
-      ...(v.slug !== topic.slug ? { slug: v.slug } : {}),
-      ...(v.description !== topic.description ? { description: v.description } : {}),
-    };
-    if (Object.keys(body).length === 0) {
+    const body = detailsChanges(base, v);
+    if (!body) {
       toast({ title: 'Nothing to save', tone: 'info' });
       return;
     }
-    try {
-      const updated = await update.mutateAsync({
-        path: { ref: topic.slug },
-        body,
+    // The user's edits, kept on screen when the save stops (the body may send fewer: " Gym" is "Gym").
+    const edited = editedFields(form.getValues(), metaValuesOf(base));
+    // By id: a slug changed elsewhere must not turn the save or the refetch into a 404.
+    const save = (on: TopicDetail) =>
+      update.mutateAsync({
+        path: { ref: topic.id },
+        body: { ...body, expected_revision: on.revision },
       });
+    try {
+      let on = base;
+      let updated: TopicDetail | undefined;
+      for (let attempt = 1; !updated; attempt++) {
+        try {
+          updated = await save(on);
+        } catch (err) {
+          // A change this form hasn't seen (another device, before the feed brought it): when it
+          // left the sent fields alone, send the same edits on its revision; when it changed one,
+          // show that topic with the user's edits on top, so the next save overwrites it knowingly.
+          if (mapApiError(err).code !== 'stale_revision') throw err;
+          let fresh: TopicDetail;
+          try {
+            fresh = await qc.query({
+              ...getTopicOptions({ path: { ref: topic.id } }),
+              staleTime: 0,
+            });
+          } catch {
+            throw new SaveStopped(REREAD_FAILED_MESSAGE); // nothing fresh to check against
+          }
+          const clashed = clashesOf(base, fresh, body);
+          if (clashed.length > 0 || attempt >= MAX_SAVE_ATTEMPTS) {
+            setBase(fresh);
+            setShown({ topic: fresh, keep: keepOf(form.getValues(), edited) });
+            throw new SaveStopped(clashed.length > 0 ? conflictMessage(clashed) : BUSY_MESSAGE);
+          }
+          on = fresh;
+        }
+      }
       toast({ title: 'Saved' });
-      // The form remounts with the saved values (keyed by them).
+      setBase(updated);
+      setShown({ topic: updated, keep: {} });
       onDirty(false);
       allowNavigation();
       if (updated.slug !== topic.slug)
         void navigate(`/t/${updated.slug}/settings`, { replace: true });
     } catch (err) {
+      if (err instanceof SaveStopped) {
+        setBanner(err.message);
+        return;
+      }
       const mapped = mapApiError(err);
+      // builderFieldFor maps the meta and `appearance.*` paths (a meta PATCH sends no others).
+      const draft = { ...emptyTopicDraft(), appearance: form.getValues('appearance') };
       const rest = applyFieldErrors(
         mapped.fieldErrors,
-        (p) => (p === 'name' || p === 'slug' || p === 'description' ? p : null),
+        (p) => {
+          const f = builderFieldFor(p, draft);
+          return f && (META_FIELDS.has(f) || f.startsWith('appearance.'))
+            ? (f as FieldPath<MetaValues>)
+            : null;
+        },
         form.setError,
       );
       if (mapped.fieldErrors.length > 0 && rest.length === 0) return;
@@ -131,44 +349,52 @@ function MetaForm({ topic, onDirty, allowNavigation }: { topic: TopicDetail } & 
       <form onSubmit={(ev) => void onSubmit(ev)} noValidate className="flex flex-col gap-4">
         <SectionTitle>Details</SectionTitle>
         {banner ? <Banner title={banner} /> : null}
-        <Field label="Name" error={e.name?.message}>
-          {({ id, describedBy, invalid }) => (
-            <Input
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              {...form.register('name')}
-            />
-          )}
-        </Field>
-        <Field
-          label="URL slug"
-          hint="Changing it breaks old links to this topic"
-          error={e.slug?.message}
-        >
-          {({ id, describedBy, invalid }) => (
-            <Input
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              autoCapitalize="none"
-              spellCheck={false}
-              className="font-mono"
-              {...form.register('slug')}
-            />
-          )}
-        </Field>
-        <Field label="Description" optional error={e.description?.message}>
-          {({ id, describedBy, invalid }) => (
-            <Textarea
-              id={id}
-              aria-describedby={describedBy}
-              aria-invalid={invalid || undefined}
-              rows={3}
-              {...form.register('description')}
-            />
-          )}
-        </Field>
+        {/* Read-only while saving: the reply resets the form, which would drop edits made meanwhile. */}
+        <fieldset disabled={isSubmitting} className="contents">
+          <Field label="Name" error={e.name?.message}>
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                {...form.register('name')}
+              />
+            )}
+          </Field>
+          <Field
+            label="URL slug"
+            hint="Changing it breaks old links to this topic"
+            error={e.slug?.message}
+          >
+            {({ id, describedBy, invalid }) => (
+              <Input
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                autoCapitalize="none"
+                spellCheck={false}
+                className="font-mono"
+                {...form.register('slug')}
+              />
+            )}
+          </Field>
+          <Field label="Description" optional error={e.description?.message}>
+            {({ id, describedBy, invalid }) => (
+              <Textarea
+                id={id}
+                aria-describedby={describedBy}
+                aria-invalid={invalid || undefined}
+                rows={3}
+                {...form.register('description')}
+              />
+            )}
+          </Field>
+          <FormProvider {...form}>
+            <div className="border-t border-line pt-4">
+              <AppearanceFields />
+            </div>
+          </FormProvider>
+        </fieldset>
         <p className="text-xs text-muted">Questions are edited by publishing a new version.</p>
         <div className="flex justify-end">
           <Button

@@ -305,10 +305,11 @@ final class FakeServer: Transport {
         if state.topics.values.contains(where: { $0.slug == slug }) {
             return problem(409, "conflict", "slug '\(slug)' is already taken")
         }
-        let topic = Topic(
+        var topic = Topic(
             id: UUID(), slug: slug, name: dto.name, description: dto.description ?? "", currentVersion: 1,
             revision: 1, questionCount: dto.questions.count, createdAt: at, updatedAt: at, schedule: schedule,
             scheduleUpdatedAt: schedule == nil ? nil : at, questions: dto.questions.map { $0.toDomain() })
+        topic.appearance = dto.appearance ?? .empty  // T2-M3
         state.topics[topic.id.wireString] = topic
         return ok(201, topic)
     }
@@ -336,6 +337,21 @@ final class FakeServer: Transport {
             topic.schedule = schedule
             topic.scheduleUpdatedAt = at
         }
+        // T2-M3: an omitted field is unchanged, null clears (appearance.md §1.1).
+        if let appearance = dto.appearance {
+            switch appearance.color {
+            case .absent: break
+            case .null: topic.appearance.color = nil
+            case .value(let color): topic.appearance.color = color
+            }
+            switch appearance.icon {
+            case .absent: break
+            case .null: topic.appearance.icon = nil
+            case .value(let icon): topic.appearance.icon = icon
+            }
+            if let tags = appearance.tags { topic.appearance.tags = tags }
+        }
+        // end T2-M3
         topic.revision += 1
         state.topics[id] = topic
         return ok(200, topic)
@@ -520,6 +536,7 @@ private struct WireTopic: Encodable {
 
     enum Keys: String, CodingKey {
         case id, slug, name, description, status, revision, schedule, due, timer, questions
+        case appearance  // T2-M3
         case currentVersion = "current_version"
         case questionCount = "question_count"
         case entryCount = "entry_count"
@@ -528,6 +545,7 @@ private struct WireTopic: Encodable {
         case updatedAt = "updated_at"
         case archivedAt = "archived_at"
         case scheduleUpdatedAt = "schedule_updated_at"
+        case lastEntry = "last_entry"  // T2-M4
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -548,7 +566,11 @@ private struct WireTopic: Encodable {
         try c.encode(topic.schedule.map(ScheduleDTO.init), forKey: .schedule)
         try c.encode(topic.scheduleUpdatedAt, forKey: .scheduleUpdatedAt)
         try c.encodeNil(forKey: .due)
-        try c.encode(topic.timer, forKey: .timer)
+        try c.encode(topic.timer.map(TopicTimerDTO.init), forKey: .timer)
+        // T2-M4: the server always sends `last_entry` (content-display.md §2); the client doesn't read it.
+        try c.encodeNil(forKey: .lastEntry)
+        // end T2-M4
+        try c.encode(AppearanceDTO(topic.appearance), forKey: .appearance)  // T2-M3
         try c.encode(topic.questions.map(QuestionDTO.init), forKey: .questions)
     }
 }

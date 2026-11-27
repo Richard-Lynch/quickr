@@ -1,0 +1,2852 @@
+{
+  "testIdentifier" : "TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+  "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+  "testName" : "testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+  "testRuns" : [
+    {
+      "activities" : [
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Screen Recording 2026-11-26 at 10.20.51 PM.mp4",
+              "payloadId" : "0~R_B5fqLWjq1DmCsuHOfZywKbWsG-cpaja3mzuYnF5nkp4tcEZMP6btkSsGAOsZPnaUzriZBmSLP923F7WoqJFg==",
+              "timestamp" : 1795731651.679,
+              "uuid" : "28C809B1-1AA4-4C8D-87E7-3544680E988A"
+            }
+          ],
+          "childActivities" : [
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731651.679,
+              "title" : "kXCTAttachmentScreenRecording"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731651.658,
+          "title" : "Start Test at 2026-11-26 22:20:51.658"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731651.682,
+          "title" : "Set Up"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731651.685,
+                  "title" : "Terminate com.bahumia.quickr:3525"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731652.946,
+                  "title" : "Setting up automation session"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731655.836,
+                  "title" : "Wait for com.bahumia.quickr to idle"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731651.685,
+              "title" : "Launch com.bahumia.quickr"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731651.683,
+          "title" : "Open com.bahumia.quickr"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731657.425,
+          "title" : "Checking existence of `\"topicSettings.description\" TextField`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731658.559,
+                  "title" : "Checking existence of `\"topicSettings.description\" TextField`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731658.559,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.description\" TextField`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731657.534,
+          "title" : "Waiting 15.0s for \"topicSettings.description\" TextField to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.20.58 PM",
+              "payloadId" : "0~IzRp3-tWGoA3Ha3lfEAAOVPcezqPDWI-10z9wU0UCwcpMFBKJtn7NbcUagcD2SLU9esdRNlk6yVSL2h_TIHqfQ==",
+              "timestamp" : 1795731658.959,
+              "uuid" : "E80B6D34-AE25-40F2-AEBE-BA69D59B0ABF"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731658.608,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731658.611,
+              "title" : "Find the \"topicSettings.description\" TextField"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731658.641,
+              "title" : "Check for interrupting elements affecting \"topicSettings.description\" TextField"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.20.58 PM",
+                  "payloadId" : "0~IzRp3-tWGoA3Ha3lfEAAOVPcezqPDWI-10z9wU0UCwcpMFBKJtn7NbcUagcD2SLU9esdRNlk6yVSL2h_TIHqfQ==",
+                  "timestamp" : 1795731658.959,
+                  "uuid" : "E80B6D34-AE25-40F2-AEBE-BA69D59B0ABF"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731658.959,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731658.671,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731658.959,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731658.608,
+          "title" : "Tap \"topicSettings.description\" TextField"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.00 PM",
+              "payloadId" : "0~kdFwVUPL4DguE1RRU1czK07NZ-SVVqB2FKJi_cneIHuyKE4h6ThrRzFDtvzMVHT6p4DHFM04oOgiLdYb8izLGw==",
+              "timestamp" : 1795731660.194,
+              "uuid" : "39173A1F-0786-47D0-BE7D-00321DC1C095"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731659.272,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731659.623,
+              "title" : "Find the \"topicSettings.description\" TextField"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731659.682,
+              "title" : "Check for interrupting elements affecting \"topicSettings.description\" TextField"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.00 PM",
+                  "payloadId" : "0~kdFwVUPL4DguE1RRU1czK07NZ-SVVqB2FKJi_cneIHuyKE4h6ThrRzFDtvzMVHT6p4DHFM04oOgiLdYb8izLGw==",
+                  "timestamp" : 1795731660.194,
+                  "uuid" : "39173A1F-0786-47D0-BE7D-00321DC1C095"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.194,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731659.718,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.195,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731659.271,
+          "title" : "Type 'How the day felt' into \"topicSettings.description\" TextField"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731660.2,
+          "title" : "Checking existence of `Keyboard (First Match)`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.00 PM",
+              "payloadId" : "0~1wBO2VMYSNoTisP7rb_JhRQVXsd7gnnFvObihIAlI6crSHR0wTYU6CKe7s8BvgHATNseTraHd-pmxK6Lb2HxVQ==",
+              "timestamp" : 1795731660.564,
+              "uuid" : "CC41E3FA-2173-4228-82A3-B56032720B61"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.211,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.214,
+              "title" : "Find the NavigationBar (First Match)"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.232,
+              "title" : "Check for interrupting elements affecting \"Topic settings\" NavigationBar"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.00 PM",
+                  "payloadId" : "0~1wBO2VMYSNoTisP7rb_JhRQVXsd7gnnFvObihIAlI6crSHR0wTYU6CKe7s8BvgHATNseTraHd-pmxK6Lb2HxVQ==",
+                  "timestamp" : 1795731660.564,
+                  "uuid" : "CC41E3FA-2173-4228-82A3-B56032720B61"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.564,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.27,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.565,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731660.211,
+          "title" : "Tap NavigationBar (First Match)"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731660.571,
+          "title" : "Checking existence of `Keyboard (First Match)`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.00 PM",
+              "payloadId" : "0~iC_rfkFHmc7eT-gwjULJzHJmtb6o0ljSeHZ5V6QiyEa9l8xrk47qyCNX0xXBrJPPubmj3Hug5n3bNHaYoqCKHg==",
+              "timestamp" : 1795731660.648,
+              "uuid" : "8EFF904E-695A-46AB-A232-2A09DAA3F37A"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.02 PM",
+              "payloadId" : "0~8q9ZpULuUQJX6X3S1EkEfYjOuR5RgloVWJDjh9Qjt2hIHwTSUcwu4wgGOd89hETX3WXvhaISFlUjI6_lSXLxXQ==",
+              "timestamp" : 1795731662.275,
+              "uuid" : "F9AFE91C-D01C-4201-AC0D-0488A057CD60"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.582,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.585,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.613,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.00 PM",
+                  "payloadId" : "0~iC_rfkFHmc7eT-gwjULJzHJmtb6o0ljSeHZ5V6QiyEa9l8xrk47qyCNX0xXBrJPPubmj3Hug5n3bNHaYoqCKHg==",
+                  "timestamp" : 1795731660.648,
+                  "uuid" : "8EFF904E-695A-46AB-A232-2A09DAA3F37A"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.02 PM",
+                  "payloadId" : "0~8q9ZpULuUQJX6X3S1EkEfYjOuR5RgloVWJDjh9Qjt2hIHwTSUcwu4wgGOd89hETX3WXvhaISFlUjI6_lSXLxXQ==",
+                  "timestamp" : 1795731662.275,
+                  "uuid" : "F9AFE91C-D01C-4201-AC0D-0488A057CD60"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.648,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.648,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.674,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.702,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.73,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731660.763,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731662.275,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731660.646,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731662.275,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731660.582,
+          "title" : "Press Target Application 'com.bahumia.quickr'[0.50, 0.30] for 0.1 seconds, then drag to Target Application 'com.bahumia.quickr'[0.50, 0.98] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds "
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731663.632,
+                  "title" : "Checking existence of `Keyboard (First Match)`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731663.631,
+              "title" : "Checking `Expect predicate `existsNoRetry == 0` for object Keyboard (First Match)`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731662.627,
+          "title" : "Waiting 5.0s for Keyboard (First Match) to not exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731663.706,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731663.818,
+          "title" : "Find the \"topicSettings.saveDetails\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731663.938,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.046,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.158,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.259,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.37,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.477,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.589,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.692,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.795,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.888,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731664.987,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.085,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.19,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.283,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.38,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.473,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.584,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.678,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.78,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.874,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731665.971,
+          "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731666.062,
+          "title" : "Find the \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731667.178,
+                  "title" : "Checking existence of `\"topicSettings.saveDetails\" Button`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731667.177,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.saveDetails\" Button`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731666.162,
+          "title" : "Waiting 5.0s for \"topicSettings.saveDetails\" Button to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.07 PM",
+              "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+              "timestamp" : 1795731667.439,
+              "uuid" : "811C9339-2B6C-420A-8335-9F8E1E4FA649"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.07 PM",
+              "payloadId" : "0~y4bnpu7fudXwblyQGMIva4SLNwm5HASpI43AtphJnjLfYqEE7G5BWkjcQKI2V3ILSWvZsITF1WUbd5Ewc_p6Jg==",
+              "timestamp" : 1795731667.729,
+              "uuid" : "3F8C108E-8A9C-42F9-AE2E-854F485720EA"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731667.287,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731667.29,
+              "title" : "Find the \"topicSettings.saveDetails\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731667.394,
+              "title" : "Check for interrupting elements affecting \"topicSettings.saveDetails\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.07 PM",
+                  "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+                  "timestamp" : 1795731667.439,
+                  "uuid" : "811C9339-2B6C-420A-8335-9F8E1E4FA649"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.07 PM",
+                  "payloadId" : "0~y4bnpu7fudXwblyQGMIva4SLNwm5HASpI43AtphJnjLfYqEE7G5BWkjcQKI2V3ILSWvZsITF1WUbd5Ewc_p6Jg==",
+                  "timestamp" : 1795731667.729,
+                  "uuid" : "3F8C108E-8A9C-42F9-AE2E-854F485720EA"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731667.439,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731667.729,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731667.438,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731667.729,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731667.287,
+          "title" : "Tap \"topicSettings.saveDetails\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731668.737,
+                  "title" : "Checking existence of `\"toast.text\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731668.736,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"toast.text\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731667.732,
+          "title" : "Waiting 10.0s for \"toast.text\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.08 PM",
+              "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+              "timestamp" : 1795731668.858,
+              "uuid" : "8332D77E-D04A-4594-98AE-70071712E7EC"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.09 PM",
+              "payloadId" : "0~L7_dFhQylAOozFh2ejAa5bbP8zk9JtUnXKhL015paKlabVCrZ0vRUz94YFW8cjRxNQQKdn7bgX-5Gd70xSJTlQ==",
+              "timestamp" : 1795731669.15,
+              "uuid" : "2B65CCCE-CCEF-4F7D-9B3B-44E6E5AC6EEA"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731668.76,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731668.763,
+              "title" : "Find the \"Daily\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731668.825,
+              "title" : "Check for interrupting elements affecting \"Daily\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.08 PM",
+                  "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+                  "timestamp" : 1795731668.858,
+                  "uuid" : "8332D77E-D04A-4594-98AE-70071712E7EC"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.09 PM",
+                  "payloadId" : "0~L7_dFhQylAOozFh2ejAa5bbP8zk9JtUnXKhL015paKlabVCrZ0vRUz94YFW8cjRxNQQKdn7bgX-5Gd70xSJTlQ==",
+                  "timestamp" : 1795731669.15,
+                  "uuid" : "2B65CCCE-CCEF-4F7D-9B3B-44E6E5AC6EEA"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731668.858,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731669.15,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731668.856,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731669.151,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731668.76,
+          "title" : "Tap \"Daily\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731670.621,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.10 PM",
+              "payloadId" : "0~iC_rfkFHmc7eT-gwjULJzHJmtb6o0ljSeHZ5V6QiyEa9l8xrk47qyCNX0xXBrJPPubmj3Hug5n3bNHaYoqCKHg==",
+              "timestamp" : 1795731670.717,
+              "uuid" : "44C9632E-25C3-4D38-90A3-AC67FF6935B7"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.11 PM",
+              "payloadId" : "0~LRqUK8xJVfO3jK2ToM5PAvmT7cLT4H7rwFFvVcZLhobWDdHzClNzlHra9adfqJHPHnkKKikr-SZQoRLfoaUMkg==",
+              "timestamp" : 1795731671.692,
+              "uuid" : "47888635-5B27-414C-A649-FFF08164B1B6"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731670.659,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731670.662,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731670.685,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.10 PM",
+                  "payloadId" : "0~iC_rfkFHmc7eT-gwjULJzHJmtb6o0ljSeHZ5V6QiyEa9l8xrk47qyCNX0xXBrJPPubmj3Hug5n3bNHaYoqCKHg==",
+                  "timestamp" : 1795731670.717,
+                  "uuid" : "44C9632E-25C3-4D38-90A3-AC67FF6935B7"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.11 PM",
+                  "payloadId" : "0~LRqUK8xJVfO3jK2ToM5PAvmT7cLT4H7rwFFvVcZLhobWDdHzClNzlHra9adfqJHPHnkKKikr-SZQoRLfoaUMkg==",
+                  "timestamp" : 1795731671.692,
+                  "uuid" : "47888635-5B27-414C-A649-FFF08164B1B6"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731670.717,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731670.717,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731670.739,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731670.761,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731670.782,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731670.806,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731671.692,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731670.715,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731671.693,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731670.659,
+          "title" : "Press Target Application 'com.bahumia.quickr'[0.50, 0.45] for 0.1 seconds, then drag to Target Application 'com.bahumia.quickr'[0.50, 0.12] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds "
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.248,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.308,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.351,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.387,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.443,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.477,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.519,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.551,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.591,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.623,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.663,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.695,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.736,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.768,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.806,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.837,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.876,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.907,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.949,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731673.985,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731674.026,
+          "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731674.058,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731675.129,
+                  "title" : "Checking existence of `\"topicSettings.schedule.preview\" StaticText`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731675.128,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.schedule.preview\" StaticText`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731674.097,
+          "title" : "Waiting 5.0s for \"topicSettings.schedule.preview\" StaticText to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731675.176,
+          "title" : "Find the \"topicSettings.schedule.preview\" StaticText"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731675.214,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731675.347,
+          "title" : "Find the \"topicSettings.saveSchedule\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731675.493,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731675.635,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731675.773,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731675.892,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.019,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.137,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.26,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.376,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.498,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.613,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.755,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731676.879,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.012,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.136,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.263,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.387,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.52,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.644,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.783,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731677.909,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731678.043,
+          "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731678.174,
+          "title" : "Find the \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731679.344,
+                  "title" : "Checking existence of `\"topicSettings.saveSchedule\" Button`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731679.343,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.saveSchedule\" Button`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731678.312,
+          "title" : "Waiting 5.0s for \"topicSettings.saveSchedule\" Button to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.19 PM",
+              "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+              "timestamp" : 1795731679.673,
+              "uuid" : "3076B796-BA13-4A59-8CA1-3395870A0C17"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.19 PM",
+              "payloadId" : "0~dn9NJBpJDSEQKyVsAjuS-u4JtyzHOiYIXPm4pSPnGwsyhdY3O7ItOQss3w-ZfPr9Wt-Gn2lRLpUzt1rzqGiPyg==",
+              "timestamp" : 1795731679.965,
+              "uuid" : "49521B76-3A77-48A9-8E19-46619EE7FA6C"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731679.481,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731679.484,
+              "title" : "Find the \"topicSettings.saveSchedule\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731679.618,
+              "title" : "Check for interrupting elements affecting \"topicSettings.saveSchedule\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.19 PM",
+                  "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+                  "timestamp" : 1795731679.673,
+                  "uuid" : "3076B796-BA13-4A59-8CA1-3395870A0C17"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.19 PM",
+                  "payloadId" : "0~dn9NJBpJDSEQKyVsAjuS-u4JtyzHOiYIXPm4pSPnGwsyhdY3O7ItOQss3w-ZfPr9Wt-Gn2lRLpUzt1rzqGiPyg==",
+                  "timestamp" : 1795731679.965,
+                  "uuid" : "49521B76-3A77-48A9-8E19-46619EE7FA6C"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731679.673,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731679.965,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731679.671,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731679.965,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731679.481,
+          "title" : "Tap \"topicSettings.saveSchedule\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731680.981,
+                  "title" : "Checking existence of `\"toast.text\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731680.979,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"toast.text\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731679.969,
+          "title" : "Waiting 10.0s for \"toast.text\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731681.008,
+          "title" : "Checking existence of `\"topicSettings.archive\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.21 PM",
+              "payloadId" : "0~iC_rfkFHmc7eT-gwjULJzHJmtb6o0ljSeHZ5V6QiyEa9l8xrk47qyCNX0xXBrJPPubmj3Hug5n3bNHaYoqCKHg==",
+              "timestamp" : 1795731681.237,
+              "uuid" : "A8E40DDC-DA82-433D-8A66-07145CB1C5E7"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.22 PM",
+              "payloadId" : "0~LRqUK8xJVfO3jK2ToM5PAvmT7cLT4H7rwFFvVcZLhobWDdHzClNzlHra9adfqJHPHnkKKikr-SZQoRLfoaUMkg==",
+              "timestamp" : 1795731682.241,
+              "uuid" : "3F0385AD-BDD2-491A-B5BF-E7528177407E"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731681.176,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731681.178,
+              "title" : "Find the Target Application 'com.bahumia.quickr'"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731681.204,
+              "title" : "Check for interrupting elements affecting \"quickR\" Application"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.21 PM",
+                  "payloadId" : "0~iC_rfkFHmc7eT-gwjULJzHJmtb6o0ljSeHZ5V6QiyEa9l8xrk47qyCNX0xXBrJPPubmj3Hug5n3bNHaYoqCKHg==",
+                  "timestamp" : 1795731681.237,
+                  "uuid" : "A8E40DDC-DA82-433D-8A66-07145CB1C5E7"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.22 PM",
+                  "payloadId" : "0~LRqUK8xJVfO3jK2ToM5PAvmT7cLT4H7rwFFvVcZLhobWDdHzClNzlHra9adfqJHPHnkKKikr-SZQoRLfoaUMkg==",
+                  "timestamp" : 1795731682.241,
+                  "uuid" : "3F0385AD-BDD2-491A-B5BF-E7528177407E"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731681.237,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731681.238,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731681.27,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731681.295,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731681.319,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731681.346,
+                  "title" : "Find the Target Application 'com.bahumia.quickr'"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731682.241,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731681.236,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731682.241,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731681.176,
+          "title" : "Press Target Application 'com.bahumia.quickr'[0.50, 0.45] for 0.1 seconds, then drag to Target Application 'com.bahumia.quickr'[0.50, 0.12] with velocity of 500.00 pixels per second, and then hold for 0.0 seconds "
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731682.65,
+          "title" : "Checking existence of `\"topicSettings.archive\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731682.786,
+          "title" : "Find the \"topicSettings.archive\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731682.921,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.062,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.183,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.296,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.434,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.578,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.699,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.818,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731683.944,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.069,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.191,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.309,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.429,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.554,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.676,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.798,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731684.918,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731685.032,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731685.149,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731685.269,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731686.426,
+                  "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731686.425,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.archive\" Button`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731685.388,
+          "title" : "Waiting 5.0s for \"topicSettings.archive\" Button to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.26 PM",
+              "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+              "timestamp" : 1795731686.714,
+              "uuid" : "25E3D5D2-03B4-4EBF-ADCB-5381ACF09B3A"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.26 PM",
+              "payloadId" : "0~PFSDqGrAOVedWAqqrXay12xaic4Cd4lzmRYan7bYTnMWFHtAwssAFqP8bvsEKh_twC0ORPi4M7MkM5gPb4TidA==",
+              "timestamp" : 1795731686.996,
+              "uuid" : "499617C4-A51F-4AE7-A8B7-C940D9FA7715"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731686.556,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731686.558,
+              "title" : "Find the \"topicSettings.archive\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731686.671,
+              "title" : "Check for interrupting elements affecting \"topicSettings.archive\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.26 PM",
+                  "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+                  "timestamp" : 1795731686.714,
+                  "uuid" : "25E3D5D2-03B4-4EBF-ADCB-5381ACF09B3A"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.26 PM",
+                  "payloadId" : "0~PFSDqGrAOVedWAqqrXay12xaic4Cd4lzmRYan7bYTnMWFHtAwssAFqP8bvsEKh_twC0ORPi4M7MkM5gPb4TidA==",
+                  "timestamp" : 1795731686.996,
+                  "uuid" : "499617C4-A51F-4AE7-A8B7-C940D9FA7715"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731686.714,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731686.996,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731686.713,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731686.996,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731686.556,
+          "title" : "Tap \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731688.278,
+                  "title" : "Checking existence of `\"toast.text\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731688.277,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"toast.text\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731687.246,
+          "title" : "Waiting 10.0s for \"toast.text\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.28 PM",
+              "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+              "timestamp" : 1795731688.346,
+              "uuid" : "4C9C0601-B088-4A99-8FCD-3E6E64A1C95D"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.28 PM",
+              "payloadId" : "0~9Y1-MU_S56p-LXil_RSQpjADsy_1FJ_hh3-JBU1CUu2EFS0ZgSyxriVczWuGZV0WAbXKIZEaVXWsFmwSoNlGfg==",
+              "timestamp" : 1795731688.635,
+              "uuid" : "64A5A908-E588-4E83-822F-38B6F63BF799"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731688.298,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731688.3,
+              "title" : "Find the \"toast.action\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731688.308,
+              "title" : "Check for interrupting elements affecting \"toast.action\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.28 PM",
+                  "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+                  "timestamp" : 1795731688.346,
+                  "uuid" : "4C9C0601-B088-4A99-8FCD-3E6E64A1C95D"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.28 PM",
+                  "payloadId" : "0~9Y1-MU_S56p-LXil_RSQpjADsy_1FJ_hh3-JBU1CUu2EFS0ZgSyxriVczWuGZV0WAbXKIZEaVXWsFmwSoNlGfg==",
+                  "timestamp" : 1795731688.635,
+                  "uuid" : "64A5A908-E588-4E83-822F-38B6F63BF799"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731688.346,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731688.635,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731688.344,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731688.636,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731688.298,
+          "title" : "Tap \"toast.action\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731689.659,
+                  "title" : "Checking existence of `\"toast.text\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731689.658,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"toast.text\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731688.638,
+          "title" : "Waiting 10.0s for \"toast.text\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731690.693,
+                  "title" : "Checking existence of `\"topicSettings.archive\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731690.692,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.archive\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731689.672,
+          "title" : "Waiting 10.0s for \"topicSettings.archive\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731690.835,
+          "title" : "Checking existence of `\"topicSettings.archive\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731690.95,
+          "title" : "Find the \"topicSettings.archive\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.072,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.188,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.309,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.425,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.545,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.659,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.777,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731691.898,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.024,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.131,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.245,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.363,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.491,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.608,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.734,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.856,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731692.983,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731693.116,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731693.243,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731693.408,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731693.555,
+          "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731693.69,
+          "title" : "Find the \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731694.83,
+                  "title" : "Checking existence of `\"topicSettings.archive\" Button`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731694.829,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.archive\" Button`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731693.815,
+          "title" : "Waiting 5.0s for \"topicSettings.archive\" Button to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.35 PM",
+              "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+              "timestamp" : 1795731695.108,
+              "uuid" : "5DC1B4F7-8AE5-40D5-9A37-D37BBB10A629"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.35 PM",
+              "payloadId" : "0~PFSDqGrAOVedWAqqrXay12xaic4Cd4lzmRYan7bYTnMWFHtAwssAFqP8bvsEKh_twC0ORPi4M7MkM5gPb4TidA==",
+              "timestamp" : 1795731695.396,
+              "uuid" : "42A838CC-C948-408D-B037-2ADE04DD6776"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731694.953,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731694.955,
+              "title" : "Find the \"topicSettings.archive\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731695.065,
+              "title" : "Check for interrupting elements affecting \"topicSettings.archive\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.35 PM",
+                  "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+                  "timestamp" : 1795731695.108,
+                  "uuid" : "5DC1B4F7-8AE5-40D5-9A37-D37BBB10A629"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.35 PM",
+                  "payloadId" : "0~PFSDqGrAOVedWAqqrXay12xaic4Cd4lzmRYan7bYTnMWFHtAwssAFqP8bvsEKh_twC0ORPi4M7MkM5gPb4TidA==",
+                  "timestamp" : 1795731695.396,
+                  "uuid" : "42A838CC-C948-408D-B037-2ADE04DD6776"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731695.108,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731695.396,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731695.106,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731695.396,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731694.952,
+          "title" : "Tap \"topicSettings.archive\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731696.661,
+                  "title" : "Checking existence of `\"toast.text\" Any`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731696.66,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"toast.text\" Any`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731695.647,
+          "title" : "Waiting 10.0s for \"toast.text\" Any to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731696.677,
+          "title" : "Checking existence of `\"topicSettings.delete\" Any`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731696.816,
+          "title" : "Find the \"topicSettings.delete\" Any"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731696.967,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731697.101,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731697.241,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731697.373,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731697.51,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731697.637,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731697.785,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731697.915,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731698.054,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731698.188,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731698.325,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731698.458,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731698.602,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731698.73,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731698.863,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.003,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.143,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.274,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.412,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.546,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.682,
+          "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.811,
+          "title" : "Find the \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731700.976,
+                  "title" : "Checking existence of `\"topicSettings.delete\" Button`"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731700.975,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"topicSettings.delete\" Button`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731699.948,
+          "title" : "Waiting 5.0s for \"topicSettings.delete\" Button to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.41 PM",
+              "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+              "timestamp" : 1795731701.351,
+              "uuid" : "CB7B7F04-361C-4427-B0E3-ED8164B083CF"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Synthesized Event 2026-11-26 at 10.21.41 PM",
+              "payloadId" : "0~g2yEzlT8eL289Mc-8-E7aCjvxUAZzu3F8wSLwb-tVgPeY8zZ6jYNxqjSz5Fwshr3zHNQ4c9Wng7uw9QzYcPp0g==",
+              "timestamp" : 1795731701.651,
+              "uuid" : "9922D325-BEF2-4F71-9BA6-AAC5EFD60071"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731701.124,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731701.127,
+              "title" : "Find the \"topicSettings.delete\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731701.256,
+              "title" : "Check for interrupting elements affecting \"topicSettings.delete\" Button"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "UI Snapshot 2026-11-26 at 10.21.41 PM",
+                  "payloadId" : "0~4p-uVkCLdxm2prWYlcUB7IYB2rqYD1EvSrr0yf2JGpTZCiEJIxLwewdS4EbWSdMFvLpEDri4FMdw3Lh1cRMuZA==",
+                  "timestamp" : 1795731701.351,
+                  "uuid" : "CB7B7F04-361C-4427-B0E3-ED8164B083CF"
+                },
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Synthesized Event 2026-11-26 at 10.21.41 PM",
+                  "payloadId" : "0~g2yEzlT8eL289Mc-8-E7aCjvxUAZzu3F8wSLwb-tVgPeY8zZ6jYNxqjSz5Fwshr3zHNQ4c9Wng7uw9QzYcPp0g==",
+                  "timestamp" : 1795731701.651,
+                  "uuid" : "9922D325-BEF2-4F71-9BA6-AAC5EFD60071"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731701.351,
+                  "title" : "kXCTAttachmentLegacySnapshot"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731701.651,
+                  "title" : "kXCTAttachmentLegacySynthesizedEvent"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731701.349,
+              "title" : "Synthesize event"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731701.652,
+              "title" : "Wait for com.bahumia.quickr to idle"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731701.124,
+          "title" : "Tap \"topicSettings.delete\" Button"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_AEE7269F-3E87-4356-A33B-CE2F9E9E2435.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731702.727,
+              "uuid" : "057B92C3-79B5-4C14-94A2-05B0510AE225"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_AAF1BC79-15D5-491F-A5E8-454224E5B94E.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731703.784,
+              "uuid" : "65F71E42-E723-4B71-B845-6A7C42FD925A"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_4E8A07B4-20E4-47E7-AAA5-DFDBFD7DC3DA.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731704.748,
+              "uuid" : "9C68E1C9-33A6-4B8F-B635-056F0E38E786"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_75183AD3-74A0-44E3-AC56-2A9498A57C1C.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731705.725,
+              "uuid" : "915FBCF7-6660-43D0-8E84-222372E64B37"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_CFC4E244-4FB5-450B-9223-4D008DA76194.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731706.786,
+              "uuid" : "BEB06079-DE40-4F3F-9E5E-6C02A91D5E57"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_11292900-D832-4CC6-9CE5-B1AB8D39D012.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731707.752,
+              "uuid" : "307C534F-8C97-432E-9E90-293ECA4CEAC1"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_0FC2C53D-497B-4704-89BC-0F0FA8516464.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731708.725,
+              "uuid" : "FD1D0BEA-88D4-4D20-AA61-B6FA38F89DE0"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_F381D83F-EC76-4EC2-BAC7-C499FB7C948C.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731709.715,
+              "uuid" : "F75ACDB8-A1E6-4888-AFBD-A02244D8241E"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_28BAE862-C816-456D-B17E-EDC6C343BE52.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731710.78,
+              "uuid" : "AF54126C-D876-4822-9C0E-48AA40A89BBD"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_91558C69-E0E7-4E9C-95ED-1F221BB2EE44.txt",
+              "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+              "timestamp" : 1795731711.711,
+              "uuid" : "1F3D5D72-9CDD-4A20-920D-EC14A0370EE4"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_AEE7269F-3E87-4356-A33B-CE2F9E9E2435.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731702.727,
+                  "uuid" : "057B92C3-79B5-4C14-94A2-05B0510AE225"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731702.677,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731702.727,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731702.727,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731702.675,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_AAF1BC79-15D5-491F-A5E8-454224E5B94E.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731703.784,
+                  "uuid" : "65F71E42-E723-4B71-B845-6A7C42FD925A"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731703.742,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731703.784,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731703.784,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731703.742,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_4E8A07B4-20E4-47E7-AAA5-DFDBFD7DC3DA.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731704.748,
+                  "uuid" : "9C68E1C9-33A6-4B8F-B635-056F0E38E786"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731704.696,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731704.748,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731704.748,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731704.695,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_75183AD3-74A0-44E3-AC56-2A9498A57C1C.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731705.725,
+                  "uuid" : "915FBCF7-6660-43D0-8E84-222372E64B37"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731705.681,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731705.725,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731705.725,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731705.681,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_CFC4E244-4FB5-450B-9223-4D008DA76194.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731706.786,
+                  "uuid" : "BEB06079-DE40-4F3F-9E5E-6C02A91D5E57"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731706.744,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731706.786,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731706.786,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731706.743,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_11292900-D832-4CC6-9CE5-B1AB8D39D012.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731707.752,
+                  "uuid" : "307C534F-8C97-432E-9E90-293ECA4CEAC1"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731707.711,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731707.752,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731707.752,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731707.71,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_0FC2C53D-497B-4704-89BC-0F0FA8516464.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731708.725,
+                  "uuid" : "FD1D0BEA-88D4-4D20-AA61-B6FA38F89DE0"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731708.675,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731708.725,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731708.725,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731708.675,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_F381D83F-EC76-4EC2-BAC7-C499FB7C948C.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731709.715,
+                  "uuid" : "F75ACDB8-A1E6-4888-AFBD-A02244D8241E"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731709.664,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731709.715,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731709.715,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731709.662,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_28BAE862-C816-456D-B17E-EDC6C343BE52.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731710.78,
+                  "uuid" : "AF54126C-D876-4822-9C0E-48AA40A89BBD"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731710.727,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731710.78,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731710.78,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731710.725,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "attachments" : [
+                {
+                  "lifetime" : "deleteOnSuccess",
+                  "name" : "Debug description for `\"deleteTopic.confirmation\" TextField`_0_91558C69-E0E7-4E9C-95ED-1F221BB2EE44.txt",
+                  "payloadId" : "0~Kiu22_nwbsw2rfDKydpJr77Bq2neSN7ScUG-iS9u8hLW05RJoKFfrg-7CtaKaiU3-GbdSCnHShR3gq_dz_a4iw==",
+                  "timestamp" : 1795731711.711,
+                  "uuid" : "1F3D5D72-9CDD-4A20-920D-EC14A0370EE4"
+                }
+              ],
+              "childActivities" : [
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731711.659,
+                  "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731711.711,
+                  "title" : "Debug description for `\"deleteTopic.confirmation\" TextField`"
+                },
+                {
+                  "activityType" : "com.apple.dt.xctest.activity-type.internal",
+                  "isAssociatedWithFailure" : false,
+                  "startTime" : 1795731711.711,
+                  "title" : "Capturing element debug description"
+                }
+              ],
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731711.658,
+              "title" : "Checking `Expect predicate `existsNoRetry == 1` for object \"deleteTopic.confirmation\" TextField`"
+            },
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731711.711,
+              "title" : "Checking existence of `\"deleteTopic.confirmation\" TextField`"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731701.658,
+          "title" : "Waiting 10.0s for \"deleteTopic.confirmation\" TextField to exist"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "attachments" : [
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "App UI hierarchy for com.bahumia_0_F3E8EDB3-C93B-4730-A85F-81A520F62CE1.quickr",
+              "payloadId" : "0~VN_WnCOlM_mzHU74CIN7yN7SGmGfW7RUIXRKOvuhYAkdMerIcwgPg-b8MjOdFnxYjfkuaMh_VZve7sVp60bouQ==",
+              "timestamp" : 1795731711.789,
+              "uuid" : "F23F7582-4886-441F-AFC2-478503E9DD44"
+            },
+            {
+              "lifetime" : "deleteOnSuccess",
+              "name" : "UI Snapshot 2026-11-26 at 10.21.51 PM",
+              "payloadId" : "0~HM5CVuHZ4mWJIQMPJ4xkaei4FVOK_0O7VL2b6iWdcyegOv35-lFLuEl0K6NLIxjHCCPigmDRlw2n2N8PzjQrIA==",
+              "timestamp" : 1795731711.789,
+              "uuid" : "55E5C9C1-C93B-4318-B281-4D664B53DEA7"
+            }
+          ],
+          "childActivities" : [
+            {
+              "activityType" : "com.apple.dt.xctest.activity-type.internal",
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731711.744,
+              "title" : "Requesting snapshot of accessibility hierarchy for app with pid 7014"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731711.789,
+              "title" : "App UI hierarchy for com.bahumia.quickr"
+            },
+            {
+              "isAssociatedWithFailure" : false,
+              "startTime" : 1795731711.789,
+              "title" : "kXCTAttachmentLegacySnapshot"
+            }
+          ],
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731711.744,
+          "title" : "Collecting debug information to assist test failure triage"
+        },
+        {
+          "childActivities" : [
+            {
+              "isAssociatedWithFailure" : false,
+              "title" : ""
+            }
+          ],
+          "isAssociatedWithFailure" : true,
+          "startTime" : 1795731711.797,
+          "title" : "XCTAssertTrue failed"
+        },
+        {
+          "activityType" : "com.apple.dt.xctest.activity-type.internal",
+          "isAssociatedWithFailure" : false,
+          "startTime" : 1795731712.122,
+          "title" : "Tear Down"
+        }
+      ],
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "95DA5A17-10E6-41E9-908D-749151973144",
+        "deviceName" : "quickR iOS27 t2-m3a-gate2-a5dd99",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "24A434",
+        "osVersion" : "27.0",
+        "platform" : "iOS Simulator"
+      },
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ]
+}

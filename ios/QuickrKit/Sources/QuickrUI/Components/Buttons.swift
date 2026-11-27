@@ -10,17 +10,20 @@ public enum QuickrButtonVariant: Sendable {
     case quietDanger
 }
 
-/// Heights 36, 44 and 56 pt (`sm`, `md`, `lg`).
+/// Heights 36, 44 and 56 pt (`sm`, `md`, `lg`), and 72 pt (`hero`): the run screen's primary
+/// (active-surfaces.md §2.2, §8.1).
 public enum QuickrButtonSize: Sendable {
     case small
     case medium
     case large
+    case hero
 
     public var height: CGFloat {
         switch self {
         case .small: 36
         case .medium: 44
         case .large: 56
+        case .hero: 72
         }
     }
 
@@ -29,6 +32,7 @@ public enum QuickrButtonSize: Sendable {
         case .small: 14
         case .medium: 20
         case .large: 28
+        case .hero: 32
         }
     }
 
@@ -37,14 +41,30 @@ public enum QuickrButtonSize: Sendable {
         case .small: .qr(.sansSemiBold, size: 14, relativeTo: .subheadline)
         case .medium: .qr(.callout)
         case .large: .qr(.sansSemiBold, size: 16, relativeTo: .body)
+        case .hero: .qr(.sansSemiBold, size: 22, relativeTo: .title2)
         }
     }
+
+    /// The icon beside the label (`PrimaryButton`).
+    var iconSize: CGFloat {
+        switch self {
+        case .small: 16
+        case .medium, .large: 20
+        case .hero: 28
+        }
+    }
+
+    /// Large and hero buttons fill their row.
+    var fillsWidth: Bool { self == .large || self == .hero }
 }
 
-/// Capsule buttons in the brand's variants: `.buttonStyle(.qr(.primary, size: .large))`.
+/// Capsule buttons in the brand's variants: `.buttonStyle(.qr(.primary, size: .large))`. The
+/// primary fills with `\.topicTheme`'s `tint` and `onTint` (appearance.md §6.2, §6.4), which are the
+/// accent's outside a themed subtree.
 public struct QuickrButtonStyle: ButtonStyle {
     let variant: QuickrButtonVariant
     let size: QuickrButtonSize
+    @Environment(\.topicTheme) private var theme
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.dynamicTypeSize) private var typeSize
     @QuickrReduceMotion private var reduceMotion
@@ -58,8 +78,10 @@ public struct QuickrButtonStyle: ButtonStyle {
         let pressed = configuration.isPressed
         configuration.label
             .font(size.font)
-            // One line, except at accessibility sizes, where a label wraps rather than clips.
-            .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+            // One line, except at accessibility sizes, where a label wraps rather than clips. The
+            // hero takes two lines at every size and grows with them (active-surfaces.md §2.3).
+            .lineLimit(size == .hero ? 2 : typeSize.isAccessibilitySize ? 3 : 1)
+            .minimumScaleFactor(size == .hero ? 0.8 : 1)
             .multilineTextAlignment(.center)
             .padding(.horizontal, size.padding)
             .frame(minHeight: size.height)
@@ -80,7 +102,7 @@ public struct QuickrButtonStyle: ButtonStyle {
 
     private var foreground: Color {
         switch variant {
-        case .primary: .qr.onAccent
+        case .primary: TopicChrome(theme).onPrimary
         case .secondary: .qr.ink
         case .ghost: .qr.inkSoft
         case .danger: .white
@@ -90,7 +112,7 @@ public struct QuickrButtonStyle: ButtonStyle {
 
     private func background(pressed: Bool) -> Color {
         switch variant {
-        case .primary: pressed ? .qr.accentStrong : .qr.accent
+        case .primary: TopicChrome(theme).primaryFill(pressed: pressed)
         case .secondary: pressed ? .qr.sunken : .qr.surface
         case .ghost: pressed ? .qr.sunken : .clear
         case .danger: .qr.danger
@@ -130,11 +152,11 @@ public struct PrimaryButton: View {
                 if isLoading {
                     ProgressView().tint(.qr.onAccent)
                 } else if let icon {
-                    icon.view(size: size == .small ? 16 : 20, weight: .bold)
+                    icon.view(size: size.iconSize, weight: .bold)
                 }
                 Text(title)
             }
-            .frame(maxWidth: size == .large ? .infinity : nil)
+            .frame(maxWidth: size.fillsWidth ? .infinity : nil)
         }
         .buttonStyle(.qr(.primary, size: size))
         .disabled(isLoading)
@@ -182,6 +204,7 @@ public struct QuickrIconButton: View {
 
 #Preview("Buttons") {
     VStack(spacing: 12) {
+        PrimaryButton("Lap", icon: .flag, size: .hero) {}
         PrimaryButton("Save", icon: .check) {}
         HStack {
             Button("Small") {}.buttonStyle(.qr(.primary, size: .small))

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, type ReactNode } from 'react';
-import { useBlocker, useLocation, type BlockerFunction } from 'react-router';
+import { useBlocker, useLocation, type BlockerFunction, type NavigateFunction } from 'react-router';
 
 import { ConfirmSheet } from '../components/ui/Sheet';
 
@@ -23,6 +23,36 @@ export interface UnsavedChangesGuard {
 interface Options {
   title?: string;
   message?: ReactNode;
+}
+
+/** Navigations allowed through once (see `navigateKeepingPage`), by id. */
+const pageKeepers = new Set<string>();
+
+/**
+ * Navigate (replacing the entry) to a URL that keeps the page and its forms mounted (the topic's
+ * slug changed elsewhere and the route follows it): the guard lets this one navigation through.
+ * The id is spent when it's over, so a later back/forward to that history entry is guarded as
+ * usual, whether or not a guard looked at it this time.
+ */
+export async function navigateKeepingPage(navigate: NavigateFunction, to: string): Promise<void> {
+  const id = `${String(Date.now())}-${String(Math.random())}`;
+  pageKeepers.add(id);
+  try {
+    await navigate(to, { replace: true, state: { keepsPage: id } });
+  } finally {
+    pageKeepers.delete(id);
+  }
+}
+
+/** Whether `state` is a `navigateKeepingPage` navigation's, still under way; uses it up. */
+export function takeKeepsPage(state: unknown): boolean {
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    'keepsPage' in state &&
+    typeof state.keepsPage === 'string' &&
+    pageKeepers.delete(state.keepsPage)
+  );
 }
 
 /** Pure part of the blocker decision (unit-tested). Search/hash-only changes pass. */
@@ -51,7 +81,8 @@ export function useUnsavedChangesGuard(
 
   const shouldBlock = useCallback<BlockerFunction>(
     ({ currentLocation, nextLocation }) =>
-      shouldBlockNavigation(isDirty, skip.current, currentLocation, nextLocation),
+      shouldBlockNavigation(isDirty, skip.current, currentLocation, nextLocation) &&
+      !takeKeepsPage(nextLocation.state),
     [isDirty],
   );
   const blocker = useBlocker(shouldBlock);

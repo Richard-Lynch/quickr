@@ -1,7 +1,8 @@
 import Foundation
 
-/// What the Live Activity shows (timers.md §10.3, Presentation), from its content state alone: the
-/// Lock Screen, the banner and the Dynamic Island read the same strings, timers and buttons.
+/// What the Live Activity shows (timers.md §10.3, Presentation; active-surfaces.md §4), from its
+/// content state alone: the Lock Screen, the banner and the Dynamic Island read the same strings,
+/// timers and buttons.
 ///
 /// Pure. The timers are rendered by the system (`Text(timerInterval:pauseTime:)`), so they tick
 /// without updates: each is a start shifted later by the paused time it excludes, frozen at the
@@ -15,7 +16,8 @@ public struct RunActivityDisplay: Sendable, Hashable {
         case discarded
     }
 
-    /// A Live Activity button: each one is a `run.event` tap.
+    /// A Live Activity button: each one is a `run.event` tap. `title` is the plain one; the
+    /// display's `title(for:)` adds what Next or Lap opens.
     public enum Button: String, Sendable, Hashable, CaseIterable {
         case next, lap, pause, resume, stop
 
@@ -52,32 +54,90 @@ public struct RunActivityDisplay: Sendable, Hashable {
         }
     }
 
+    /// The next alert of the open segment (active-surfaces.md §4.1): its label and when it fires
+    /// (Unix seconds), for a `Text(timerInterval:countsDown:)` to it.
+    public struct Alert: Sendable, Hashable {
+        public var label: String
+        public var at: Double
+
+        public init(label: String, at: Double) {
+            self.label = label
+            self.at = at
+        }
+    }
+
     public var phase: Phase
     public var topicName: String
     /// The segment's label: a step's, or "Lap n".
     public var label: String
+    /// The open segment's label with its counter, as the run screen's (`RunPresentation.headline`):
+    /// "Rest 2 · lap 4" in a typed lap, "Lap 3" in an untyped one, "Shower · 2 of 5" in a step;
+    /// the bare label once ended, and without `lap_count` (a v1 state). The Lock Screen's second
+    /// line and the expanded Dynamic Island's centre.
+    public var headline: String
     /// "2 of 5" in a step; nil in a lap and without steps.
     public var position: String?
-    /// The compact Dynamic Island's leading text: the 1-based step number, or nil for the timer
-    /// glyph.
+    /// The 1-based step number in a step; nil in a lap and without steps.
     public var stepNumber: String?
-    /// What Next starts ("Next: Breakfast" for VoiceOver); nil when Next isn't offered.
+    /// The compact Dynamic Island's lap counter ("L4": `lap_count + 1`) while a lap is open; nil
+    /// in a step, once ended, without `lap_count` (a v1 state) and when the steps aren't known.
+    public var lapCounter: String?
+    /// The content state's `next_label` while open: the step Next would start. Nil when none is
+    /// known. (M1's state also sets it during a lap, to the lap type a Lap opens: that reading is
+    /// `lapNextLabel`.)
     public var nextLabel: String?
+    /// What a Lap opens when the lap types say ("Rest"), for the §1.3 title "Lap → Rest": the
+    /// content state's `next_label` while a typed lap is open (timers2.md §8.1). Nil in a step
+    /// and in an untyped lap, where `next_label` can only be the step Next would start, which a
+    /// Lap does not open.
+    public var lapNextLabel: String?
     /// While running or paused: the open segment's active time, and the run's.
     public var segmentTimer: Timer?
     public var totalTimer: Timer?
+    /// The pending alert while running (`alert_at`, `alert_label`): nil while paused, once ended,
+    /// and when none is pending. The label is empty when the payload budget dropped it.
+    public var alert: Alert?
     /// Once ended: "Saved · 7:42", "Add details" or "Discarded".
     public var endedText: String?
-    /// The Lock Screen's buttons, in order: Next (or Lap without steps and on the last step),
-    /// Pause or Resume, Stop; a plain Next when the steps aren't known. None once ended.
+    /// The Lock Screen's buttons, in order: the primary (active-surfaces.md §4.1: Next while a
+    /// step is open and another follows, or when the steps aren't known; Lap otherwise), Pause or
+    /// Resume, Stop. None once ended.
     public var buttons: [Button]
 
-    /// The expanded Dynamic Island's: Next (or Lap) and Stop.
+    /// The primary: `buttons[0]`; nil once ended.
+    public var primary: Button? { buttons.first }
+
+    /// The expanded Dynamic Island's: the primary and Stop.
     public var islandButtons: [Button] { buttons.filter { $0 != .pause && $0 != .resume } }
+
+    /// The compact Dynamic Island's leading text: the lap counter during a lap, the step number
+    /// in a step; nil for the timer glyph.
+    public var compactLeading: String? { lapCounter ?? stepNumber }
+
+    /// A button's title (active-surfaces.md §1.3): "Next: Shower", "Lap → Rest" when
+    /// `lapNextLabel` names what the lap opens, else the plain title.
+    public func title(for button: Button) -> String {
+        switch button {
+        case .next: nextLabel.map { "Next: \($0)" } ?? button.title
+        case .lap: lapNextLabel.map { "Lap → \($0)" } ?? button.title
+        case .pause, .resume, .stop: button.title
+        }
+    }
+
+    /// The title VoiceOver reads (§1.3): "Lap, then Rest", "Stop Morning routine"; otherwise
+    /// `title(for:)`.
+    public func spokenTitle(for button: Button) -> String {
+        switch button {
+        case .lap: lapNextLabel.map { "Lap, then \($0)" } ?? title(for: button)
+        case .stop: "Stop \(topicName)"
+        case .next, .pause, .resume: title(for: button)
+        }
+    }
 
     public init(state: RunActivityState, topicName: String) {
         self.topicName = topicName
         label = state.label
+        headline = state.label
         let status = state.runStatus
         switch status {
         case .paused: phase = .paused
@@ -100,8 +160,25 @@ public struct RunActivityDisplay: Sendable, Hashable {
                 start: state.startedAt + Double(state.pausedMsBeforeSeg + state.pausedMsInSeg) / 1000,
                 pausedAt: pausedAt)
             nextLabel = state.nextLabel
-            // Steps not known here: a plain Next (a step may remain), never Lap.
-            let primary: Button = state.nextLabel != nil || state.stepsUnknown == true ? .next : .lap
+            // A lap is open when no step is (`step_index` is set in every step of known steps).
+            if state.stepIndex == nil, state.stepsUnknown != true, let closed = state.lapCount {
+                let n = closed + 1
+                lapCounter = "L\(n)"
+                if state.lapType != nil {
+                    headline = "\(state.label) · lap \(n)"
+                    lapNextLabel = state.nextLabel
+                }
+            } else if let position {
+                headline = "\(state.label) · \(position)"
+            }
+            if phase == .running, let at = state.alertAt {
+                alert = Alert(label: state.alertLabel ?? "", at: at)
+            }
+            // §4.1: Next only when a step is open and another follows, or when the steps aren't
+            // known here (a step may remain whatever `next_label` says); else Lap, a lap being
+            // open or the last step.
+            let primary: Button =
+                state.stepsUnknown == true || (state.stepIndex != nil && state.nextLabel != nil) ? .next : .lap
             buttons = [primary, phase == .paused ? .resume : .pause, .stop]
         case .finishing:
             endedText = "Add details"

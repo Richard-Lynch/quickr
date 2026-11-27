@@ -1,0 +1,181 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "95DA5A17-10E6-41E9-908D-749151973144",
+      "deviceName" : "quickR iOS27 t2-m3a-gate2-a5dd99",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "24A434",
+      "osVersion" : "27.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "7s",
+                  "durationInSeconds" : 7.591588020324707,
+                  "name" : "testLogEntryIntentLogsAnOption()",
+                  "nodeIdentifier" : "IntentResolutionTests/testLogEntryIntentLogsAnOption()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentResolutionTests/testLogEntryIntentLogsAnOption",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "6s",
+                  "durationInSeconds" : 6.474698066711426,
+                  "name" : "testLogEntryIntentRunsInTheApp()",
+                  "nodeIdentifier" : "IntentResolutionTests/testLogEntryIntentRunsInTheApp()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentResolutionTests/testLogEntryIntentRunsInTheApp",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "6s",
+                  "durationInSeconds" : 6.537534952163696,
+                  "name" : "testQuestionOptionEntityResolves()",
+                  "nodeIdentifier" : "IntentResolutionTests/testQuestionOptionEntityResolves()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentResolutionTests/testQuestionOptionEntityResolves",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "6s",
+                  "durationInSeconds" : 6.750250935554504,
+                  "name" : "testRepeatLastEntryIntentRelogsTheLatest()",
+                  "nodeIdentifier" : "IntentResolutionTests/testRepeatLastEntryIntentRelogsTheLatest()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentResolutionTests/testRepeatLastEntryIntentRelogsTheLatest",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "6s",
+                  "durationInSeconds" : 6.370859980583191,
+                  "name" : "testTopicEntityResolvesInTheApp()",
+                  "nodeIdentifier" : "IntentResolutionTests/testTopicEntityResolvesInTheApp()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentResolutionTests/testTopicEntityResolvesInTheApp",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "7s",
+                  "durationInSeconds" : 7.534258008003235,
+                  "name" : "testWhatsDueIntentListsTheDueTopics()",
+                  "nodeIdentifier" : "IntentResolutionTests/testWhatsDueIntentListsTheDueTopics()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentResolutionTests/testWhatsDueIntentListsTheDueTopics",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "IntentResolutionTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentResolutionTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.6s",
+                  "durationInSeconds" : 0.5978810787200928,
+                  "name" : "testLogTopicInShortcuts()",
+                  "nodeIdentifier" : "IntentSpikeTests/testLogTopicInShortcuts()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentSpikeTests/testLogTopicInShortcuts",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.2s",
+                  "durationInSeconds" : 0.2009119987487793,
+                  "name" : "testProcessingBudget()",
+                  "nodeIdentifier" : "IntentSpikeTests/testProcessingBudget()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentSpikeTests/testProcessingBudget",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.098s",
+                  "durationInSeconds" : 0.0976330041885376,
+                  "name" : "testPromptingUnderAppIntentsTesting()",
+                  "nodeIdentifier" : "IntentSpikeTests/testPromptingUnderAppIntentsTesting()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentSpikeTests/testPromptingUnderAppIntentsTesting",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.087s",
+                  "durationInSeconds" : 0.08657395839691162,
+                  "name" : "testPromptsInShortcuts()",
+                  "nodeIdentifier" : "IntentSpikeTests/testPromptsInShortcuts()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentSpikeTests/testPromptsInShortcuts",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Test skipped - spike: set TEST_RUNNER_QUICKR_INTENT_SPIKE=1",
+                      "nodeType" : "Skip Message"
+                    }
+                  ],
+                  "duration" : "0.08s",
+                  "durationInSeconds" : 0.07988607883453369,
+                  "name" : "testShortcutsAppExploration()",
+                  "nodeIdentifier" : "IntentSpikeTests/testShortcutsAppExploration()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentSpikeTests/testShortcutsAppExploration",
+                  "nodeType" : "Test Case",
+                  "result" : "Skipped"
+                }
+              ],
+              "name" : "IntentSpikeTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests/IntentSpikeTests",
+              "nodeType" : "Test Suite",
+              "result" : "Skipped"
+            }
+          ],
+          "name" : "QuickRIntentsTests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRIntentsTests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "Intents",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

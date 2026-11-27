@@ -1,6 +1,7 @@
 import Foundation
 
-/// The §11.4 notices' text (timers.md): what a run tap of this device that the server voided says,
+/// The §11.4 notices' text (timers.md; timers2.md §9.3): what a run tap of this device that the
+/// server voided says,
 /// the PWA's `noticeFor` (`frontend/src/lib/runs/notices.ts`). Nil for the silent reasons, the
 /// double taps that did what the user wanted (`stale`, `merged`, `already_paused`, `not_paused`)
 /// and the rest.
@@ -17,6 +18,8 @@ public enum RunNoticeText {
         case .stop: "Stop"
         case .finish: "details"
         case .discard: "Discard"
+        case .reopen: "Resume"
+        case .remove: "Remove"
         }
     }
 
@@ -38,6 +41,15 @@ public enum RunNoticeText {
         case .entryDeleted: return "\(topic)’s run was deleted."
         case .alreadyClosed: return "\(topic) was already stopped."
         case .merged, .beforeStart, .tooLong, .stale, .noStep, .alreadyPaused, .notPaused: return nil
+        // timers2.md §9.3. Who is told is the ack's decision (`RunVoid`): `reverted` only on the
+        // device whose reopen another device's discard undid, `not_stopped` not after a double tap.
+        case .reverted: return "\(topic)’s resume was undone by a discard elsewhere."
+        case .notStopped: return "\(topic) isn’t stopped, so there was nothing to resume."
+        case .noTarget:
+            return tap == .remove
+                ? "Couldn’t remove that: \(topic)’s run changed." : "Couldn’t resume: \(topic)’s run changed."
+        // The removed tap was removed on purpose.
+        case .deleted: return nil
         }
     }
 }

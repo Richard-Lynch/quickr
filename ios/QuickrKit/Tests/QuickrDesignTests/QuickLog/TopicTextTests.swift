@@ -35,12 +35,27 @@ import Testing
         #expect(Self.text.answer(.int(3), for: severity) == nil)
 
         let glasses = Question(key: "g", label: "Glasses", required: true, kind: .int(.init(unit: "glasses")))
-        #expect(Self.text.answer(.int(1500), for: glasses) == "1,500 glasses")
+        // EntrySummary.answerText (content-display.md §1.1): no grouping (was "1,500 glasses"),
+        // half away from zero on the shortest decimal (was "5.2 km", binary banker's rounding).
+        #expect(Self.text.answer(.int(1500), for: glasses) == "1500 glasses")
         let km = Question(key: "k", label: "Distance", required: true, kind: .double(.init(decimals: 1, unit: "km")))
-        #expect(Self.text.answer(.double(5.25), for: km) == "5.2 km")
+        #expect(Self.text.answer(.double(5.25), for: km) == "5.3 km")
         let free = Question(key: "w", label: "Weight", required: true, kind: .double(.init()))
         #expect(Self.text.answer(.double(70.1234), for: free) == "70.123")
         #expect(Self.text.answer(.string("70"), for: free) == nil)
+
+        // Text collapses its whitespace (was shown raw); a blank one has nothing to show.
+        let notes = Question(key: "n", label: "Notes", required: false, kind: .string(.init()))
+        #expect(Self.text.answer(.string("  walked \n  home "), for: notes) == "walked home")
+        #expect(Self.text.answer(.string(" \t "), for: notes) == nil)
+    }
+
+    /// Answers don't follow the locale: the same text on every device and client.
+    @Test func answersAreTheSameInEveryLocale() {
+        let german = TopicText(locale: Locale(identifier: "de_DE"))
+        let km = Question(key: "k", label: "Distance", required: true, kind: .double(.init(decimals: 2, unit: "km")))
+        #expect(german.answer(.double(1234.5), for: km) == "1234.5 km")
+        #expect(german.count(1234, "entry", "entries") == "1.234 entries", "counts still do")
     }
 
     @Test func countsUsePlurals() {

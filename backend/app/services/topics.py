@@ -3,14 +3,15 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import Select, column, delete, func, literal, or_, select
+from sqlalchemy import Select, column, delete, func, literal, or_, select, true
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.errors import Conflict, DomainError, IncompatibleVersion, NotFound, StaleRevision
 from app.models import (
@@ -26,12 +27,16 @@ from app.models import (
     TopicVersion,
 )
 from app.schemas.api import (
+    AppearanceUpdate,
     CompatibilityReport,
     DueStatus,
+    EntryOut,
     FieldIssue,
     StatusFilter,
+    TopicAppearance,
     TopicCreate,
     TopicDetail,
+    TopicIcon,
     TopicPage,
     TopicSort,
     TopicSummary,
@@ -41,6 +46,7 @@ from app.schemas.api import (
 )
 from app.schemas.base import issues_from
 from app.schemas.questions import Question, QuestionSet, Timer
+from app.services.appearance import ColorName
 from app.services.compat import check_compatibility
 from app.services.feed import log_change, tombstone, writer
 from app.services.schedule import compute_due, dump_schedule, parse_schedule
@@ -116,6 +122,55 @@ def _entry_stats_subquery() -> Any:
     )
 
 
+# T2-M4
+def _last_entry_alias() -> Any:
+    """The topic's latest counted entry by ``(captured_at DESC, id DESC)`` as a LATERAL join
+    target (content-display.md §2). Deleted entries are deleted rows, so there is nothing to
+    filter. The entity's ``answers`` use the ``selectin`` strategy: one statement per page, not
+    per topic."""
+    latest = (
+        select(Entry)
+        .where(Entry.topic_id == Topic.id)
+        .order_by(Entry.captured_at.desc(), Entry.id.desc())
+        .limit(1)
+        .lateral("last_entry")
+    )
+    return aliased(Entry, latest)
+
+
+def _last_entry_out(entry: Entry | None) -> EntryOut | None:
+    # ``services.entries`` imports this module, so its ``entry_out`` is resolved at call time.
+    from app.services.entries import entry_out
+
+    return None if entry is None else entry_out(entry)
+
+
+# end T2-M4
+
+
+# T2-M3: appearance (docs/specs/appearance.md §1)
+def appearance_of(topic: Topic) -> TopicAppearance:
+    """The stored appearance, as validated on write (not re-checked: a rule tightened later never
+    makes a stored topic unreadable)."""
+    icon = None if topic.icon is None else TopicIcon.model_construct(kind="emoji", value=topic.icon)
+    color = cast("ColorName | None", topic.color)
+    return TopicAppearance.model_construct(color=color, icon=icon, tags=list(topic.tags))
+
+
+def _set_appearance(topic: Topic, a: TopicAppearance | AppearanceUpdate) -> None:
+    """Write the fields ``a`` holds; an ``AppearanceUpdate`` leaves its omitted fields alone."""
+    given = a.model_fields_set if isinstance(a, AppearanceUpdate) else {"color", "icon", "tags"}
+    if "color" in given:
+        topic.color = a.color
+    if "icon" in given:
+        topic.icon = None if a.icon is None else a.icon.value
+    if "tags" in given and a.tags is not None:
+        topic.tags = list(a.tags)
+
+
+# end T2-M3
+
+
 def _due(topic: Topic, last_captured: datetime | None, now: datetime) -> DueStatus | None:
     schedule = parse_schedule(topic.schedule)
     if schedule is None:
@@ -135,7 +190,7 @@ async def _summaries(
     rows = (await db.execute(stmt)).all()
     now = now or datetime.now(UTC)
     out: list[tuple[TopicSummary, list[Question]]] = []
-    for topic, questions_raw, timer_raw, entry_count, last_captured in rows:
+    for topic, questions_raw, timer_raw, entry_count, last_captured, last_entry in rows:  # T2-M4: last_entry
         questions = parse_questions(questions_raw)
         out.append(
             (
@@ -157,6 +212,12 @@ async def _summaries(
                     schedule_updated_at=topic.schedule_updated_at,
                     due=_due(topic, last_captured, now),
                     timer=parse_timer(timer_raw),
+                    # T2-M4
+                    last_entry=_last_entry_out(last_entry),
+                    # end T2-M4
+                    # T2-M3
+                    appearance=appearance_of(topic),
+                    # end T2-M3
                 ),
                 questions,
             )
@@ -180,6 +241,10 @@ def _base_select() -> tuple[Select[Any], Any]:
         )
         .outerjoin(stats, stats.c.topic_id == Topic.id)
     )
+    # T2-M4
+    last_entry = _last_entry_alias()
+    stmt = stmt.add_columns(last_entry).outerjoin(last_entry, true())
+    # end T2-M4
     return stmt, stats
 
 
@@ -215,15 +280,20 @@ async def list_topics(
     status: StatusFilter = "active",
     sort: TopicSort = "due",
     due_only: bool = False,
+    tag: str | None = None,
     limit: int = 50,
     offset: int = 0,
     now: datetime | None = None,
 ) -> TopicPage:
+    """``tag``: only topics holding that tag, in its stored spelling exactly (appearance.md §5:
+    tags are unique ignoring case on write, and a chip sends the stored text)."""
     stmt, stats = _base_select()
     count_stmt = select(func.count(Topic.id))
     filters = []
     if status != "all":
         filters.append(Topic.status == TopicStatus(status))
+    if tag is not None:
+        filters.append(Topic.tags.has_key(tag))  # JSONB `?`: a string element of the array
     if q:
         pattern = f"%{q.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%"
         filters.append(
@@ -327,6 +397,8 @@ async def create_topic(db: AsyncSession, body: TopicCreate) -> TopicDetail:
         schedule=dump_schedule(body.schedule),
         schedule_updated_at=func.now() if body.schedule is not None else None,
     )
+    if body.appearance is not None:
+        _set_appearance(topic, body.appearance)
     first = TopicVersion(
         id=uuid4(),
         version=1,
@@ -360,6 +432,8 @@ async def update_topic(db: AsyncSession, ref: str, body: TopicUpdate) -> TopicDe
         if new != topic.schedule:  # an unchanged schedule keeps its reference point
             topic.schedule = new
             topic.schedule_updated_at = func.now() if new is not None else None
+    if body.appearance is not None:  # a change of appearance alone still bumps and re-sends
+        _set_appearance(topic, body.appearance)
     topic.revision += 1
     try:
         await db.flush()
@@ -446,7 +520,9 @@ async def _report(
     """``check_compatibility`` compares questions only. With the draft's timer, a timer change
     with no question changes is still a change, so the report's "no changes" error goes."""
     report = check_compatibility(await _history(db, topic), questions)
-    if not with_timer or report.changes or timer == (await get_version(db, topic)).timer:
+    # Compared normalised: a stored v1 timer and its v2 form are the same timer.
+    current = dump_timer(parse_timer((await get_version(db, topic)).timer))
+    if not with_timer or report.changes or timer == current:
         return report
     # With no question changes, "no changes to publish" is the report's only issue without a
     # question; an error on a question (a type change of a historic key, say) still blocks.

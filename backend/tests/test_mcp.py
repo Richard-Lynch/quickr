@@ -5,13 +5,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
+from app.db import get_sessionmaker
 from app.mcp_server import mcp
-from tests.helpers import backdate_schedule, sleep_questions
+from app.models import Run
+from tests.helpers import backdate_schedule, normal_timer, sleep_questions
 from tests.test_api_runs import frozen_clock
 
 
@@ -49,6 +52,7 @@ async def test_lists_tools_with_schemas(mcp_client: Client[Any]) -> None:
         "start_run",
         "run_action",
         "list_runs",
+        "get_run",
         "edit_run_timing",
     }
     for tool in tools.values():
@@ -135,9 +139,31 @@ async def test_topic_outputs_carry_the_current_versions_timer(mcp_client: Client
     steps = {"steps": [{"key": "pour", "label": "Pour"}]}
     await call(mcp_client, "create_topic", name="Coffee", questions=[], timer=steps)
     await call(mcp_client, "create_topic", name="Plain", questions=[])
+    steps = normal_timer(steps)
     assert (await call(mcp_client, "get_topic", ref="coffee"))["timer"] == steps
     listed = await call(mcp_client, "list_topics", sort="name")
     assert [(t["slug"], t["timer"]) for t in listed["items"]] == [("coffee", steps), ("plain", None)]
+
+    # The v2 Timer (timers2.md §7.3, T28): lap types, variables and alerts, normalised.
+    v2 = {
+        "steps": [],
+        "laps": [{"key": "run", "label": "Run", "alerts": [{"key": "half", "label": "Half", "at": "T/2"}]}],
+        "variables": [{"name": "T", "ms": 60_000}],
+    }
+    created = await call(mcp_client, "create_topic", name="Intervals", questions=[], timer=v2)
+    assert created["timer"] == normal_timer(v2)
+    assert created["timer"]["laps"][0]["alerts"][0]["at_ms"] == 30_000
+    assert created["timer"]["variables"] == [{"name": "t", "ms": 60_000}]
+    with pytest.raises(ToolError, match="unknown_variable at 0"):
+        await mcp_client.call_tool(
+            "publish_topic_version",
+            {
+                "ref": "intervals",
+                "questions": [],
+                "base_version": 1,
+                "timer": {**v2, "variables": [{"name": "u", "ms": 1}]},
+            },
+        )
 
 
 async def test_record_entry_errors_include_field_details(mcp_client: Client[Any]) -> None:
@@ -317,6 +343,7 @@ async def test_publish_requires_timer(mcp_client: Client[Any]) -> None:
         mcp_client, "publish_topic_version", ref="dishwasher", questions=qs, base_version=2, timer=None
     )
     versions = (await mcp_client.call_tool("list_topic_versions", {"ref": "dishwasher"})).structured_content
+    timer = normal_timer(timer)
     assert [v["timer"] for v in versions["result"]] == [None, timer, timer]  # type: ignore[index]
 
 
@@ -525,3 +552,217 @@ async def test_run_action_stamps_after_the_latest_tap(
         "2026-05-01T12:00:00.002000Z",
     ]
     assert [e["effect"] for e in lap["run"]["events"]] == ["applied"] * 3
+
+
+# --- timers v2 (timers2.md §7.3, T28 and T32) ---------------------------------------------------
+
+TIMER_V2 = {
+    "steps": [
+        {"key": "warm_up", "label": "Warm up", "alerts": [{"key": "half", "label": "Half", "at": "t/2"}]}
+    ],
+    "laps": [{"key": "run", "label": "Run", "alerts": []}, {"key": "rest", "label": "Rest", "alerts": []}],
+    "variables": [{"name": "t", "ms": 600_000}],
+}
+
+
+async def test_create_and_publish_take_the_v2_timer(mcp_client: Client[Any]) -> None:
+    topic = await call(mcp_client, "create_topic", name="Intervals", questions=[], timer=TIMER_V2)
+    assert topic["timer"] == normal_timer(TIMER_V2)
+    assert topic["timer"]["steps"][0]["alerts"][0]["at_ms"] == 300_000  # the server fills at_ms
+    renamed = {**TIMER_V2, "laps": [{"key": "run", "label": "Jog", "alerts": []}]}
+    published = await call(
+        mcp_client, "publish_topic_version", ref="intervals", questions=[], base_version=1, timer=renamed
+    )
+    assert (published["current_version"], published["timer"]["laps"]) == (
+        2,
+        [{"key": "run", "label": "Jog", "alerts": []}],
+    )
+    bad = {**TIMER_V2, "laps": [{"key": "warm_up", "label": "Dup", "alerts": []}]}
+    with pytest.raises(ToolError, match="warm_up"):
+        await mcp_client.call_tool("create_topic", {"name": "Bad", "questions": [], "timer": bad})
+
+
+async def test_check_topic_version_takes_the_timer(mcp_client: Client[Any]) -> None:
+    """``timer`` is passed through as REST's: given (a timer, or null for untimed), a timer
+    change with no question changes is a change; left out, only the questions are compared."""
+    await call(mcp_client, "create_topic", name="Intervals", questions=[], timer=TIMER_V2)
+
+    async def check(**args: Any) -> dict[str, Any]:
+        return await call(mcp_client, "check_topic_version", ref="intervals", questions=[], **args)
+
+    assert (await check())["ok"] is False  # no changes
+    assert (await check(timer=TIMER_V2))["ok"] is False  # the same timer: still no changes
+    assert (await check(timer={**TIMER_V2, "variables": [{"name": "t", "ms": 1}]}))["ok"] is True
+    assert (await check(timer=None))["ok"] is True  # timing switched off
+    tools = {t.name: t for t in await mcp_client.list_tools()}
+    assert "timer" not in tools["check_topic_version"].input_schema.get("required", [])
+    with pytest.raises(ToolError, match="unknown variable 'u'"):
+        await mcp_client.call_tool(
+            "check_topic_version",
+            {
+                "ref": "intervals",
+                "questions": [],
+                "timer": {
+                    "steps": [{"key": "a", "label": "A", "alerts": [{"key": "x", "label": "X", "at": "u"}]}]
+                },
+            },
+        )
+
+
+async def _stopped_run(mcp_client: Client[Any]) -> tuple[str, dict[str, Any]]:
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    stopped = await call(mcp_client, "run_action", run_id=run_id, action="stop")
+    assert stopped["run"]["status"] == "stopped"
+    return run_id, stopped
+
+
+async def test_run_action_reopen_defaults_to_the_terminal(mcp_client: Client[Any]) -> None:
+    run_id, stopped = await _stopped_run(mcp_client)
+    terminal = stopped["run"]["state"]["terminal_id"]
+    assert terminal == stopped["event"]["id"]
+    reopened = await call(mcp_client, "run_action", run_id=run_id, action="reopen")
+    assert (reopened["event"]["effect"], reopened["run"]["status"]) == ("applied", "running")
+    assert reopened["run"]["events"][-1]["target"] == terminal
+    assert reopened["run"]["ended_at"] is None
+    # Running now: there is no terminal to reopen.
+    with pytest.raises(ToolError, match="the run isn't stopped"):
+        await mcp_client.call_tool("run_action", {"run_id": run_id, "action": "reopen"})
+    # Discard after a reopen reverts it: stopped again, the entry kept.
+    reverted = await call(mcp_client, "run_action", run_id=run_id, action="discard")
+    assert (reverted["run"]["status"], reverted["run"]["state"]["terminal_id"]) == ("stopped", terminal)
+    assert reverted["run"]["events"][-2]["reason"] == "reverted"
+
+
+async def test_run_action_reopen_with_an_explicit_target(mcp_client: Client[Any]) -> None:
+    run_id, stopped = await _stopped_run(mcp_client)
+    start = stopped["run"]["events"][0]["id"]
+    again = await call(mcp_client, "run_action", run_id=run_id, action="stop")  # void: already closed
+    for target, reason in ((start, "no_target"), (again["event"]["id"], "not_stopped")):
+        void = await call(mcp_client, "run_action", run_id=run_id, action="reopen", target=target)
+        assert (void["event"]["effect"], void["event"]["reason"]) == ("void", reason)
+    applied = await call(
+        mcp_client, "run_action", run_id=run_id, action="reopen", target=stopped["event"]["id"]
+    )
+    assert (applied["event"]["effect"], applied["run"]["events"][-1]["target"]) == (
+        "applied",
+        stopped["event"]["id"],
+    )
+
+
+async def test_run_action_remove_requires_a_target(mcp_client: Client[Any]) -> None:
+    await call(mcp_client, "create_topic", name="Tea", questions=[], timer={"steps": []})
+    run_id = (await call(mcp_client, "start_run", ref="tea"))["run"]["id"]
+    pause = await call(mcp_client, "run_action", run_id=run_id, action="pause")
+    await call(mcp_client, "run_action", run_id=run_id, action="resume")
+    with pytest.raises(ToolError, match="target"):
+        await mcp_client.call_tool("run_action", {"run_id": run_id, "action": "remove"})
+    removed = await call(
+        mcp_client, "run_action", run_id=run_id, action="remove", target=pause["event"]["id"]
+    )
+    assert removed["event"]["effect"] == "applied"
+    assert removed["run"]["state"]["pauses"] == []
+    by_id = {e["id"]: e for e in removed["run"]["events"]}
+    assert by_id[pause["event"]["id"]]["reason"] == "deleted"
+    # A lap removed from the stopped run's entry is a late merge.
+    lap = await call(mcp_client, "run_action", run_id=run_id, action="lap")
+    stopped = await call(mcp_client, "run_action", run_id=run_id, action="stop")
+    assert [s["kind"] for s in stopped["entry"]["timing"]["segments"]] == ["lap", "lap"]
+    late = await call(mcp_client, "run_action", run_id=run_id, action="remove", target=lap["event"]["id"])
+    assert late["event"]["effect"] == "applied"
+    assert late["entry"]["revision"] == stopped["entry"]["revision"] + 1
+    assert [s["kind"] for s in late["entry"]["timing"]["segments"]] == ["lap"]
+    # Only a reopen or a remove names a target.
+    with pytest.raises(ToolError, match="target"):
+        await mcp_client.call_tool(
+            "run_action", {"run_id": run_id, "action": "stop", "target": pause["event"]["id"]}
+        )
+
+
+async def test_get_run(mcp_client: Client[Any]) -> None:
+    run_id, stopped = await _stopped_run(mcp_client)
+    run = await call(mcp_client, "get_run", run_id=run_id)
+    assert run == stopped["run"]
+    assert run["state"]["terminal_id"] == stopped["event"]["id"]
+    with pytest.raises(ToolError, match="not found"):
+        await mcp_client.call_tool("get_run", {"run_id": "0a000000-0000-4000-8000-00000000ffff"})
+
+
+def test_instructions_cover_timers_v2() -> None:
+    from app.mcp_server import INSTRUCTIONS
+
+    text = " ".join(INSTRUCTIONS.split())
+    for phrase in (
+        "`run_action` reopen",
+        "`run_action` remove",
+        "`get_run` any run",
+        "laps: [{key, label, alerts}]",
+        "variables: [{name, ms}]",
+        "the server fills `at_ms`",
+    ):
+        assert phrase in text, phrase
+
+
+async def test_run_action_reopen_without_a_target_on_a_state_stored_before_fold_v4(
+    mcp_client: Client[Any],
+) -> None:
+    """M1-REVIEW P3-5: a run stopped before ``terminal_id`` existed in its stored state. The tool
+    leaves the target null and the server resolves it (``_terminal_stop``), as REST does."""
+    run_id, stopped = await _stopped_run(mcp_client)
+    async with get_sessionmaker()() as db:
+        row = await db.get_one(Run, UUID(run_id))
+        row.state = {k: v for k, v in row.state.items() if k != "terminal_id"}
+        await db.commit()
+    reopened = await call(mcp_client, "run_action", run_id=run_id, action="reopen")
+    assert (reopened["event"]["effect"], reopened["run"]["status"]) == ("applied", "running")
+    assert reopened["run"]["events"][-1]["target"] == stopped["event"]["id"]
+
+
+# T2-M3: topic appearance through MCP (docs/specs/appearance.md §9)
+
+
+async def test_topic_appearance_params(mcp_client: Client[Any]) -> None:
+    t = await call(
+        mcp_client, "create_topic", name="Water", questions=[], color="teal", icon="💧", tags=[" Health "]
+    )
+    assert t["appearance"] == {"color": "teal", "icon": {"kind": "emoji", "value": "💧"}, "tags": ["Health"]}
+    plain = await call(mcp_client, "create_topic", name="Plain", questions=[])
+    assert plain["appearance"] == {"color": None, "icon": None, "tags": []}
+
+    # Omitted params leave the appearance alone; a change bumps the revision.
+    renamed = await call(mcp_client, "update_topic", ref="water", name="Water intake")
+    assert renamed["appearance"] == t["appearance"]
+    u = await call(mcp_client, "update_topic", ref="water", color="blue", icon="☺")
+    assert u["appearance"]["color"] == "blue"
+    assert u["appearance"]["icon"] == {"kind": "emoji", "value": "☺️"}
+    assert u["revision"] == renamed["revision"] + 1
+    u = await call(mcp_client, "update_topic", ref="water", clear_color=True, clear_icon=True, tags=[])
+    assert u["appearance"] == {"color": None, "icon": None, "tags": []}
+
+    await call(mcp_client, "update_topic", ref="plain", tags=["Health"])
+    listed = await call(mcp_client, "list_topics", tag="Health", sort="name")
+    assert [i["slug"] for i in listed["items"]] == ["plain"]
+    assert (await call(mcp_client, "list_topics", tag="health"))["items"] == []
+
+
+async def test_topic_appearance_errors_are_described(mcp_client: Client[Any]) -> None:
+    with pytest.raises(ToolError, match=r"appearance\.icon\.value: must be an emoji, not text"):
+        await mcp_client.call_tool("create_topic", {"name": "Water", "questions": [], "icon": "x"})
+    await call(mcp_client, "create_topic", name="Water", questions=[])
+    with pytest.raises(ToolError, match=r"appearance\.icon\.value: must be a single emoji"):
+        await mcp_client.call_tool("update_topic", {"ref": "water", "icon": "🚬🚬"})
+    with pytest.raises(ToolError, match=r"appearance\.tags\.1: duplicate tag 'GYM'"):
+        await mcp_client.call_tool("update_topic", {"ref": "water", "tags": ["gym", "GYM"]})
+    with pytest.raises(ToolError):
+        await mcp_client.call_tool("update_topic", {"ref": "water", "color": "mauve"})
+    assert (await call(mcp_client, "get_topic", ref="water"))["revision"] == 1  # nothing was written
+
+
+async def test_instructions_name_the_colours() -> None:
+    assert mcp.instructions is not None
+    assert (
+        "red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, pink" in mcp.instructions
+    )
+
+
+# end T2-M3

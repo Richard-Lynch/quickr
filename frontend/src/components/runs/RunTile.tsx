@@ -1,20 +1,20 @@
 /**
- * A timed topic's home tile parts (timers.md §11.1, §11.5): idle shows Start; running shows
- * "Running · 4:12", the segment label and Next or Stop; finishing shows "Add details".
+ * A timed topic's home tile parts (timers.md §11.1, §11.5): idle shows Start; finishing shows
+ * "Add details". `RunStatus` is the "Running · 4:12" badge with the segment label.
  * `TopicTile` lays them out like its Log action.
  */
-import { Link, useNavigate } from 'react-router';
+import { Link } from 'react-router';
 
 import type { TopicVersionOut } from '../../client';
+import type { Appearance } from '../../lib/appearance';
 import type { RunContext } from '../../lib/runs/actions';
 import { fmtDuration } from '../../lib/runs/format';
-import { parseInstant } from '../../lib/runs/instant';
-import { isOpen, type LocalRun } from '../../lib/runs/localView';
+import type { LocalRun } from '../../lib/runs/localView';
 import { cn } from '../ui/cn';
+import { tileTheme } from '../topics/tileTheme';
 import { Icon } from '../ui/Icon';
-import { useToast } from '../ui/Toast';
-import { contextFor, useRunContext, useTopicVersions } from './context';
-import { activeMs, expectOf, primaryAction, segmentMs, type PrimaryAction } from './model';
+import { contextFor, type VersionTimer } from './context';
+import { activeMs, segmentMs } from './model';
 import { useServerNow } from './RunClock';
 import { useRunActions } from './useRunActions';
 
@@ -73,8 +73,8 @@ const ACTION =
   'relative z-10 flex w-[5.25rem] shrink-0 flex-col items-center justify-center gap-1 border-l px-1 text-[0.95rem] font-semibold transition-[background-color,transform] select-none active:scale-[0.97] disabled:cursor-wait disabled:opacity-60';
 
 /**
- * The tile's action: Start when idle, the primary button (Next or Stop) while running,
- * and "Add details" for a finishing run.
+ * The tile's action: Start when idle and "Add details" for a finishing run. A topic with an
+ * open run isn't this tile: `TopicTile` renders the active card (active-surfaces.md §6.2, §6.3).
  */
 export function RunTileAction({
   topic,
@@ -82,17 +82,20 @@ export function RunTileAction({
   versions,
   currentVersion,
   loud,
+  appearance,
 }: {
   topic: TopicRef;
   /** The topic's current version: a start is pinned to it. */
   currentVersion: number;
   run: LocalRun | undefined;
-  versions: readonly TopicVersionOut[] | undefined;
+  /** At least the current version's timer and questions; Start waits until they're known. */
+  versions: readonly VersionTimer[] | undefined;
   /** The topic is due: the loud version, as the Log action. */
   loud: boolean;
+  /** Start's fill in the topic's theme, as the Log action (appearance.md §6.1). */
+  appearance?: Appearance | null | undefined;
 }) {
   const actions = useRunActions();
-  const primary = useRunPrimary(topic, run);
 
   if (run?.status === 'finishing') {
     return (
@@ -107,28 +110,6 @@ export function RunTileAction({
     );
   }
 
-  if (primary) {
-    return (
-      <button
-        type="button"
-        aria-label={`${primary.label} · ${topic.name}`}
-        disabled={primary.disabled}
-        onClick={primary.onTap}
-        className={cn(
-          ACTION,
-          'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong',
-        )}
-      >
-        <Icon
-          name={primary.type === 'next' ? 'chevronRight' : 'stop'}
-          className="size-6"
-          strokeWidth={2.6}
-        />
-        {primary.type === 'next' ? 'Next' : 'Stop'}
-      </button>
-    );
-  }
-
   const ctx = contextFor(topic, versions, currentVersion);
   return (
     <button
@@ -138,55 +119,10 @@ export function RunTileAction({
       onClick={() => {
         if (ctx) void actions.start(ctx);
       }}
-      className={cn(
-        ACTION,
-        loud
-          ? 'border-accent-strong/30 bg-accent text-on-accent hover:bg-accent-strong'
-          : 'border-line bg-accent-soft text-accent-strong hover:brightness-[0.97]',
-      )}
+      className={cn(ACTION, loud ? tileTheme(appearance).loud : tileTheme(appearance).soft)}
     >
       <Icon name="play" className="size-6" strokeWidth={2.4} />
       Start
     </button>
   );
-}
-
-/**
- * An open run's primary button (§11.1): Next while a named step remains, else Stop. After
- * a Stop, a version with questions opens the answers form; one without says it's saved.
- * Null when the run isn't open.
- */
-export function useRunPrimary(
-  topic: TopicRef,
-  run: LocalRun | undefined,
-): (PrimaryAction & { disabled: boolean; onTap: () => void }) | null {
-  const actions = useRunActions();
-  const navigate = useNavigate();
-  const { toast } = useToast();
-  const versions = useTopicVersions(run?.topic_id ?? '', Boolean(run));
-  const runCtx = useRunContext(run, topic);
-  if (!run || !isOpen(run)) return null;
-  const steps = runCtx ? runCtx.steps : run.steps;
-  const primary = primaryAction(run, steps);
-  const expect = expectOf(run, steps);
-  return {
-    ...primary,
-    disabled: runCtx === null || actions.busy,
-    onTap: () => {
-      if (!runCtx) return;
-      if (primary.type === 'next') {
-        void actions.tap(run.id, runCtx, 'next', {}, expect);
-        return;
-      }
-      void actions.tap(run.id, runCtx, 'stop', {}, expect).then((item) => {
-        if (!item) return;
-        if (hasQuestions(versions.data, run.version) !== false) {
-          void navigate(finishUrl(topic.slug, run));
-        } else {
-          const total = activeMs(run.state, parseInstant(item.payload.event.at));
-          toast({ title: `Saved ${topic.name}: ${fmtDuration(total)}` });
-        }
-      });
-    },
-  };
 }

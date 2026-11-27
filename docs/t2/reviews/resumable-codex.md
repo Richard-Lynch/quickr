@@ -1,0 +1,7 @@
+I found two issues in the diff.
+
+- **P2 — Topic ID case can bypass the open-run and latest-stop checks.** [model.ts](/Users/richie/code/quickr-worktrees/t2-m1-resumable/frontend/src/components/runs/model.ts:248) compares topic IDs case-sensitively, both when selecting runs and when checking entries. If an entry and a locally open run refer to the same UUID with different casing, `resumableInView` can return `true`, exposing Resume despite A15. A later entry with differently cased topic ID can likewise be ignored. The new tests cover entry-ID tie-breaking but not topic-ID case differences.
+
+- **P2 — Large drift reports can omit every generated value.** [vectors.py](/Users/richie/code/quickr-worktrees/t2-m1-resumable/backend/tests/vectors.py:68) appends all removed lines before all added lines, then truncates the combined output at 40 lines. A hunk with 37 or more removed lines fills the report after its three headers, so it shows no generated counterpart for any change. The compactness test exercises 500 changed lines but does not check that both sides remain visible. Interleaving paired lines before truncation would preserve useful comparisons.
+
+The 15-minute and seven-day boundaries, edited handling, pre-v2 terminal ID behavior, entry-ID tie-breaking, and run aliases otherwise match the referenced iOS implementation in the cases reviewed. I found no further concrete issues in those areas.

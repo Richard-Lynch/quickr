@@ -4,8 +4,11 @@
  * folded with the PWA's own fold (the server's reference is checked against the same
  * vectors). Stop makes the entry, or leaves the run finishing when a required question
  * has no answer; finish makes or patches the entry; a finish of an open run answers 409
- * `run_open`. `override` can answer an event itself (a void reply, a 422). Every request
- * is recorded.
+ * `run_open`. Reopen and remove follow timers2.md §4.1/§4.2: a reopen reopens a stopped or
+ * finishing run (409 `conflict` while the topic has another open run, nothing stored), a
+ * re-stop updates the entry (revision + 1), a revert restores the stopped run (or discards
+ * a reopened finishing one), a remove on a stopped run merges into its entry. `override`
+ * can answer an event itself (a void reply, a 422). Every request is recorded.
  */
 import type {
   EntryOut,
@@ -17,7 +20,7 @@ import type {
 } from '../client';
 import { fold, projectTiming, stateToWire, timingToWire } from '../lib/runs/fold';
 import { formatInstant, parseInstant } from '../lib/runs/instant';
-import type { RunEvent, RunStatus } from '../lib/runs/types';
+import type { FoldTimer, RunEvent, RunStatus } from '../lib/runs/types';
 
 export interface RecordedRequest {
   method: string;
@@ -48,6 +51,8 @@ export interface FakeRunServer {
   runOut: (id: string) => RunOut;
   /** Record an event as if another device had sent it (not in `requests`). */
   record: (runId: string, body: RunEventIn) => void;
+  /** Another device's Resume: a reopen of the run's terminal stop at `at` (epoch ms). */
+  reopenElsewhere: (runId: string, at: number) => void;
 }
 
 const json = (status: number, body: unknown) =>
@@ -74,17 +79,27 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
     record: (runId, body) => {
       recordEvent(runId, body);
     },
+    reopenElsewhere: (runId, at) => {
+      const target = runOut(runId).state.terminal_id;
+      recordEvent(runId, {
+        id: `reopen-${String(at)}`,
+        type: 'reopen',
+        at: formatInstant(at),
+        target,
+      });
+    },
   };
 
-  const stepsOf = (version: number) =>
-    versions.find((v) => v.version === version)?.timer?.steps ?? [];
+  /** The version's timer as the fold reads it (`{ steps: [] }` for an untimed one). */
+  const timerOf = (version: number): FoldTimer =>
+    versions.find((v) => v.version === version)?.timer ?? { steps: [] };
   const questionsOf = (version: number) =>
     versions.find((v) => v.version === version)?.questions ?? topic.questions;
 
   function runOut(id: string): RunOut {
     const r = server.runs.get(id);
     if (!r) throw new Error(`no run ${id}`);
-    const state = fold(r.id, stepsOf(r.version), r.events);
+    const state = fold(r.id, timerOf(r.version), r.events);
     return {
       id: r.id,
       topic_id: r.topic_id,
@@ -101,6 +116,7 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
         seg: e.seg,
         step: e.step,
         pause_id: e.pause_id,
+        target: e.target ?? null,
         arrival: e.arrival,
         effect: state.effects[e.id]?.effect ?? 'applied',
         reason: state.effects[e.id]?.reason ?? null,
@@ -116,26 +132,30 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
     answers: RunEventIn['answers'],
     notes: string | null | undefined,
   ) {
-    const state = fold(r.id, stepsOf(r.version), r.events);
-    const timing = timingToWire(projectTiming(state, stepsOf(r.version)));
+    const state = fold(r.id, timerOf(r.version), r.events);
+    const timing = timingToWire(projectTiming(state, timerOf(r.version)));
     const types = new Map(questionsOf(r.version).map((q) => [q.key, q.type]));
     const now = new Date().toISOString();
+    const prior = server.entries.find((e) => e.id === r.id);
     const entry: EntryOut = {
       id: r.id,
       topic_id: r.topic_id,
       version: r.version,
-      revision: 1,
+      revision: (prior?.revision ?? 0) + 1,
       source: 'ui',
       channel: 'ui',
       captured_at: timing.ended_at,
       created_at: now,
       updated_at: now,
-      notes: notes ?? '',
+      notes: notes ?? prior?.notes ?? '',
       meta: {},
-      answers: Object.entries(answers ?? {}).flatMap(([key, value]) => {
-        const type = types.get(key);
-        return type && value !== null ? [{ key, type, value }] : [];
-      }) as EntryOut['answers'],
+      answers:
+        answers == null && prior
+          ? prior.answers
+          : (Object.entries(answers ?? {}).flatMap(([key, value]) => {
+              const type = types.get(key);
+              return type && value !== null ? [{ key, type, value }] : [];
+            }) as EntryOut['answers']),
       timing: { ...timing, skipped: [...timing.skipped] },
     };
     server.entries = [entry, ...server.entries.filter((e) => e.id !== r.id)];
@@ -181,6 +201,24 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
       makeEntry(r, body.answers, body.notes);
       return result(200, r, body.id, { id: body.id, effect: 'applied', reason: null });
     }
+    const open = (status: RunStatus) => status === 'running' || status === 'paused';
+    // timers2.md §4.2: a reopen of a run that isn't open, while the topic has another open
+    // run, is refused before anything is stored.
+    if (body.type === 'reopen' && !open(r.status)) {
+      const other = [...server.runs.values()].some(
+        (x) => x.id !== r.id && x.topic_id === r.topic_id && open(x.status),
+      );
+      if (other) return problem(409, 'conflict');
+    }
+    const before = r.status;
+    const hadEntry = server.entries.some((e) => e.id === r.id);
+    const timingOf = () => {
+      const folded = fold(r.id, timerOf(r.version), r.events);
+      return folded.status === 'stopped'
+        ? JSON.stringify(projectTiming(folded, timerOf(r.version)))
+        : '';
+    };
+    const timingBefore = hadEntry ? timingOf() : '';
     r.events.push({
       id: body.id,
       type: body.type,
@@ -188,19 +226,33 @@ export function fakeRunServer(topic: TopicDetail, versions: TopicVersionOut[]): 
       seg: body.seg ?? null,
       step: body.step ?? null,
       pause_id: body.pause_id ?? null,
+      target: body.target ?? null,
       arrival: ++arrival,
     });
     r.revision += 1;
-    const state = fold(r.id, stepsOf(r.version), r.events);
-    if (state.status === 'stopped' && (r.status === 'running' || r.status === 'paused')) {
-      const required = questionsOf(r.version).some((q) => q.required);
-      if (required && body.answers == null) r.status = 'finishing';
-      else {
-        r.status = 'stopped';
+    const state = fold(r.id, timerOf(r.version), r.events);
+    if (open(before) && state.status === 'stopped') {
+      if (hadEntry && body.type === 'discard')
+        r.status = 'stopped'; // a revert (§4.1)
+      else if (!hadEntry && body.type === 'discard') r.status = 'discarded';
+      else if (hadEntry) {
+        r.status = 'stopped'; // a re-stop: the entry follows
         makeEntry(r, body.answers, body.notes);
+      } else {
+        const required = questionsOf(r.version).some((q) => q.required);
+        if (required && body.answers == null) r.status = 'finishing';
+        else {
+          r.status = 'stopped';
+          makeEntry(r, body.answers, body.notes);
+        }
       }
     } else if (state.status === 'discarded') r.status = 'discarded';
-    else if (r.status === 'running' || r.status === 'paused') r.status = state.status;
+    else if (open(state.status))
+      r.status = state.status; // a reopen too
+    else if (before === 'stopped' && hadEntry && timingOf() !== timingBefore) {
+      // A late merge (a remove on a stopped run): the entry follows (§4.4).
+      makeEntry(r, null, null);
+    }
     return result(body.type === 'start' ? 201 : 200, r, body.id);
   }
 

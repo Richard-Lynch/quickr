@@ -1,0 +1,230 @@
+{
+  "cases": [
+    {"answers":[],"expected":"12:40","name":"timing_only_no_laps","questions":"none","timer":"stepped","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":300000,"ended_at":"2026-10-23T08:05:00Z","event_id":null,"kind":"step","label":"Pour","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":"pour"},{"active_ms":460000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"step","label":"Drink","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:05:00Z","step":"drink"}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · 1 lap","name":"timing_one_lap","questions":"none","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":760000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · 3 laps","name":"timing_three_laps","questions":"none","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":300000,"ended_at":"2026-10-23T08:05:00Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":200000,"ended_at":"2026-10-23T08:08:20Z","event_id":null,"kind":"lap","label":"Lap 2","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:05:00Z","step":null},{"active_ms":260000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Lap 3","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:08:20Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · Run 3 · Rest 3","name":"timing_tiktok","questions":"none","timer":"tiktok","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":130000,"ended_at":"2026-10-23T08:02:10Z","event_id":null,"kind":"lap","label":"Run 1","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":120000,"ended_at":"2026-10-23T08:04:10Z","event_id":null,"kind":"lap","label":"Rest 1","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:02:10Z","step":null},{"active_ms":130000,"ended_at":"2026-10-23T08:06:20Z","event_id":null,"kind":"lap","label":"Run 2","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:04:10Z","step":null},{"active_ms":120000,"ended_at":"2026-10-23T08:08:20Z","event_id":null,"kind":"lap","label":"Rest 2","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:06:20Z","step":null},{"active_ms":130000,"ended_at":"2026-10-23T08:10:30Z","event_id":null,"kind":"lap","label":"Run 3","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:08:20Z","step":null},{"active_ms":130000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Rest 3","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:10:30Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"4:05 · Cig 2","name":"timing_renamed","questions":"none","timer":"renamed","timing":{"active_ms":245000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:04:05Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":60000,"ended_at":"2026-10-23T08:01:00Z","event_id":null,"kind":"lap","label":"Cig 1","lap_type":"cig","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":185000,"ended_at":"2026-10-23T08:04:05Z","event_id":null,"kind":"lap","label":"Cig 2","lap_type":"cig","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:01:00Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · Run 2 · Rest 1 · 2 laps","name":"timing_mixed_typed_untyped","questions":"none","timer":"tiktok","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":200000,"ended_at":"2026-10-23T08:03:20Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":160000,"ended_at":"2026-10-23T08:06:00Z","event_id":null,"kind":"lap","label":"Lap 2","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:03:20Z","step":null},{"active_ms":150000,"ended_at":"2026-10-23T08:08:30Z","event_id":null,"kind":"lap","label":"Run 1","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:06:00Z","step":null},{"active_ms":100000,"ended_at":"2026-10-23T08:10:10Z","event_id":null,"kind":"lap","label":"Rest 1","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:08:30Z","step":null},{"active_ms":150000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Run 2","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:10:10Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · run 2 · rest 1","name":"timing_lap_type_not_in_timer","questions":"none","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":300000,"ended_at":"2026-10-23T08:05:00Z","event_id":null,"kind":"lap","label":"Run 1","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":160000,"ended_at":"2026-10-23T08:07:40Z","event_id":null,"kind":"lap","label":"Rest 1","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:05:00Z","step":null},{"active_ms":300000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Run 2","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:07:40Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · Cig 2 · walk 2 · swim 1","name":"timing_lap_types_declared_then_first_seen","questions":"none","timer":"renamed","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":100000,"ended_at":"2026-10-23T08:01:40Z","event_id":null,"kind":"lap","label":"Walk 1","lap_type":"walk","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":200000,"ended_at":"2026-10-23T08:05:00Z","event_id":null,"kind":"lap","label":"Cig 1","lap_type":"cig","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:01:40Z","step":null},{"active_ms":160000,"ended_at":"2026-10-23T08:07:40Z","event_id":null,"kind":"lap","label":"Swim 1","lap_type":"swim","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:05:00Z","step":null},{"active_ms":200000,"ended_at":"2026-10-23T08:11:00Z","event_id":null,"kind":"lap","label":"Cig 2","lap_type":"cig","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:07:40Z","step":null},{"active_ms":100000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Walk 2","lap_type":"walk","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:11:00Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · Run 2 · Rest 2","name":"timing_declared_order_not_run_order","questions":"none","timer":"tiktok","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":100000,"ended_at":"2026-10-23T08:01:40Z","event_id":null,"kind":"lap","label":"Rest 1","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":300000,"ended_at":"2026-10-23T08:06:40Z","event_id":null,"kind":"lap","label":"Run 1","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:01:40Z","step":null},{"active_ms":60000,"ended_at":"2026-10-23T08:07:40Z","event_id":null,"kind":"lap","label":"Rest 2","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:06:40Z","step":null},{"active_ms":300000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Run 2","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:07:40Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[{"key":"weight","type":"int","value":72}],"expected":"12:40 · run 3 · rest 3 · Weight: 72 kg","name":"timing_typed_laps_untimed_topic","questions":"weight","timer":"none","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":130000,"ended_at":"2026-10-23T08:02:10Z","event_id":null,"kind":"lap","label":"Run 1","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":120000,"ended_at":"2026-10-23T08:04:10Z","event_id":null,"kind":"lap","label":"Rest 1","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:02:10Z","step":null},{"active_ms":130000,"ended_at":"2026-10-23T08:06:20Z","event_id":null,"kind":"lap","label":"Run 2","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:04:10Z","step":null},{"active_ms":120000,"ended_at":"2026-10-23T08:08:20Z","event_id":null,"kind":"lap","label":"Rest 2","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:06:20Z","step":null},{"active_ms":130000,"ended_at":"2026-10-23T08:10:30Z","event_id":null,"kind":"lap","label":"Run 3","lap_type":"run","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:08:20Z","step":null},{"active_ms":130000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Rest 3","lap_type":"rest","opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:10:30Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"1:02:03 · 2 laps","name":"timing_hour_plus","questions":"none","timer":"plain","timing":{"active_ms":3723000,"complete":true,"edited":false,"ended_at":"2026-10-23T09:02:03Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":3600000,"ended_at":"2026-10-23T09:00:00Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":123000,"ended_at":"2026-10-23T09:02:03Z","event_id":null,"kind":"lap","label":"Lap 2","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T09:00:00Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · 2 laps","name":"timing_paused_ignored","questions":"none","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:14:40Z","paused_ms":120000,"pauses":[{"end":"2026-10-23T08:03:40Z","id":null,"start":"2026-10-23T08:01:40Z"}],"segments":[{"active_ms":280000,"ended_at":"2026-10-23T08:06:40Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":120000,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":480000,"ended_at":"2026-10-23T08:14:40Z","event_id":null,"kind":"lap","label":"Lap 2","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:06:40Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"12:40 · 1 lap","name":"timing_sub_second_truncated","questions":"none","timer":"plain","timing":{"active_ms":760999,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40.999000Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":760999,"ended_at":"2026-10-23T08:12:40.999000Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[{"key":"weight","type":"int","value":72}],"expected":"Weight: 72 kg","name":"answers_int_unit","questions":"weight","timer":"none","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":12345}],"expected":"Weight: 12345 kg","name":"answers_int_no_grouping","questions":"weight","timer":"none","timing":null},
+    {"answers":[{"key":"temp","type":"double","value":36.6}],"expected":"Temp: 36.6 °C","name":"answers_double_decimals","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"temp","type":"double","value":36.65}],"expected":"Temp: 36.7 °C","name":"answers_double_rounds_half_up","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"temp","type":"double","value":-0.25}],"expected":"Temp: -0.3 °C","name":"answers_double_negative","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"dose","type":"double","value":2.5}],"expected":"Dose: 2.5","name":"answers_double_trailing_zeros","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"dose","type":"double","value":2.0}],"expected":"Dose: 2","name":"answers_double_integer_value","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"dose","type":"double","value":2.34567}],"expected":"Dose: 2.346","name":"answers_double_default_decimals","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"dose","type":"double","value":1234.5}],"expected":"Dose: 1234.5","name":"answers_double_no_grouping","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"mood","type":"enum","value":"happy"}],"expected":"Mood: Happy","name":"answers_enum_single","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"mood","type":"enum","value":"sad"}],"expected":"Mood: Sad","name":"answers_enum_archived_option","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"mood","type":"enum","value":"grumpy"}],"expected":"Mood: grumpy","name":"answers_enum_unknown_option","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"mood","type":"enum_list","value":["mild","tired"]}],"expected":"Mood: Mild, Tired","name":"answers_enum_multi","questions":"mood_multi","timer":"none","timing":null},
+    {"answers":[{"key":"mood","type":"enum_list","value":["mild","wired"]}],"expected":"Mood: Mild, wired","name":"answers_enum_multi_unknown_option","questions":"mood_multi","timer":"none","timing":null},
+    {"answers":[{"key":"mood","type":"enum_list","value":[]}],"expected":"","name":"answers_enum_multi_empty_skipped","questions":"mood_multi","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"walked \n\n  the\t dog\r\n"}],"expected":"Note: walked the dog","name":"answers_str_collapsed_whitespace","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":72},{"key":"note","type":"str","value":" \n\t "}],"expected":"Weight: 72 kg","name":"answers_str_empty_skipped","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":" walkedthe 　dog "}],"expected":"Note: walked the dog","name":"answers_str_unicode_whitespace","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":" 　"}],"expected":"","name":"answers_str_unicode_whitespace_only_skipped","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"a​﻿\u001f᠎b"}],"expected":"Note: a​﻿\u001f᠎b","name":"answers_str_lookalikes_kept","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":72}],"expected":"Weight: 72 kg","name":"answers_missing_optional_skipped","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":72}],"expected":"12:40 · 3 laps · Weight: 72 kg","name":"both_timing_then_answers","questions":"weight","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":300000,"ended_at":"2026-10-23T08:05:00Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":200000,"ended_at":"2026-10-23T08:08:20Z","event_id":null,"kind":"lap","label":"Lap 2","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:05:00Z","step":null},{"active_ms":260000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Lap 3","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:08:20Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[{"key":"note","type":"str","value":"walked"},{"key":"mood","type":"enum","value":"happy"},{"key":"weight","type":"int","value":72}],"expected":"Weight: 72 kg · Mood: Happy · Note: walked","name":"order_follows_questions_not_answers","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":72},{"key":"mood","type":"enum","value":"happy"}],"expected":"Weight: 72 kg · Mood: Happy","name":"question_without_answer_skipped","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":72},{"key":"steps_count","type":"int","value":9000}],"expected":"Weight: 72 kg","name":"answer_without_question_skipped","questions":"weight","timer":"none","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":72},{"key":"dose","type":"double","value":2.5},{"key":"mood","type":"enum","value":"happy"},{"key":"note","type":"str","value":"walked"}],"expected":"12:40 · 1 lap · Weight: 72 kg · Dose: 2.5 · Mood: Happy · Note: walked","name":"all_answers","questions":"mixed","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":760000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[{"key":"note","type":"str","value":"walked the dog walked the dog walked the dog walked the dog walked the dog"}],"expected":"Note: walked the dog walked the dog walked the dog walked the dog walked the dog","name":"long_exactly_80_kept","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"walked the dog walked the dog walked the dog walked the dog walked the doxx"}],"expected":"Note: walked the dog walked the dog walked the dog walked the dog walked the do…","name":"long_81_truncated","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"walked the dog walked the dog walked the dog walked the dog walked the dog walked the dog walked the dog"}],"expected":"Note: walked the dog walked the dog walked the dog walked the dog walked the do…","name":"long_truncated","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx🇬🇧yyyyy"}],"expected":"Note: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…","name":"long_truncation_flag_pair","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx1️⃣yyyyyyyyyy"}],"expected":"Note: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx1️⃣…","name":"long_truncation_keycap","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx👨‍👩‍👧‍👦yyyyyyyyyy"}],"expected":"Note: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx👨‍👩‍👧‍👦…","name":"long_truncation_zwj_family","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxéyyyyyyyyyy"}],"expected":"Note: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxé…","name":"long_truncation_combining_marks","questions":"mixed","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"walked the dog walked the dog walked the dog walked the dog walked the dog walked the dog walked the dog"}],"expected":"12:40 · 3 laps · Note: walked the dog walked the dog walked the dog walked the …","name":"long_truncation_with_timing","questions":"mixed","timer":"plain","timing":{"active_ms":760000,"complete":true,"edited":false,"ended_at":"2026-10-23T08:12:40Z","paused_ms":0,"pauses":[],"segments":[{"active_ms":300000,"ended_at":"2026-10-23T08:05:00Z","event_id":null,"kind":"lap","label":"Lap 1","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:00:00Z","step":null},{"active_ms":200000,"ended_at":"2026-10-23T08:08:20Z","event_id":null,"kind":"lap","label":"Lap 2","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:05:00Z","step":null},{"active_ms":260000,"ended_at":"2026-10-23T08:12:40Z","event_id":null,"kind":"lap","label":"Lap 3","lap_type":null,"opened_by":null,"paused_ms":0,"started_at":"2026-10-23T08:08:20Z","step":null}],"skipped":[],"started_at":"2026-10-23T08:00:00Z","terminal_id":null}},
+    {"answers":[],"expected":"","name":"empty","questions":"none","timer":"none","timing":null},
+    {"answers":[{"key":"note","type":"str","value":"  "}],"expected":"","name":"empty_untimed_entry_blank_note","questions":"mixed","timer":"plain","timing":null},
+    {"answers":[{"key":"weight","type":"int","value":72}],"expected":"Weight: 72 kg","name":"untimed_entry_of_timed_topic","questions":"weight","timer":"plain","timing":null}
+  ],
+  "meta": {
+    "generator": "backend/tests/test_entry_summary_vectors.py",
+    "generator_version": 1,
+    "max_length": 80,
+    "semantics": [
+      "entrySummary(answers, timing, questions, timer) (content-display.md §1.2): the timing part when timing is not null, then 'label: text' for each question of `questions` in that order whose answer has text, joined by meta.separator, then truncated. '' means nothing to say.",
+      "Timing part: fmtDuration(active_ms) (duration-format-vectors.json); then, when the timing has lap segments (kind 'lap'): untyped laps as 'n lap' / 'n laps'; typed laps (segment.lap_type, M1) as '{label} {count}' per type in the timer's declared order then first seen, the type's key when the timer doesn't declare it, and the untyped remainder last as 'n lap(s)'. Pauses, steps and skipped steps are not shown.",
+      "answer_text: int -> the integer, no thousands grouping, then ' unit' if the question has one; double -> at most `decimals` fraction digits (3 when null), rounded half away from zero from the number's shortest round-trip decimal (as Intl.NumberFormat and Swift's description), trailing zeros and a bare point dropped, no grouping, '.' as the decimal point, then the unit; enum -> the option's label, the raw value for an unknown option; enum_list -> labels joined by ', ', an empty list has no text; str -> runs of meta.whitespace (Unicode White_Space) collapsed to one space and trimmed, an empty result has no text. An answer whose key has no question is skipped; a question without an answer is skipped.",
+      "truncate: lengths are extended grapheme clusters (UAX #29; Swift Character, Intl.Segmenter grapheme, Python regex \\X). A line of more than meta.max_length clusters keeps its first max_length - 1 clusters and appends U+2026; no word boundary, and a cluster is never split (flags, keycaps, ZWJ sequences, combining marks).",
+      "cases[].questions / cases[].timer name an entry of question_sets / timer_sets: the entry's version's questions and the topic's current timer (null when untimed). cases[].answers are wire AnswerOut objects; cases[].timing is a wire Timing or null.",
+      "meta.whitespace lists the code points answer_text collapses, exactly: not U+FEFF, U+200B, U+180E or U+001C..U+001F (answers_str_lookalikes_kept). The strings are not Unicode-normalised (long_truncation_combining_marks holds U+0065 U+0301)."
+    ],
+    "separator": " · ",
+    "whitespace": [
+      9,
+      10,
+      11,
+      12,
+      13,
+      32,
+      133,
+      160,
+      5760,
+      8192,
+      8193,
+      8194,
+      8195,
+      8196,
+      8197,
+      8198,
+      8199,
+      8200,
+      8201,
+      8202,
+      8232,
+      8233,
+      8239,
+      8287,
+      12288
+    ]
+  },
+  "question_sets": {
+    "mixed": [
+      {
+        "key": "weight",
+        "label": "Weight",
+        "type": "int",
+        "unit": "kg"
+      },
+      {
+        "decimals": 1,
+        "key": "temp",
+        "label": "Temp",
+        "required": false,
+        "type": "double",
+        "unit": "°C"
+      },
+      {
+        "key": "dose",
+        "label": "Dose",
+        "required": false,
+        "type": "double"
+      },
+      {
+        "key": "mood",
+        "label": "Mood",
+        "options": [
+          {
+            "label": "Happy",
+            "value": "happy"
+          },
+          {
+            "label": "Meh",
+            "value": "meh"
+          },
+          {
+            "archived": true,
+            "label": "Sad",
+            "value": "sad"
+          }
+        ],
+        "required": false,
+        "type": "enum"
+      },
+      {
+        "key": "note",
+        "label": "Note",
+        "multiline": true,
+        "required": false,
+        "type": "str"
+      }
+    ],
+    "mood_multi": [
+      {
+        "key": "mood",
+        "label": "Mood",
+        "multiple": true,
+        "options": [
+          {
+            "label": "Mild",
+            "value": "mild"
+          },
+          {
+            "label": "Tired",
+            "value": "tired"
+          },
+          {
+            "label": "Calm",
+            "value": "calm"
+          }
+        ],
+        "required": false,
+        "type": "enum"
+      }
+    ],
+    "none": [],
+    "weight": [
+      {
+        "key": "weight",
+        "label": "Weight",
+        "type": "int",
+        "unit": "kg"
+      }
+    ]
+  },
+  "timer_sets": {
+    "none": null,
+    "plain": {
+      "laps": [],
+      "steps": [],
+      "variables": []
+    },
+    "renamed": {
+      "laps": [
+        {
+          "alerts": [],
+          "key": "cig",
+          "label": "Cig"
+        }
+      ],
+      "steps": [],
+      "variables": []
+    },
+    "stepped": {
+      "laps": [],
+      "steps": [
+        {
+          "alerts": [],
+          "key": "pour",
+          "label": "Pour"
+        },
+        {
+          "alerts": [],
+          "key": "drink",
+          "label": "Drink"
+        }
+      ],
+      "variables": []
+    },
+    "tiktok": {
+      "laps": [
+        {
+          "alerts": [],
+          "key": "run",
+          "label": "Run"
+        },
+        {
+          "alerts": [],
+          "key": "rest",
+          "label": "Rest"
+        }
+      ],
+      "steps": [],
+      "variables": []
+    }
+  }
+}

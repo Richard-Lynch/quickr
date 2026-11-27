@@ -1,0 +1,72 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "95DA5A17-10E6-41E9-908D-749151973144",
+      "deviceName" : "quickR iOS27 t2-m3a-gate2-a5dd99",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "24A434",
+      "osVersion" : "27.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "duration" : "Ran for 1 minute",
+  "durationInSeconds" : 60.73826193809509,
+  "hasMediaAttachments" : false,
+  "hasPerformanceMetrics" : false,
+  "startTime" : 1795731651.658,
+  "testDescription" : "Test case with 1 run",
+  "testIdentifier" : "TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+  "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+  "testName" : "testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete()",
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ],
+  "testResult" : "Failed",
+  "testRuns" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "name" : "",
+                  "nodeType" : "Source Code Reference",
+                  "sourceLocation" : {
+                    "filePath" : "/Users/richie/code/quickr-worktrees/t2-m3a-gate2/ios/UITests/TopicUITests.swift",
+                    "lineNumber" : 45
+                  }
+                }
+              ],
+              "name" : "XCTAssertTrue failed",
+              "nodeType" : "Test Case Run",
+              "result" : "Failed",
+              "sourceLocation" : {
+                "filePath" : "/Users/richie/code/quickr-worktrees/t2-m3a-gate2/ios/UITests/TopicUITests.swift",
+                "lineNumber" : 45
+              }
+            }
+          ],
+          "duration" : "1m",
+          "durationInSeconds" : 60.73826193809509,
+          "name" : "Default",
+          "nodeIdentifier" : "1",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/TopicUITests/testSettingsSaveDetailsAndScheduleArchiveUndoAndDelete",
+          "nodeType" : "Test Plan Configuration",
+          "result" : "Failed"
+        }
+      ],
+      "details" : "iOS Simulator 27.0",
+      "duration" : "1m",
+      "durationInSeconds" : 60.73826193809509,
+      "name" : "iPhone 17",
+      "nodeIdentifier" : "95DA5A17-10E6-41E9-908D-749151973144",
+      "nodeType" : "Device",
+      "result" : "Failed"
+    }
+  ]
+}
