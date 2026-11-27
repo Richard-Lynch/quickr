@@ -699,3 +699,23 @@ Each item is on
   `typeText`. The real emoji keyboard (globe key, skin-tone long-press, flags)
   is device-only.
 - **Tile tint and glyph.** T2-WIRE-I, so this item runs after T2-WIRE.
+
+## Addendum: the final syncs with M2 and M4 (after the gate)
+
+M3a merged into `feat/t2` last, after M1, M2 and M4. Both syncs went through
+PRs into `t2/m3a`, fast-forwarded, so `feat/t2` stays an ancestor.
+
+| Sync                                             | PR                                                       | Result                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feat/t2` with M2 (8f6d22e4)                     | [#308](https://github.com/Richard-Lynch/quickr/pull/308) | No textual conflicts; 47 shared-token files identical. Two semantic fixes: a `TopicsPage.test.tsx` fixture gains `appearance`; `RunActivityDisplayTests` counts 16 open LA cases. `make check` backend 1463 / frontend 2142; ios-core 1958; targeted UI 58/58 ([JSON](M3a/xcresults/sync-m2/))                                                                                   |
+| `feat/t2` with M4 (d7d5b189) and #309 (bdbd315e) | [#310](https://github.com/Richard-Lynch/quickr/pull/310) | 22 conflicts, resolved as listed in the PR (agreed `TopicDTO.swift` placement: M4's `lastEntry` block, then M3a's `appearance`). `make check` backend 1555 / frontend 2308; ios-core 2021; targeted UI 40/41; **full UI plan, iOS 26.0: 148 run, 128 passed, 0 failed, 20 skipped** (stack-only); TopicUITests 9/9 with #303 and #309 both kept ([JSON](M3a/xcresults/sync-m4/)) |
+
+The one targeted failure, `StatsUITests.testAccessibilityXXXL`, passed 7/7 in
+the full plan. It is M4's `StatsUITests.scrollTo` stopping at "hittable" (the
+weakness #303 fixed in `TopicUITests`), not M3a: the topic has no appearance,
+so no M3a header renders. Filed as
+[#311](https://github.com/Richard-Lynch/quickr/issues/311), with the
+[failure screenshot](M3a/sync-m4/stats-xxxl-audit-failure.png).
+
+M3a landed in `feat/t2` by fast-forwarding
+[#305](https://github.com/Richard-Lynch/quickr/pull/305) at f866e9fb.
