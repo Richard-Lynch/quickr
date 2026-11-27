@@ -16,7 +16,7 @@ import type { NumericQuestion } from '../../lib/questions';
 import { fmtDuration } from '../../lib/runs/format';
 import { isOpen, type LocalRun } from '../../lib/runs/localView';
 import { NumberInput } from '../answers/AnswerField';
-import type { VersionTimer } from '../runs/context';
+import { useTopicVersions, type VersionTimer } from '../runs/context';
 import { useReopenOffer, type ReopenOffer } from '../runs/reopen';
 import { actionIcon, actionLabel } from '../runs/RunControls';
 import { RunStatus, RunTileAction } from '../runs/RunTile';
@@ -87,7 +87,8 @@ export function TopicTile({
   const detail = useQuery({
     ...getTopicOptions({ path: { ref: t.slug } }),
     staleTime: DETAIL_STALE_MS,
-    enabled: !archived,
+    // An archived topic's too when it has entries: its summary line labels them.
+    enabled: !archived || t.entry_count > 0,
   });
   // Only trust details that match the list's version (a publish elsewhere = refetch).
   const questions =
@@ -106,9 +107,14 @@ export function TopicTile({
   // The latest entry rides on the summary (content-display.md §2): quick tiles show (and number
   // tiles start from) its answer, idle timed ones resume it, every idle tile summarises it.
   const lastEntry = t.last_entry ?? undefined;
+  // A stop on an older version (a publish since) resumes on that version: only then does the
+  // tile read the versions list, for that version's timer.
+  const olderStop =
+    idleTimed && lastEntry?.timing != null && lastEntry.version !== t.current_version;
+  const versions = useTopicVersions(t.id, olderStop);
   const reopen = useReopenOffer(
     { id: t.id, slug: t.slug, name: t.name },
-    current,
+    olderStop ? versions.data : current,
     lastEntry,
     idleTimed,
   );
