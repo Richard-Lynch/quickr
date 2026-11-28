@@ -1,0 +1,3 @@
+- **P2 — The PWA topic-pages dialog has no accessible name** ([TopicPagesMenu.tsx:51](/Users/richie/code/quickr-worktrees/fix-active-card/frontend/src/components/topics/TopicPagesMenu.tsx:51)). `Sheet` renders the topic name as a heading but does not associate it with the `<dialog>` using `aria-labelledby` or `aria-label`. When VoiceOver users open either new menu, the dialog itself is unnamed. Associate the heading with the dialog and add an assertion for the dialog’s accessible name; the new tests currently check only the list and links.
+
+I did not find another sufficiently substantiated correctness or navigation issue in the diff. This was a static review; I did not run the test suites.

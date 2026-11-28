@@ -209,6 +209,8 @@ describe('the active card', () => {
     const menu = within(card).getByRole('button', { name: 'Morning: topic pages' });
     expect(screen.queryByRole('list', { name: 'Topic pages' })).toBeNull();
     await userEvent.click(menu);
+    // The sheet is a dialog named after the topic.
+    expect(screen.getByRole('dialog', { name: 'Morning' })).toBeInTheDocument();
     const pages = screen.getByRole('list', { name: 'Topic pages' });
     expect(
       within(pages)
