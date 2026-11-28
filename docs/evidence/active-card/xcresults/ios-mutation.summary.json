@@ -1,0 +1,64 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "2A5D675C-6365-4081-930F-F65FE722375C",
+        "deviceName" : "quickR iOS-26-0 fix-active-card-92bd75",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 2,
+      "passedTests" : 0,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 2,
+  "finishTime" : 1795890660.661,
+  "passedTests" : 0,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795890587.294,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertEqual failed: (\"Optional(\"Overview\")\") is not equal to (\"Optional(\"Entries\")\")",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 1,
+      "testIdentifierString" : "ActiveCardUITests/testTheCardMenuOpensTheTopicsPages()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheCardMenuOpensTheTopicsPages",
+      "testName" : "testTheCardMenuOpensTheTopicsPages()"
+    },
+    {
+      "failureText" : "XCTAssertEqual failed: (\"Optional(\"Overview\")\") is not equal to (\"Optional(\"Entries\")\")",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 2,
+      "testIdentifierString" : "ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages",
+      "testName" : "testTheRunScreenMenuOpensTheTopicsPages()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+    {
+      "category" : "Common Failures",
+      "impact" : "100% of failures",
+      "text" : "2 runs of 2 tests failed with XCTAssertEqual failed: (\"Optional(\"Overview\")\") is not equal to (\"Optional(\"Entries\")\")"
+    }
+  ],
+  "totalTestCount" : 2
+}

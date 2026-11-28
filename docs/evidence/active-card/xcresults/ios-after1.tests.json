@@ -1,0 +1,311 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "2A5D675C-6365-4081-930F-F65FE722375C",
+      "deviceName" : "quickR iOS-26-0 fix-active-card-92bd75",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "26s",
+                  "durationInSeconds" : 26.96760392189026,
+                  "name" : "testActiveCardScreenshots()",
+                  "nodeIdentifier" : "ActiveCardUITests/testActiveCardScreenshots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testActiveCardScreenshots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "XCTAssertEqual failed: (\"Pause\") is not equal to (\"Pause Morning\")",
+                      "nodeType" : "Failure Message",
+                      "sourceLocation" : {
+                        "filePath" : "/Users/richie/code/quickr-worktrees/fix-active-card/ios/UITests/ActiveCardUITests.swift",
+                        "lineNumber" : 70
+                      }
+                    }
+                  ],
+                  "duration" : "6s",
+                  "durationInSeconds" : 6.351228952407837,
+                  "name" : "testPauseIsAButtonWithAFullTarget()",
+                  "nodeIdentifier" : "ActiveCardUITests/testPauseIsAButtonWithAFullTarget()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testPauseIsAButtonWithAFullTarget",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                },
+                {
+                  "duration" : "37s",
+                  "durationInSeconds" : 37.74275004863739,
+                  "name" : "testTheCardMenuOpensTheTopicsPages()",
+                  "nodeIdentifier" : "ActiveCardUITests/testTheCardMenuOpensTheTopicsPages()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheCardMenuOpensTheTopicsPages",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "24s",
+                  "durationInSeconds" : 24.11011302471161,
+                  "name" : "testTheRunScreenMenuOpensTheTopicsPages()",
+                  "nodeIdentifier" : "ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "ActiveCardUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "19s",
+                  "durationInSeconds" : 19.56296396255493,
+                  "name" : "testAccessibilityXXXL()",
+                  "nodeIdentifier" : "HomeTests/testAccessibilityXXXL()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testAccessibilityXXXL",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "12s",
+                  "durationInSeconds" : 12.493463039398193,
+                  "name" : "testActiveNowSectionShowsOpenRun()",
+                  "nodeIdentifier" : "HomeTests/testActiveNowSectionShowsOpenRun()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testActiveNowSectionShowsOpenRun",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "Invalid frame dimension (negative or non-finite).",
+                      "nodeType" : "Runtime Warning"
+                    }
+                  ],
+                  "duration" : "13s",
+                  "durationInSeconds" : 13.20232892036438,
+                  "name" : "testATileOpensItsTopicAndLogOpensRecord()",
+                  "nodeIdentifier" : "HomeTests/testATileOpensItsTopicAndLogOpensRecord()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testATileOpensItsTopicAndLogOpensRecord",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "22s",
+                  "durationInSeconds" : 22.128297090530396,
+                  "name" : "testAtXXXLTheHeaderNeverCoversTheList()",
+                  "nodeIdentifier" : "HomeTests/testAtXXXLTheHeaderNeverCoversTheList()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testAtXXXLTheHeaderNeverCoversTheList",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "19s",
+                  "durationInSeconds" : 19.909820914268494,
+                  "name" : "testReduceMotionKeepsEverythingWorking()",
+                  "nodeIdentifier" : "HomeTests/testReduceMotionKeepsEverythingWorking()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testReduceMotionKeepsEverythingWorking",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "10s",
+                  "durationInSeconds" : 10.233053922653198,
+                  "name" : "testSearchMatchesQuestionsAndClears()",
+                  "nodeIdentifier" : "HomeTests/testSearchMatchesQuestionsAndClears()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testSearchMatchesQuestionsAndClears",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "8s",
+                  "durationInSeconds" : 8.482583999633789,
+                  "name" : "testTheArchivedFilterShowsArchivedTopics()",
+                  "nodeIdentifier" : "HomeTests/testTheArchivedFilterShowsArchivedTopics()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testTheArchivedFilterShowsArchivedTopics",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "13s",
+                  "durationInSeconds" : 13.884446024894714,
+                  "name" : "testTheHeaderScalesWithDynamicType()",
+                  "nodeIdentifier" : "HomeTests/testTheHeaderScalesWithDynamicType()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testTheHeaderScalesWithDynamicType",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.407721996307373,
+                  "name" : "testTheListIsDueFirst()",
+                  "nodeIdentifier" : "HomeTests/testTheListIsDueFirst()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testTheListIsDueFirst",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "HomeTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "56s",
+                  "durationInSeconds" : 56.0949809551239,
+                  "name" : "testLapIsPrimaryWithChunkyControls()",
+                  "nodeIdentifier" : "RunUITests/testLapIsPrimaryWithChunkyControls()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testLapIsPrimaryWithChunkyControls",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "41s",
+                  "durationInSeconds" : 41.61062002182007,
+                  "name" : "testRemoteRemoveRenumbersLaps()",
+                  "nodeIdentifier" : "RunUITests/testRemoteRemoveRenumbersLaps()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRemoteRemoveRenumbersLaps",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.01159393787384,
+                  "name" : "testRunClocksAtAnAccessibilitySize()",
+                  "nodeIdentifier" : "RunUITests/testRunClocksAtAnAccessibilitySize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunClocksAtAnAccessibilitySize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "10s",
+                  "durationInSeconds" : 10.610216975212097,
+                  "name" : "testRunClocksInDark()",
+                  "nodeIdentifier" : "RunUITests/testRunClocksInDark()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunClocksInDark",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "10s",
+                  "durationInSeconds" : 10.665104985237122,
+                  "name" : "testRunClocksInLight()",
+                  "nodeIdentifier" : "RunUITests/testRunClocksInLight()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunClocksInLight",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "34s",
+                  "durationInSeconds" : 34.325430035591125,
+                  "name" : "testRunComesBackAfterRemoteReopen()",
+                  "nodeIdentifier" : "RunUITests/testRunComesBackAfterRemoteReopen()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunComesBackAfterRemoteReopen",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "11s",
+                  "durationInSeconds" : 11.377409934997559,
+                  "name" : "testRunControlsStackAtAnAccessibilitySize()",
+                  "nodeIdentifier" : "RunUITests/testRunControlsStackAtAnAccessibilitySize()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testRunControlsStackAtAnAccessibilitySize",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "46s",
+                  "durationInSeconds" : 46.01746702194214,
+                  "name" : "testStartNextNextSkipPauseResumeStopAnswerSave()",
+                  "nodeIdentifier" : "RunUITests/testStartNextNextSkipPauseResumeStopAnswerSave()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testStartNextNextSkipPauseResumeStopAnswerSave",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "6s",
+                  "durationInSeconds" : 6.145918965339661,
+                  "name" : "testStartTheMomentTheTileShows()",
+                  "nodeIdentifier" : "RunUITests/testStartTheMomentTheTileShows()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testStartTheMomentTheTileShows",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "34s",
+                  "durationInSeconds" : 34.38036298751831,
+                  "name" : "testStopToastOffersResume()",
+                  "nodeIdentifier" : "RunUITests/testStopToastOffersResume()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testStopToastOffersResume",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "39s",
+                  "durationInSeconds" : 39.4384640455246,
+                  "name" : "testTikTokLapLabels()",
+                  "nodeIdentifier" : "RunUITests/testTikTokLapLabels()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testTikTokLapLabels",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "children" : [
+                    {
+                      "name" : "XCTAssertTrue failed",
+                      "nodeType" : "Failure Message",
+                      "sourceLocation" : {
+                        "filePath" : "/Users/richie/code/quickr-worktrees/fix-active-card/ios/UITests/RunUITests+Resume.swift",
+                        "lineNumber" : 121
+                      }
+                    }
+                  ],
+                  "duration" : "28s",
+                  "durationInSeconds" : 28.42164695262909,
+                  "name" : "testUndoResumeKeepsTheStop()",
+                  "nodeIdentifier" : "RunUITests/testUndoResumeKeepsTheStop()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testUndoResumeKeepsTheStop",
+                  "nodeType" : "Test Case",
+                  "result" : "Failed"
+                }
+              ],
+              "name" : "RunUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Failed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Failed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Failed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

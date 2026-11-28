@@ -2,7 +2,8 @@
  * The home card of a topic with an open run (active-surfaces.md §6.2, the PWA side of
  * §3.2): larger and tinted, with the segment clock big (the lap is what is being timed),
  * the run total beside it, the status and headline, and the run's controls inline. The
- * whole card opens the run panel. Idle and finishing topics keep `TopicTile`'s layout.
+ * whole card opens the run panel; its "…" (`TopicPagesMenu`) reaches the topic's stats,
+ * entries, builder and settings. Idle and finishing topics keep `TopicTile`'s layout.
  */
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router';
@@ -18,6 +19,7 @@ import { Badge } from '../ui/Card';
 import { cn } from '../ui/cn';
 import { Icon, type IconName } from '../ui/Icon';
 import { TopicGlyph } from '../ui/TopicGlyph';
+import { TopicPagesMenu } from './TopicPagesMenu';
 
 /**
  * The topic as the card reads it. `appearance` (appearance.md §1.1) is optional until the
@@ -39,7 +41,7 @@ export interface CardButton {
 
 /**
  * The card's controls: the primary (Lap/Next) and Stop fill the controls row; Pause or
- * Resume is the small text button of the title row. A null slot isn't shown.
+ * Resume is the outlined capsule in the title row's corner. A null slot isn't shown.
  */
 export interface CardControls {
   primary: CardButton | null;
@@ -122,7 +124,10 @@ export function ActiveTopicCard({
       <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tint.bar)} />
       <div className="flex min-w-0 flex-1 flex-col gap-3 py-3.5 pr-3 pl-5">
         <div
-          className={cn('flex min-w-0 items-start', pauseResume && 'pr-[6.5rem] @max-[21rem]:pr-0')}
+          className={cn(
+            'flex min-w-0 items-start @max-[21rem]:pr-0',
+            pauseResume ? 'pr-[10rem]' : 'pr-12',
+          )}
         >
           <h2 className="flex min-w-0 items-center gap-2 pt-1.5 font-display text-[1.2rem] leading-tight font-semibold tracking-tight">
             <span aria-hidden className="contents">
@@ -213,21 +218,26 @@ export function ActiveTopicCard({
             ) : null}
           </div>
         ) : null}
-        {/* Last for screen readers (§7: the controls in order primary, Stop, Pause), shown in
-            the title row's corner; at large text (a card under 21rem) under the headline. */}
-        {pauseResume ? (
-          <button
-            type="button"
-            data-testid={pauseResume.paused ? 'card-resume' : 'card-pause'}
-            aria-label={pauseResume.label}
-            disabled={pauseResume.disabled}
-            onClick={pauseResume.onTap}
-            className="absolute top-2.5 right-2 z-10 inline-flex min-h-11 shrink-0 items-center gap-1.5 self-start rounded-full px-3 text-sm font-semibold text-ink-soft transition-colors hover:bg-surface/70 hover:text-ink disabled:cursor-wait disabled:opacity-60 @max-[21rem]:relative @max-[21rem]:top-auto @max-[21rem]:right-auto @max-[21rem]:order-1 @max-[21rem]:-my-1.5 @max-[21rem]:-ml-3"
-          >
-            <Icon name={pauseResume.icon} className="size-4" strokeWidth={2.4} />
-            {pauseResume.title}
-          </button>
-        ) : null}
+        {/* Last for screen readers (§7: the controls in order primary, Stop, Pause, then the
+            topic's pages), shown in the title row's corner; at large text (a card under 21rem)
+            under the headline. Pause is an outlined capsule like Stop, so it reads as a button. */}
+        <div className="absolute top-2.5 right-2 z-10 flex items-center gap-1.5 @max-[21rem]:relative @max-[21rem]:top-auto @max-[21rem]:right-auto @max-[21rem]:order-1">
+          {pauseResume ? (
+            <button
+              type="button"
+              data-testid={pauseResume.paused ? 'card-resume' : 'card-pause'}
+              aria-label={pauseResume.label}
+              disabled={pauseResume.disabled}
+              onClick={pauseResume.onTap}
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-sm font-semibold text-ink transition-colors hover:border-ink/40 hover:bg-sunken active:scale-[0.97] disabled:cursor-wait disabled:opacity-60 motion-reduce:active:scale-none"
+            >
+              <Icon name={pauseResume.icon} className="size-4" strokeWidth={2.4} />
+              {pauseResume.title}
+            </button>
+          ) : null}
+          {/* The topic's own pages: the card stands in for its tile, so it must still reach them. */}
+          <TopicPagesMenu topic={topic} testId="card-menu" />
+        </div>
       </div>
     </article>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { Button, IconButton } from './Button';
 import { cn } from './cn';
@@ -22,6 +22,8 @@ interface SheetProps {
  */
 export function Sheet({ open, onClose, title, description, children, footer, wide }: SheetProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  // The title names the dialog for screen readers.
+  const titleId = useId();
 
   useEffect(() => {
     const el = ref.current;
@@ -39,6 +41,7 @@ export function Sheet({ open, onClose, title, description, children, footer, wid
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onCancel={(e) => {
         e.preventDefault();
         onClose();
@@ -57,7 +60,9 @@ export function Sheet({ open, onClose, title, description, children, footer, wid
           <div className="mx-auto mt-2.5 h-1.5 w-10 shrink-0 rounded-full bg-line-strong sm:hidden" />
           <header className="flex items-start gap-3 px-5 pt-4 pb-2 sm:px-6 sm:pt-5">
             <div className="min-w-0 flex-1">
-              <h2 className="font-display text-xl font-semibold tracking-tight">{title}</h2>
+              <h2 id={titleId} className="font-display text-xl font-semibold tracking-tight">
+                {title}
+              </h2>
               {description ? <p className="mt-1 text-sm text-muted">{description}</p> : null}
             </div>
             <IconButton label="Close" size="sm" onClick={onClose} className="-mt-1 -mr-2">

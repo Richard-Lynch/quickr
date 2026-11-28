@@ -150,7 +150,7 @@ describe('the active card', () => {
       within(card)
         .getAllByRole('button')
         .map((b) => b.dataset.testid),
-    ).toEqual(['card-primary', 'card-stop', 'card-pause']);
+    ).toEqual(['card-primary', 'card-stop', 'card-pause', 'card-menu']);
     const status = within(card).getByTestId('card-status');
     expect(status.compareDocumentPosition(primary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await userEvent.click(primary);
@@ -179,9 +179,49 @@ describe('the active card', () => {
     expect(within(primary).getByText('Next: Breakfast')).toHaveClass('[overflow-wrap:anywhere]');
   });
 
-  it('shows no controls row without controls', () => {
+  it('shows no controls row without controls, only the topic pages', () => {
     const card = renderCard(runOf(), { primary: null, stop: null, pauseResume: null });
-    expect(within(card).queryAllByRole('button')).toEqual([]);
+    expect(
+      within(card)
+        .getAllByRole('button')
+        .map((b) => b.dataset.testid),
+    ).toEqual(['card-menu']);
+  });
+
+  it('Pause is a real button: an outlined capsule with a 44 px target, like Stop', () => {
+    const card = renderCard(runOf(), controlsOf());
+    const pause = within(card).getByRole('button', { name: 'Pause · Morning' });
+    expect(pause).toHaveAttribute('data-testid', 'card-pause');
+    expect(pause.tagName).toBe('BUTTON');
+    // jsdom has no layout: the classes are the frame (min-h-11 is 44 px) and the outline.
+    expect(pause).toHaveClass(
+      'min-h-11',
+      'rounded-full',
+      'border',
+      'border-line-strong',
+      'bg-surface',
+    );
+    expect(within(card).getByTestId('card-menu')).toHaveClass('size-11', 'border');
+  });
+
+  it('the "…" lists the topic’s stats, entries, builder and settings', async () => {
+    const card = renderCard(runOf(), controlsOf());
+    const menu = within(card).getByRole('button', { name: 'Morning: topic pages' });
+    expect(screen.queryByRole('list', { name: 'Topic pages' })).toBeNull();
+    await userEvent.click(menu);
+    // The sheet is a dialog named after the topic.
+    expect(screen.getByRole('dialog', { name: 'Morning' })).toBeInTheDocument();
+    const pages = screen.getByRole('list', { name: 'Topic pages' });
+    expect(
+      within(pages)
+        .getAllByRole('link')
+        .map((a) => [a.textContent, a.getAttribute('href')]),
+    ).toEqual([
+      ['Stats', '/t/morning'],
+      ['Entries', '/t/morning/entries'],
+      ['Edit questions', '/t/morning/edit'],
+      ['Topic settings', '/t/morning/settings'],
+    ]);
   });
 
   it('disables a control its source disables', () => {
@@ -238,7 +278,12 @@ describe('the active card', () => {
   it('resuming (a queued reopen, not acked): "Resuming…" and no controls until the ack', () => {
     const card = renderCard(runOf(), controlsOf(), topic, true);
     expect(within(card).getByTestId('card-status')).toHaveTextContent(/^Resuming… · Shower$/);
-    expect(within(card).queryAllByRole('button')).toEqual([]);
+    // No run controls; the topic's pages stay reachable.
+    expect(
+      within(card)
+        .getAllByRole('button')
+        .map((b) => b.dataset.testid),
+    ).toEqual(['card-menu']);
     // The clocks still run, and the card still opens the run panel.
     expect(within(card).getByTestId('card-total')).toHaveTextContent(/1:0\d/);
     expect(within(card).getByRole('link', { name: 'Morning' })).toBeInTheDocument();
@@ -280,7 +325,11 @@ describe('the Resuming card on the topics page (§3.3, §6.3; timers2.md §5.3)'
     await waitFor(() =>
       expect(within(card).getByTestId('card-status')).toHaveTextContent(/^Resuming…/),
     );
-    expect(within(card).queryAllByRole('button')).toEqual([]);
+    expect(
+      within(card)
+        .getAllByRole('button')
+        .map((b) => b.dataset.testid),
+    ).toEqual(['card-menu']);
     expect(screen.queryByTestId('run-reopen')).toBeNull();
 
     hold = false;
@@ -305,5 +354,67 @@ describe('the Resuming card on the topics page (§3.3, §6.3; timers2.md §5.3)'
     await waitFor(() => expect(reopens(server())).toHaveLength(1), { timeout: 4000 });
     expect(reopens(server())[0]?.target).toBe(stop?.id);
     expect(await screen.findByTestId('active-card')).toBeInTheDocument();
+  });
+});
+
+describe('the topic’s pages while its run is open (active-surfaces.md §3.2, §6.2)', () => {
+  let h: Harness | null = null;
+  afterEach(async () => {
+    await h?.teardown();
+    h = null;
+  });
+
+  /** Morning started from its tile: its "Active now" card is up. */
+  async function started() {
+    h = renderRunApp('/', lapTopic());
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Start Morning' }));
+    expect(await screen.findByTestId('active-card')).toBeInTheDocument();
+    return user;
+  }
+
+  /** Opens the `menu` "…" and follows its `page` link. */
+  async function follow(user: ReturnType<typeof userEvent.setup>, menu: string, page: string) {
+    await user.click(await screen.findByTestId(menu));
+    await user.click(await screen.findByTestId(`${menu}-${page}`));
+  }
+
+  it.each([
+    ['entries', '/t/morning/entries', 'Topic entries'],
+    ['stats', '/t/morning', 'Topic overview'],
+    ['edit', '/t/morning/edit', 'Topic builder'],
+    ['settings', '/t/morning/settings', 'Topic settings'],
+  ])('the card’s "…" opens the topic’s %s', async (page, path, text) => {
+    const user = await started();
+    await follow(user, 'card-menu', page);
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(new RegExp(`^${path}$`)),
+    );
+    expect(await screen.findByText(text)).toBeInTheDocument();
+  });
+
+  it('the run panel’s "…" opens the topic’s entries and settings too', async () => {
+    const user = await started();
+    // The card itself still opens the run panel.
+    await user.click(screen.getByRole('link', { name: 'Morning' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(/^\/t\/morning\/record$/),
+    );
+    expect(await screen.findByTestId('run-stop')).toBeInTheDocument();
+    await follow(user, 'run-topic-menu', 'entries');
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(/^\/t\/morning\/entries$/),
+    );
+    expect(await screen.findByText('Topic entries')).toBeInTheDocument();
+  });
+
+  it('the run panel’s "…" reaches the settings', async () => {
+    const user = await started();
+    await user.click(screen.getByRole('link', { name: 'Morning' }));
+    expect(await screen.findByTestId('run-stop')).toBeInTheDocument();
+    await follow(user, 'run-topic-menu', 'settings');
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(/^\/t\/morning\/settings$/),
+    );
   });
 });

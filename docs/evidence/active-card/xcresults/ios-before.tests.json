@@ -1,0 +1,53 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "2A5D675C-6365-4081-930F-F65FE722375C",
+      "deviceName" : "quickR iOS-26-0 fix-active-card-92bd75",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "28s",
+                  "durationInSeconds" : 28.30638599395752,
+                  "name" : "testActiveCardScreenshots()",
+                  "nodeIdentifier" : "ActiveCardUITests/testActiveCardScreenshots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testActiveCardScreenshots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "ActiveCardUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

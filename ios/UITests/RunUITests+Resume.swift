@@ -112,7 +112,14 @@ extension RunUITests {
         XCTAssertTrue(screenReopen.waitForExistence(timeout: 10), "the stop is kept: Resume again")
         XCTAssertEqual(screenReopen.label, "Resume the last run of TikTok")
         XCTAssertLessThan(screenStart.frame.maxY, screenReopen.frame.minY + 1, "under Start")
-        XCTAssertFalse(find("run.menu").exists, "Resume shows once, not also in the menu")
+        // The More menu stays for the topic's pages (active-surfaces.md §2.2), without a Resume.
+        find("run.menu").tap()
+        XCTAssertTrue(app.buttons["run.topic.entries"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertEqual(
+            app.buttons.matching(identifier: "run.reopen").count, 1, "Resume shows once, not also in the menu")
+        // A tap outside the open menu only closes it.
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.92)).tap()
+        XCTAssertTrue(app.buttons["run.topic.entries"].firstMatch.waitForNonExistence(timeout: 5), "the menu closed")
         resumeSnap(app, "resume-idle-run-screen")
 
         // 16 minutes later on the run clock: the screen's Resume is gone, Start stays.

@@ -1,0 +1,97 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "2A5D675C-6365-4081-930F-F65FE722375C",
+      "deviceName" : "quickR iOS-26-0 fix-active-card-92bd75",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "26s",
+                  "durationInSeconds" : 26.287492036819458,
+                  "name" : "testActiveCardScreenshots()",
+                  "nodeIdentifier" : "ActiveCardUITests/testActiveCardScreenshots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testActiveCardScreenshots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "9s",
+                  "durationInSeconds" : 9.08957302570343,
+                  "name" : "testPauseIsAButtonWithAFullTarget()",
+                  "nodeIdentifier" : "ActiveCardUITests/testPauseIsAButtonWithAFullTarget()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testPauseIsAButtonWithAFullTarget",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "37s",
+                  "durationInSeconds" : 37.7136869430542,
+                  "name" : "testTheCardMenuOpensTheTopicsPages()",
+                  "nodeIdentifier" : "ActiveCardUITests/testTheCardMenuOpensTheTopicsPages()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheCardMenuOpensTheTopicsPages",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "28s",
+                  "durationInSeconds" : 28.34165608882904,
+                  "name" : "testTheRunScreenMenuOpensTheTopicsPages()",
+                  "nodeIdentifier" : "ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "ActiveCardUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "35s",
+                  "durationInSeconds" : 35.970327973365784,
+                  "name" : "testUndoResumeKeepsTheStop()",
+                  "nodeIdentifier" : "RunUITests/testUndoResumeKeepsTheStop()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testUndoResumeKeepsTheStop",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "RunUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

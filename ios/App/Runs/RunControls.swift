@@ -71,16 +71,19 @@ extension RunControls {
     }
 }
 
-/// The toolbar's "More" menu (`run.menu`): the layout's overflow, destructive last. Nothing when
-/// it is empty.
+/// The toolbar's "More" menu (`run.menu`): the layout's overflow, destructive last, then the
+/// topic's own pages (`run.topic.<page>`, active-surfaces.md §2.2), so an open run never hides
+/// them. Nothing when both are empty.
 struct RunOverflowMenu: View {
     let actions: [RunAction]
     let topic: String
     let busy: Bool
+    /// The topic whose pages the menu lists; none leaves them out.
+    var pages: TopicLinkRef?
     let perform: (RunAction) -> Void
 
     var body: some View {
-        if !actions.isEmpty {
+        if !actions.isEmpty || pages != nil {
             Menu {
                 ForEach(actions) { action in
                     Button(role: action.role == .destructive ? .destructive : nil) {
@@ -91,6 +94,11 @@ struct RunOverflowMenu: View {
                     .disabled(busy || !action.enabled)
                     .accessibilityLabel(action.spokenTitle(topic: topic))
                     .accessibilityIdentifier("run.\(action.id)")
+                }
+                if let pages {
+                    Section(topic) {
+                        TopicPageItems(ref: pages, prefix: "run.topic")
+                    }
                 }
             } label: {
                 Label("More", systemImage: "ellipsis.circle")
