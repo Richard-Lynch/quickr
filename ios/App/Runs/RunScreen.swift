@@ -114,10 +114,11 @@ struct RunPanel: View {
         .navigationTitle(topic.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if !layout.overflow.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    RunOverflowMenu(actions: layout.overflow, topic: topic.name, busy: busy, perform: perform)
-                }
+            // Always there: the topic's pages follow the run's overflow (§2.2).
+            ToolbarItem(placement: .topBarTrailing) {
+                RunOverflowMenu(
+                    actions: layout.overflow, topic: topic.name, busy: busy, pages: TopicLinkRef(topic: topic),
+                    perform: perform)
             }
         }
         .alert("Discard this run?", isPresented: $confirmingDiscard) {

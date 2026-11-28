@@ -1,0 +1,106 @@
+{
+  "devices" : [
+    {
+      "architecture" : "arm64",
+      "deviceId" : "2A5D675C-6365-4081-930F-F65FE722375C",
+      "deviceName" : "quickR iOS-26-0 fix-active-card-92bd75",
+      "modelName" : "iPhone 17",
+      "osBuildNumber" : "23A343",
+      "osVersion" : "26.0",
+      "platform" : "iOS Simulator"
+    }
+  ],
+  "testNodes" : [
+    {
+      "children" : [
+        {
+          "children" : [
+            {
+              "children" : [
+                {
+                  "duration" : "29s",
+                  "durationInSeconds" : 29.381124019622803,
+                  "name" : "testActiveCardScreenshots()",
+                  "nodeIdentifier" : "ActiveCardUITests/testActiveCardScreenshots()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testActiveCardScreenshots",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "8s",
+                  "durationInSeconds" : 8.992530107498169,
+                  "name" : "testPauseIsAButtonWithAFullTarget()",
+                  "nodeIdentifier" : "ActiveCardUITests/testPauseIsAButtonWithAFullTarget()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testPauseIsAButtonWithAFullTarget",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "38s",
+                  "durationInSeconds" : 38.34821701049805,
+                  "name" : "testTheCardMenuOpensTheTopicsPages()",
+                  "nodeIdentifier" : "ActiveCardUITests/testTheCardMenuOpensTheTopicsPages()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheCardMenuOpensTheTopicsPages",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "24s",
+                  "durationInSeconds" : 24.11829900741577,
+                  "name" : "testTheRunScreenMenuOpensTheTopicsPages()",
+                  "nodeIdentifier" : "ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testTheRunScreenMenuOpensTheTopicsPages",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "ActiveCardUITests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            },
+            {
+              "children" : [
+                {
+                  "duration" : "19s",
+                  "durationInSeconds" : 19.435346007347107,
+                  "name" : "testAccessibilityXXXL()",
+                  "nodeIdentifier" : "HomeTests/testAccessibilityXXXL()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testAccessibilityXXXL",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                },
+                {
+                  "duration" : "13s",
+                  "durationInSeconds" : 13.164111971855164,
+                  "name" : "testActiveNowSectionShowsOpenRun()",
+                  "nodeIdentifier" : "HomeTests/testActiveNowSectionShowsOpenRun()",
+                  "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests/testActiveNowSectionShowsOpenRun",
+                  "nodeType" : "Test Case",
+                  "result" : "Passed"
+                }
+              ],
+              "name" : "HomeTests",
+              "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/HomeTests",
+              "nodeType" : "Test Suite",
+              "result" : "Passed"
+            }
+          ],
+          "name" : "QuickRUITests",
+          "nodeIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests",
+          "nodeType" : "UI test bundle",
+          "result" : "Passed"
+        }
+      ],
+      "name" : "UI",
+      "nodeType" : "Test Plan",
+      "result" : "Passed"
+    }
+  ],
+  "testPlanConfigurations" : [
+    {
+      "configurationId" : "1",
+      "configurationName" : "Default"
+    }
+  ]
+}

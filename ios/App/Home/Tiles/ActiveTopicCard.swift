@@ -4,14 +4,15 @@ import QuickrUI
 import SwiftUI
 
 /// A timed topic with an open run, in home's "Active now" (active-surfaces.md §3.2): one card in
-/// the topic's tint with the title and Pause/Resume, the segment clock with the run's total, the
-/// headline, the alert line, and the primary (Next or Lap) beside Stop. Tapping anywhere else
-/// opens the run screen. The buttons are `RunControlsLayout.tile` over
+/// the topic's tint with the title, Pause/Resume and the "…" of the topic's pages, the segment
+/// clock with the run's total, the headline, the alert line, and the primary (Next or Lap) beside
+/// Stop. Tapping anywhere else opens the run screen. The buttons are `RunControlsLayout.tile` over
 /// `RunActions.actions(for:)`: placed by role, titled by kind (§1.3).
 ///
 /// Accessibility identifiers: `tile.<slug>` on the card; inside it `tile.<slug>.segment`,
 /// `tile.<slug>.total`, `run.status` (the headline), `tile.<slug>.alert`, `tile.<slug>.run` (the
-/// primary), `tile.<slug>.stop` and `tile.<slug>.pause` / `tile.<slug>.resume`.
+/// primary), `tile.<slug>.stop`, `tile.<slug>.pause` / `tile.<slug>.resume`, and `tile.<slug>.menu`
+/// with its items `tile.<slug>.menu.<page>` (`TopicPage`).
 struct ActiveTopicCard: View {
     let topic: ViewTopic
     let run: LocalRun
@@ -22,6 +23,10 @@ struct ActiveTopicCard: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     /// The topic's colours (appearance.md §4.1), set by `.topicTheme(for:)`; the accent by default.
     @Environment(\.topicTheme) private var theme
+    /// The "…" circle: 44 pt at the default size, growing with the text beside it (`menuSide`).
+    @ScaledMetric(relativeTo: .body) private var menuSize = QuickrMetrics.tapTarget
+    /// `menuSize` from 44 pt up to Pause's height at the largest sizes (56 pt).
+    private var menuSide: CGFloat { min(max(menuSize, QuickrMetrics.tapTarget), QuickrButtonSize.large.height) }
 
     var body: some View {
         let now = environment.runTicker.serverNow
@@ -38,9 +43,9 @@ struct ActiveTopicCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 8) {
                 summary(now: now, paused: paused, resuming: resuming, slug: slug)
-                if !stacked, let action = controls.pauseResume { pauseButton(action, slug: slug) }
+                if !stacked { cornerButtons(controls.pauseResume, slug: slug) }
             }
-            if stacked, let action = controls.pauseResume { pauseButton(action, slug: slug) }
+            if stacked { cornerButtons(controls.pauseResume, slug: slug) }
             if let alert {
                 Text(alert)
                     .font(.qr(.footnote))
@@ -131,20 +136,49 @@ struct ActiveTopicCard: View {
             .accessibilityIdentifier("tile.\(slug).total")
     }
 
-    /// The small Pause/Resume text button: in the title row, under the headline at accessibility
-    /// sizes (§3.2). A 44 pt target (the small size's hit area).
+    /// Pause/Resume and the topic's "…": in the title row, under the headline at accessibility
+    /// sizes (§3.2).
+    private func cornerButtons(_ pauseResume: RunAction?, slug: String) -> some View {
+        HStack(spacing: 6) {
+            if let pauseResume { pauseButton(pauseResume, slug: slug) }
+            pagesMenu(slug: slug)
+        }
+    }
+
+    /// Pause/Resume: an outlined 44 pt capsule, Stop's style, so it reads as a button.
     private func pauseButton(_ action: RunAction, slug: String) -> some View {
         Button {
             perform(action)
         } label: {
             Label(action.title, systemImage: action.systemImage)
         }
-        .buttonStyle(.qr(.ghost, size: .small))
+        .buttonStyle(.qr(.secondary, size: .medium))
+        .fixedSize()
         .disabled(!action.enabled)
         .accessibilityLabel(action.spokenTitle(topic: topic.topic.name))
         .accessibilityIdentifier("tile.\(slug).\(action.id)")
-        // Last in the card's order (§7): summary 3, primary 2, Stop 1, then this.
+        // After the controls in the card's order (§7): summary 3, primary 2, Stop 1, then this.
         .accessibilitySortPriority(0)
+    }
+
+    /// The topic's pages (`TopicPage`): the card stands in for the topic's tile, whose tap opens
+    /// them, so the card must still reach them. An outlined circle of at least 44 pt, last in the order.
+    private func pagesMenu(slug: String) -> some View {
+        Menu {
+            TopicPageItems(ref: TopicLinkRef(topic: topic.topic), prefix: "tile.\(slug).menu")
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.qr(.sansSemiBold, size: 16, relativeTo: .body))
+                .foregroundStyle(.qr.inkSoft)
+                .frame(width: menuSide, height: menuSide)
+                .background(Color.qr.surface, in: Circle())
+                .overlay { Circle().strokeBorder(Color.qr.lineStrong, lineWidth: 1) }
+                .contentShape(Circle())
+        }
+        .accessibilityLabel("\(topic.topic.name): topic pages")
+        .accessibilityHint("Stats, entries, questions and settings")
+        .accessibilityIdentifier("tile.\(slug).menu")
+        .accessibilitySortPriority(-1)
     }
 
     /// The primary filling the row, Stop beside it; stacked (both full width) at accessibility

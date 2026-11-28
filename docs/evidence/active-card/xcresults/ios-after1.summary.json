@@ -1,0 +1,63 @@
+{
+  "devicesAndConfigurations" : [
+    {
+      "device" : {
+        "architecture" : "arm64",
+        "deviceId" : "2A5D675C-6365-4081-930F-F65FE722375C",
+        "deviceName" : "quickR iOS-26-0 fix-active-card-92bd75",
+        "modelName" : "iPhone 17",
+        "osBuildNumber" : "23A343",
+        "osVersion" : "26.0",
+        "platform" : "iOS Simulator"
+      },
+      "expectedFailures" : 0,
+      "failedTests" : 2,
+      "passedTests" : 23,
+      "skippedTests" : 0,
+      "testPlanConfiguration" : {
+        "configurationId" : "1",
+        "configurationName" : "Default"
+      }
+    }
+  ],
+  "environmentDescription" : "UI · Built with macOS 27.0.1",
+  "expectedFailures" : 0,
+  "failedTests" : 2,
+  "finishTime" : 1795890277.904,
+  "passedTests" : 23,
+  "result" : "Failed",
+  "runtimeWarnings" : [
+    {
+      "issueType" : "Runtime Warning",
+      "message" : "Invalid frame dimension (negative or non-finite)."
+    }
+  ],
+  "skippedTests" : 0,
+  "startTime" : 1795889688.943,
+  "statistics" : [
+
+  ],
+  "testFailures" : [
+    {
+      "failureText" : "XCTAssertEqual failed: (\"Pause\") is not equal to (\"Pause Morning\")",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 2,
+      "testIdentifierString" : "ActiveCardUITests/testPauseIsAButtonWithAFullTarget()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/ActiveCardUITests/testPauseIsAButtonWithAFullTarget",
+      "testName" : "testPauseIsAButtonWithAFullTarget()"
+    },
+    {
+      "failureText" : "XCTAssertTrue failed",
+      "targetName" : "QuickRUITests",
+      "testIdentifier" : 25,
+      "testIdentifierString" : "RunUITests/testUndoResumeKeepsTheStop()",
+      "testIdentifierURL" : "test://com.apple.xcode/quickR/QuickRUITests/RunUITests/testUndoResumeKeepsTheStop",
+      "testName" : "testUndoResumeKeepsTheStop()"
+    }
+  ],
+  "title" : "Test - QuickR",
+  "topInsights" : [
+
+  ],
+  "totalTestCount" : 25
+}

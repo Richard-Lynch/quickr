@@ -19,6 +19,7 @@ import { RunDetailsForm } from '../../components/runs/RunDetailsForm';
 import { RunPanel, RunStart } from '../../components/runs/RunPanel';
 import { useReopenAfterStop, useReopenOffer } from '../../components/runs/reopen';
 import { useRunActions, type FinishResult } from '../../components/runs/useRunActions';
+import { TopicPagesMenu } from '../../components/topics/TopicPagesMenu';
 import { ButtonLink } from '../../components/ui/Button';
 import { Banner, VersionTag } from '../../components/ui/Card';
 import { cn } from '../../components/ui/cn';
@@ -350,7 +351,12 @@ function TimedRecord({
 
   return (
     <>
-      <TopBar back title={title} />
+      {/* The topic's own pages stay a tap away while its run is shown here. */}
+      <TopBar
+        back
+        title={title}
+        actions={<TopicPagesMenu topic={topic} testId="run-topic-menu" bare />}
+      />
       <Page className="mx-auto max-w-2xl gap-4">
         <OfflineNotice what="Taps" />
         {content}

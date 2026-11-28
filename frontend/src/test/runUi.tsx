@@ -191,6 +191,11 @@ export function renderRunApp(
                     ),
                   },
                   { path: 'record', element: <RecordPage /> },
+                  // The topic's other pages, as stand-ins: the active card's and the run
+                  // panel's "…" link to them (active-surfaces.md §3.2).
+                  { path: 'entries', element: <p>Topic entries</p> },
+                  { path: 'edit', element: <p>Topic builder</p> },
+                  { path: 'settings', element: <p>Topic settings</p> },
                 ],
               },
             ],
